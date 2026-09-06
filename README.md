@@ -64,34 +64,16 @@ python ai_code.py --mock    # 离线演示：完整跑一遍 模型↔执行层 
 Windows 上项目目录已带 `ace.cmd`，加入 PATH 后可在任意目录直接敲 `ace`。
 
 <details>
-<summary>其他启动方式（Ollama / function calling / 沙箱 / 知识库 / 容器）</summary>
+<summary>其他启动方式（工具调用 / 沙箱 / 知识库；完整参数见 docs/COMMANDS.md）</summary>
 
 ```bash
-ace --tools                     # 原生工具调用（OpenAI 兼容 function calling，不支持时自动降级到文本协议）
-ace --max-history 12            # 只保留最近 12 轮，防止本地小模型上下文溢出
-ace --context-window 8192       # 告诉 ACE 模型窗口有多大（压缩阈值按它算，默认 32768）
-ace --no-compact                # 关掉上下文压缩，退回纯硬截断
-
-ace --install-ui                # 装 / 补全 prompt_toolkit（多镜像自动回退）
-ace --install-executor          # 下载官方预编译执行器（无需本机 Go）
-
-# 沙箱（真实内核边界，缺一不可的隔离档）：
-ace --sandbox job               # Windows Job Object：进程树/内存/进程数上限
-ace --sandbox docker            # 一次性容器：--network none + 只挂工作目录（需 Docker + 构建 ace-sandbox 镜像）
-                                # job/docker 都不做静默回退：拿不到边界直接报错
-
-# 自定义外挂知识库（kb_search/kb_add/kb_list，跨会话持久）：
-ace --kb D:\我的资料库          # 外挂你的资料目录；不指定则用项目 .ace_kb/
-
-# 本地 Ollama（Qwen 支持原生工具调用）
-python agent_runner.py --base-url http://localhost:11434/v1 --api-key ollama \
-       --model qwen2.5-coder:7b --tools
-
-# 容器：根目录 Dockerfile 是最小可跑镜像（默认 --mock）
-docker compose up               # ACE + Ollama 编排
+ace --tools                    # 原生工具调用（function calling，不支持时自动降级）
+ace --install-executor         # 官方预编译执行器（--sandbox job 前置，无需本机 Go）
+ace --sandbox job              # Windows Job Object：进程树/内存上限
+ace --sandbox docker           # 容器隔离：真实内核边界（需 Docker + 构建 ace-sandbox 镜像）
+ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会话持久）
+# 更多启动参数：Ollama 本地模型 / 上下文压缩 / --install-ui / 容器编排等 → docs/COMMANDS.md「启动参数」
 ```
-
-`docker/` 下另有 lite / standard / full 三档镜像与模型下载脚本，说明见 [`docker/README-Docker.md`](docker/README-Docker.md)。
 
 </details>
 
@@ -118,7 +100,11 @@ docker compose up               # ACE + Ollama 编排
 | 行为检测闸门 | 首次 `code_execute` 注入语义诱饵验证模型清醒 + AST 6 规则（无限递归 / 硬编码密钥 / SQL 注入等） |
 | Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），Job Object 整树回收 + 第二道策略复检；官方产物 `ace --install-executor`（v3.7+） |
 
-更多能力：自定义知识库（`kb_search`/`kb_add`/`kb_list`）、会话事件日志与重启恢复（`/audit`）、Plan Mode、审批疲劳缓解、本地检索与局部编辑、浏览器自动化、9 家厂商 · 10 入口（`/provider`）、文档解析全家桶（Word/Excel/PPT/PDF/OCR）、SimHash 记忆、AGENTS.md 项目指令、上下文压缩、网络退避、i18n（zh/en/ja）。细节见 [docs/COMMANDS.md](docs/COMMANDS.md)、[docs/INTERFACES.md](docs/INTERFACES.md) 与源码工具表。
+更多能力见 [docs/COMMANDS.md](docs/COMMANDS.md) 与 [docs/INTERFACES.md](docs/INTERFACES.md)：
+
+- 自定义知识库（`kb_*`）、会话事件日志与重启恢复（`/audit`）、Plan Mode、审批疲劳缓解
+- 本地检索与局部编辑、浏览器自动化、文档解析全家桶、SimHash 记忆、AGENTS.md 项目指令
+- 上下文压缩、网络退避、i18n（zh/en/ja）、9 家厂商 · 10 入口（`/provider`）
 
 ## 架构概览
 

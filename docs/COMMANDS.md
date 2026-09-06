@@ -40,3 +40,28 @@
 （叫 Agent）  ❯ 帮我打开桌面的报告.docx
               🔗 点击打开文件: C:\Users\...\报告.docx   ← 点一下才展开
 ```
+
+## 启动参数（CLI flags，非聊天斜杠命令）
+
+完整清单以 `python ai_code.py --help` 为准；常用：
+
+- `--tools` — 原生工具调用（OpenAI 兼容 function calling，不支持时自动降级到文本协议）
+- `--max-history N` — 只保留最近 N 轮，防本地小模型上下文溢出
+- `--context-window N` — 告诉 ACE 模型窗口有多大（默认 32768），压缩阈值按它算
+- `--no-compact` — 关掉上下文压缩，退回纯硬截断（会丢早期对话）
+- `--install-ui` — 装 / 补全 prompt_toolkit（多镜像自动回退）
+- `--install-executor` — 下载官方预编译执行器（无需本机 Go；`--sandbox job` 前置）
+- `--sandbox job` — Windows Job Object：进程树/内存上限 + 受限令牌（拿不到边界一律 503，不静默回退）
+- `--sandbox docker` — 一次性容器：--network none + 只挂工作目录（镜像自行 `docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`）
+- `--kb <目录>` — 外挂知识库（不指定则用项目 `.ace_kb/`）
+- `--input "<话>"` — 单次对话，跑完即退
+
+本地 Ollama（Qwen 支持原生工具调用）：
+
+```bash
+python agent_runner.py --base-url http://localhost:11434/v1 --api-key ollama \
+       --model qwen2.5-coder:7b --tools
+```
+
+容器编排：根目录 `docker compose up`（ACE + Ollama）；`docker/` 下另有 lite / standard / full 三档镜像与模型下载脚本，见 [../docker/README-Docker.md](../docker/README-Docker.md)。
+

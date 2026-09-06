@@ -32,6 +32,8 @@
 
 配套一个 Claude Code 风格的终端：登录页、`/` 实时补全、10 家模型提供商一键切换、流式输出。核心零第三方依赖。
 
+v3.7 起，Go 执行器提供**官方预编译二进制**（随 GitHub Release 发布，Windows / Linux / macOS × amd64 / arm64）：`ace --install-executor` 一条命令装好，Windows 开 `--sandbox job` **不再需要本机装 Go 工具链**；想自己编译也随时支持。通道设计见 [`docs/EXECUTOR-RELEASE.md`](docs/EXECUTOR-RELEASE.md)。
+
 v3.1 起仓库收敛为单一结构：提示词工程迭代文档归档进 [`docs/prompt-engineering/`](docs/prompt-engineering/README.md)，实测基准用 [`benchmarks/bench_core.py`](benchmarks/bench_core.py) 一键复现（正确性 24/24 全绿），真实模型端到端冒烟见 [`e2e/real_model_smoke.py`](e2e/real_model_smoke.py)（CI 配 `ACE_E2E_*` secrets 后自动启用）。
 
 ## 目录
@@ -125,7 +127,7 @@ docker compose up               # ACE + Ollama 编排
 | 三级权限裁决 | `readonly` / `write` / `full`，工具与权限组在 `tools/registry.py` 单点声明，schema 与权限集合全部由它派生 |
 | 按权限裁剪工具表 | 发给模型的工具列表随权限档位裁剪（readonly 只给只读+控制工具（集合由 registry 派生））——模型只在真实可用的工具里决策，小模型不再为"看得见用不了"的写工具分心 |
 | **三层沙箱** | `off`（Python 层策略校验）/ `job`（Windows Job Object：进程树/内存/进程数上限 + 受限令牌）/ `docker`（一次性容器：network none + 只挂工作目录 + cap-drop ALL）。job/docker 都不做静默回退 |
-| **Go 执行器** | `terminal_exec` / `code_execute` 委派给独立 Go 进程（NDJSON 协议），Job Object 整树回收 + 第二道策略复检 |
+| **Go 执行器** | `terminal_exec` / `code_execute` 委派给独立 Go 进程（NDJSON 协议），Job Object 整树回收 + 第二道策略复检；官方预编译二进制 `ace --install-executor` 一键下载（v3.7+，无需本机 Go） |
 | **持久目标（goal）** | `goal_create` 建目标后**自动逐轮续跑**直到完成/暂停/阻塞/预算耗尽；revision CAS 防旧状态覆盖；blocked 须给机器 code（难度不算阻塞）；重启后须 `/goal resume` 才续 |
 | **子代理** | `subagent` 把子任务交给独立上下文的模型会话（spawn 全新 / fork 继承父会话），拥有自己的工具执行循环（最多 8 轮），结果回传父代理整合 |
 | **自定义知识库** | `kb_search` / `kb_add` / `kb_list`：检索与写入自己的资料库（`--kb` 外挂目录或项目 `.ace_kb/`），**跨会话持久**——写进知识库的东西下次还能搜到 |

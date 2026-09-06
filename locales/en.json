@@ -1,6 +1,6 @@
 {
-  "banner_title": "ACE v1.0 · AI Code Engine",
-  "banner_sub": " v1.0 · AI Code Engine",
+  "banner_title": "ACE {ver} · AI Code Engine",
+  "banner_sub": " {ver} · AI Code Engine",
   "banner_model": "  Model: {desc}",
   "banner_permission": "  Permission: {perm} | Dir: {root}",
   "banner_warn_write": "  ⚠ Current permission is write: terminal_exec can run arbitrary shell commands. Start with readonly in production and switch via /permission when needed.",

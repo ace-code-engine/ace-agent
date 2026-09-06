@@ -25,6 +25,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 ROOT = Path(__file__).resolve().parent
+import version  # Q-12 版本单源：诊断头展示从这里读
 
 
 def ok(msg: str):
@@ -41,6 +42,7 @@ def info(msg: str):
 
 def main() -> int:
     print("ace doctor — 环境自检")
+    print("  ACE      :", version.__version__, "(version.py 单源)")
     print("  Python   :", platform.python_version(), platform.platform())
     print("  CWD      :", Path.cwd())
     print("  REPO     :", ROOT)

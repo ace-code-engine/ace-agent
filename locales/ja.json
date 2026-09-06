@@ -1,6 +1,6 @@
 {
-  "banner_title": "ACE v1.0 · AI Code Engine",
-  "banner_sub": " v1.0 · AI Code Engine",
+  "banner_title": "ACE {ver} · AI Code Engine",
+  "banner_sub": " {ver} · AI Code Engine",
   "banner_model": "  モデル: {desc}",
   "banner_permission": "  権限: {perm} | ディレクトリ: {root}",
   "banner_warn_write": "  ⚠ 現在は書き込み権限です：terminal_exec は任意のシェルコマンドを実行できます。本番では readonly 推奨、/permission で切替可能。",

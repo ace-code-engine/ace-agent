@@ -1,6 +1,6 @@
 {
-  "banner_title": "ACE v1.0 · AI Code Engine",
-  "banner_sub": " v1.0 · AI Code Engine",
+  "banner_title": "ACE {ver} · AI Code Engine",
+  "banner_sub": " {ver} · AI Code Engine",
   "banner_model": "  模型: {desc}",
   "banner_permission": "  权限: {perm} | 目录: {root}",
   "banner_warn_write": "  ⚠ 当前为写权限：terminal_exec 可执行任意 shell 命令。生产环境建议 readonly 起步，按需用 /permission 切换。",

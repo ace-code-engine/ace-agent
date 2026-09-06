@@ -78,6 +78,7 @@ from ace_isolation import wrap_untrusted  # noqa: E402
 import ace_http  # noqa: E402
 import ace_context  # noqa: E402
 from i18n import set_language, t  # noqa: E402
+import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
 
 CONFIG_PATH = Path.home() / ".ai_code.json"
 LEGACY_CONFIG_PATH = Path.home() / ".agent_cli.json"
@@ -2089,7 +2090,7 @@ class _LandingUI:
         self._clear_screen()
         for line in ACE_LOGO.split("\n"):
             print(c("cyan", " " + line))
-        print(c("bold", t("banner_title")))
+        print(c("bold", t("banner_title", ver=version.__version__)))
         print()
         print(t("banner_model", desc=self.client.describe()))
         print(t("banner_permission",
@@ -2755,7 +2756,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """聊天 REPL；return_to_landing=True 时退出聊天回到主界面，否则结束程序"""
         # 进入聊天前清屏，避免登录页的 logo/菜单残留在屏幕上造成双头部
         self._clear_screen()
-        print(c("bold", "ACE") + c("dim", t("banner_sub")))
+        print(c("bold", "ACE") + c("dim", t("banner_sub", ver=version.__version__)))
         print(t("banner_model", desc=self.client.describe()))
         print(t("banner_permission",
                 perm=self.cfg["permission"], root=self.cfg["project_root"]))
@@ -2966,6 +2967,9 @@ def main() -> None:
     parser.add_argument("--install-executor", action="store_true",
                         help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
                              "下载后跑 --version 自校验）")
+    parser.add_argument("--version", action="version",
+                        version=f"ACE {version.__version__}",
+                        help="显示版本号并退出（version.py 单源）")
     args = parser.parse_args()
 
     logging.basicConfig(

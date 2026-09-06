@@ -30,6 +30,8 @@
 - ✨ 新增 `.github/workflows/release-executor.yml`：手动 dispatch 交叉编译 5 平台产物（windows-amd64 / linux-amd64 / linux-arm64 / darwin-amd64 / darwin-arm64，`CGO_ENABLED=0`）+ windows/ubuntu/macos-14 三档原生 `--version` 冒烟 + `gh release` 幂等发布（产物可重复上传）；首个随 GitHub Release 发布的 tag：v3.7.0
 - ✨ `ace --install-executor`：stdlib urllib 下载对应平台官方产物到 `executor/`（无需本机 Go 工具链），`ACE_EXECUTOR_BASE_URL` 可指向镜像/内网，下载后跑 `--version` 自校验才算成功，失败删除并提示手工 `go build`；REPL 防蠢接管同步识别
 - ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
+- ⚙️ 版本号单源(Q-12)下沉到 UI：登录/聊天横幅的 `v1.0` 硬编码改为 `{ver}` 占位符，由 `version.py` 注入（zh/en/ja 三语言）；新增 `python ai_code.py --version`；`ace_doctor` 诊断头报 ACE 版本
+- 📚 README 瘦身(520→299 行)：安全模型/配置/命令参考拆至 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，README 变"名片 + 精简上手 + 文档枢纽"（docs/README-RESTRUCTURE.md）
 - 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
 
 ## [v3.6] · 2026-09-05

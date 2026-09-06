@@ -1,0 +1,143 @@
+name: release-executor
+
+# 交叉编译官方预编译 ace-executor 二进制并发布到 GitHub Release（docs/EXECUTOR-RELEASE.md 的 D1+D2）。
+# 手动触发：留空 version 时自动读 version.py；首次发布会创建仓库第一个 tag v{version}。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本(如 3.7.0;留空自动读 version.py)"
+        required: false
+        type: string
+
+permissions:
+  contents: write   # gh release create / upload 需要
+
+concurrency:
+  group: release-executor
+  cancel-in-progress: false   # 并发的第二次发布等第一次跑完，避免半成品 Release
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false        # 任一产物失败也要让其他产物把错误暴露完，别让第二个失败被吞
+      matrix:
+        include:
+          - target: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: .exe
+          - target: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ""
+          - target: linux-arm64
+            goos: linux
+            goarch: arm64
+            ext: ""
+          - target: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            ext: ""
+          - target: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"          # 与 ci.yml go-test 保持一致
+          cache-dependency-path: executor/go.mod
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python -c 'import version; print(version.__version__)')"
+          fi
+          echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Cross-compile (CGO_ENABLED=0)
+        working-directory: executor
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p ../release-assets
+          go build -trimpath -ldflags "-s -w -X main.serverVersion=${{ steps.version.outputs.resolved }}" \
+            -o ../release-assets/ace-executor-${{ matrix.target }}${{ matrix.ext }} .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-${{ matrix.target }}
+          path: release-assets/ace-executor-${{ matrix.target }}${{ matrix.ext }}
+          if-no-files-found: error
+
+  native-smoke:
+    # 原生验证 --version 在三个 OS 家族都能编译并运行；macos-14 为 arm64 runner，顺带覆盖 darwin/arm64。
+    # 残留盲区仅 darwin/amd64(Intel mac 交叉产物)，首版发布后人工冒烟一次(见立项卡)。
+    name: Native smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-14]
+    defaults:
+      run:
+        working-directory: executor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: executor/go.mod
+      - name: Build native
+        run: go build -o ace-executor-smoke${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+      - name: Run --version
+        run: ./ace-executor-smoke${{ matrix.os == 'windows-latest' && '.exe' || '' }} --version
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, native-smoke]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: asset-*
+          path: assets
+          merge-multiple: true
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python -c 'import version; print(version.__version__)')"
+          fi
+          echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Create or update release (幂等可重跑)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.resolved }}"
+          TAG="v${VERSION}"
+          ASSETS=(assets/*)
+          echo "release: ${TAG}  assets: ${#ASSETS[@]}"
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSETS[@]}" --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "${TAG}" "${ASSETS[@]}" \
+              --repo "${{ github.repository }}" \
+              --title "ace-executor ${TAG}" \
+              --notes "ACE 执行器官方预编译二进制（与 version.py 对齐）。
+
+          - 安装：\`ace --install-executor\`（Windows 上 \`--sandbox job\` 不再需要手工 \`go build\`）
+          - 自编译：\`cd executor && go build -o ace-executor(.exe) .\` 仍支持
+          - 详见 docs/EXECUTOR-RELEASE.md"
+          fi

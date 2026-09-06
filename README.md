@@ -32,22 +32,20 @@
 
 配套一个 Claude Code 风格的终端：登录页、`/` 实时补全、10 家模型提供商一键切换、流式输出。核心零第三方依赖。
 
-v3.7 起，Go 执行器提供**官方预编译二进制**（随 GitHub Release 发布，Windows / Linux / macOS × amd64 / arm64）：`ace --install-executor` 一条命令装好，Windows 开 `--sandbox job` **不再需要本机装 Go 工具链**；想自己编译也随时支持。通道设计见 [`docs/EXECUTOR-RELEASE.md`](docs/EXECUTOR-RELEASE.md)。
-
-v3.1 起仓库收敛为单一结构：提示词工程迭代文档归档进 [`docs/prompt-engineering/`](docs/prompt-engineering/README.md)，实测基准用 [`benchmarks/bench_core.py`](benchmarks/bench_core.py) 一键复现（正确性 24/24 全绿），真实模型端到端冒烟见 [`e2e/real_model_smoke.py`](e2e/real_model_smoke.py)（CI 配 `ACE_E2E_*` secrets 后自动启用）。
+v3.7 起，Go 执行器提供**官方预编译二进制**（随 GitHub Release 发布，5 平台）：`ace --install-executor` 一条命令装好，Windows 开 `--sandbox job` **不再需要本机装 Go**；想自己编译也随时支持。通道设计见 [`docs/EXECUTOR-RELEASE.md`](docs/EXECUTOR-RELEASE.md)。
 
 ## 目录
 
 - [快速开始](#快速开始)
 - [设计取向](#设计取向)
 - [核心能力](#核心能力)
-- [架构](#架构)
-- [命令参考](#命令参考)
-- [安全模型](#安全模型)
-- [配置](#配置)
-- [项目结构](#项目结构)
+- [架构概览](#架构概览)
+- [常用命令](#常用命令)
+- [安全设计](#安全设计)
+- [配置入口](#配置入口)
+- [最近更新](#最近更新)
 - [开发与测试](#开发与测试)
-- [版本历史](#版本历史)
+- [项目结构](#项目结构)
 - [许可](#许可)
 - [设计参考](#设计参考)
 
@@ -56,29 +54,17 @@ v3.1 起仓库收敛为单一结构：提示词工程迭代文档归档进 [`doc
 **前置**：Python ≥ 3.10（用到 `int.bit_count`，建议 3.11/3.12）。核心不需要装任何第三方包。
 
 ```bash
-git clone https://github.com/jincheng3870682453-hash/ace-agent.git
-cd ace-agent
+git clone https://github.com/jincheng3870682453-hash/ace-agent.git && cd ace-agent
 python test_all.py          # 端到端测试，纯 stdlib，应当全绿
+python ai_code.py --mock    # 离线演示：完整跑一遍 模型↔执行层 闭环（无需密钥）
 ```
 
-
-不配密钥先看效果：
-
-```bash
-python ai_code.py --mock    # 离线演示，完整跑一遍 模型↔执行层 闭环
-```
-
-接真实模型：启动后在首页选 `2` 走配置向导（① 选提供商 → ② 隐藏输入 API Key → ③ 选模型），再选 `1` 进聊天。
-
-```bash
-python ai_code.py                    # 首页菜单
-python ai_code.py --input "现在几点"  # 单次对话，跑完即退
-```
+接真实模型：`python ai_code.py` 进首页 → 选 `2` 走配置向导（① 选提供商 → ② 隐藏输入 API Key → ③ 选模型）→ 选 `1` 进聊天；单次对话用 `python ai_code.py --input "现在几点"`。
 
 Windows 上项目目录已带 `ace.cmd`，加入 PATH 后可在任意目录直接敲 `ace`。
 
 <details>
-<summary>其他启动方式（本地 Ollama / 原生 function calling / 容器）</summary>
+<summary>其他启动方式（Ollama / function calling / 沙箱 / 知识库 / 容器）</summary>
 
 ```bash
 ace --tools                     # 原生工具调用（OpenAI 兼容 function calling，不支持时自动降级到文本协议）
@@ -87,9 +73,10 @@ ace --context-window 8192       # 告诉 ACE 模型窗口有多大（压缩阈�
 ace --no-compact                # 关掉上下文压缩，退回纯硬截断
 
 ace --install-ui                # 装 / 补全 prompt_toolkit（多镜像自动回退）
+ace --install-executor          # 下载官方预编译执行器（无需本机 Go）
 
 # 沙箱（真实内核边界，缺一不可的隔离档）：
-ace --sandbox job               # Windows Job Object：进程树/内存/进程数上限（ace --install-executor 下载官方产物；或先 go build）
+ace --sandbox job               # Windows Job Object：进程树/内存/进程数上限
 ace --sandbox docker            # 一次性容器：--network none + 只挂工作目录（需 Docker + 构建 ace-sandbox 镜像）
                                 # job/docker 都不做静默回退：拿不到边界直接报错
 
@@ -116,283 +103,111 @@ docker compose up               # ACE + Ollama 编排
 
 **默认只读。** 起步权限是 `readonly`，写工具会被 403 拦下。模型可以申请授权（`request_permission`），由用户选「本次」或「本会话」。`terminal_exec` 例外：它只接受逐次确认，因为它的危险命令黑名单本身可被绕过，「人看一眼命令」是它唯一有效的防线。
 
-**边界要说清能挡什么、挡不住什么。** 不开沙箱时，`code_execute` 是进程内策略层沙箱、`terminal_exec` 的判定层只是止血层——两者都不是 OS 级隔离。要真正的内核边界就开 `--sandbox docker`（容器）或 `--sandbox job`（Windows Job Object），见[安全模型](#安全模型)。
-
-
+**边界要说清能挡什么、挡不住什么。** 不开沙箱时，`code_execute` 是进程内策略层沙箱、`terminal_exec` 的判定层只是止血层——两者都不是 OS 级隔离。要真正的内核边界就开 `--sandbox docker`（容器）或 `--sandbox job`（Windows Job Object），见 [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)。
 
 ## 核心能力
 
-| 能力 | 说明 |
+| 能力 | 一句话钩子 |
 |---|---|
-| 三级权限裁决 | `readonly` / `write` / `full`，工具与权限组在 `tools/registry.py` 单点声明，schema 与权限集合全部由它派生 |
-| 按权限裁剪工具表 | 发给模型的工具列表随权限档位裁剪（readonly 只给只读+控制工具（集合由 registry 派生））——模型只在真实可用的工具里决策，小模型不再为"看得见用不了"的写工具分心 |
-| **三层沙箱** | `off`（Python 层策略校验）/ `job`（Windows Job Object：进程树/内存/进程数上限 + 受限令牌）/ `docker`（一次性容器：network none + 只挂工作目录 + cap-drop ALL）。job/docker 都不做静默回退 |
-| **Go 执行器** | `terminal_exec` / `code_execute` 委派给独立 Go 进程（NDJSON 协议），Job Object 整树回收 + 第二道策略复检；官方预编译二进制 `ace --install-executor` 一键下载（v3.7+，无需本机 Go） |
-| **持久目标（goal）** | `goal_create` 建目标后**自动逐轮续跑**直到完成/暂停/阻塞/预算耗尽；revision CAS 防旧状态覆盖；blocked 须给机器 code（难度不算阻塞）；重启后须 `/goal resume` 才续 |
-| **子代理** | `subagent` 把子任务交给独立上下文的模型会话（spawn 全新 / fork 继承父会话），拥有自己的工具执行循环（最多 8 轮），结果回传父代理整合 |
-| **自定义知识库** | `kb_search` / `kb_add` / `kb_list`：检索与写入自己的资料库（`--kb` 外挂目录或项目 `.ace_kb/`），**跨会话持久**——写进知识库的东西下次还能搜到 |
-| **联网读取** | `search`（双引擎兜底）+ `search_read`（搜索并抓取 top 结果正文，RAG 式一步拿到可引用内容）；全部出站走 SSRF 校验 + pin-to-IP + 逐跳复检 + 出站白名单 |
-| **会话事件日志** | append-only JSONL 全链路：用户输入 → 模型请求/输出 → 工具往返 → 权限裁决 → 快照/回滚 → 守卫违规，`/audit` 查看；**重启自动恢复上次会话**（消息历史 = 日志派生） |
-| 写入前物理快照 | 每次写操作前自动快照，`/undo` 一键回滚；HMAC 签名防元信息伪造，快照目录自身不可被 Agent 改写 |
-| Plan Mode | 复杂任务先提议分步计划（`plan_propose`），用户批准后才放行，杜绝"边想边干" |
-| 行为检测闸门 | 诱饵验证（首次 `code_execute` 注入语义诱饵）+ AST 检测（6 规则：无限递归 / 硬编码密钥 / SQL 注入等） |
-| 本地代码检索 | `grep` 正则搜内容 + `glob` 找文件 + `file_read` 分段读，只读权限下即可用，不必猜文件名 |
-| 局部编辑 | `str_replace` 按片段替换：唯一匹配才写，多匹配报 409 让模型补上下文，缩进以文件真实缩进为准 |
-| 审批疲劳缓解 | 确认过的命令**同前缀自动放行**（`pip install` 通过后 `pip install x` 不再问）；`bash -c`/`python -c` 等危险包装永不自动放行；`on_failure` 档在沙箱边界下"先试后问" |
-| 浏览器自动化 | `browser_navigate` / `browser_click` / `browser_type`：Playwright 受控页面（系统 Edge/Chrome channel），可点击/输入 |
-| 9 家厂商 · 10 入口 | 智谱 GLM / DeepSeek / Kimi / OpenAI / Claude / Qwen / 硅基流动 / OpenRouter / Ollama，`/provider` 一键切换 |
-| 真实工具全家桶 | 联网搜索（双引擎兜底，无需 Key）、SQLite 读写、文档解析（Word/Excel/PPT/PDF/OCR）、浏览器、截图、通知、图像生成 |
-| SimHash 记忆 | 主题切换时预注入相关历史，按会话隔离 |
-| AGENTS.md 项目指令 | 项目根的约定文件（AGENTS.md/CLAUDE.md）自动发现并注入系统提示（32 KiB 预算、会话缓存）——项目所有者的规则，模型不再猜 |
-| 上下文压缩 | 历史逼近窗口时把中间段折成摘要，**第一条用户消息永不丢弃**；摘要失败退回硬截断并明确告知，不静默失忆 |
-| 网络退避 | 429 / 5xx / 连接抖动自动退避重试（认 `Retry-After`，含 HTTP-date 形式），与 tools 协议降级分层，一次限流不会把工具关掉 |
-| i18n | zh / en / ja，`@lang` 同时切换模型回复语言与界面语言 |
+| 三级权限 + 按权限裁剪工具表 | `readonly`/`write`/`full`；工具清单随档位裁剪（`tools/registry.py` 单点声明），模型只在"看得见用得了"的工具里决策 |
+| 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树/内存上限 + 受限令牌）/ `docker`（一次性容器：network none + cap-drop ALL）；job/docker 拿不到边界就 503，绝不静默回退 |
+| 写入前快照 | 每次写操作自动物理快照，`/undo` 一键回滚；HMAC 签名防伪造，快照目录 Agent 自身不可写 |
+| 持久目标（goal） | `goal_create` 后**自动逐轮续跑**直到完成/暂停/阻塞/预算耗尽；blocked 须给机器 code，重启后 `/goal resume` 才续 |
+| 子代理 | `subagent` spawn（全新）/ fork（继承父会话）独立上下文会话，自带工具循环（最多 8 轮），结果回传父代理整合 |
+| 免 key 联网搜索 | `search` 双引擎兜底（Bing RSS → DuckDuckGo）+ `search_read` 一步抓 top 正文；出站全走 SSRF 校验 + 白名单 |
+| 行为检测闸门 | 首次 `code_execute` 注入语义诱饵验证模型清醒 + AST 6 规则（无限递归 / 硬编码密钥 / SQL 注入等） |
+| Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），Job Object 整树回收 + 第二道策略复检；官方产物 `ace --install-executor`（v3.7+） |
 
-## 架构
+更多能力：自定义知识库（`kb_search`/`kb_add`/`kb_list`）、会话事件日志与重启恢复（`/audit`）、Plan Mode、审批疲劳缓解、本地检索与局部编辑、浏览器自动化、9 家厂商 · 10 入口（`/provider`）、文档解析全家桶（Word/Excel/PPT/PDF/OCR）、SimHash 记忆、AGENTS.md 项目指令、上下文压缩、网络退避、i18n（zh/en/ja）。细节见 [docs/COMMANDS.md](docs/COMMANDS.md)、[docs/INTERFACES.md](docs/INTERFACES.md) 与源码工具表。
+
+## 架构概览
 
 ```mermaid
-flowchart TB
-    subgraph 用户层["用户层"]
-        U["用户 / 终端"]
-    end
-    subgraph ACE["命令行（ai_code.py）"]
-        L["登录页 / 首页菜单"]
-        R["聊天 REPL<br/>/ 实时补全 · 流式输出"]
-        P["提供商注册表<br/>10 家 · 一键切换"]
-    end
-    subgraph LOOP["交互循环（agent_runner.py）"]
-        C["模型 ↔ 执行层 多轮闭环<br/>错误自动回喂修正"]
-    end
-    subgraph GW["网关（gateway_v2/）"]
-        L1["L1 意图识别"]
-        L2["L2 Skill 推荐"]
-        L4["L4 本能守门 · 8 规则"]
-        L5["L5 反馈飞轮（SFT 数据）"]
-    end
-    subgraph EL["执行层（execution_layer.py）"]
-        PARSE["INTERNAL/EXTERNAL 协议解析"]
-        PERM["三级权限裁决"]
-        GATE["诱饵验证 + AST 闸门"]
-        EXEC["工具执行器"]
-    end
-    subgraph TOOLS["工具集（tools/）"]
-        T1["file_* / grep / glob<br/>terminal_view 白名单"]
-        T2["code_execute 沙箱"]
-        T3["math_calc / api_* / db_*"]
-        T4["parse_document"]
-    end
-    subgraph SUPPORT["支撑模块"]
-        W["work.py<br/>诱饵 + AST 检测"]
-        G["guardian.py<br/>物理快照回滚"]
-        A["Archive.py<br/>SimHash 记忆"]
-        N["Nuwa.py<br/>POC 报告"]
-    end
-
-    U --> L
-    L -->|进入聊天| R
-    L -->|配置 / 切提供商| P
-    R --> C
-    C --> L1
-    C --> PARSE
-    PARSE --> PERM
-    PERM --> GATE
-    GATE --> EXEC
-    EXEC --> T1 & T2 & T3 & T4
-    T2 -.-> W
-    EXEC -.-> L4
-    L4 -.-> L5
-    EXEC -.-> G
-    C -.-> A
-    EXEC -.-> N
+flowchart LR
+    U["用户 / 终端"]
+    CLI["ai_code.py<br/>登录页 · REPL · 提供商切换"]
+    LOOP["agent_runner.py<br/>模型 ↔ 执行层 多轮闭环"]
+    GW["gateway_v2/<br/>L1 意图 · L2 技能 · L4 守门 · L5 飞轮"]
+    EL["execution_layer.py<br/>解析 → 权限 → 闸门 → 快照 → 执行"]
+    T["tools/ 工具集<br/>file / code / network / db / parse / browser"]
+    U --> CLI --> LOOP --> EL --> T
+    LOOP -.-> GW
 ```
 
 | 层 | 组件 | 职责 |
 |---|---|---|
-| 用户层 | `ai_code.py` | 登录页、聊天 REPL、斜杠命令、提供商切换（纯终端，编辑器无关） |
-| 交互循环 | `agent_runner.py` | 模型 ↔ 执行层多轮闭环；格式错误 / 守门 / 诱饵自动回喂修正，最多 20 轮 |
-| 模型网关 | `gateway_v2/` | L1 意图 → L2 技能 → L4 守门（8 规则）→ L5 飞轮 |
+| 用户层 | `ai_code.py` | 登录页、聊天 REPL、斜杠命令、提供商切换 |
+| 交互循环 | `agent_runner.py` | 模型 ↔ 执行层多轮闭环，错误自动回喂修正（最多 20 轮） |
+| 模型网关 | `gateway_v2/` | L1 意图 → L2 技能 → L4 守门 → L5 飞轮 |
 | 执行层 | `execution_layer.py` | 协议解析、权限裁决、安全闸门、快照与守门串联 |
-| 工具集 | `tools/` | `registry` 单点声明 + 按域拆分的执行器 |
-| 支撑模块 | `work.py` `guardian.py` `Archive.py` `Nuwa.py` | 行为检测、快照回滚、记忆、报告 |
+| 工具集 | `tools/` | registry 单点声明 + 按域拆分的执行器 |
+| 支撑模块 | `work.py` `guardian.py` `Archive.py` `Nuwa.py` | 诱饵/AST 检测、快照回滚、SimHash 记忆、POC 报告（图上未展开，挂在执行层与循环上） |
 
 详细架构决策（为什么用 SimHash、为什么双层协议、为什么坚持零依赖）见 [`docs/ADR.md`](docs/ADR.md)。
 
-## 命令参考
+## 常用命令
 
 **首页**：↑/↓ 选择 · 数字直选 · Enter 确认 · Esc/q 退出。聊天内 `exit` 回首页，首页 `7`/`Esc`/`q` 才真正退出。
 
-**斜杠命令**（聊天里输入 `/` 实时弹菜单，需 `prompt_toolkit`，未装自动降级）：
-
-| 分类 | 命令 |
-|---|---|
-| 会话 | `/help` `/clear` `/status` `/stats` `/exit` |
-| 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` |
-| 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` |
-| 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` |
-
 ```bash
-/provider                   # 列出 9 家厂商 · 10 入口（当前标 ✓）
-/provider zhipu             # 一键切智谱（自动换到 glm-4.7-flash）
-/provider 3 sk-你的key      # 编号 + 密钥一把梭
+/provider                    # 列出 9 家厂商 · 10 入口（当前标 ✓）
+/provider zhipu              # 一键切智谱（自动换到 glm-4.7-flash）
+/permission write            # 提权（默认 readonly）
+/undo                        # 写入前快照 → 一键回滚
 ```
 
-**@ 快捷方式**（输入 `@` 弹菜单）：
+斜杠：`/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <名称>` `/mock` `/open <路径>` `/edit <路径>` `/search <词>` `/memory` `/report`
+`@` 快捷：`@lang`（zh/en/ja）· `@skill` · `@file` · `@folder` · `@refs`
 
-| 命令 | 作用 | 示例 |
-|---|---|---|
-| `@lang` | 切换回复语言 + 界面语言（zh/en/ja） | `@lang en` |
-| `@skill` | 切换技能，描述与推荐工具注入提示词 | `@skill coding` |
-| `@file` | 把文件内容加入上下文（≤4000 字符自动截断） | `@file README.md` |
-| `@folder` | 把文件夹列表加入上下文（≤30 项） | `@folder tools` |
-| `@refs` / `@clear` | 查看 / 清空当前引用（最多保留 3 项） | `@refs` |
+→ 完整命令表、`/provider` 全示例、技能清单与 @ 用法见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
-可选技能：`coding`（默认推荐 `code_execute` `file_write` `terminal_exec`）· `writing` · `analysis` · `fiction` · `general`。
+## 安全设计
 
-**在对话里打开文件**——默认只给可点击链接，不抢焦点、不弹窗：
+ACE 的安全属于**执行层**，不属于提示词。每次工具调用都穿过独立的权限裁决 + 危险行为检测 + 写入前快照——换模型、越狱、提示词被覆盖，这层都还在。
 
-```
-（自己动手）  ❯ /open 报告.docx        # 系统默认程序打开
-              ❯ /edit main.py          # 优先 VS Code
-（叫 Agent）  ❯ 帮我打开桌面的报告.docx
-              🔗 点击打开文件: C:\Users\...\报告.docx   ← 点一下才展开
-```
+→ 详细安全模型（权限与授权 / 执行隔离 / 路径边界 / 回滚与网络 / 联网搜索双通道 / 容器与 Job Object 沙箱 / 生产部署必读）见 [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)。漏洞报告见 [SECURITY.md](SECURITY.md)。
 
-## 安全模型
-
-配置优先级：命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量。
-
-**权限与授权**
-
-- 默认 `readonly`；写工具需显式 `/permission write` 或 `--permission write`
-- 授权两档：「本次」用后即焚，「本会话」本会话内不再询问
-- `terminal_exec` 强制逐次确认，不接受会话级授权
-- 非交互模式（非 tty）下一切授权请求与计划审批都 fail-close 拒绝
-
-**执行隔离**
-
-- `terminal_view`：白名单只读命令，内建实现不经 shell，拦 shell 元字符，版本参数严格校验
-- `code_execute`：AST 拦危险模块（os/subprocess/socket/pickle/importlib…）与内建逃逸链（`__builtins__`/`__class__`）、`open` 全禁 → 环境变量清洗 → 临时目录 + 30s 超时
-- `math_calc`：白名单 AST 求值，仅纯算术，幂运算限 100^1000，杜绝 eval 逃逸与指数 DoS
-
-**路径边界**
-
-- 文件工具默认限制在项目目录内（`confine_files`，含跨盘符检查）；`grep`/`glob` 无条件限项目内，只读检索也不放开项目外
-- 读越界按"泄露什么"分档：**读文件内容一律限项目内**（`cat`/`type`、外部命令路径参数、`file_read` 均 403）；**列目录名单允许越界**（`ls`/`dir`）。前者泄露的是凭据本身，后者只是文件名
-- 敏感目标硬拦截：绝对路径写入放行（"放到桌面"）但不含凭据与自启动入口（`~/.ssh`、`~/.bashrc`、`~/.ai_code.json`、`.pem`/`.key` 等）
-
-**回滚与网络**
-
-- 写入前自动快照，快照元信息可用 `signing_key` 做 HMAC-SHA256 签名；快照数量有硬上限，自动清理最旧
-- `.guardian/` 快照目录对所有工具只读且不可写删——它就在 Agent 可写的项目目录里，不挡住的话改一行 `meta.json` 就能让熔断回滚静默失效；回滚失败会告警而不是静默吞掉
-- 守门分层：block 级拦截并回滚本轮快照，warn 级不阻断；只回滚本轮，不动无关修改
-- `api_get`/`api_post` 仅 http/https，且 **DNS 解析后**拦截内网 / 回环 / 链路本地地址（防 SSRF）；未实现的工具返回 501 而非假成功
-
-**联网搜索双通道（免 key 爬虫主通道 + 可选第三方搜索 API）**
-
-- 默认**不需要任何 key**：`search` / `search_read` 走免 key 爬虫——Bing RSS → DuckDuckGo 兜底，结果页正文用 `_page_text` 去噪抽取，不依赖模型 API key，也不依赖任何第三方服务 key
-- 可选 **API-key 通道**（结果更准、带官方摘要）：一旦配置就自动成为首选，失败自动回退上面的爬虫：
-
-  ```bash
-  set ACE_SEARCH_API_KEY=你的key        # 或写进 ~/.ai_code.json 的 search_api_key
-  set ACE_SEARCH_API_PROVIDER=bocha     # 参考实现: 博查 Web Search（api.bocha.cn，有免费额度）
-  # provider=custom 时另配端点: set ACE_SEARCH_API_URL=https://你的端点
-  ```
-
-- API 通道任何失败（key 没配 / 无效 / 超时 / 连不上 / 返回 0 条）都会**自动回退免 key 爬虫**，结果里带 `route` / `api_fallback` / `api_reason` 如实标注给模型和人看，绝不报错糊弄或假装 API 成功
-
-**容器隔离（`--sandbox docker`）**
-
-上面所有校验都是进程内的 Python 逻辑。`terminal_exec` 是 `shell=True`，cwd 固定在项目根挡不住 `cd /`；`code_execute` 的 AST 黑名单也不可能枚举完。真正的边界要靠内核：
-
-```bash
-docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
-python ai_code.py --sandbox docker
-```
-
-开启后 `terminal_exec` / `code_execute` 的每次调用都是一个一次性容器：`--network none`（凭据出不去、也下载不了第二阶段载荷）、`--read-only` + `--tmpfs /tmp`、`--cap-drop ALL` + `no-new-privileges`、内存与 `--pids-limit` 上限（fork bomb 变成容器自己的事）、只挂工作目录到 `/work`、`--rm` 跑完即销毁。其余工具仍在宿主，所以"在桌面建个文件"这类请求照常能做。
-
-两点要知道：容器共享内核，容器逃逸漏洞仍然是逃逸，更强的边界得上虚拟机；**开了沙箱但 Docker 不可用时直接返回 503，不会静默回退宿主执行**——回退会让你以为命令跑在容器里而实际跑在自己机器上。
-
-镜像必须自己 build，它不会发布到任何 registry：它就是执行边界，里面装了什么得由部署方掌握。所以"镜像没构建"是单独判、单独报的一档 503，直接把上面那条 `docker build` 给你——而不是让 `docker run` 去 registry 找 `ace-sandbox`，先等一个网络超时、再回一句 `pull access denied` 让你以为是要登录。
-
-
-**Job Object 隔离（`--sandbox job`，Windows）**
-
-Docker 没装、或者装了但不想为一条 `dir` 起容器时，还有一档更轻的边界。它由 `executor/` 下的 Go 执行器提供。执行器是项目里唯一需要编译的组件，但**通常不需要你编译**——官方预编译二进制一条命令即可下载，只有想自己编译时才需要 Go 工具链：
-
-```bash
-ace --install-executor                          # 下载官方预编译二进制（5 平台产物，无需本机 Go）
-cd executor && go build -o ace-executor.exe .   # 想自编译也可以（非 Windows 去掉 .exe）
-python ai_code.py --sandbox job
-```
-
-命令会跑在一个 Windows Job Object 里：内存与子进程数上限、限制性令牌 + 中等完整性级别、退出时整棵进程树一起回收。最后那条是宿主直跑做不到的——Python 的 `Process.kill()` 只杀直接子进程，孙进程会变孤儿留在后台。
-
-`terminal_exec` 与 `code_execute` 都走这条边界（代码片段经 `exec_python`：临时文件落盘、`-I -B` 隔离运行，源码不经命令行避免 32K 上限与引号改写）。
-
-执行器同时是第二道判定闸：宿主已经判过的 `policy_decision` 会在独立进程里再检一次，宿主侧写错一处逻辑时它还拦得住。
-
-与 docker 档同样的原则：**二进制没编译、本平台不支持 Tier-1、或隔离只部分生效，都返回 503**，不会偷偷改回宿主执行。`--sandbox off`（默认）下执行器若存在会顺带用一下（只为拿进程树回收），起不来则静默回落宿主——这一档本来就没承诺任何边界。设 `ACE_USE_GO_EXECUTOR=0` 可完全关掉这个可选增强。
-
-> **生产部署必读**：不开 `--sandbox docker` 时，`code_execute` 与 `terminal_exec` 只是进程内策略层，**不是 OS 级隔离**，`python -c` 一类等价路径无法靠枚举封死。生产环境还应配合：低权限账户运行、按需授权而非常开 `write`、`signing_key` 置于项目目录之外。
-
-
-
-## 配置
+## 配置入口
 
 ```python
+# ~/.ai_code.json（命令行参数 > 本文件 > ~/.claude/settings.json > 环境变量）
 config = {
-    "flywheel_path": ".../violations.jsonl",   # L5 飞轮落盘路径
-    "sandbox_base": "...",                     # code_execute 沙箱临时目录（默认系统临时区）
-    "confine_files": True,                     # 文件工具限制在项目目录内（含跨盘符检查）
-    "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议）
-    "max_snapshots": 20,                       # 快照硬上限，自动清理最旧
-    "session_id": "会话标识",                   # Archive 记忆按会话隔离
-    "bait": {"enabled": True, "frequency": 0}, # 诱饵验证（0 = 每任务一次）
-    "guard": {"rules": {"no_hardcoded_secrets": False}},  # 关闭某条守门规则
-    "email_smtp": {"host": "smtp.qq.com", "port": 587,
-                   "user": "you@qq.com", "password": "授权码",
-                   "use_tls": True},           # notify_send email 渠道（缺省时返回 501）
-    "egress_allowlist": ["api.github.com", ".openai.com"],  # 出站目的地白名单（缺省 = 闸门关闭）
+    "permission": "readonly",   # readonly / write / full
+    "sandbox": "off",           # off / job / docker
+    "max_snapshots": 20,        # 快照硬上限，自动清理最旧
 }
 ```
 
-### 出站白名单（`egress_allowlist`）
+→ 全部配置项（出站白名单 / 检索边界 / str_replace 编码 / db_query 只读等机制说明）见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
 
-内网判定（`ace_net`）管的是"别打到内网去"，白名单管的是"能把数据带到哪个公网站点去"。后者只有宿主知道哪些站点算正当，所以**默认关闭**：不配这个键，`api_get` / `api_post` / `browser_open` / `web_search` 的行为和以前完全一样。
+## 最近更新
 
-配上之后：
+- **v3.7** (2026-09-06)：执行器官方预编译二进制 + `ace --install-executor`（首个 GitHub Release）
+- **v3.6** (2026-09-05)：UI 交互重设计（/thinking + 内置滚动引擎）、环境自检 ace_doctor、issue 模板
 
-- **是并集，不是覆盖**：配置的条目会自动并上内置端点（搜索引擎等）。否则配置白名单的第一个可见后果就是搜索坏掉，而用户会把这读成"功能有 bug"，删掉清单——闸门也就没了。
-- **逐跳复检**：清单内主机完全可以 `302` 到 `evil.tld`，而第一跳的判定是对的。所以每一跳都重新过清单，中途跳出清单直接掐断连接。
-- **403 而不是 400/500**：这是授权问题。同一个地址重试不会变，只有人能把域名加进清单。返回消息里就这么写给模型看，免得它反复重试或改写 URL 试探。
-- `browser_open` 也过清单。连接交给系统浏览器之后就不经过本进程（拦不住浏览器自己跟的重定向），但"要不要把这个域名交出去"这个决定本进程还能做。
-- 条目写法宽松：`api.github.com`、`.github.com`（含子域）、`https://api.github.com/x`（只取主机）都认。匹配按标签边界，`evil-github.com` 不会命中 `github.com`。
-- **`notify_send` 的 SMTP 也归它管**：那条路直连 `smtplib`，主机来自宿主配置而非模型参数（所以不是 SSRF 面），但正文和收件人是模型给的 —— 是实打实的外发通道，所以走同一份清单。
+→ 完整版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
-### 检索工具的边界（`grep` / `glob`）
+## 开发与测试
 
-两者属于 `READ_TOOLS`，`readonly` 会话就能调，所以约束不能只管起点：
+```bash
+python test_all.py                          # 全量测试，退出码非 0 即失败
+python benchmarks/bench_core.py             # 实测基准 → benchmarks/results/bench_report.md
+python e2e/real_model_smoke.py              # 真实模型端到端（需 ACE_E2E_* env，缺省自动跳过）
+python ace_doctor.py                        # 环境自检（Python/依赖/Go 执行器/Docker/配置）
+ruff check . --select E9,F63,F7,F82         # CI 用的同一套硬错误检查
+python demo/record_demo.py [--check]        # 重录 / 校验顶部演示动画
+```
 
-- `glob` 的 `pattern` 里出现 `..` 直接 **403**，不是"复检后静静丢掉"。丢掉的话模型看到的是"没匹配"，它会换个写法再试。
-- 每条命中都在**解析软链接之后**重新确认落点。项目里一个指向 `~/.ssh/id_rsa` 的软链接，`os.walk` 会当普通文件产出。
-- 命中还要过 `sensitive_target`：项目内也可能躺着误提交的 `.pem`。
-- 遍历文件数撞上限（5000）时回报 `scan_incomplete: true`，与"结果太多"分开报。否则模型会把"没扫完"读成"这个符号不存在"。
-- 模型给的正则只在行首 4000 字符上跑。Python 的 `re` 没有超时，灾难性回溯会挂死整个工具调用；限住输入长度不能消除回溯，但能把上界从"行有多长"压到常数。
+测试是单文件、纯 stdlib、无框架的端到端断言，用例总数随平台浮动（Windows 上多十余项），看退出码与失败列表即可。CI 在 Python 3.10/3.11/3.12 跑编译检查 + 全量测试 + ruff + Go executor + bench；真实模型 e2e 在配好 `ACE_E2E_*` secrets 后自动启用。
 
-### `str_replace` 不做有损重编码
+改动前请读 [`CONTRIBUTING.md`](CONTRIBUTING.md)；标准化流程见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)，接口契约见 [`docs/INTERFACES.md`](docs/INTERFACES.md)，待办见 [`docs/BACKLOG.md`](docs/BACKLOG.md)。提示词工程归档见 [`docs/prompt-engineering/`](docs/prompt-engineering/README.md)。
 
-读-改-写路径用严格解码（UTF-8 → 系统编码，都失败就 **400 拒绝改写**），并按读进来的那个编码写回。此前是 `errors="ignore"` 解码 + 硬写 UTF-8：一个 GBK 源文件会被静默转码，解码时丢掉的字节永久消失，而模型只看到"替换成功"。
-
-### `db_query` 的只读靠连接，不靠正则
-
-`db_query` 用 `?mode=ro` 的 URI 连接，写入由 SQLite 自己拒绝。SQL 是完整语言，`CREATE TRIGGER`、`INSERT ... SELECT`、CTE 包一层写入、`pragma_table_list` 这类表值函数（`\bpragma\b` 对 `pragma_` 不成立）—— 前缀匹配挡不住的写法列不完。
-
-`db_write` 天生要写，拿不到连接级保护，所以那边仍是黑名单，并且**不闭合**：`DELETE FROM t`（无 WHERE）、`REPLACE INTO`、`CREATE TABLE x AS SELECT` 都在放行范围内。真正的边界是权限档位与 Guardian 快照。两条路都拒绝多语句（分号），因为驱动拒绝多语句时抛的是 `sqlite3.Warning`，它**不是** `sqlite3.Error` 的子类，会一路冒成 500。
-
-
+Windows 提示：控制台 GBK 已做 UTF-8 兜底，但建议全局设 `PYTHONUTF8=1`。文档解析的增强依赖（python-docx / openpyxl / pdfplumber / pymupdf / pytesseract）按需装，见 `requirements.txt`；旧版 Office 格式（.doc/.xls/.ppt/.wps/.et）回退依赖系统级 LibreOffice 或 antiword。
 
 ## 项目结构
+
+<details>
+<summary>完整目录树（以它为准，点开）</summary>
 
 ```
 ace-agent/
@@ -410,7 +225,7 @@ ace-agent/
 ├── ace_selector.py             # 搜索式选择器（/model /provider 输入即过滤）
 ├── ace_cards.py                # 工具结果卡片（状态+参数+折叠输出）
 ├── ace_doctor.py               # 环境自检（python ace_doctor.py）
-├── ace_chatscroll.py            # 聊天内置滚动引擎(方案 C:视口只滚会话行)
+├── ace_chatscroll.py           # 聊天内置滚动引擎(方案 C:视口只滚会话行)
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）
@@ -425,7 +240,7 @@ ace-agent/
 │   ├── parse_tools.py          #   文档解析（Word/Excel/PPT/PDF/OCR）
 │   ├── goal_tools.py           #   持久目标状态机（revision CAS / blocked 白名单 / 轮次驱动）
 │   ├── subagent_tools.py       #   子代理（spawn/fork，独立工具执行循环）
-│   ├── skill_tools.py         #   文件式技能库（SKILL.md 目录扫描）
+│   ├── skill_tools.py          #   文件式技能库（SKILL.md 目录扫描）
 │   ├── kb_tools.py             #   自定义知识库（kb_search/kb_add/kb_list）
 │   └── docker_sandbox.py       #   容器执行层（--sandbox docker）
 ├── gateway_v2/                 # 网关包：intent(L1/L2) · guard(L4) · flywheel(L5)
@@ -436,24 +251,28 @@ ace-agent/
 ├── universal_document_parser.py# N 合一文档解析 + 懒加载 + 50MB 防线
 ├── i18n.py + locales/          # 轻量国际化（zh / en / ja JSON 字典）
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
-├── test_all.py                 # 全模块端到端测试（纯 stdlib，950+ 断言，Windows 实测 955，随平台浮动）
+├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
-├── e2e/                         # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
+├── e2e/                        # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话）
 ├── assets/logo.svg             # 标识（原创几何构图，无第三方素材）
 
 ├── docs/                       # 设计文档
 │   ├── ADR.md                  #   架构决策记录（内联序列 001-006）
 │   ├── ADR-002-executor-boundary.md  #   执行器进程边界 / NDJSON 协议 / Windows 沙箱选型
-│   ├── prompt-engineering/     #   提示词工程规范文档 v1→v7 + 上下文包（历史归档，独立版 v7 与 prompts/ 运行时版并存）
+│   ├── prompt-engineering/     #   提示词工程规范文档 v1→v7 + 上下文包（历史归档）
+│   ├── SECURITY-MODEL.md       #   安全模型（README 拆分：权限/隔离/路径/网络/沙箱）
+│   ├── CONFIGURATION.md        #   配置全项（README 拆分：config + 白名单/检索/编码/DB 边界）
+│   ├── COMMANDS.md             #   命令参考（README 拆分：斜杠/@ 全表）
 │   ├── SECURITY-AUDIT.md       #   安全审计（OWASP + STRIDE；部分条目与现码漂移，以代码为准，见 BACKLOG SEC-*）
 │   ├── DEVELOPMENT.md          #   开发者标准化流程（改代码到推送的八步 + 新增工具八步清单）
 │   ├── INTERFACES.md           #   接口与类型契约（文本协议/状态码/注册表/权限模型/网络）
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
-│   ├── BACKLOG-P2.md            #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
-│   ├── EXECUTOR-RELEASE.md      #   执行器发布通道立项卡(官方预编译二进制 + ace --install-executor)
+│   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
+│   ├── EXECUTOR-RELEASE.md     #   执行器发布通道立项卡(官方预编译二进制 + ace --install-executor)
+│   ├── README-RESTRUCTURE.md   #   README 瘦身立项卡(本卡)
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
-│   ├── UI-CHAT-SCROLL.md         #   聊天内置滚动立项卡(引擎已实现,接线待真机)
+│   ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)
 │   ├── codex_research.md       #   Codex 源码调研（45+ 可借鉴设计）
 │   └── dsh_research.md         #   DeepSeek Harness 源码调研（62 项可借鉴设计）
 
@@ -461,53 +280,11 @@ ace-agent/
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
 
-└── .github/workflows/ci.yml    # CI：Python 3.10/3.11/3.12 全量测试 + ruff + Go 执行器 vet/build/test/race + bench + 真实模型 e2e（secrets 门控）
+└── .github/workflows/ci.yml    # CI：Python 3.10/3.11/3.12 全量测试 + ruff + Go executor vet/build/test/race + bench + e2e（secrets 门控）
+    └── .github/workflows/release-executor.yml  # 发布：交叉编译 5 平台执行器产物 → GitHub Release（手动 dispatch）
 ```
 
-## 开发与测试
-
-```bash
-python test_all.py                          # 全量测试，退出码非 0 即失败
-python benchmarks/bench_core.py             # 实测基准 → benchmarks/results/bench_report.md
-python e2e/real_model_smoke.py              # 真实模型端到端（需 ACE_E2E_* 环境变量，缺省自动跳过）
-python ace_doctor.py                          # 环境自检（Python/依赖/Go 执行器/Docker/配置）
-# 云端真实模型 e2e 进 CI:GitHub → Settings → Secrets → Actions 配 ACE_E2E_BASE_URL/ACE_E2E_API_KEY/ACE_E2E_MODEL 即自动启用
-ruff check . --select E9,F63,F7,F82         # CI 用的同一套硬错误检查
-python demo/record_demo.py                  # 重录 README 顶部的演示动画
-python demo/record_demo.py --check          # 只校验动画是否还和当前输出一致
-```
-
-测试是单文件、纯 stdlib、无框架的端到端断言，`check(名称, 条件, 详情)` 逐条打印。用例总数随平台浮动（Windows 上比 Linux 多十来项，差额是 Windows 专有的路径/编码用例），所以这里不写死一个数字——看退出码和失败列表就够了。CI 在 Python 3.10 / 3.11 / 3.12 三个版本上跑编译检查 + 全量测试 + ruff。
-
-
-
-改动前请读 [`CONTRIBUTING.md`](CONTRIBUTING.md)（环境 / 测试 / 风格 / 提交流程）。改了行为的话，把断言旧行为的用例一起改掉——不要只加新用例。
-**开发者标准化流程 / 接口类型契约 / 待办清单**分别见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)、[`docs/INTERFACES.md`](docs/INTERFACES.md)、[`docs/BACKLOG.md`](docs/BACKLOG.md)。
-
-Windows 提示：控制台 GBK 已做 UTF-8 兜底，但建议全局设 `PYTHONUTF8=1`。文档解析的增强依赖（python-docx / openpyxl / pdfplumber / pymupdf / pytesseract）按需装，见 `requirements.txt`；旧版 Office 格式（.doc/.xls/.ppt/.wps/.et）回退依赖系统级 LibreOffice 或 antiword。
-
-## 版本历史
-
-ACE 从 2026-08 至今的迭代脉络（版本号为开发阶段代称；逐次提交见 `git log`。v3.7 起每个版本随 GitHub Release 发布并打同号 tag）：
-
-| 版本 | 时间 | 主题 |
-|---|---|---|
-| [v3.7](CHANGELOG.md#v37-2026-09-06) | 2026-09-06 | 执行器发布通道：官方预编译二进制 + `ace --install-executor`（首个 GitHub Release / tag v3.7.0） |
-| [v3.6](CHANGELOG.md#v36-2026-09-05) | 2026-09-05 | UI 交互(/thinking+F4·方块提示符·内置滚动引擎)、ace_doctor、issue 模板、启动器/VT 修复 |
-| [v3.5](CHANGELOG.md#v35-2026-09-05) | 2026-09-05 | Q-10 错误码唯一目录 + 403 语义集中判定（开发中） |
-| [v3.4](CHANGELOG.md#v34-2026-09-05) | 2026-09-05 | test_all SKIPPED 通道(--strict)+ requests 能力探测;受限环境全绿(942/942·跳过8) |
-| [v3.3](CHANGELOG.md#v33-2026-09-05) | 2026-09-05 | P1 质量收尾：ruff 扩选+清死导入、bench 健康门、临时目录健壮性、ace.cmd 探测、文档数字去硬编码、e2e 重试、version.py/SECURITY/PR 模板 |
-| [v3.2](CHANGELOG.md#v32-2026-09-05) | 2026-09-05 | P0 安全批：沙箱引用级拦截 / parse_document 越界 / 快照签名默认开 / screenshot 降权 / execpolicy 收口 |
-| [v3.1](CHANGELOG.md#v31-2026-09-05) | 2026-09-05 | 仓库结构统一（ai angent→ace、提示词工程文档并入 docs/）+ 实测基准 benchmarks + 真实模型 e2e/CI（secrets 门控） |
-| [v3.0](CHANGELOG.md#v30-2026-09-05) | 2026-09-05 | 联网搜索双通道（API key 自动回退免 key 爬虫）+ CLI 状态热切换（F1/F2/F3、回车弹选择框） |
-| [v2.2](CHANGELOG.md#v22-2026-08-30) | 2026-08-30 | CLI 视觉重设计：语义主题 / 结果卡片 / 搜索式选择器 |
-| [v2.1](CHANGELOG.md#v21-2026-08-29) | 2026-08-29 | Agent 能力爆发：持久目标 / 子代理 / 会话日志与恢复 / 知识库 / 浏览器自动化 |
-| [v2.0](CHANGELOG.md#v20-2026-08-25) | 2026-08-25 | 安全与执行边界：三值闸门 / SSRF 绑定 / docker + Job Object 沙箱 / 出站白名单 |
-| [v1.2](CHANGELOG.md#v12-2026-08-21-08-24) | 2026-08-21 ~ 08-24 | CLI 体验与工具体系：i18n / 注册表单点声明 / 默认 readonly / 品牌与动画 |
-| [v1.1](CHANGELOG.md#v11-2026-08-20) | 2026-08-20 | 真实工具落地：联网搜索 / SQLite / 浏览器 / 图像生成 / open·edit |
-| [v1.0](CHANGELOG.md#v10-2026-08-19) | 2026-08-19 | 初版：执行层 + Claude Code 风格终端 + 登录页 |
-
-每个版本做了什么（新增 / 改进 / 修复 / 安全，含当时的断言规模）见 **[`CHANGELOG.md`](CHANGELOG.md)**。
+</details>
 
 ## 许可
 

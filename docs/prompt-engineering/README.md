@@ -97,7 +97,7 @@ python benchmarks/bench_core.py --quick  # 样本减半（CI 冒烟）
 
 - 参数化查询（防 SQL 注入）、输入验证、敏感信息保护、权限控制
 
-> 提示词层只负责“引导模型行为”，真正的强制边界在 `execution_layer.py` 与沙箱档位（见仓库根 `README.md` 安全模型一节）。
+> 提示词层只负责“引导模型行为”，真正的强制边界在 `execution_layer.py` 与沙箱档位（见 [docs/SECURITY-MODEL.md](../SECURITY-MODEL.md)）。
 
 ## 工作流程示例（规范示意）
 

@@ -64,7 +64,8 @@ def main() -> int:
     if found:
         ok(f"Go 执行器: {found.name}(就地编译产物)")
     else:
-        warn("Go 执行器: 未找到 → 可选项;--sandbox job 需先 cd executor && go build")
+        warn("Go 执行器: 未找到 → 可选项;--sandbox job 需先 cd executor && go build"
+             "或 ace --install-executor 下载官方预编译产物")
 
     # Docker(可选;--sandbox docker 档必需)
     if shutil.which("docker"):

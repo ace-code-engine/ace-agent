@@ -186,6 +186,79 @@ def _pip_install_with_fallbacks(target: str) -> bool:
     return False
 
 
+# —— 官方预编译执行器下载通道（docs/EXECUTOR-RELEASE.md，D3） ——
+# owner/repo 与 README 徽章一致；产物名与 .github/workflows/release-executor.yml 的矩阵一一对应。
+_EXECUTOR_REPO = "jincheng3870682453-hash/ace-agent"
+_EXECUTOR_ASSETS = {
+    ("win32", "amd64"): "ace-executor-windows-amd64.exe",
+    ("linux", "amd64"): "ace-executor-linux-amd64",
+    ("linux", "arm64"): "ace-executor-linux-arm64",
+    ("darwin", "amd64"): "ace-executor-darwin-amd64",
+    ("darwin", "arm64"): "ace-executor-darwin-arm64",
+}
+
+
+def _install_executor() -> bool:
+    """下载官方预编译 ace-executor 到 executor/，替代手工 go build。
+
+    自校验：下载后跑 {binary} --version，能打印版本才算成功；失败删除文件并给出
+    手工编译指引。绝不把"看着像下载成功"当成功。
+    """
+    import platform as _plat
+    import urllib.request
+
+    machine = _plat.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        machine = "amd64"
+    elif machine in ("aarch64", "arm64"):
+        machine = "arm64"
+    asset = _EXECUTOR_ASSETS.get((sys.platform, machine))
+    if not asset:
+        print(c("red", f"当前平台 {sys.platform}/{machine} 暂无官方预编译产物。"))
+        print(c("dim", "  请手工编译: cd executor && go build -o ace-executor(.exe) ."))
+        return False
+
+    exe = "ace-executor.exe" if os.name == "nt" else "ace-executor"
+    dest = Path(__file__).resolve().parent / "executor" / exe
+    base = os.environ.get("ACE_EXECUTOR_BASE_URL",
+                          f"https://github.com/{_EXECUTOR_REPO}")
+    url = f"{base.rstrip('/')}/releases/latest/download/{asset}"
+    tmp = dest.with_name(dest.name + ".tmp")
+    print(f"下载官方预编译执行器: {asset}")
+    print(c("dim", f"  <- {url}"))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ace-install-executor"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+    except Exception as e:
+        print(c("red", f"下载失败: {e}"))
+        tmp.unlink(missing_ok=True)
+        print(c("dim", "  可设 ACE_EXECUTOR_BASE_URL 指向镜像后重试；或手工 go build。"))
+        return False
+    if os.name != "nt":
+        os.chmod(tmp, 0o755)
+    try:
+        out = subprocess.run([str(tmp), "--version"], capture_output=True,
+                             text=True, timeout=15)
+        if out.returncode == 0 and out.stdout.strip().startswith("ace-executor"):
+            os.replace(tmp, dest)
+            print(c("green", f"✅ 已安装 {dest.name}: {out.stdout.strip()}"))
+            if sys.platform == "win32":
+                print("  现在可运行: python ai_code.py --sandbox job")
+            else:
+                print("  job 档是 Windows 专属；本平台该二进制用于 off 档进程树回收/未来档位。")
+            return True
+        print(c("red", "自校验失败（产物无法运行），已删除。"))
+        reason = (out.stderr or "").strip()
+        if reason:
+            print(c("dim", "  stderr: " + reason))
+    except Exception as e:
+        print(c("red", f"自校验失败: {e}"))
+    tmp.unlink(missing_ok=True)
+    print(c("dim", "  请手工编译: cd executor && go build -o ace-executor(.exe) ."))
+    return False
+
+
 def _looks_like_cli_command(line: str) -> bool:
     """防蠢检测：用户把 cmd 命令/参数误打进 REPL（如 ace --install-ui、--mock、pip install）"""
     s = line.strip().lower()
@@ -1884,6 +1957,14 @@ class _SlashCommands:
 
     def _handle_cli_mistype(self, line: str) -> None:
         """防蠢处理：识别并接管误打进 REPL 的命令行指令"""
+        if "--install-executor" in line:
+            print(c("yellow", "检测到你想安装官方预编译执行器，正在下载（自校验 --version）..."))
+            if _install_executor():
+                print(c("green", "✅ 执行器已就绪。Windows 下 exit 后用: "
+                                 "python ai_code.py --sandbox job"))
+            else:
+                print(c("red", "未成功，可手动: cd executor && go build -o ace-executor(.exe) ."))
+            return
         if "--install-ui" in line:
             print(c("yellow", "检测到你想安装实时补全依赖，正在自动安装（已装跳过 + 多镜像回退）..."))
             if _pip_install_with_fallbacks("prompt_toolkit"):
@@ -2882,6 +2963,9 @@ def main() -> None:
     parser.add_argument("--save-config", action="store_true", help="把当前参数保存到 ~/.ai_code.json")
     parser.add_argument("--install-ui", action="store_true",
                         help="一键安装实时补全依赖（prompt_toolkit，Claude Code 同款 / 弹窗菜单）")
+    parser.add_argument("--install-executor", action="store_true",
+                        help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
+                             "下载后跑 --version 自校验）")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2896,6 +2980,9 @@ def main() -> None:
             print("❌ 安装失败，请手动运行: "
                   "pip install prompt_toolkit -i https://pypi.tuna.tsinghua.edu.cn/simple")
         return
+
+    if args.install_executor:
+        sys.exit(0 if _install_executor() else 1)
 
     cfg = merge_config(args)
     if args.no_bait:

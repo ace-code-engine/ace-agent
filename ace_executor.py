@@ -260,7 +260,8 @@ class ExecutorClient:
         if not self.available():
             raise ExecutorError("E_TRANSPORT",
                                 f"executor binary not found: {self.binary}; "
-                                f"build it with `go build -o {self.binary.name} .` in executor/")
+                                f"build it with `go build -o {self.binary.name} .` in executor/, "
+                                f"or `ace --install-executor` for the official prebuilt binary")
         self._proc = subprocess.Popen(
             [str(self.binary)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

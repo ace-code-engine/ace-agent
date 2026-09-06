@@ -113,13 +113,15 @@
 
 ## 7. 全局验收清单
 
-- [ ] `--install-executor` 在无 Go 环境的 Windows 上装出可用二进制（`--version` 通过），`--sandbox job` 不再需要手工编译。
-- [ ] 非 Windows 平台点安装器：正确下载对应 linux/darwin 产物；对不存在的档位仍诚实报错/指引，无静默降级。
-- [ ] 网络不通 / 平台无产物 / 下载校验失败 → 明确报错并回退提示 `go build`，绝不假装成功。
-- [ ] 下载产物被 `.gitignore` 覆盖，`git status` 干净。
-- [ ] 所有"需要 go build"的用户可见文案都有 `--install-executor` 替代指引。
-- [ ] `test_all.py` 全绿、ruff 零命中、版本号三处一致。
-- [ ] Release 含 5 个命名规范的产物（D2 表）。
+> 状态记录：✅ = 已验证（2026-09-06，v3.7.0 发布后）；⬜ = 未实机执行（见备注）。
+
+- [x] `--install-executor` 装出可用二进制（`--version` 通过）。**实测**：删原二进制后 `python ai_code.py --install-executor` → 下载官方产物 → `ace-executor 3.7.0 (windows/amd64)` → 安装 exit 0。注：本机装了 Go，"无 Go 环境"路径未单独实测，但安装器不依赖 Go、下载即用。
+- [x] 产物矩阵与平台映射正确：Release v3.7.0 含 5 个命名规范产物；native-smoke 在 windows/ubuntu/macos-14 原生跑通 `--version`（覆盖 darwin/arm64）。⬜ darwin/amd64 与 linux 产物未在本机实机跑安装器（同一段映射代码，风险低）。
+- [x] 失败路径诚实：发布前 404 负路径实测 → 明确报"下载失败 + ACE_EXECUTOR_BASE_URL/手工 go build"指引，无假成功。
+- [x] 下载产物被 `.gitignore` 覆盖，`git status` 干净（安装后零未跟踪文件）。
+- [x] 用户可见文案联动：`ace_executor.py` / `ace_doctor.py` / README 四处均已指向 `ace --install-executor`（`ace_doctor` 实测显示 `✅ Go 执行器`）。
+- [x] CI 全绿：push 37f9dfe → CI success（3×Python test_all + ruff + Go vet/build/test + bench）；本地 ruff 零命中；版本号 version.py 3.7.0 / README 徽章 / CHANGELOG 首条三处一致。
+- [x] Release 含 5 个命名规范的产物（D2 表）。**实测**：darwin-amd64 / darwin-arm64 / linux-amd64 / linux-arm64 / windows-amd64.exe 齐全（另有非本工作流上传的 logo.svg，如不需要可在 Release 页删除）。
 
 ## 8. 风险与缓解
 

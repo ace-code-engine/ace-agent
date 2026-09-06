@@ -107,6 +107,8 @@ jobs:
     needs: [build, native-smoke]
     timeout-minutes: 10
     steps:
+      # 读 version.py 需要仓库文件，必须 checkout（此前缺失导致 import version 失败）
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: asset-*

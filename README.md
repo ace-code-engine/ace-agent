@@ -271,6 +271,7 @@ ace-agent/
 │   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
 │   ├── EXECUTOR-RELEASE.md     #   执行器发布通道立项卡(官方预编译二进制 + ace --install-executor)
 │   ├── README-RESTRUCTURE.md   #   README 瘦身立项卡(本卡)
+│   ├── SESSION-2026-09-06.md   #   评审会话纪要(风险清单/决策/提交/遗留 OPEN 项)
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
 │   ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)
 │   ├── codex_research.md       #   Codex 源码调研（45+ 可借鉴设计）

@@ -1,6 +1,6 @@
 # 命令参考（Command Reference）
 
-> 本文档由 README「命令参考」一节拆分而来（docs/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
+> 本文档由 README「命令参考」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
 > README 入口见「常用命令」（只列最常用的）；完整清单在这里。
 
 **首页**：↑/↓ 选择 · 数字直选 · Enter 确认 · Esc/q 退出。聊天内 `exit` 回首页，首页 `7`/`Esc`/`q` 才真正退出。

@@ -1,6 +1,6 @@
 # 配置（Configuration）
 
-> 本文档由 README「配置」一节拆分而来（docs/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
+> 本文档由 README「配置」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
 > 配置优先级见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 顶部（命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量）。
 
 ```python

@@ -138,7 +138,7 @@ class ToolSpec:
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)
 
 - 错误码/状态码集中常量 + 枚举化,文案与语义解耦 → BACKLOG Q-10
-- 双 v7 提示词(运行时 `prompts/` vs 规范 `docs/prompt-engineering/`)同步/标注 → BACKLOG Q-07
+- 双 v7 提示词(运行时 `prompts/` vs 规范 `docs/history/prompt-engineering/`)同步/标注 → BACKLOG Q-07
 - `parse_document` 未走文件路径闸门(只读越界)→ BACKLOG SEC-02
 - `code_execute` AST 精确名拦截可被别名/lambda 绕过 → BACKLOG SEC-01
 - 模块命名风格(旧 `Archive/Nuwa/work/guardian` vs 新 `ace_*`)→ BACKLOG R-06

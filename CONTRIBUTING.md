@@ -48,6 +48,6 @@ python e2e/real_model_smoke.py              # 真实模型冒烟(需 ACE_E2E_* e
 
 ## 结构速览
 
-完整目录树见 `README.md`「项目结构」(以它为准,这里不重复抄以免漂移)。
+完整目录树与逐模块职责见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（权威清单,以它为准,这里不重复抄以免漂移)。
 关键入口:执行层 `execution_layer.py` · 工具注册表 `tools/registry.py` ·
 交互循环 `agent_runner.py` · 前端 `ai_code.py` · 全量测试 `test_all.py`。

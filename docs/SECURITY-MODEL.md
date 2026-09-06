@@ -1,6 +1,6 @@
 # 安全模型（Security Model）
 
-> 本文档由 README「安全模型」一节拆分而来（docs/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
+> 本文档由 README「安全模型」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
 > README 入口见「安全设计」；漏洞报告流程见仓库根 [SECURITY.md](../SECURITY.md)；历史安全审计见 [SECURITY-AUDIT.md](SECURITY-AUDIT.md)。
 
 配置优先级：命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量。

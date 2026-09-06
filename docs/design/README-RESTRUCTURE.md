@@ -76,7 +76,7 @@ README 删除以上三块后，各留一句 + 指回链接（§3）。
 
 | 位置 | 现引用 | 改为 |
 |---|---|---|
-| `docs/prompt-engineering/README.md:100` | "仓库根 README.md 安全模型一节" | `docs/SECURITY-MODEL.md` |
+| `docs/history/prompt-engineering/README.md:100` | "仓库根 README.md 安全模型一节" | `docs/SECURITY-MODEL.md` |
 | README「设计取向」第 3 条（L117 一带） | 锚点 `#安全模型` | `docs/SECURITY-MODEL.md` |
 | `CONTRIBUTING.md:51` | README「项目结构」为权威树 | **无需改**（项目结构折叠保留在 README） |
 | `docs/PACKAGING.md` / `DEVELOPMENT.md` 提及 README | 泛化引用 | 无需改 |
@@ -96,7 +96,7 @@ README 删除以上三块后，各留一句 + 指回链接（§3）。
 - [x] 文件 520 → 299 行（其中 ~80 行为折叠的完整目录树，视觉上隐藏；不含树约 219 行可见正文）；目录与 12 个标题锚点一一自洽，Python 复核无悬空锚点。
 - [x] 三块搬走的内容整段搬入 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，仅头部加来源说明；提交 diff 对读无漏字。
 - [x] 新文档互相不重名；根级 SECURITY.md 与 SECURITY-AUDIT.md 未动（三者角色分离）。
-- [x] 引用面修复完成：`docs/prompt-engineering/README.md:100` 改指 `../SECURITY-MODEL.md`；本地链接脚本扫描 5 个文件 0 死链；grep 无残留旧锚点引用。
+- [x] 引用面修复完成：`docs/history/prompt-engineering/README.md:100` 改指 `../SECURITY-MODEL.md`（当时位于 `docs/prompt-engineering/`）；本地链接脚本扫描 5 个文件 0 死链；grep 无残留旧锚点引用。
 - [x] 徽章/版本号三处一致（v3.7.0）；未改任何代码，test_all 无需重跑。
 - [x] 单提交快照 `85b978f`（可整体 revert）。
 

@@ -47,7 +47,7 @@ v7.0 主要改进：
 
 ## 实测基准（取代早期「性能对比」）
 
-> 早期版本对比表（如「代码理解深度 +200%」「测试覆盖率 +80%」）属于**不可复现的预估数字**，已移除。代码的真实能力请以实测为准——执行层的正确率与耗时由 [`benchmarks/bench_core.py`](../../benchmarks/bench_core.py) 一键复现（纯标准库、不联网；本机运行后生成 `benchmarks/results/bench_report.md`，该目录不入库）。
+> 早期版本对比表（如「代码理解深度 +200%」「测试覆盖率 +80%」）属于**不可复现的预估数字**，已移除。代码的真实能力请以实测为准——执行层的正确率与耗时由 [`benchmarks/bench_core.py`](../../../benchmarks/bench_core.py) 一键复现（纯标准库、不联网；本机运行后生成 `benchmarks/results/bench_report.md`，该目录不入库）。
 
 本机实测摘要（2026-09-05 · Windows 11 x64 · Python 3.12.14，样本与完整说明见报告）：
 
@@ -97,7 +97,7 @@ python benchmarks/bench_core.py --quick  # 样本减半（CI 冒烟）
 
 - 参数化查询（防 SQL 注入）、输入验证、敏感信息保护、权限控制
 
-> 提示词层只负责“引导模型行为”，真正的强制边界在 `execution_layer.py` 与沙箱档位（见 [docs/SECURITY-MODEL.md](../SECURITY-MODEL.md)）。
+> 提示词层只负责“引导模型行为”，真正的强制边界在 `execution_layer.py` 与沙箱档位（见 [docs/SECURITY-MODEL.md](../../SECURITY-MODEL.md)）。
 
 ## 工作流程示例（规范示意）
 

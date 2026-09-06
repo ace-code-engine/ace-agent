@@ -15,7 +15,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.6%20(2026--09--05)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.7%20(2026--09--06)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -87,7 +87,7 @@ ace --no-compact                # 关掉上下文压缩，退回纯硬截断
 ace --install-ui                # 装 / 补全 prompt_toolkit（多镜像自动回退）
 
 # 沙箱（真实内核边界，缺一不可的隔离档）：
-ace --sandbox job               # Windows Job Object：进程树/内存/进程数上限（需先在 executor/ 下 go build）
+ace --sandbox job               # Windows Job Object：进程树/内存/进程数上限（ace --install-executor 下载官方产物；或先 go build）
 ace --sandbox docker            # 一次性容器：--network none + 只挂工作目录（需 Docker + 构建 ace-sandbox 镜像）
                                 # job/docker 都不做静默回退：拿不到边界直接报错
 
@@ -316,10 +316,11 @@ python ai_code.py --sandbox docker
 
 **Job Object 隔离（`--sandbox job`，Windows）**
 
-Docker 没装、或者装了但不想为一条 `dir` 起容器时，还有一档更轻的边界。它由 `executor/` 下的 Go 执行器提供，是项目里唯一需要编译的部分：
+Docker 没装、或者装了但不想为一条 `dir` 起容器时，还有一档更轻的边界。它由 `executor/` 下的 Go 执行器提供。执行器是项目里唯一需要编译的组件，但**通常不需要你编译**——官方预编译二进制一条命令即可下载，只有想自己编译时才需要 Go 工具链：
 
 ```bash
-cd executor && go build -o ace-executor.exe .   # 非 Windows 去掉 .exe
+ace --install-executor                          # 下载官方预编译二进制（5 平台产物，无需本机 Go）
+cd executor && go build -o ace-executor.exe .   # 想自编译也可以（非 Windows 去掉 .exe）
 python ai_code.py --sandbox job
 ```
 
@@ -408,7 +409,7 @@ ace-agent/
 ├── ace_cards.py                # 工具结果卡片（状态+参数+折叠输出）
 ├── ace_doctor.py               # 环境自检（python ace_doctor.py）
 ├── ace_chatscroll.py            # 聊天内置滚动引擎(方案 C:视口只滚会话行)
-├── executor/                   # Go 执行器：Job Object 沙箱（唯一需要 go build 的部分）
+├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）
 │   ├── registry.py             #   工具唯一声明处（name / schema / 权限组 / handler）
@@ -448,6 +449,7 @@ ace-agent/
 │   ├── INTERFACES.md           #   接口与类型契约（文本协议/状态码/注册表/权限模型/网络）
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
 │   ├── BACKLOG-P2.md            #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
+│   ├── EXECUTOR-RELEASE.md      #   执行器发布通道立项卡(官方预编译二进制 + ace --install-executor)
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
 │   ├── UI-CHAT-SCROLL.md         #   聊天内置滚动立项卡(引擎已实现,接线待真机)
 │   ├── codex_research.md       #   Codex 源码调研（45+ 可借鉴设计）
@@ -484,10 +486,11 @@ Windows 提示：控制台 GBK 已做 UTF-8 兜底，但建议全局设 `PYTHONU
 
 ## 版本历史
 
-ACE 从 2026-08 至今的迭代脉络（版本号为开发阶段代称，未打 git tag；逐次提交见 `git log`）：
+ACE 从 2026-08 至今的迭代脉络（版本号为开发阶段代称；逐次提交见 `git log`。v3.7 起每个版本随 GitHub Release 发布并打同号 tag）：
 
 | 版本 | 时间 | 主题 |
 |---|---|---|
+| [v3.7](CHANGELOG.md#v37-2026-09-06) | 2026-09-06 | 执行器发布通道：官方预编译二进制 + `ace --install-executor`（首个 GitHub Release / tag v3.7.0） |
 | [v3.6](CHANGELOG.md#v36-2026-09-05) | 2026-09-05 | UI 交互(/thinking+F4·方块提示符·内置滚动引擎)、ace_doctor、issue 模板、启动器/VT 修复 |
 | [v3.5](CHANGELOG.md#v35-2026-09-05) | 2026-09-05 | Q-10 错误码唯一目录 + 403 语义集中判定（开发中） |
 | [v3.4](CHANGELOG.md#v34-2026-09-05) | 2026-09-05 | test_all SKIPPED 通道(--strict)+ requests 能力探测;受限环境全绿(942/942·跳过8) |

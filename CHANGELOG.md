@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.7 · 2026-09-06 · 执行器发布通道：官方预编译二进制 + ace --install-executor](#v37-2026-09-06)
 - [v3.6 · 2026-09-05 · UI 交互增强 + 诊断工具 + 发布卫生](#v36-2026-09-05)
 - [v3.5 · 2026-09-05 · Q-10 错误码目录 + P2/REL 收尾（开发中）](#v35-2026-09-05)
 - [v3.4 · 2026-09-05 · test_all SKIPPED 通道(Q-03)](#v34-2026-09-05)
@@ -20,6 +21,16 @@
 - [v1.2 · 2026-08-21 ~ 08-24 · CLI 体验与工具体系](#v12-2026-08-21-08-24)
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
+
+## [v3.7] · 2026-09-06
+
+**执行器发布通道：官方预编译二进制 + `ace --install-executor`（docs/EXECUTOR-RELEASE.md）**
+
+- ✨ `executor/main.go` 新增 CLI 版本出口 `--version`/`-v`（`serverVersion` 改 `var`，发布流水线以 `-ldflags -X main.serverVersion=…` 注入与 version.py 对齐的版本号）；协议零改动
+- ✨ 新增 `.github/workflows/release-executor.yml`：手动 dispatch 交叉编译 5 平台产物（windows-amd64 / linux-amd64 / linux-arm64 / darwin-amd64 / darwin-arm64，`CGO_ENABLED=0`）+ windows/ubuntu/macos-14 三档原生 `--version` 冒烟 + `gh release` 幂等发布（产物可重复上传）；首个随 GitHub Release 发布的 tag：v3.7.0
+- ✨ `ace --install-executor`：stdlib urllib 下载对应平台官方产物到 `executor/`（无需本机 Go 工具链），`ACE_EXECUTOR_BASE_URL` 可指向镜像/内网，下载后跑 `--version` 自校验才算成功，失败删除并提示手工 `go build`；REPL 防蠢接管同步识别
+- ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
+- 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
 
 ## [v3.6] · 2026-09-05
 

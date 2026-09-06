@@ -39,18 +39,18 @@
 | `ace_doctor.py:62-67` | 探测 `executor/ace-executor(.exe)`/`executor.exe`，未找到只提示 `go build` | 提示加 `ace --install-executor` |
 | `ai_code.py` | 已有 `--install-ui` 先例：argparse（L2883）+ 底部 dispatch（L2891 一带）+ REPL 防蠢清单（L190）+ 聊天内快捷提示（L1887 一带） | 新增 `--install-executor`，以 `--install-ui` 的既有触点为模板逐一对齐 |
 | `version.py` | `__version__ = "3.6.0"`（版本单源 Q-12） | 发布时随版本号 |
-| `README.md` | "唯一需要编译的部分"见 L319、L411；`--sandbox job` 示例 L91、L322；版本历史注明"未打 git tag" L487 | 措辞与首次 tag 说明 |
+| `README.md` | "唯一需要编译的部分"见 L319、L411；`--sandbox job` 示例 L91、L322；版本历史 L487 仍写"未打 git tag"（过时，仓库已有 v3.3~v3.6 里程碑 tag） | 措辞改预编译通道；L487 去旧描述并注明 v3.7 起随 Release 打同号 tag |
 | `.gitignore:26-29` | 已忽略 `executor/ace-executor(.exe)`/`executor.exe` | ✅ 无需改（下载产物不会被误提交） |
 
 ## 5. 设计决策
 
 ### D1 · 发布触发与 tag 策略 —— `workflow_dispatch` 手动发布，首次发布创建 `v{version}` tag
 
-仓库现状：版本号只活在 `version.py`/README/CHANGELOG，README 明言"未打 git tag"（L487）。GitHub Release 必须有 tag 载体。
+仓库现状：版本号在 version.py/README/CHANGELOG 三处同步（Q-12）；里程碑 tag v3.3~v3.6 本地已存在（README L487 的"未打 git tag"是过时描述，S4 一并修正），但**从无携带产物的 GitHub Release**。GitHub Release 必须有 tag 载体。
 
 - 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `version.py`（`python -c "import version;print(version.__version__)"`）。
-- `gh release create v{version} <产物…> --title "ace-executor v{version}" --notes "…"`。首次发布会自动在远端创建轻量 tag `v{version}`——**这是仓库第一个 tag**，属预期行为，README 版本历史补一句。
-- 理由：不把"打 tag"变成日常提交纪律（与仓库现状一致），发布是显式人工动作；未来若想 tag 驱动可在此 workflow 加 `push: tags: v*` 扩展点。
+- `gh release create v{version} <产物…> --title "ace-executor v{version}" --notes "…"`。发布时自动在远端创建/更新 tag `v{version}`——v3.7.0 是**第一个与 GitHub Release 绑定的 tag**，延续既有 v{version} 里程碑 tag 命名，不引入新的日常提交纪律。
+- 理由：发布是显式人工动作（workflow_dispatch），不是每次提交的默认行为；未来若想 tag 驱动可在此 workflow 加 `push: tags: v*` 扩展点。
 
 ### D2 · 产物矩阵与发布流程（交叉编译 + 原生冒烟 + Release）
 
@@ -125,7 +125,7 @@
 
 | 风险 | 缓解 |
 |---|---|
-| 首次打 tag 改变仓库现状 | 计划内接受，README L487 同步说明；workflow 为手动档，不强制日常提交纪律 |
+| 仓库此前 tag 只是里程碑代称、从不挂产物 | v3.7 起 tag 与 GitHub Release 绑定（同 v{version} 命名）；重复运行幂等：已有 Release 只 upload 产物，不重建 |
 | `gh` 缺权限 | workflow `permissions: contents: write`；ubuntu runner 自带 `gh`；失败即红，可重跑 |
 | 国内访问 github.com Release 慢/不通 | 保留 `go build` 路径；`ACE_EXECUTOR_BASE_URL` 支持镜像覆盖（与 `--install-ui` 多镜像思路一致） |
 | 二进制与宿主协议版本漂移 | 协议本有 `initialize` 版本协商；产物按 `version.py` 对齐；`server.version` 可在 `--version` 与 doctor 中比对 |

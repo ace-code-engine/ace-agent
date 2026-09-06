@@ -19,10 +19,11 @@ import (
 	"time"
 )
 
-const (
-	serverName    = "ace-executor"
-	serverVersion = "0.1.0"
-)
+const serverName = "ace-executor"
+
+// serverVersion 用 var 而非 const：发布流水线以 -ldflags "-X main.serverVersion=…" 注入
+// 与仓库 version.py 对齐的版本号；本地开发构建保持默认值。
+var serverVersion = "0.1.0"
 
 // stderrLog 是唯一允许的日志出口。stdout 属于协议，写一个字节的非协议内容就会毁掉会话。
 var stderrLog = os.Stderr
@@ -78,6 +79,13 @@ func (s *session) claimID(id string) bool {
 }
 
 func main() {
+	// CLI 版本出口：ace --install-executor 用它自校验下载产物；ace_doctor/排查也用它。
+	// 不带参数进入会话循环时 os.Args 长度恒为 1，这条分支不影响协议路径。
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("ace-executor %s (%s/%s)\n", serverVersion, runtime.GOOS, runtime.GOARCH)
+		os.Exit(0)
+	}
+
 	fw := newFrameWriter(os.Stdout)
 	s := newSession(fw)
 

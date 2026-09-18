@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -209,21 +210,42 @@ class Guardian:
         # 3. 恢复快照
         meta = json.loads((self.snap_dir / snap_id / "meta.json").read_text(encoding="utf-8"))
         files_dest = self.snap_dir / snap_id / "files"
+        # 删除与恢复都逐个来、都兜异常：一个文件被编辑器/杀软占用（Windows 上很常见）
+        # 不该让其余文件停在"已删除、未恢复"的状态里。失败项登记下来，最后统一报，
+        # 并且**保留删除前的备份**给人工恢复（SEC-016）。
+        failed: List[Tuple[str, str]] = []
         for src in self._collect_files():
-            src.unlink(missing_ok=True)
+            try:
+                src.unlink(missing_ok=True)
+            except OSError as e:
+                failed.append((str(src.relative_to(self.project_root)), f"删除失败: {e}"))
         for rel, _info in meta["files"].items():
             src = files_dest / rel
             dst = self.project_root / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        # 4. 验证恢复
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+            except OSError as e:
+                failed.append((rel, str(e)))
+        # 4. 验证恢复（同样逐项兜异常：恢复后仍可能被占用/被替换成目录）
         restored = 0
         for rel, info in meta["files"].items():
             fp = self.project_root / rel
-            if fp.exists() and self._sha256(fp) == info["sha256"]:
-                restored += 1
-        if restored != meta["file_count"]:
-            # 恢复不完整：保留备份供人工处理
+            try:
+                if fp.is_file() and self._sha256(fp) == info["sha256"]:
+                    restored += 1
+            except OSError as e:
+                failed.append((rel, f"校验失败: {e}"))
+        if failed or restored != meta["file_count"]:
+            # 恢复不完整：保留备份供人工处理，并说清"哪些没恢复、备份在哪、怎么恢复"
+            print(f"⚠ 回滚未完成：{meta['file_count'] - restored} 个文件未恢复"
+                  f"（失败 {len(failed)} 项）", file=sys.stderr)
+            for rel, why in failed[:5]:
+                print(f"    {rel}: {why}", file=sys.stderr)
+            if len(failed) > 5:
+                print(f"    … 另有 {len(failed) - 5} 项", file=sys.stderr)
+            print(f"  删除前的完整备份保留在: {backup_path}", file=sys.stderr)
+            print("  人工恢复：把该备份目录里的文件按相对路径拷回项目即可", file=sys.stderr)
             return False
         # 5. 清理备份
         shutil.rmtree(backup_path, ignore_errors=True)

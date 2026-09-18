@@ -21,6 +21,8 @@
 |---|---|---|
 | SEC-002（P0）默认权限为 write | **已闭合**：三个入口的默认值现在都是 `readonly`，"文档说默认只读、代码默认 write"的矛盾不复存在 | `agent_runner.py:668` `--permission default="readonly"`；`execution_layer.py:1344` 同；`ai_code.py:656` `cfg.setdefault("permission", "readonly")`。对应 BACKLOG `SEC-03` 前半 → 可勾选 |
 | SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **已闭合**（v3.7）：注册表加 `ToolSpec.egress` 标记，执行层在目的地**既不在内置清单也不在用户 `egress_allowlist`** 时插一次逐次确认，并且外发工具拒绝会话级授权（授权按工具名给 = 出口全开）。`notify_send` 按渠道判（console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问）；`image_generate` 目的地是固定内置服务故不问，但它把 prompt 明文交第三方，已单列在 `SECURITY-MODEL.md` 的「外发闸门」里 | `execution_layer.py` `_egress_confirm_reason` / `grant_session`；`tools/registry.py` 的 `egress=True`；test_all [23] 8 条断言（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） |
+| SEC-016（P2）rollback 先删后恢复，中断即数据丢失 | **已闭合**（v3.7）：删除、恢复、校验三个阶段全部**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"；失败项逐条打给用户，并**保留删除前的备份**且给出人工恢复路径；返回 `False` 而不是抛裸异常。审计建议的"临时目录 + 原子替换"未采纳（改动面大且需跨盘 rename 语义），改为等价的"失败可控 + 可人工恢复" | `guardian.py:209-240`；test_all 三条断言（返回 False / 其余文件仍恢复 / 备份保留） |
+| SEC-017（P2）执行日志位于项目目录内，Agent 自身可篡改 | **部分闭合**（v3.7）：`.ace_sessions`（会话事件日志）、`.agent_flywheel`（SFT 样本）、`.poc_reports`、`.ace_goals.json`、`.agent_memory.json` 全部纳入敏感目标，**文件工具写删一律 403**（与 `.guardian` 同一道闸）。剩余面：`terminal_exec` 仍能删它们（每次需人确认，且这一步本身可见）；审计建议的"安全事件单独分级 + 连续 403 当攻击信号告警"**尚未实现**，仍是开放项 | `tools/base.py` `_AGENT_STATE_DIRNAMES` / `_AGENT_STATE_FILENAMES`；test_all 三条断言（敏感目标命中 / 写日志 403 / 删目标文件 403） |
 
 其余条目**本次未重跑**，其状态以「复审记录」（2026-08-22）与 `docs/BACKLOG.md` 的 `SEC-01`/`SEC-02`/`SEC-04`/`SEC-05`/`SEC-06` 已完成项为准。要推翻或确认其中任一条，方法同「复审记录」：不看"改过没有"，只拿报告里的原始 payload 打当前代码。
 

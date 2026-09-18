@@ -1134,6 +1134,35 @@ check("快照未被篡改，回滚真的能还原",
 check("回滚失败返回 False 而非静默吞掉",
       _el_g._rollback_current_snapshot("不存在的快照id") is False)
 
+# —— SEC-017：审计/运行状态不能被被审计方自己改写 ——
+check("sensitive_target 命中会话日志/飞轮/POC 报告/目标与记忆文件",
+      _sens("proj/.ace_sessions/1_main.jsonl") is not None
+      and _sens("proj/.agent_flywheel/violations.jsonl") is not None
+      and _sens("proj/.poc_reports/report.html") is not None
+      and _sens("proj/.ace_goals.json") is not None
+      and _sens("proj/.agent_memory.json") is not None
+      and _sens("proj/notes/session.md") is None)
+_r = run_agent(_el_g, "file_write", path=".ace_sessions/fake.jsonl", content="{}\n")
+check("agent 写不了自己的会话事件日志", _r["status"] == "403", _r.get("message"))
+_r = run_agent(_el_g, "file_delete", path=".ace_goals.json")
+check("agent 删不掉目标状态文件", _r["status"] == "403", _r.get("message"))
+
+# —— SEC-016：回滚逐个恢复，单个文件失败不拖垮其余，也不抛裸异常 ——
+_g16 = Guardian(str(mktemp()))
+(_g16.project_root / "a.txt").write_text("v1", encoding="utf-8")
+(_g16.project_root / "b.txt").write_text("v1", encoding="utf-8")
+_sid16 = _g16.snapshot("sec016")
+(_g16.project_root / "a.txt").write_text("v2", encoding="utf-8")
+# 制造"恢复必失败"：把目标路径先变成一个目录（copy2 到目录上必然 OSError）
+(_g16.project_root / "b.txt").unlink()
+(_g16.project_root / "b.txt").mkdir()
+_ok16 = _g16.rollback(_sid16)
+check("SEC-016 单文件恢复失败 → 返回 False 而不是抛裸异常", _ok16 is False, _ok16)
+check("SEC-016 其余文件仍然被恢复（不是删完就停）",
+      (_g16.project_root / "a.txt").read_text(encoding="utf-8") == "v1")
+check("SEC-016 失败时保留删除前的备份供人工恢复",
+      any(p.is_dir() and any(p.iterdir()) for p in _g16.backup_dir.iterdir()))
+
 # —— terminal_exec 逐次确认闸门：权限等级够也要人点头 ——
 r = run_agent(el_h, "terminal_exec", command="echo hi")
 check("terminal_exec 即使 full 权限也要逐次确认",

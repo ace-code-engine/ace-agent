@@ -61,7 +61,12 @@ _STARTUP_FRAGMENTS = ("start menu/programs/startup", "currentversion/run")
 # Agent 自身的安全状态目录：回滚快照存在项目目录内，而项目目录正是 agent 可写的范围。
 # 不挡这里，agent 改一行 .guardian/snapshots/<id>/meta.json 就能让 verify_snapshot
 # 失败，熔断回滚静默变成空操作——安全网被它要防的东西拆了。
-_AGENT_STATE_DIRNAMES = {".guardian"}
+# 审计与运行状态同理（SEC-017）：会话事件日志、飞轮样本、POC 报告都是"事后取证"用的，
+# 让被审计方自己可写，等于没有记录。挡住文件工具这一层；terminal_exec 仍能碰它们，
+# 但它每次都过人，且那一步本身就是可被看见的动作。
+_AGENT_STATE_DIRNAMES = {".guardian", ".ace_sessions", ".agent_flywheel", ".poc_reports"}
+# 同上，但是文件形态（目标状态 / 记忆）：改它等于伪造"用户偏好"或"任务已完成"
+_AGENT_STATE_FILENAMES = {".ace_goals.json", ".agent_memory.json"}
 
 # Q-10: 403 的“安全限制(路径越界/白名单/沙盒/敏感目标)”语义标记。
 # handler 可直接置 metadata["security_denied"]=True;execute 收口处会按文案兜底标记。
@@ -84,7 +89,9 @@ def sensitive_target(path: "Path | str") -> Optional[str]:
     if name in _SENSITIVE_BASENAMES:
         return f"敏感文件（凭据/启动脚本）: {name}"
     if _AGENT_STATE_DIRNAMES & set(parts):
-        return "Agent 自身的回滚快照目录（改它等于拆掉回滚安全网）"
+        return "Agent 自身的运行/审计状态目录（改它等于改自己的记录或拆掉回滚安全网）"
+    if name in _AGENT_STATE_FILENAMES:
+        return f"Agent 自身的状态文件（目标/记忆）: {name}"
 
     if name.endswith(_SENSITIVE_SUFFIXES):
         return f"私钥/证书文件: {name}"

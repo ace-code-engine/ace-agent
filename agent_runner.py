@@ -645,6 +645,12 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
             return
 
         if result["status"] in ERROR_STATUSES:
+            # SEC-017：安全拦截到阈值 → 明确告警（可能在借模型的手试探边界）
+            _sec = result.get("security_alerts")
+            if _sec:
+                print(f"\n⚠ 本会话已发生 {_sec['count']} 次执行层安全拦截"
+                      f"（最近一次: {_sec.get('last_tool', '')}）。"
+                      "如果这不是你让它做的，请停下核对上下文来源。")
             # 把错误反馈给模型，让它修正后继续
             next_prompt = PROMPT_ERROR_RETRY.format(rendered=render_tool_result(result))
             continue

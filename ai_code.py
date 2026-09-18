@@ -1761,6 +1761,8 @@ class _SlashCommands:
             return f"{ev.get('tool')} [{ev.get('status')}] {str(ev.get('message', ''))[:60]}"
         if kind == "permission/decision":
             return f"{ev.get('tool')} → {ev.get('decision')} (level={ev.get('level')})"
+        if kind == "security/denied":
+            return f"⚠ 安全拦截 #{ev.get('count')}: {ev.get('tool')} — {str(ev.get('reason', ''))[:60]}"
         if kind == "snapshot/create":
             return f"{ev.get('tag') or ev.get('snapshot_id')}"
         if kind == "snapshot/rollback":
@@ -2669,6 +2671,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self.session["violations"] += 1
                 print(c("red", t("error_line", status=result["status"],
                                  msg=result.get("message", "")[:80])))
+                # SEC-017：执行层安全拦截到阈值 → 明确告诉人（不是模型走神，是有人在试探边界）
+                _sec = result.get("security_alerts")
+                if _sec:
+                    print(c("red", t("security_alert", n=_sec["count"],
+                                     tool=_sec.get("last_tool", ""))))
+                    if _sec.get("other_tools"):
+                        print(c("dim", t("security_alert_tools",
+                                         tools=", ".join(_sec["other_tools"]))))
+                    print(c("dim", t("security_alert_hint")))
                 next_user = PROMPT_ERROR_RETRY.format(rendered=render_tool_result(result))
             else:
                 self.session["tools"] += 1

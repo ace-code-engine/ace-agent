@@ -1163,6 +1163,31 @@ check("SEC-016 其余文件仍然被恢复（不是删完就停）",
 check("SEC-016 失败时保留删除前的备份供人工恢复",
       any(p.is_dir() and any(p.iterdir()) for p in _g16.backup_dir.iterdir()))
 
+# —— SEC-017（后半）：安全事件分级 + 连续拦截告警 ——
+# 一次 403 可能是模型走错路；连着几次更像有人在借模型的手试探边界。
+_sec17_root = mktemp("sec17")
+_el17 = ExecutionLayer(project_root=str(_sec17_root), permission_level="readonly",
+                       config={"bait": {"enabled": False},
+                               "session_log": str(_sec17_root / ".ace_sessions" / "1_main.jsonl")})
+_r17a = run_agent(_el17, "file_read", path="../outside_a.txt")
+_r17b = run_agent(_el17, "file_read", path="../outside_b.txt")
+check("安全拦截第 1-2 次不打扰用户（可能只是模型走错路）",
+      _r17a["status"] == "403" and _r17b["status"] == "403"
+      and not _r17a.get("security_alerts") and not _r17b.get("security_alerts"),
+      (_r17a.get("security_alerts"), _r17b.get("security_alerts")))
+_r17c = run_agent(_el17, "glob", pattern="../*")
+check("第 3 次安全拦截触发告警，并带上次数与工具名",
+      _r17c["status"] == "403"
+      and (_r17c.get("security_alerts") or {}).get("count") == 3
+      and (_r17c["security_alerts"] or {}).get("last_tool") == "glob",
+      _r17c.get("security_alerts"))
+check("告警同时出现在回喂给模型的 instruction 里（让它别再往下试）",
+      "已向用户告警" in (_r17c.get("instruction") or ""), _r17c.get("instruction"))
+_kinds17 = [ev["kind"] for ev in _el17.session_log.events()]
+check("安全拦截写进事件日志、且与权限裁决分开一类",
+      _kinds17.count("security/denied") >= 2 and "permission/decision" in _kinds17,
+      _kinds17[:14])
+
 # —— terminal_exec 逐次确认闸门：权限等级够也要人点头 ——
 r = run_agent(el_h, "terminal_exec", command="echo hi")
 check("terminal_exec 即使 full 权限也要逐次确认",

@@ -4094,6 +4094,29 @@ check("/net on 显式开启", _cli_net.el.executor.network_enabled is True,
       _bufn.getvalue()[:100])
 check("/net 已注册命令", "/net" in ai_code.AgentCLI.COMMANDS, "")
 
+# —— 配置文件的键必须真的到达执行层 ——
+# 曾经：这些键只在程序化构造 ExecutionLayer 时生效，写进 ~/.ai_code.json 被静静忽略，
+# 于是"我配了白名单/签名密钥"与"闸门其实开着/密钥其实是自动生成的"并存。
+_cfgfwd_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "readonly",
+                                "bait": False, "base_url": "", "api_key": "", "model": "m1",
+                                "tools": False, "egress_allowlist": ["example.com"],
+                                "max_snapshots": 7, "confine_files": False,
+                                "email_smtp": {"host": "smtp.test"}, "session_id": "s-cfg"},
+                               mock=True)
+check("配置键 egress_allowlist 透到执行器",
+      _cfgfwd_cli.el.executor.egress_allowlist == ["example.com"],
+      _cfgfwd_cli.el.executor.egress_allowlist)
+check("配置键 max_snapshots 透到 Guardian",
+      _cfgfwd_cli.el.guardian is not None and _cfgfwd_cli.el.guardian.max_snapshots == 7,
+      getattr(_cfgfwd_cli.el.guardian, "max_snapshots", None))
+check("配置键 confine_files / email_smtp 透到执行器",
+      _cfgfwd_cli.el.executor.confine_files is False
+      and _cfgfwd_cli.el.executor.email_smtp.get("host") == "smtp.test",
+      (_cfgfwd_cli.el.executor.confine_files, _cfgfwd_cli.el.executor.email_smtp))
+check("配置键 session_id 透到记忆会话标签",
+      _cfgfwd_cli.el.archive is not None and _cfgfwd_cli.el.archive.session_tag == "s-cfg",
+      getattr(_cfgfwd_cli.el.archive, "session_tag", None))
+
 # —— 切换类命令：/sandbox 档位热切换 + /permission 显式切换（会话状态无损） ——
 _sbx_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",

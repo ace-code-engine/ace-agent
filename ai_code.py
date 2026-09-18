@@ -2270,6 +2270,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     "provider": self.cfg.get("search_api_provider", ""),
                     "url": self.cfg.get("search_api_url", ""),
                 },
+                # 以下键在 docs/CONFIGURATION.md 里有承诺，但此前**只有程序化构造
+                # ExecutionLayer 时才生效**：写进 ~/.ai_code.json 会被静静忽略。
+                # 配置写了不生效比没这个键更坏 —— 用户以为闸门开着。
+                "signing_key": self.cfg.get("signing_key"),
+                "max_snapshots": self.cfg.get("max_snapshots", 20),
+                "confine_files": self.cfg.get("confine_files", True),
+                "email_smtp": self.cfg.get("email_smtp"),
+                "egress_allowlist": self.cfg.get("egress_allowlist"),
+                "session_id": self.cfg.get("session_id"),
             },
         )
 

@@ -35,3 +35,7 @@ executor/executor.exe
 
 # 基准报告本机生成、不入库（CI bench 任务在工作区自产自销）
 benchmarks/results/
+
+# 示例场景：用户自己丢进去的文档不入库，只保留占位说明
+examples/02_document_parsing/drop_docs_here/*
+!examples/02_document_parsing/drop_docs_here/README.md

@@ -74,6 +74,11 @@ ace-agent/
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
 ├── e2e/                        # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话）
+├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
+│   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
+│   ├── 01_security_lab/        #   权限裁决 + 写前快照 + /undo 回滚 + terminal_exec 逐次确认
+│   ├── 02_document_parsing/    #   文档解析与读取边界（drop_docs_here/ 放文件，内容不入库）
+│   └── 03_multi_turn_agent/    #   持久目标 + 子代理 + 知识库（附 config.example.json）
 ├── assets/logo.svg             # 标识（原创几何构图，无第三方素材）
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）

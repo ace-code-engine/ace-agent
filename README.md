@@ -75,6 +75,8 @@ python ai_code.py --mock    # 离线演示：完整跑一遍 模型↔执行层 
 
 Windows 上项目目录已带 `ace.cmd`，加入 PATH 后可在任意目录直接敲 `ace`。
 
+想按场景走一遍？[`examples/`](examples/README.md) 里有三个可以直接照做的剧本：安全实验室（权限裁决 / 快照 / 回滚，无需密钥）、文档解析、多轮真实任务（持久目标 + 子代理 + 知识库）。
+
 <details>
 <summary>其他启动方式（工具调用 / 沙箱 / 知识库；完整参数见 docs/COMMANDS.md）</summary>
 
@@ -214,6 +216,7 @@ ace-agent/
 ├── tools/  gateway_v2/  executor/ # 工具集 / 网关策略 / Go 沙箱执行器
 ├── test_all.py  benchmarks/  e2e/ # 测试 / 基准 / 真实模型冒烟
 ├── docker/  docs/  demo/          # 容器编排 / 文档（见下）/ 演示
+├── examples/                      # 场景剧本：安全实验室 · 文档解析 · 多轮任务
 └── SECURITY.md  CHANGELOG.md  LICENSE
 ```
 
@@ -227,6 +230,7 @@ ace-agent/
 
 | 想了解 | 去这里 |
 |---|---|
+| **跑起来看场景**（安全实验室 / 文档解析 / 多轮任务） | [examples/](examples/README.md) |
 | 分层架构 · 完整目录树 · ADR 索引 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 安全模型 / 审计 / 漏洞报告 | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) · [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md) · [SECURITY.md](SECURITY.md) |
 | 配置全项与机制 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |

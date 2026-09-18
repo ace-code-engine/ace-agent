@@ -1,0 +1,15 @@
+{
+  "permission": "readonly",
+  "project_root": ".",
+  "sandbox": "off",
+  "max_snapshots": 20,
+  "egress_allowlist": ["api.github.com", ".openai.com"],
+  "signing_key": "换成你自己的随机串；不填则按项目自动生成并存进 .guardian/",
+  "email_smtp": {
+    "host": "smtp.qq.com",
+    "port": 587,
+    "user": "you@qq.com",
+    "password": "授权码（不是登录密码）",
+    "use_tls": true
+  }
+}

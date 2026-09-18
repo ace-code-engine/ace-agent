@@ -4254,6 +4254,20 @@ check("/net on 显式开启", _cli_net.el.executor.network_enabled is True,
       _bufn.getvalue()[:100])
 check("/net 已注册命令", "/net" in ai_code.AgentCLI.COMMANDS, "")
 
+# R-04：斜杠命令改为表驱动（run_command 从 125 行降到 ~10 行），两张表必须一致——
+# 一张管"有哪些命令 + i18n 键"，一张管"派给谁"；拆表防漂移，但拆完就得有东西盯着。
+check("斜杠命令：COMMANDS 与 COMMAND_HANDLERS 键集一致",
+      set(ai_code.AgentCLI.COMMANDS) == set(ai_code.AgentCLI.COMMAND_HANDLERS),
+      sorted(set(ai_code.AgentCLI.COMMANDS) ^ set(ai_code.AgentCLI.COMMAND_HANDLERS)))
+check("斜杠命令：每个 handler 都真实存在（不再靠 if/elif 的 else 兜底）",
+      all(hasattr(ai_code.AgentCLI, _m)
+          for _m, _ in ai_code.AgentCLI.COMMAND_HANDLERS.values()),
+      [_m for _m, _ in ai_code.AgentCLI.COMMAND_HANDLERS.values()
+       if not hasattr(ai_code.AgentCLI, _m)])
+check("斜杠命令：/exit 是唯一返回 False（退出）的命令",
+      ai_code.AgentCLI.COMMAND_HANDLERS["/exit"][0] == "_cmd_exit"
+      and ai_code.AgentCLI.COMMAND_HANDLERS["/exit"][1] is True)
+
 # —— 配置文件的键必须真的到达执行层 ——
 # 曾经：这些键只在程序化构造 ExecutionLayer 时生效，写进 ~/.ai_code.json 被静静忽略，
 # 于是"我配了白名单/签名密钥"与"闸门其实开着/密钥其实是自动生成的"并存。

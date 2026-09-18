@@ -37,11 +37,11 @@
 
 | ID | 事项 | 说明 | 工作量 |
 |---|---|---|---|
-| R-01 | `process_agent_output` 288 行拆状态机 | execution_layer.py:560-849 + 5 个临时标志 | L |
-| R-02 | FileTools 1237 行拆 FileOps/TerminalView/TerminalExec | 三条执行路径并存(file_tools.py) | M-L |
-| R-03 | 双前端对话引擎合并 | ai_code.ModelClient ↔ agent_runner.ModelProvider 统一 | M |
-| R-04 | ai_code.py 2871 行:slash 表驱动 + 会话状态对象 | run_command 111 行 if/elif | M |
-| R-05 | test_all.py 4400 行拆 [N] 文件 + runner(--only/--skip) | 现无法单段跑 | M |
+| ✅ R-01 | `process_agent_output` 拆状态机 | 已完成：`process_agent_output` **288 → 17 行**（解析 → RoundCtx → `_run_round` → finally 回收），单轮逻辑落在 `_run_round`(52) 与 14 个 `_stage_*`；断言覆盖「阶段可脱离整轮单测 / 顺序守卫 / 轮末回收」。剩余：`_stage_permission` 103 行可再拆（外发闸门 / 项目外确认 / 逐次确认）。见 `docs/design/STRUCT-REFACTOR.md` | L |
+| R-02 | FileTools 1237 行拆 FileOps/TerminalView/TerminalExec | 三条执行路径并存(file_tools.py)；最长 `_exec_terminal_view` 157 / `_exec_terminal_exec` 148 行。做法与风险见立项卡 | M-L |
+| R-03 | 双前端对话引擎合并 | ai_code.ModelClient ↔ agent_runner.ModelProvider 统一；**风险最高**（TUI 交互 vs 无头管道、审批入口不同），建议先抽「会话状态对象」再合并 | M |
+| ◐ R-04 | ai_code.py slash 表驱动 + 会话状态对象 | **表驱动已完成**：`COMMAND_HANDLERS`（name → (方法名, 是否收 parts)）与 `COMMANDS` 分离，`run_command` **125 → 46 行**，返回口径沿用"只有显式 False 表示退出"；两张表键集/ handler 存在性 / `/exit` 唯一退出 由 3 条断言守着。剩余：前缀补全再抽 `_resolve_command`、`converse` 234 行拆「一轮对话 / 流式渲染」、「会话状态对象」未动 | M |
+| R-05 | test_all.py 拆 [N] 段 + runner(`--only/--skip`) | 现无法单段跑（5118 行 / 40 段，一轮 1-3 分钟）。难点：段间共享顶层状态，按文本切段会造出"单跑就 NameError"的假能力；做法是按依赖声明注册表 + 连带跑前置段。详见立项卡 | M |
 | ✅ R-06 | 命名/检索索引(INTERFACES §11)+ 新模块 ace_ 前缀约定;深层改名不强制 | | 新模块统一 ace_ 前缀;旧模块补导流 docstring | S |
 
 ## REL — 对外发布前

@@ -100,6 +100,7 @@ ace-agent/
 │   │   ├── EXECUTOR-RELEASE.md     #   执行器发布通道（预编译二进制 + ace --install-executor）
 │   │   ├── README-RESTRUCTURE.md   #   README 瘦身两轮立项（本结构由此演进）
 │   │   └── ARCH-TREE-CHECK.md      #   权威树一致性校验（Q-06：R1-R4 规则 / 实测缺口 / S1-S4）
+│   │   └── STRUCT-REFACTOR.md      #   P2 结构重构立项卡（R-01~R-05 实测规模 / 顺序 / 验收）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

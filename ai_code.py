@@ -1251,6 +1251,36 @@ class _SlashCommands:
         "/exit": "cmd_exit",
     }
 
+    # 斜杠命令的**处理函数**：name → (方法名, 是否接收 parts)。
+    # 与 COMMANDS 分开两张表的原因很实际：COMMANDS 是类属性（i18n 键），/help 与补全
+    # 菜单直接读它；处理函数需要 self 且**签名不统一**（历史遗留：有的收 parts、有的
+    # 不收）。与其改一圈调用方，不如在表里把差异写明白——两张表的键集由断言守着一致。
+    COMMAND_HANDLERS = {
+        "/help": ("_cmd_help", True),
+        "/clear": ("_cmd_clear", True),
+        "/status": ("_show_status", False),
+        "/stats": ("_cmd_stats", True),
+        "/memory": ("_show_memory", False),
+        "/snapshots": ("_cmd_snapshots", True),
+        "/undo": ("_undo_last", False),
+        "/rollback": ("_cmd_rollback", True),
+        "/report": ("_cmd_report", True),
+        "/permission": ("_handle_permission", True),
+        "/mock": ("_toggle_mock", False),
+        "/model": ("_handle_model", True),
+        "/provider": ("_handle_provider", True),
+        "/config": ("_config_wizard", False),
+        "/goal": ("_show_goal", True),
+        "/audit": ("_show_audit", True),
+        "/net": ("_toggle_net", True),
+        "/sandbox": ("_handle_sandbox", True),
+        "/thinking": ("_cmd_thinking", True),
+        "/open": ("_cmd_open", True),
+        "/edit": ("_cmd_edit", True),
+        "/search": ("_cmd_search", True),
+        "/exit": ("_cmd_exit", True),
+    }
+
     def run_command(self, cmd: str) -> bool:
         """处理斜杠命令，返回 False 表示退出（支持前缀补全提示）"""
         parts = cmd.split()
@@ -1284,95 +1314,102 @@ class _SlashCommands:
                     print(t("unknown_prefix", name=name))
                 return True
 
-        if name == "/help":
-            print(c("bold", "\n" + t("help_title")))
-            for k, v in self.COMMANDS.items():
-                print(f"  {c('magenta', k):<22} {t(v)}")
-            print(c("dim", t("help_hint")))
-        elif name == "/clear":
-            self.messages.clear()
-            self.context_refs = []
-            self._init_execution_layer()
-            self.session.update(rounds=0, tools=0, violations=0, start=time.time())
-            print(c("green", t("clear_done")))
-        elif name == "/status":
-            self._show_status()
-        elif name == "/thinking":
-            global _ACE_SHOW_THINKING
-            _arg = (parts[1] if len(parts) > 1 else "").lower()
-            if _arg in ("on", "1", "true", "yes", "开"):
-                _ACE_SHOW_THINKING = True
-            elif _arg in ("off", "0", "false", "no", "关"):
-                _ACE_SHOW_THINKING = False
-            else:
-                _ACE_SHOW_THINKING = not _ACE_SHOW_THINKING
-            print(c("cyan", "  思考过程: " + ("开 ✓（F4 或 /thinking 关闭；思考将以灰色区分）"
-                  if _ACE_SHOW_THINKING else "关 ✓（F4 或 /thinking 开启）")))
-        elif name == "/stats":
-            print(json.dumps(self.el.get_stats(), ensure_ascii=False, indent=2))
-        elif name == "/memory":
-            self._show_memory()
-        elif name == "/snapshots":
-            snaps = self.el.guardian.list_snapshots() if self.el.guardian else []
-            if not snaps:
-                print(t("snap_none"))
-            for s in snaps:
-                print(f"  {s['id']}  {s.get('created_iso')}  {s.get('tag')}  ({s.get('file_count')} 文件)")
-        elif name == "/undo":
-            self._undo_last()
-        elif name == "/rollback":
-            if len(parts) < 2:
-                print("用法: /rollback <快照id>（用 /snapshots 查看）")
-            elif not re.match(r"^\d+_[\w\-]{1,60}$", parts[1]):
-                print(c("red", "快照 id 格式非法（应为 时间戳_标签，用 /snapshots 查看）"))
-            else:
-                try:
-                    answer = input(f"确认回滚到 {parts[1]}？这会覆盖当前文件状态 [y/N]: ").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    print(t("cancelled"))
-                    return True
-                if answer == "y":
-                    try:
-                        ok = self.el.guardian.rollback(parts[1])
-                        print(c("green", t("undo_rollback_ok"))
-                              if ok else c("red", t("rollback_partial")))
-                    except Exception as e:
-                        print(c("red", t("rollback_fail", err=e)))
-                else:
-                    print(t("cancelled"))
-        elif name == "/report":
-            path = self.el.generate_poc_report("Agent CLI 会话报告")
-            print(c("green", f"报告已生成: {path}") if path else c("red", "Nuwa 未启用"))
-        elif name == "/permission":
-            self._handle_permission(parts)
-        elif name == "/sandbox":
-            self._handle_sandbox(parts)
-        elif name == "/model":
-            self._handle_model(parts)
-        elif name == "/mock":
-            self._toggle_mock()
-        elif name == "/provider":
-            self._handle_provider(parts)
-        elif name == "/config":
-            self._config_wizard()
-        elif name == "/goal":
-            self._show_goal(parts)
-        elif name == "/audit":
-            self._show_audit(parts)
-        elif name == "/net":
-            self._toggle_net(parts)
-        elif name == "/open":
-            self._open_file(" ".join(parts[1:]), prefer_editor=False)
-        elif name == "/edit":
-            self._open_file(" ".join(parts[1:]), prefer_editor=True)
-        elif name == "/search":
-            self._search_web(" ".join(parts[1:]).strip())
-        elif name in ("/exit", "/quit", "exit", "quit"):
-            return False
-        else:
+        # 表驱动分发：命令 → (处理函数, 是否收 parts)。表在 COMMAND_HANDLERS，
+        # 键集与 COMMANDS 由断言守着一致；这里只负责"查表 + 调用 + 归一化返回值"。
+        # 返回值口径沿用旧 if/elif：只有显式 False 表示退出，其余（含 None）都是继续。
+        _entry = self.COMMAND_HANDLERS.get(name)
+        if _entry is None:
             print(t("unknown_cmd", name=name))
+            return True
+        _method, _takes_parts = _entry
+        _fn = getattr(self, _method)
+        return (_fn(parts) if _takes_parts else _fn()) is not False
+
+    # ---------- 斜杠命令的具体处理（从 run_command 的 if/elif 里提出来） ----------
+
+    def _cmd_help(self, parts: List[str]) -> bool:
+        print(c("bold", "\n" + t("help_title")))
+        for k, v in self.COMMANDS.items():
+            print(f"  {c('magenta', k):<22} {t(v)}")
+        print(c("dim", t("help_hint")))
         return True
+
+    def _cmd_clear(self, parts: List[str]) -> bool:
+        self.messages.clear()
+        self.context_refs = []
+        self._init_execution_layer()
+        self.session.update(rounds=0, tools=0, violations=0, start=time.time())
+        print(c("green", t("clear_done")))
+        return True
+
+    def _cmd_thinking(self, parts: List[str]) -> bool:
+        global _ACE_SHOW_THINKING
+        _arg = (parts[1] if len(parts) > 1 else "").lower()
+        if _arg in ("on", "1", "true", "yes", "开"):
+            _ACE_SHOW_THINKING = True
+        elif _arg in ("off", "0", "false", "no", "关"):
+            _ACE_SHOW_THINKING = False
+        else:
+            _ACE_SHOW_THINKING = not _ACE_SHOW_THINKING
+        print(c("cyan", "  思考过程: " + ("开 ✓（F4 或 /thinking 关闭；思考将以灰色区分）"
+              if _ACE_SHOW_THINKING else "关 ✓（F4 或 /thinking 开启）")))
+        return True
+
+    def _cmd_stats(self, parts: List[str]) -> bool:
+        print(json.dumps(self.el.get_stats(), ensure_ascii=False, indent=2))
+        return True
+
+    def _cmd_snapshots(self, parts: List[str]) -> bool:
+        snaps = self.el.guardian.list_snapshots() if self.el.guardian else []
+        if not snaps:
+            print(t("snap_none"))
+        for s in snaps:
+            print(f"  {s['id']}  {s.get('created_iso')}  {s.get('tag')}  ({s.get('file_count')} 文件)")
+        return True
+
+    def _cmd_rollback(self, parts: List[str]) -> bool:
+        if len(parts) < 2:
+            print("用法: /rollback <快照id>（用 /snapshots 查看）")
+            return True
+        if not re.match(r"^\d+_[\w\-]{1,60}$", parts[1]):
+            print(c("red", "快照 id 格式非法（应为 时间戳_标签，用 /snapshots 查看）"))
+            return True
+        try:
+            answer = input(f"确认回滚到 {parts[1]}？这会覆盖当前文件状态 [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            print(t("cancelled"))
+            return True
+        if answer == "y":
+            try:
+                ok = self.el.guardian.rollback(parts[1])
+                print(c("green", t("undo_rollback_ok"))
+                      if ok else c("red", t("rollback_partial")))
+            except Exception as e:
+                print(c("red", t("rollback_fail", err=e)))
+        else:
+            print(t("cancelled"))
+        return True
+
+    def _cmd_report(self, parts: List[str]) -> bool:
+        path = self.el.generate_poc_report("Agent CLI 会话报告")
+        print(c("green", f"报告已生成: {path}") if path else c("red", "Nuwa 未启用"))
+        return True
+
+    def _cmd_open(self, parts: List[str]) -> bool:
+        self._open_file(" ".join(parts[1:]), prefer_editor=False)
+        return True
+
+    def _cmd_edit(self, parts: List[str]) -> bool:
+        self._open_file(" ".join(parts[1:]), prefer_editor=True)
+        return True
+
+    def _cmd_search(self, parts: List[str]) -> bool:
+        self._search_web(" ".join(parts[1:]).strip())
+        return True
+
+    def _cmd_exit(self, parts: List[str]) -> bool:
+        return False
 
     # ---------- 联网搜索（人可用的 /search，与 Agent 的 search 工具同源） ----------
 

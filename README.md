@@ -60,6 +60,7 @@ v3.8 起，**执行层的承诺有断言守着**：数据发往模型指定的�
 - [项目结构](#项目结构)
 - [开发与贡献](#开发与贡献)
 - [文档地图](#文档地图)
+- [已知未完成与未验证](#已知未完成与未验证)
 - [许可](#许可)
 - [设计参考](#设计参考)
 
@@ -253,6 +254,15 @@ ace-agent/
 | 开发流程 / 契约 / 待办 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [docs/INTERFACES.md](docs/INTERFACES.md) · [docs/BACKLOG.md](docs/BACKLOG.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 | 历史立项卡 / 会话纪要 / 调研 / 提示词规范 | [docs/design/](docs/design/) · [docs/history/](docs/history/) |
+
+## 已知未完成与未验证
+
+诚实起见，以下两件事**没有做完 / 没有验证过**，别把它们当成"应该没问题"：
+
+- **R-03 双前端引擎合并（未完成）** —— `ai_code.ModelClient` ↔ `agent_runner.ModelProvider` 只合并了**安全半边**（两端共用的纯逻辑 `ace_model.py`：历史裁剪 / HTTP 错误码提示）。**客户端本体的合并没有做**：交互式前端是"流式 + requests + 重试 + Anthropic 兼容"，无头前端是 urllib 一次性调用，输出契约也不同（边流边渲染 vs `🤖 Agent:` 单行，`e2e` 与 CI 都依赖后者）；合并属于**改行为**，而现有测试只覆盖 `--mock` 路径，**必须在真机（真实模型端点）上验证过才敢动**。推进顺序写在 [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md) §3。
+- **REL-03 真机冒烟（未验证）** —— 仓库里的自动化只覆盖 `--mock` 离线链路、无头 `agent_runner` 与 CI 上的三档 Python；**"`ace.cmd` → 真实终端对话"这条路径从未在真机上走过一遍**。Windows 控制台的 VT/编码、`prompt_toolkit` 补全菜单、真实模型下的流式渲染都属于这一类。要在有控制台的机器上手动验证一次。
+
+（另一条同类未验证：**darwin/amd64 执行器产物没有原生冒烟**——交叉编译出来了，但没有 Intel Mac 实机跑过。见 [`docs/BACKLOG.md`](docs/BACKLOG.md) 的 REL 段与 `docs/design/EXECUTOR-RELEASE.md` 的验收备注。）
 
 ## 许可
 

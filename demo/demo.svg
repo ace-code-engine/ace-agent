@@ -64,7 +64,7 @@ text{white-space:pre;dominant-baseline:middle}
 <rect y="40" width="890" height="706" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="445.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.7.0 · AI Code Engine</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.9.0 · AI Code Engine</tspan></text>
 <text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#d7dce5">  模型: mock（离线演示）</tspan></text>
 <text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 目录: .</tspan></text>
 <text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">沙箱: off（Python 层策略校验，无内核边界）</tspan></text>
@@ -79,9 +79,9 @@ text{white-space:pre;dominant-baseline:middle}
 <text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具</tspan></text>
 <text class="r13" x="22" y="364" xml:space="preserve"><tspan fill="#5fd68a">  t datetime_now </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.00s</tspan></text>
 <text class="r14" x="22" y="388" xml:space="preserve">&#160;</text>
-<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中.   当前时间是 2026-09-18 18:50:07</tspan></text>
+<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中.   当前时间是 2026-09-18 22:07:11</tspan></text>
 <text class="r16" x="22" y="436" xml:space="preserve">&#160;</text>
-<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
+<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.4s）</tspan></text>
 <text class="r18" x="22" y="484" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
 <text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 1 次 | 违规 0 次 | 已运行 0s</tspan></text>
 <text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>

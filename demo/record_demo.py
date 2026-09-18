@@ -34,7 +34,14 @@ TMP_ROOT = ROOT / ".test_tmp"        # 临时工作目录（gitignore），与 t
 
 # 演示脚本：mock 是两步剧本（工具调用 → 基于结果作答），其余都是本地斜杠命令。
 # 不要写"改代码/装依赖"这种 mock 演不出来的台词，演示必须和真实行为一致。
-SESSION = ["现在几点", "/status", "/permission readonly", "/exit"]
+# 两套剧本：happy = 完整闭环；blocked = 让 mock 去读项目外的私钥，被执行层 403 拦下。
+SESSIONS = {
+    "happy": ["现在几点", "/status", "/permission readonly", "/exit"],
+    "blocked": ["帮我读一下 ~/.ssh/id_rsa 里的私钥", "/status", "/exit"],
+}
+SESSION = SESSIONS["happy"]          # main() 会按 --session 覆盖
+OUT_SVGS = {"happy": HERE / "demo.svg", "blocked": HERE / "demo_blocked.svg"}
+OUT_SVG = OUT_SVGS["happy"]          # main() 会按 --session 覆盖
 
 # 只保留演示需要的行数：/help 那张大表会把画面撑爆，不进脚本。
 # 上限要够装下完整一场（清干净的工作目录下约 29 行），否则结尾的 /exit 会被截掉。
@@ -241,26 +248,40 @@ fill="{THEME['dim']}">ace-agent — python ai_code.py --mock</text>
 def main() -> None:
     ap = argparse.ArgumentParser(description="录制 ace-agent 演示动画（SVG）")
     ap.add_argument("--check", action="store_true",
-                    help="只校验现有 demo.svg 能否原样重现，不覆盖文件")
+                    help="校验现有 SVG 能否原样重现（不带 --session 时逐个校验全部）")
+    ap.add_argument("--session", choices=sorted(SESSIONS), default=None,
+                    help="剧本：happy（默认，完整闭环）/ blocked（越界读取被执行层拦下）")
     args = ap.parse_args()
 
-    transcript = to_transcript(capture_session())
-    if not transcript:
-        raise SystemExit("录制到的会话是空的，脚本或 CLI 输出可能变了")
-    svg = build_svg(transcript)
+    global SESSION, OUT_SVG
+    targets = [args.session] if args.session else (["happy"] if args.check else ["happy"])
 
-    if args.check:
-        if not OUT_SVG.exists():
-            raise SystemExit(f"{OUT_SVG} 不存在，先跑一次不带 --check 的录制")
-        # 时间戳会变（mock 会问当前时间），只比结构：行数与去掉数字后的骨架
-        old = re.sub(r"[\d.]+", "#", OUT_SVG.read_text(encoding="utf-8"))
-        if re.sub(r"[\d.]+", "#", svg) != old:
-            raise SystemExit("demo.svg 与当前 CLI 输出不一致，请重新录制")
-        print("demo.svg 与当前 CLI 输出一致")
-        return
+    if args.check and not args.session:
+        # 不带 --session 的 --check：把两套剧本都对一遍（CI 用的就是这条）
+        targets = sorted(SESSIONS)
+    elif args.session:
+        targets = [args.session]
 
-    OUT_SVG.write_text(svg, encoding="utf-8")
-    print(f"已写出 {OUT_SVG.relative_to(ROOT)}（{len(transcript)} 行）")
+    for name in targets:
+        SESSION = SESSIONS[name]
+        OUT_SVG = OUT_SVGS[name]
+        transcript = to_transcript(capture_session())
+        if not transcript:
+            raise SystemExit(f"录制到的会话是空的（{name}），脚本或 CLI 输出可能变了")
+        svg = build_svg(transcript)
+
+        if args.check:
+            if not OUT_SVG.exists():
+                raise SystemExit(f"{OUT_SVG} 不存在，先跑一次不带 --check 的录制")
+            # 时间戳会变（mock 会问当前时间），只比结构：行数与去掉数字后的骨架
+            old = re.sub(r"[\d.]+", "#", OUT_SVG.read_text(encoding="utf-8"))
+            if re.sub(r"[\d.]+", "#", svg) != old:
+                raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制")
+            print(f"{OUT_SVG.name} 与当前 CLI 输出一致（{name}）")
+            continue
+
+        OUT_SVG.write_text(svg, encoding="utf-8")
+        print(f"已写出 {OUT_SVG.relative_to(ROOT)}（{name}，{len(transcript)} 行）")
 
 
 

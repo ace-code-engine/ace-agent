@@ -355,7 +355,32 @@ class ModelProvider:
     # ---------- 脚本化假模型（离线演示完整循环） ----------
 
     def generate_mock(self, prompt: str) -> str:
+        """脚本化假模型：默认走"查时间"的干净闭环；命中关键词则演一遍**被拦下**的路径。
+
+        为什么要两种剧本：演示"全流程跑通"和演示"执行层真的拦得住"是两件事。
+        后者最有说服力——它不靠讲解，直接把一次越界读取打到 403 给你看（见 demo/）。
+        关键词命中才走拦截剧本，所以既有的 mock 断言与默认演示完全不受影响。
+        """
         self.mock_step += 1
+        if any(k in prompt for k in ("私钥", "id_rsa", "越界", "删掉", "改坏", "偷偷")):
+            if self.mock_step == 1:
+                return (
+                    "<INTERNAL>\n[INTERNAL_THINKING]\n"
+                    "[PLAN] 演示：尝试读取项目外的私钥文件\n"
+                    "[REASON] file_read 可以读文件\n"
+                    "[ACT] 调用 file_read\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                    "<EXTERNAL>\nanswer.\n"
+                    '{"tool":"file_read","path":"~/.ssh/id_rsa"}\n</EXTERNAL>'
+                )
+            result_text = self.mock_tool_result or ""
+            detail = f"（{result_text}）" if result_text and result_text != "(未知)" else ""
+            return (
+                "<INTERNAL>\n[INTERNAL_THINKING]\n"
+                "[OBSERVE] 执行层拒绝了这次读取\n"
+                "[REASON] 这是安全边界，不是权限问题；如实报告用户\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                f"<EXTERNAL>\nanswer.\n读取被执行层拦下了{detail}——"
+                "敏感目标/越界由执行层硬拦，与模型是否被说服无关。\n</EXTERNAL>"
+            )
         if self.mock_step == 1:
             # 第一轮：输出工具调用
             return (

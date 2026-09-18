@@ -5,6 +5,9 @@
 > 执行纪律:先读 `docs/DEVELOPMENT.md`(流程)、`docs/INTERFACES.md`(契约)、`docs/ADR.md`;
 > 改行为必改旧用例;每步本地 `ruff + py_compile + test_all + bench --quick`。
 > 完成一项 → CHANGELOG/README 登记 → push → 再开下一项。
+>
+> **后续追加**：R-06（命名/检索索引）与 **R-07（根目录瘦身，根级 `.py` 24 → 4，新增 `ui/` `cli/` `core/` 三个包）**
+> 已在 v3.10.0 完成；本文只覆盖 R-01~R-05 的原始范围，R-07 的实测过程与验收见 `docs/design/STRUCT-REFACTOR.md` R-07。
 
 ## R-01 · `process_agent_output` 状态机化(execution_layer.py:560-849,约 288 行)
 
@@ -35,7 +38,7 @@
 ## R-03 · 双前端模型客户端合并(ai_code.py ModelClient vs agent_runner.py ModelProvider)
 
 - 现状:两套 OpenAI/Anthropic 兼容对话引擎(流式/工具/降级)并存,行为差异是漂移源。
-- 范围:统一到单一客户端(建议迁到独立 `ace_model.py` 或并入 ai_code 后由双方 import),
+- 范围:统一到单一客户端(建议迁到独立 `core/ace_model.py` 或并入 ai_code 后由双方 import),
   URL 组装/重试(ace_http)/tools 降级/文本协议封装只留一份。
 - 验收:两条 CLI(ai_code、agent_runner)行为不变;mock 与真实端点 smoke 均绿;
   `test_all` 0 失败;无第二份 `/chat/completions` 实现残留。

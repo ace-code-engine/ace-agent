@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.10.0 · 2026-09-18 · 根目录瘦身（`ui/` `cli/` `core/`）· README 英文为主 · "被拦下"演示](#v3100-2026-09-18)
 - [v3.9.0 · 2026-09-18 · 守卫 · 审计对账 · 场景示例 · 结构重构（当天 6 个 tag 合并）](#v390-2026-09-18)
 - [v3.7 · 2026-09-06 · 执行器发布通道：官方预编译二进制 + ace --install-executor](#v37-2026-09-06)
 - [v3.6 · 2026-09-05 · UI 交互增强 + 诊断工具 + 发布卫生](#v36-2026-09-05)
@@ -22,6 +23,29 @@
 - [v1.2 · 2026-08-21 ~ 08-24 · CLI 体验与工具体系](#v12-2026-08-21-08-24)
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
+
+## [v3.10.0] · 2026-09-18
+
+### 根目录瘦身：20 个模块下沉 `ui/` `cli/` `core/`（R-07）
+
+- ♻️ **根级 `.py` 24 → 4**：只留 `ai_code.py`（前端入口）、`agent_runner.py`（交互循环）、`execution_layer.py`（执行层）、`test_all.py`（测试）。其余按早就存在、只是没落到文件系统上的边界分组：`ui/`（`ace_theme` `ace_selector` `ace_cards` `ace_chatscroll` `i18n`——只负责画，不参与裁决）、`cli/`（`ace_doctor` `ace_context` `ace_sessionlog`）、`core/`（`ace_execpolicy` `ace_net` `ace_isolation` `ace_http` `ace_executor` `ace_model` `work` `guardian` `archive` `nuwa` `universal_document_parser` `version`）。`locales/` 与 `executor/` 保持根级不动
+- ♻️ **机械改写 + 全量测试当验收**：`import X` → `from pkg import X`、`from X import …` → `from pkg.X import …`，共 **77 处 / 19 个文件**；判定逻辑、错误码、权限模型、工具清单一个字没动，验收标准就是"与基线逐项一致"
+- 🐛 **搬家最容易漏的三类东西**（都已修，且写进立项卡）：① `__file__` 相对资源——`ui/i18n.py` 找 `locales/`、`cli/ace_doctor.py` 找仓库根、`core/ace_executor.py` 找 `executor/` 二进制，下沉一层后都要 `parent.parent`；② **不是 import 的字符串引用**——`mock.patch("ace_net.safe_request")` 这类点号目标，以及断言源码里导入写法的守卫（`"from ace_net import check_url" in src`）；③ **构建接线**——`ci.yml` 的 `compileall` 由 20 个文件名换成 `cli core ui` 三个包目录，`release-executor.yml` 两处 `python -c 'import version'` 改成 `'from core import version'`
+- ⚙️ **命令入口随包名变**：`python ace_doctor.py` → `python -m cli.ace_doctor`（模块内 `from core import version` 需要仓库根在 `sys.path`，`-m` 满足），文档与 docstring 一并同步
+- 📋 **历史记录故意不改**：`CHANGELOG.md` 与 `docs/history/**` 保持原样（那是当时的记录）；`docs/design/ARCH-TREE-CHECK.md` 的旧示例保留，只在顶部加一行"模块已下沉、R1-R4 规则未变"的导流说明
+- 📋 守卫当场生效：`[38]` 先报出"树里 20 条幽灵条目 + 仓库根级漏登记 `ui/cli/core`"，补完权威树后 `--only 38` 5/5 全绿——这正是它该有的反应
+
+### README 英文为主 + 首屏重排 + 第二张演示图
+
+- 📚 **`README.md` 改为英文为主**，中文版保留为 `README.zh-CN.md` 并顶部互相切换；首屏顺序按"一句话定位 → 徽章 → 三属性 → 对比表 → 30 秒命令"重排，`Local · Model-agnostic · Pluggable`（本地跑 / 模型无关 / 可插拔）从加粗行改成表格，摆到首屏最显眼处；演示图整体下移到新章节 `See it run`（中文版 `看它跑起来`），第二屏才出现
+- ✨ **新增"被拦下"演示** `demo/demo_blocked.svg`：同一个 Agent 伸手去读 `~/.ssh/id_rsa`，执行层**在工具执行之前**返回 `403`（路径越界）。这张图回答的是"演示跑通"之外的那个问题——边界到底拦不拦得住。`agent_runner.generate_mock` 按关键词分流两条剧本（默认仍是"查时间"的干净闭环，既有断言与默认演示不受影响），`demo/record_demo.py` 新增 `--session {happy,blocked}`，无参 `--check` 同时校验两张图
+- 🐛 **`--check` 的版本号盲区补上**：骨架比对会把所有数字归一化，于是"图里印的版本号"改版本后会**静默过期**（本次改名时就撞上了：两张图还印着旧版本，`--check` 却是绿的）。现在单独一条：图里的 `X.Y.Z · AI Code Engine` 必须等于 `core/version.py`，对不上直接给出"请重新录制"的退出信息
+- ⚙️ 徽章补齐 Tests / Python / License / 核心零依赖 / Latest 五枚，全部指向真实状态（CI 徽章直接引用本仓库 workflow）
+- 📚 `CHANGELOG.md` 当天 6 个 tag 的条目合并为一条（见下），版本目录同步
+
+### 仓库整理
+
+- ⚙️ `Archive.py` / `Nuwa.py` → 全小写 `archive.py` / `nuwa.py`（此后随 R-07 迁入 `core/`）：词边界替换，`MemoryArchive` / `POCGenerator` 之类类名不受影响；19 个文件的引用、权威树、命名索引与 `ci.yml` 一并同步
 
 ## [v3.9.0] · 2026-09-18
 

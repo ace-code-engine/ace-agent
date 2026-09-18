@@ -60,7 +60,7 @@ text{white-space:pre;dominant-baseline:middle}
 <rect y="40" width="1160" height="658" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="580.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.9.0 · AI Code Engine</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.10.0 · AI Code Engine</tspan></text>
 <text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#d7dce5">  模型: mock（离线演示）</tspan></text>
 <text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 目录: .</tspan></text>
 <text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">沙箱: off（Python 层策略校验，无内核边界）</tspan></text>

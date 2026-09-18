@@ -35,6 +35,8 @@
 
 v3.7 起，Go 执行器提供**官方预编译二进制**（随 GitHub Release 发布，5 平台）：`ace --install-executor` 一条命令装好，Windows 开 `--sandbox job` **不再需要本机装 Go**。通道设计见 [`docs/design/EXECUTOR-RELEASE.md`](docs/design/EXECUTOR-RELEASE.md)。
 
+v3.8 起，**执行层的承诺有断言守着**：数据发往模型指定的目的地要人点头、项目外"已存在的东西"被覆盖/删除要人点头、安全拦截到阈值就向你告警；同时 README 与 `docs/` 里的结构树、口径数字、审计结论都有 `test_all` 的三节守卫盯着，改坏了 CI 直接红。想直接上手看行为，[`examples/`](examples/README.md) 里有三个可以照做的剧本。
+
 ## Why ACE?
 
 如果你的需求只是**聊天式 AI 编程**（对话里生成代码、不改文件、不执行命令）——ACE 未必必要。
@@ -110,6 +112,8 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 | 三级权限 + 按权限裁剪工具表 | `readonly`/`write`/`full`；工具清单随档位裁剪（`tools/registry.py` 单点声明），模型只在"看得见用得了"的工具里决策 |
 | 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树/内存上限 + 受限令牌）/ `docker`（一次性容器：network none + cap-drop ALL）；job/docker 拿不到边界就 503，绝不静默回退 |
 | 写入前快照 | 每次写操作自动物理快照，`/undo` 一键回滚；HMAC 签名防伪造，快照目录 Agent 自身不可写 |
+| 外发闸门 | 数据去往**模型指定的目的地**（`api_get`/`api_post`/`browser_*`/`notify_send` 的 email）时，目的地不在白名单内就逐次问人；配置 `egress_allowlist` 即一次性授权，清单外一律 403 |
+| 安全事件分级 | 403 里"执行层主动防御"与"模型参数写错"分开计数：前者本会话累计到阈值就明确告警（可能在借被读取的文件/网页注入指令试探边界） |
 | 行为检测闸门 | 首次 `code_execute` 注入语义诱饵验证模型清醒 + AST 6 规则（无限递归 / 硬编码密钥 / SQL 注入等） |
 | Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），Job Object 整树回收 + 第二道策略复检；官方产物 `ace --install-executor`（v3.7+） |
 
@@ -168,11 +172,13 @@ ACE 的安全分四层，默认启用程度不同：
 | 层 | ACE 的做法 |
 |---|---|
 | Prompt 层 | 提示词只做引导，**不承诺安全** |
-| Application 层（默认） | 执行层策略：三级权限 + AST 行为检测 + 写前快照/回滚 + 路径边界 + 网络 SSRF/白名单闸门 |
+| Application 层（默认） | 执行层策略：三级权限 + AST 行为检测 + 写前快照/回滚 + 路径边界 + 网络 SSRF/白名单闸门 + 外发目的地确认（含项目外覆盖/删除要人点头） |
 | OS 层（可选，Windows） | `--sandbox job`：Job Object 进程树/内存上限 + 受限令牌 |
 | Container 层（可选） | `--sandbox docker`：一次性容器，network none + cap-drop ALL + 只挂工作目录 |
 
 诚实边界：**不开 OS/Container 档时**，上述只是进程内策略（AST 黑名单/AST 求值无法闭合、`terminal_exec` 判定只是止血层），**不是 OS 级隔离**；`job` 档是 Windows 专属原语；Docker 容器共享内核，逃逸仍是逃逸。job/docker 拿不到边界一律 503，**绝不静默回退宿主执行**。
+
+外发闸门也有范围：它管的是**模型挑的目的地**——内置端点（搜索引擎、图片服务）不逐次问，其中 `image_generate` 会把 prompt 明文交给第三方服务；`terminal_exec` 仍能删项目内的审计日志，但那一步每次都过人。这两条都写进了 [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)，不是隐藏行为。
 
 → 完整安全模型与生产部署必读见 [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)。漏洞报告见 [SECURITY.md](SECURITY.md)。
 
@@ -198,9 +204,11 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 → 测试框架说明、CI 矩阵、基准 / e2e / 冒烟细节见 [docs/TESTING.md](docs/TESTING.md)。
 
+其中三节是**给文档与安全承诺用的守卫**（v3.8 起）：`[38]` 权威目录树 ↔ 真实文件、`[39]` 文档口径数字 ↔ `PROVIDERS`/`TOOL_SPECS`、`[40]` 安全审计里那些原始 payload。它们的作用是让"文档说要问人"这件事不会某天悄悄变成"代码里从来没问过"。
+
 ## 最近更新
 
-- **v3.8** (2026-09-18)：文档/安全承诺守卫（`test_all [38]/[39]/[40]`）+ 审计 19 条全面对账 + 场景示例 `examples/`（P1 全清）
+- **v3.8** (2026-09-18)：执行层承诺兑现为断言——外发闸门、项目外覆盖/删除确认、安全拦截分级告警；文档 `[38]/[39]/[40]` 三节守卫；审计 `SEC-001~019` 全面对账（含新发现并修复的 `SEC-009`）；场景示例 [`examples/`](examples/README.md)（P1 全清）
 - **v3.7** (2026-09-06)：执行器官方预编译二进制 + `ace --install-executor`（首个 GitHub Release）
 
 → 完整版本历史见 [CHANGELOG.md](CHANGELOG.md)。

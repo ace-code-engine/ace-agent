@@ -7,8 +7,8 @@ execution_layer.py —— Agent 执行层（完整版）
   · gateway_v2.py  → L1/L2/L4/L5 网关
   · work.py        → 诱饵 + AST 检测
   · guardian.py    → 物理快照回滚
-  · Archive.py     → SimHash 记忆注入
-  · Nuwa.py        → POC 报告生成
+  · archive.py     → SimHash 记忆注入
+  · nuwa.py        → POC 报告生成
   · universal_document_parser.py → 文档解析
 
 职责：
@@ -31,7 +31,7 @@ process_agent_output 单轮状态机（阶段流程图；与 README「架构」�
     ① _stage_new_task       新任务重置（诱饵/计划/权限残留清零；跨轮状态在 self）
     ② _stage_route          L1 意图 / L2 技能（仅新输入计算一次并缓存）
     ③ _stage_parse          <INTERNAL>/<EXTERNAL> 解析 ──格式错→ FORMAT_ERROR
-    ④ _stage_memory         Archive 记忆记录/注入（与 prepare_context 共享缓存）
+    ④ _stage_memory         archive 记忆记录/注入（与 prepare_context 共享缓存）
     ⑤ _stage_final_reply    模式 B：L4 文本守门 → GUARD_VIOLATION / FINAL_REPLY
     ⑥ _stage_tool_precheck  模式 A 预检：控制工具直通/熔断/Plan Mode
                             → TOOL_BANNED / PLAN_PENDING
@@ -44,12 +44,12 @@ process_agent_output 单轮状态机（阶段流程图；与 README「架构」�
     ⑪ _stage_output_guard   成功结果过 L4 守门 ──违规→ 回滚 ctx.snapshot_id
                             → GUARD_VIOLATION
     ⑫ _stage_bait_rearm     诱饵按 bait_frequency 重武装
-    ⑬ _stage_poc_metrics    Nuwa 指标（工具执行/响应时间/失败）
+    ⑬ _stage_poc_metrics    nuwa 指标（工具执行/响应时间/失败）
     ⑭ _stage_result         构建返回：SUCCESS / 错误码(400/403/404/409/500…)
                             回喂示例与熔断提示
 
   与 README「架构」图对应：解析(PARSE) → 权限(PERM) → 闸门(GATE) → 执行(EXEC)；
-  记忆(Archive)/守门(L4/L5)/快照(guardian)/报告(Nuwa) 是本层的支撑模块。
+  记忆(archive)/守门(L4/L5)/快照(guardian)/报告(nuwa) 是本层的支撑模块。
 
 RoundCtx（本轮上下文）：只承载“活在一轮内”的临时状态（confirmed / snapshot_id），
 process_agent_output 每轮创建、轮末 finally 回收；跨轮状态（授权/计划/诱饵/熔断
@@ -101,7 +101,7 @@ except ImportError:
 
 # V1 记忆引擎
 try:
-    from Archive import MemoryArchive
+    from archive import MemoryArchive
     V1_ARCHIVE_AVAILABLE = True
 except ImportError:
     V1_ARCHIVE_AVAILABLE = False
@@ -109,7 +109,7 @@ except ImportError:
 
 # V1 POC 报告
 try:
-    from Nuwa import POCGenerator
+    from nuwa import POCGenerator
     V1_NUWA_AVAILABLE = True
 except ImportError:
     V1_NUWA_AVAILABLE = False
@@ -679,7 +679,7 @@ class ExecutionLayer:
         """在模型生成前调用：记录用户输入到记忆库、检测主题切换，并返回可注入上下文的 prompt。
 
         返回值为加了记忆前缀的 user_input；无相关记忆时原样返回。
-        同一 user_input 重复调用不会重复写入 Archive（process_agent_output 会复用本缓存）。
+        同一 user_input 重复调用不会重复写入 archive（process_agent_output 会复用本缓存）。
         """
         if not self.archive:
             return user_input
@@ -734,7 +734,7 @@ class ExecutionLayer:
         parsed, early = self._stage_parse(agent_output)
         if early is not None:
             return early
-        # ④ 记录到 Archive（SimHash 记忆；prepare_context 预注入则复用缓存）
+        # ④ 记录到 archive（SimHash 记忆；prepare_context 预注入则复用缓存）
         injected_memory = self._stage_memory(user_input)
         # ⑤ 模式 B 最终回复：过 L4 文本守门（不套用代码风格规则）
         early = self._stage_final_reply(parsed, user_input, injected_memory)
@@ -812,7 +812,7 @@ class ExecutionLayer:
         }
 
     def _stage_memory(self, user_input: str) -> List[Dict]:
-        """④ 记录到 Archive（SimHash 记忆）；返回本轮注入的记忆列表（可空）。
+        """④ 记录到 archive（SimHash 记忆）；返回本轮注入的记忆列表（可空）。
 
         与 prepare_context 共用 _last_memory_* 缓存：已预注入的输入不重复写入。
         """
@@ -1148,7 +1148,7 @@ class ExecutionLayer:
                 self.bait_armed = True
 
     def _stage_poc_metrics(self, tool_name: str, result: Any) -> None:
-        """⑬ 生成 POC 指标（Nuwa.py）。"""
+        """⑬ 生成 POC 指标（nuwa.py）。"""
         if not self.nuwa:
             return
         status = "pass" if result.status == "success" else "fail"
@@ -1564,7 +1564,7 @@ class ExecutionLayer:
         return stats
 
     def generate_poc_report(self, title: str = "Agent 执行层 POC 报告") -> Optional[str]:
-        """生成 POC 报告（Nuwa.py）"""
+        """生成 POC 报告（nuwa.py）"""
         if not self.nuwa:
             return None
         self.nuwa.title = title

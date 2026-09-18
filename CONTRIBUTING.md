@@ -36,7 +36,7 @@ python e2e/real_model_smoke.py              # 真实模型冒烟(需 ACE_E2E_* e
 - 类型注解补全;用户可见文案走 i18n,不许用中文 message 子串承载错误语义。
 - 读/检索类工具必须过与 `file_read` 同口径的路径闸门;执行类工具不许只靠 AST 精确名
   拦截,要叠 Go 执行器/job/docker 边界或引用级白名单(历史教训见 BACKLOG SEC-01/02)。
-- 新模块用 `ace_` 前缀、小写下划线;旧名(`Archive/Nuwa/work/...`)不再新增同类。
+- 新模块用 `ace_` 前缀、小写下划线;旧名(`archive/nuwa/work/...`)不再新增同类。
 
 ## 提交流程
 

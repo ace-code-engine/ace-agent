@@ -70,7 +70,7 @@
   "cmd_snapshots": "スナップショット一覧",
   "cmd_undo": "最新の自動スナップショットへロールバック（id 不要）",
   "cmd_rollback": "指定スナップショットへロールバック（用法: /rollback <id>）",
-  "cmd_report": "POC レポート生成（Nuwa）",
+  "cmd_report": "POC レポート生成（nuwa）",
   "cmd_permission": "権限の切替（Enter で選択枠、または /permission [readonly|write|full]）",
   "cmd_mock": "オフラインデモ / 実モデル切替（往復可）",
   "cmd_model": "モデルの表示/設定（用法: /model <名> | base-url <url> | api-key <key>）",

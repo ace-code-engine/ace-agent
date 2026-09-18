@@ -7,8 +7,8 @@ test_all.py —— ACE 全模块端到端测试（纯 stdlib，无需 pytest）
   1. gateway_v2  网关（L1 意图 / L2 技能 / L4 守门 8 规则 / L5 飞轮）
   2. work        诱饵工厂（5 种诱饵注入/验证）+ AST 行为检测（6 规则）
   3. guardian    物理快照回滚（预检/备份/恢复/清理）
-  4. Archive     SimHash 记忆（短输入保护/主题切换/催促权重/召回）
-  5. Nuwa        POC 报告（HTML+JSON、通过率、平均响应、回滚计数）
+  4. archive     SimHash 记忆（短输入保护/主题切换/催促权重/召回）
+  5. nuwa        POC 报告（HTML+JSON、通过率、平均响应、回滚计数）
   6. universal_document_parser  解析/截断/错误处理
   7. execution_layer  权限/白名单/沙箱/诱饵循环/AST 熔断/守门回滚/模块状态
 
@@ -320,9 +320,9 @@ if _want("3"):
 # ============================================================
 if _want("4"):
     # ── [4] ────
-    print("[4] Archive —— SimHash 记忆注入")
+    print("[4] archive —— SimHash 记忆注入")
     # ============================================================
-    from Archive import MemoryArchive  # noqa: E402
+    from archive import MemoryArchive  # noqa: E402
 
     am = MemoryArchive()
     check("短输入保护（<10 字不存储）", am.add("你好") is False)
@@ -342,9 +342,9 @@ if _want("4"):
 # ============================================================
 if _want("5"):
     # ── [5] ────
-    print("[5] Nuwa —— POC 报告生成")
+    print("[5] nuwa —— POC 报告生成")
     # ============================================================
-    from Nuwa import POCGenerator  # noqa: E402
+    from nuwa import POCGenerator  # noqa: E402
 
     nuwa = POCGenerator(output_dir=str(mktemp()), title="测试报告")
     nuwa.add_metric("工具执行", "file_read", "pass")
@@ -520,7 +520,7 @@ if _want("7"):
     check("prepare_context 后 process 复用缓存注入",
           r_pc.get("memory_injected") is not None and len(r_pc["memory_injected"]) >= 1, r_pc)
     dup = [e for e in el_pc.archive.entries if "旅行游记" in e.text]
-    check("prepare_context 不重复写入 Archive", len(dup) == 1, len(dup))
+    check("prepare_context 不重复写入 archive", len(dup) == 1, len(dup))
 
     # —— 模块状态 ——
     st = el_full.get_stats()

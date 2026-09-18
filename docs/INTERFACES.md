@@ -1,7 +1,7 @@
 # 接口与类型契约(INTERFACES)
 
 > 本文件把 ace 的**对外/对内接口**钉死,供开发与 AI 助手遵守,防止“协议漂移”。
-> 依据:当前源码(`tools/registry.py`、`tools/result.py`、`execution_layer.py`、`agent_runner.py`、`guardian.py`、`Archive.py` 等)。与代码冲突时**以代码为准并更新本文**。
+> 依据:当前源码(`tools/registry.py`、`tools/result.py`、`execution_layer.py`、`agent_runner.py`、`guardian.py`、`archive.py` 等)。与代码冲突时**以代码为准并更新本文**。
 > 未标准化的缺口统一见 [BACKLOG.md](BACKLOG.md)(错误码枚举、状态常量、双前端合并等)。
 
 ## 1. 分层与依赖方向(谁不能绕过谁)
@@ -14,7 +14,7 @@ ai_code.py / agent_runner.py        # 前端(会话/流式/提供商)
          ├── gateway_v2/            #   L1/L2/L4/L5 网关(意图/技能/守门/飞轮)
          ├── ace_net.py             #   出站闸门(SSRF + 白名单)
          ├── ace_execpolicy.py      #   命令三值判定(allow/prompt/forbidden)
-         └── guardian.py/Archive.py/Nuwa.py   # 快照/记忆/报告
+         └── guardian.py/archive.py/nuwa.py   # 快照/记忆/报告
 ```
 铁律:模型只能与执行层对话;执行层是唯一会碰到文件系统/网络/进程的边界。
 
@@ -131,8 +131,8 @@ class ToolSpec:
 | 模块 | 契约方法 |
 |---|---|
 | `guardian.py` | `snapshot(reason) -> id|None`、`verify_snapshot(id) -> (ok,msg)`、`rollback(id) -> bool`、`backup_dir` |
-| `Archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
-| `Nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
+| `archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
+| `nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
 | `universal_document_parser.py` | `parse_document(path) -> ParseResult(success, method, text, truncated, metadata, error)` |
 
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)
@@ -141,7 +141,7 @@ class ToolSpec:
 - ✅ 双提示词同步 → 已处理(v3.8, Q-07)：运行时 `prompts/` 三个提示词的工具清单由 test_all 断言覆盖全部暴露工具；规范版(`docs/history/prompt-engineering/`)按历史归档，不再逐版同步
 - ✅ `parse_document` 未走文件路径闸门(只读越界) → 已修(v3.2, SEC-02)
 - ✅ `code_execute` AST 精确名拦截可被别名/lambda 绕过 → 已修(v3.2, SEC-01，改危险内建引用级拦截)
-- ✅ 模块命名风格(旧 `Archive/Nuwa/work/guardian` vs 新 `ace_*`) → 已定(v3.3, R-06)：新模块统一 `ace_` 前缀，旧名补导流 docstring
+- ✅ 模块命名风格(旧 `archive/nuwa/work/guardian` vs 新 `ace_*`) → 已定(v3.3, R-06)：新模块统一 `ace_` 前缀，旧名补导流 docstring
 - 仍开放项以 `docs/BACKLOG.md` 为准（如 SEC-03 默认权限与外发确认、Q-08 e2e 抗抖动、Q-15 docstring、R-01~R-05 结构重构）
 
 ## 11. 命名与检索索引(R-06)
@@ -150,8 +150,8 @@ class ToolSpec:
 
 | 模块 | 真实职责 | 检索词 |
 |---|---|---|
-| `Archive.py` | SimHash 记忆引擎 | memory / simhash / 记忆 / 主题切换 |
-| `Nuwa.py` | POC 报告(HTML+JSON) | report / POC / 通过率 |
+| `archive.py` | SimHash 记忆引擎 | memory / simhash / 记忆 / 主题切换 |
+| `nuwa.py` | POC 报告(HTML+JSON) | report / POC / 通过率 |
 | `work.py` | 诱饵工厂 + AST 行为检测 | bait / ast / 诱饵 / 检测 |
 | `guardian.py` | 物理快照回滚 | snapshot / rollback / undo / 快照 |
 | `ace_*` | 执行层支撑(策略/网络/上下文/HTTP/日志/主题/选择器/卡片/隔离) | 直接以 ace_ 前缀检索 |

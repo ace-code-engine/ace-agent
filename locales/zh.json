@@ -73,7 +73,7 @@
   "cmd_snapshots": "列出快照",
   "cmd_undo": "一键回滚到最近一次自动快照（无需记 id）",
   "cmd_rollback": "回滚到指定快照（用法: /rollback <快照id>）",
-  "cmd_report": "生成 POC 报告（Nuwa）",
+  "cmd_report": "生成 POC 报告（nuwa）",
   "cmd_permission": "切换权限（回车弹框选档，或 /permission [readonly|write|full]）",
   "cmd_mock": "切换离线演示 / 真实模型模式（可来回切换）",
   "cmd_model": "查看/自定义模型（用法: /model <名> | base-url <url> | api-key <key>）",

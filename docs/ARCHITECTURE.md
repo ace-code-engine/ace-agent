@@ -12,7 +12,7 @@
 | 模型网关 | `gateway_v2/` | L1 意图 → L2 技能 → L4 守门（8 规则）→ L5 飞轮（SFT 数据） |
 | 执行层 | `execution_layer.py` | 单轮 `_stage_*` 状态机（14 阶段，RoundCtx 本轮上下文）；协议解析、权限裁决、安全闸门、快照与守门串联 |
 | 工具集 | `tools/` | registry 单点声明（name/schema/权限组/handler）+ 按域拆分的执行器 |
-| 支撑模块 | `work.py` `guardian.py` `Archive.py` `Nuwa.py` | 诱饵/AST 行为检测、物理快照回滚（HMAC）、SimHash 记忆、POC 报告 |
+| 支撑模块 | `work.py` `guardian.py` `archive.py` `nuwa.py` | 诱饵/AST 行为检测、物理快照回滚（HMAC）、SimHash 记忆、POC 报告 |
 
 ## 2. Gateway 与执行层的关系（真话）
 
@@ -70,8 +70,8 @@ ace-agent/
 ├── gateway_v2/                 # 网关包：intent(L1/L2) · guard(L4) · flywheel(L5)
 ├── work.py                     # 诱饵工厂 + AST 行为检测（ASTDetector）
 ├── guardian.py                 # 物理快照回滚：快照 / 完整性预检 / HMAC / 自动清理
-├── Archive.py                  # SimHash 记忆引擎
-├── Nuwa.py                     # POC 报告（HTML + JSON）
+├── archive.py                  # SimHash 记忆引擎
+├── nuwa.py                     # POC 报告（HTML + JSON）
 ├── universal_document_parser.py# N 合一文档解析 + 懒加载 + 50MB 防线
 ├── i18n.py + locales/          # 轻量国际化（zh / en / ja JSON 字典）
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版

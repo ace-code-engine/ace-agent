@@ -72,7 +72,7 @@
   "cmd_snapshots": "List snapshots",
   "cmd_undo": "Roll back to the latest auto snapshot (no id needed)",
   "cmd_rollback": "Roll back to a snapshot (usage: /rollback <snapshot id>)",
-  "cmd_report": "Generate POC report (Nuwa)",
+  "cmd_report": "Generate POC report (nuwa)",
   "cmd_permission": "Switch permission (Enter shows picker, or /permission [readonly|write|full])",
   "cmd_mock": "Toggle offline demo / real model (switch back and forth)",
   "cmd_model": "View/set model (usage: /model <name> | base-url <url> | api-key <key>)",

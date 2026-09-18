@@ -7,12 +7,7 @@
 
 **版本目录**
 
-- [v3.9.0 · 2026-09-18 · P2 结构重构：测试分段 / file_tools 拆域 / 前端瘦身](#v390-2026-09-18)
-- [v3.8.4 · 2026-09-18 · 结构重构起步：R-01 闭环 + R-04 表驱动](#v384-2026-09-18)
-- [v3.8.3 · 2026-09-18 · 拒绝"没人 + 没边界"：never + off 启动即拦](#v383-2026-09-18)
-- [v3.8.2 · 2026-09-18 · 上手路径文档 + 沙箱档启动预检](#v382-2026-09-18)
-- [v3.8.1 · 2026-09-18 · 无人值守边界说清楚 + 审批策略可达 + 自评边界声明](#v381-2026-09-18)
-- [v3.8 · 2026-09-18 · 文档/安全承诺守卫 + 审计 19 条对账 + 场景示例（P1 全清）](#v38-2026-09-18)
+- [v3.9.0 · 2026-09-18 · 守卫 · 审计对账 · 场景示例 · 结构重构（当天 6 个 tag 合并）](#v390-2026-09-18)
 - [v3.7 · 2026-09-06 · 执行器发布通道：官方预编译二进制 + ace --install-executor](#v37-2026-09-06)
 - [v3.6 · 2026-09-05 · UI 交互增强 + 诊断工具 + 发布卫生](#v36-2026-09-05)
 - [v3.5 · 2026-09-05 · Q-10 错误码目录 + P2/REL 收尾（开发中）](#v35-2026-09-05)
@@ -30,67 +25,44 @@
 
 ## [v3.9.0] · 2026-09-18
 
-**P2 结构重构落地：分段跑测试 · file_tools 拆域 · 前端瘦身 · 共享模型层纯逻辑**
+> 当天连续迭代了 6 个 tag（`v3.8.0` → `v3.8.4` → `v3.9.0`），下面是**合并后**的记录；
+> 每次提交的独立快照见 `git log --oneline`（tag 都还在）。
+
+### P2 结构重构落地：分段跑测试 · file_tools 拆域 · 前端瘦身 · 共享模型层纯逻辑
 
 - ♻️ **R-05 测试分段运行**：35 个 `[N]` 段各自包进 `if _want("N")`（由脚本整体缩进，逐段校验行数守恒），新增 `--only/--skip/--upto/--list` 与**显式依赖表**（段间共享顶层状态，只按标题切文本会造出"单跑某段就 NameError"的假能力——这是本轮真踩到的坑，`--only 40` 一开始就是 NameError）。实测 `--only 40` **14s → 0.3s**。新增 `[41]` 运行器自检：起子进程验证 `--list/--only/--skip` 真的按预期工作（`ACE_TESTALL_NESTED=1` 防递归），外加"段注册表覆盖全部段"断言——新增段忘了登记会当场响
 - ♻️ **R-02 file_tools 拆域**：1237 行的一个类按三条执行路径拆成 `file_common.py`（共享常量）+ `file_ops.py`（19 方法）+ `terminal_view.py`（2）+ `terminal_exec.py`（4），`file_tools.py` 只留 25 行兼容层（`FileTools = FileOps + TerminalView + TerminalExec`）——**对外名、`registry.py` 的 handler 名、mixin 组合全部零改动**；25 个方法体经脚本逐字节校验未改。过程中被测试抓到"脚本只切方法、漏了 3 个类属性"（`_ABS_PATH_WRITE_TOOLS` / `_NT_SWITCH_RE` / `_DOS_DIR_SWITCH_RE`），以及 4 条**读源码找字符串**的守卫因代码搬家而假失败——现在统一走 `_tools_src(...)` 按模块拼读
 - ♻️ **R-04 前端瘦身**：`run_command` **125 → 25 行**（前缀补全抽成 `_resolve_command`），`converse` **234 → 175 行**（`_model_turn` 46 + `_note_round_progress` 25）。顺带把一条"压缩紧跟在 trim_messages 之后"的源码守卫从**盯字面相邻**改成**盯语义顺序**——提函数后语义没变、字面变了，这种守卫要么改对要么删掉，不能留着让它假红
 - ◐ **R-03 安全半边**：新增 `ace_model.py`，收拢两个前端确实重复的纯逻辑——`trim_history`（口径统一到"最近 N 轮 = 2N 条"，原先两边各写一份且语义还不一致）与 `error_hint`（HTTP 错误码 → i18n 键，原先只在 ai_code 里）。该模块不 import 项目内任何模块（与 `ace_isolation` 同一取态）。**客户端合并未做**，理由写进立项卡：两者形态与输出契约都不同（流式+requests+重试 vs urllib 一次性；边流边渲染 vs `🤖 Agent:` 单行），而现有测试只覆盖 mock 路径——属"改行为"，须单独立项 + 真机验证
 - 📋 `docs/design/STRUCT-REFACTOR.md` 与 `docs/BACKLOG.md` 的 P2 表同步为实测状态（含两项"重构陷阱"记录）；`docs/TESTING.md` 补分段运行说明
-- 回归：本机 1081/1090（+6 条模型层纯逻辑与运行器断言），9 项环境性失败与基线逐项同名；ruff 零命中；文档链接零死链；权威树/compileall 守卫零缺口
 
-## [v3.8.4] · 2026-09-18
-
-**P2 结构重构起步：R-01 闭环、R-04 表驱动落地、其余立项**
+### P2 结构重构起步：R-01 闭环、R-04 表驱动落地、其余立项
 
 - ♻️ **R-04 前半：斜杠命令表驱动** —— 新增 `COMMAND_HANDLERS`（name → (方法名, 是否收 parts)），与既有的 `COMMANDS`（name → i18n 键）分离；`run_command` **125 → 46 行**。分发从一串 if/elif 变成"查表 + 调用 + 返回值归一"，并把 10 处内联分支提成小方法（`_cmd_help` / `_cmd_rollback` / `_cmd_thinking` …）。**返回口径刻意沿用旧语义**（只有显式 `False` 表示退出，`None` 仍算继续），免得后人"顺手改成真值判断"改变 `/status` 之类命令的行为；三条断言盯着两张表一致、handler 真实存在、`/exit` 是唯一退出
 - 📋 **`docs/design/STRUCT-REFACTOR.md`（新立项卡）**：用实测数字（不是照抄 BACKLOG）写清 R-01~R-05 的现状、顺序、风险与验收——R-01 已闭环（`process_agent_output` 288 → **17 行**）、R-04 前半完成、R-05（`--only/--skip` + 依赖注册表）性价比最高建议先做、R-02（拆 `file_tools` 三域）中等、R-03（合并双前端引擎）风险最高建议单独立项。BACKLOG 的 P2 表同步为实测状态
-- 回归：本机 1070/1079（+3 条斜杠命令表断言），9 项环境性失败与基线同名；行为零变更（斜杠命令相关既有断言全绿）
 
-## [v3.8.3] · 2026-09-18
-
-**把 ADR-002 那句"不存在合理用途"落成硬拦：`never` + 无边界不再启动**
+### 把 ADR-002 那句"不存在合理用途"落成硬拦：`never` + 无边界不再启动
 
 - 🛡️ **策略组合自检（fail-close，不再只是提示）**：`approval_policy=never`（从不问人）+ `sandbox=off`（没有内核边界）→ **拒绝启动，退出码 2**；`never` + `sandbox_policy=danger_full_access` 同理。ADR-002 原本就写着"无人值守叠加无隔离等于完全没有边界，这个组合不存在合理用途"，v3.8.1 只做到了提示，这一版把它做成硬拦。`never` 本身不会让危险动作变多（判定为需审批的一律拒绝），它的问题是**挡不住不需要审批的那批工具**（`file_write` / `code_execute` / `api_post` …）——没人 + 没边界，边界就只剩进程内策略层
 - 两个入口都拦：`ai_code.py` 与 `agent_runner.py` 在构造执行层之前自检，给人一条说得清的提示（i18n 三语）而不是 traceback；**库调用方也拦**——`ExecutionLayer(...)` 直接抛 `PolicyRefused`，不给"绕过 CLI 就没事"的缝隙。拒绝码来自纯函数 `policy_refusal_code()`，+6 条断言（两种拒绝组合 / job·docker 放行 / 其它审批档不受影响 / 构造即抛 / 给边界后可构造）
 - 📚 文档同步：`SECURITY-MODEL.md`（权限与授权 + 无人值守两节）、`CONFIGURATION.md` 的审批策略表、`GETTING-STARTED.md` 的三维度记法
-- 回归：本机 1067/1076，9 项环境性失败与基线同名；实测两个前端退出码均为 2 且提示可读
 
-## [v3.8.2] · 2026-09-18
-
-**降低上手成本：一条新手路径 + 把"平台依赖"的坑提前到启动时**
+### 降低上手成本：一条新手路径 + 把"平台依赖"的坑提前到启动时
 
 - ✨ **`docs/GETTING-STARTED.md`（新）**：面向第一次打开仓库的人——5 分钟三条命令；**permission × sandbox × approval 三个正交维度**的对照表（"能不能用 / 跑在哪 / 问不问人"）；七种场景 → 直接抄的命令；该懂的七件事（默认只读、写前快照、`terminal_exec` 逐次确认、外发与项目外覆盖确认、三档沙箱的真实差别、Agent 状态不可写、安全拦截告警）；**新手最容易踩的十个坑**；以及"想深入某块去哪"。README 的快速开始与文档地图各加入口，权威树同步登记
 - ⚠️ **沙箱档启动预检**：`--sandbox job` 在非 Windows 平台、或缺执行器二进制，以及 `--sandbox docker` 缺 Docker CLI 时，**启动时就把话说清楚**（此前要等到第一次 `terminal_exec` / `code_execute` 才拿到 503——错误来得太晚，新用户会以为是功能坏了）。启动**不拦**：拿不到边界就诚实 503、绝不静默回退这条语义完全没动。判定是纯函数 `execution_layer.sandbox_preflight_notice()`，文案走 i18n（zh/en/ja），两个前端共用
-- 回归：本机 1061/1070（+5 条断言：预检三种不满足组合 + 两种不提示组合），9 项环境性失败与基线同名；实测非 Windows 分支与"缺 docker CLI"分支的提示都能打出来
 
-## [v3.8.1] · 2026-09-18
-
-**把"无人值守到底能跑什么"说到明处，并让那个开关真的可达**
+### 把"无人值守到底能跑什么"说到明处，并让那个开关真的可达
 
 - 🛡️ **无人值守的真实行为与直觉相反，现在写清楚了**：非交互（管道 / CI / 无 tty）下**需要审批的动作会被直接拒绝**（`ask_yes_no` / `ask_grant` 统一 fail-close → `terminal_exec`、外发确认、项目外覆盖确认在 CI 里根本走不通），而**不需要审批**的写/执行工具（`file_write` / `code_execute` / `api_post`…）照跑，只受进程内策略约束。也就是说"止血层"在无人值守下的真实暴露面**不是 `terminal_exec`**，而是这批自动放行的工具——`docs/SECURITY-MODEL.md` 新增「无人值守 / 自动化部署」整节，`SECURITY.md` 的「已知边界(非漏洞)」同步
 - ✨ **审批策略从"只在库里能设"变成 CLI 可达**：`--approval-policy`（`ai_code.py` / `agent_runner.py` 各一个），且 `approval_policy` / `sandbox_policy` 两个键**透传进执行层**——此前它们只在程序化构造 `ExecutionLayer` 时被读取，写进 `~/.ai_code.json` 或命令行都无效（与 v3.8 修掉的那 6 个键同属"配置写了不生效"）。于是"无人值守 + 真边界"的标准组合 `--sandbox job|docker` + `approval_policy: on_failure` 现在照着文档就能配出来
 - ⚠️ **启动主动提示风险组合**：非交互 + `off` 档 + 非只读时，两个前端都会在启动横幅里打出"需要审批的动作会被拒绝、无需审批的工具照跑"以及两条出路（打真边界 / 回 readonly）。判定是纯函数 `execution_layer.unattended_without_boundary()`，有断言覆盖，提示文案走 i18n（zh/en/ja）
 - ⚠️ **静态检测的边界单列一节**：AST 引用级拦截 / execpolicy 三值判定 / 出站清单都是模式层——抬高成本、挡住已知形态、枚举不完；复杂或多步拼装的恶意行为不在射程内。真正的边界是 OS/容器档 + 最小权限账户（低权限账户、`readonly` 起步、白名单只放必要域名、`signing_key` 出项目目录）
 - 📚 **自评边界声明**：`SECURITY-MODEL.md` 末尾与 `SECURITY.md` 都写明——这些文档是**自评 + 断言**，不是第三方审计；有断言守着的部分（`[38]/[39]/[40]` 与各节点名的断言）改坏了 CI 会红，**没被断言覆盖的结论只是当时的实测记录**。生产前请自行评估 + 红队演练，并给了最低覆盖清单（注入→越界读→外发链路、`code_execute` 逃逸与 `terminal_exec` 包装绕过、快照/日志篡改、无人值守组合）
-- 回归：本机 1056/1065（+4 条断言：approval_policy 透传 + 无人值守判定三种组合），9 项环境性失败与基线同名
 
-## [v3.7] · 2026-09-06
+- 当天回归总账：本机 1081/1090（9 项环境性失败与基线逐项同名），ruff 零命中，文档链接零死链，权威树/compileall 守卫零缺口
 
-**执行器发布通道：官方预编译二进制 + `ace --install-executor`（docs/design/EXECUTOR-RELEASE.md）**
-
-- ✨ `executor/main.go` 新增 CLI 版本出口 `--version`/`-v`（`serverVersion` 改 `var`，发布流水线以 `-ldflags -X main.serverVersion=…` 注入与 version.py 对齐的版本号）；协议零改动
-- ✨ 新增 `.github/workflows/release-executor.yml`：手动 dispatch 交叉编译 5 平台产物（windows-amd64 / linux-amd64 / linux-arm64 / darwin-amd64 / darwin-arm64，`CGO_ENABLED=0`）+ windows/ubuntu/macos-14 三档原生 `--version` 冒烟 + `gh release` 幂等发布（产物可重复上传）；首个随 GitHub Release 发布的 tag：v3.7.0
-- ✨ `ace --install-executor`：stdlib urllib 下载对应平台官方产物到 `executor/`（无需本机 Go 工具链），`ACE_EXECUTOR_BASE_URL` 可指向镜像/内网，下载后跑 `--version` 自校验才算成功，失败删除并提示手工 `go build`；REPL 防蠢接管同步识别
-- ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
-- ⚙️ 版本号单源(Q-12)下沉到 UI：登录/聊天横幅的 `v1.0` 硬编码改为 `{ver}` 占位符，由 `version.py` 注入（zh/en/ja 三语言）；新增 `python ai_code.py --version`；`ace_doctor` 诊断头报 ACE 版本
-- 📚 README 瘦身(520→299 行)：安全模型/配置/命令参考拆至 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，README 变"名片 + 精简上手 + 文档枢纽"（docs/design/README-RESTRUCTURE.md）
-- 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
-
-## [v3.8] · 2026-09-18
-
-**文档与安全承诺守卫（`[38]/[39]/[40]`）· 审计 19 条全面对账 · 场景示例 `examples/`（P1 全清）**
-
+### 文档与安全承诺守卫（`[38]/[39]/[40]`）· 审计 19 条全面对账 · 场景示例 `examples/`（P1 全清）
 - ⚙️ Q-06 结构一致性校验：`test_all.py` 新增 `[38]` 节——树中路径必须存在（R1）/ 根级条目必须登记（R2）/ 已展开目录的直接子项必须登记（R3）/ ci.yml 的 compileall 覆盖全部根级 `.py`（R4），仓库真相取自 `git ls-files`，git 不可用则如实跳过（不假绿）；随 CI 三档 Python 的全量测试顺带执行，无需新增 job
 - ⚙️ 同批清零既有漂移：权威树补齐 13 条缺口（根级 9 + `.github` 2 + `tools` 2），ci.yml compileall 补 `ace_chatscroll/ace_doctor/test_all/version` 4 个模块（docs/design/ARCH-TREE-CHECK.md）
 - ⚙️ Q-04 文档数字单一来源：README 顶部提供商家数口径与 `/provider` 对齐；CHANGELOG 头部去掉写死的断言总数（改为"以 `test_all.py` 输出为准"）；`test_all.py` 新增 `[39]` 节——文档中"家厂商 · 入口"/"家提供商"/"个工具"必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，README/CONTRIBUTING/CHANGELOG 头部禁止硬编码用例总数（CI 三档 Python 顺带执行）
@@ -108,6 +80,19 @@
 - 🧪 对账变成断言：`test_all.py` 新增 `[40] 安全审计 payload 回归`——把 `SECURITY-AUDIT.md` 对账表里可自动化的原始 payload 钉成 17 条断言（SEC-003 四种引用级绕过 payload / SEC-005 `open_file` 只给链接不弹窗 / SEC-006 内容限项目内而目录可越界 / SEC-007+018 越界路径非 allow / SEC-010 签名密钥自动生成且 `verify_snapshot` 通过 / SEC-014 `.env`+`*.pem` 不进快照 / SEC-019 安全 403 不进熔断计数），Windows 专有命令在非 Windows 上走 SKIPPED。理由写在节头：SEC-009 那次的教训正是"文档写着要问、代码里从来没问过"——对账表不变成断言，就会随时间重新变成一纸承诺。`docs/TESTING.md` 把 `[38]/[39]/[40]` 三条守卫合并成一段说明
 - ✨ 场景示例目录 `examples/`（OPEN-1，此前"工程化清单"里唯一确认的空缺）：三个可直接照做的剧本——`01_security_lab`（默认只读 403 → `/permission write` → 写前快照 → `/snapshots` → `/undo`，外加 `terminal_exec` 逐次确认与路径越界，配"应该看到什么 / 看到它说明什么"对照表）、`02_document_parsing`（懒加载解析器按需装 + 读取边界 403 实测）、`03_multi_turn_agent`（`goal_create` 自动续跑 / `subagent` 拆活 / `kb_add`+`kb_search` 沉淀，附 `config.example.json`）；README 快速开始与文档地图各加入口，权威树同步登记
 - 回归：本机 **1052/1061**（本轮新增 `[38]`/`[39]`/`[40]` 三节共 27 条守卫与安全断言），9 项环境性失败与基线逐项同名（Go Job Object 受进程沙箱限制，非本轮引入）；CI 三次 push 全绿（run 126/127/128）
+
+
+## [v3.7] · 2026-09-06
+
+**执行器发布通道：官方预编译二进制 + `ace --install-executor`（docs/design/EXECUTOR-RELEASE.md）**
+
+- ✨ `executor/main.go` 新增 CLI 版本出口 `--version`/`-v`（`serverVersion` 改 `var`，发布流水线以 `-ldflags -X main.serverVersion=…` 注入与 version.py 对齐的版本号）；协议零改动
+- ✨ 新增 `.github/workflows/release-executor.yml`：手动 dispatch 交叉编译 5 平台产物（windows-amd64 / linux-amd64 / linux-arm64 / darwin-amd64 / darwin-arm64，`CGO_ENABLED=0`）+ windows/ubuntu/macos-14 三档原生 `--version` 冒烟 + `gh release` 幂等发布（产物可重复上传）；首个随 GitHub Release 发布的 tag：v3.7.0
+- ✨ `ace --install-executor`：stdlib urllib 下载对应平台官方产物到 `executor/`（无需本机 Go 工具链），`ACE_EXECUTOR_BASE_URL` 可指向镜像/内网，下载后跑 `--version` 自校验才算成功，失败删除并提示手工 `go build`；REPL 防蠢接管同步识别
+- ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
+- ⚙️ 版本号单源(Q-12)下沉到 UI：登录/聊天横幅的 `v1.0` 硬编码改为 `{ver}` 占位符，由 `version.py` 注入（zh/en/ja 三语言）；新增 `python ai_code.py --version`；`ace_doctor` 诊断头报 ACE 版本
+- 📚 README 瘦身(520→299 行)：安全模型/配置/命令参考拆至 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，README 变"名片 + 精简上手 + 文档枢纽"（docs/design/README-RESTRUCTURE.md）
+- 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
 
 ## [v3.6] · 2026-09-05
 

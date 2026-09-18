@@ -31,7 +31,7 @@
 | ✅ Q-10 | 错误语义与文案解耦 | 靠 message 中文子串判 403;`error_code` 自由字符串散落 ~30 处;状态码无集中常量 | error_code/status 枚举化,文案走 i18n | M |
 | ✅ Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | 已完成(v3.8)：CONTRIBUTING 已改为"总数随平台浮动、不写死数字"；`demo/record_demo.py --check` 进入 CI 的 test job（Py 3.12 单跑）；Docker run 示例补 `--project-root /app/project`。过程中发现演示脚本早就腐化：提示符仍认旧字形 `❯`（v3.6 已改 `▊`）导致用户输入行消失，且录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数——已改为"临时工作目录 + 临时 HOME"的封闭录制、路径折叠成 `…/`，并重录 `demo/demo.svg`（29 行完整会话，结尾不再被 MAX_LINES 截断） | S |
 | ✅ Q-12 | 版本单源 `__version__` + 里程碑 tag/Release | 已落地：`version.py` 是唯一来源，登录/聊天横幅由 `{ver}` 占位符注入（zh/en/ja），`python ai_code.py --version` 可查，`ace_doctor` 报版本，发布流水线用 `-ldflags -X main.serverVersion=…` 把同一版本号注入 Go 执行器；远端已有 `v3.3`~`v3.7` 里程碑 tag（v3.7.0 随 GitHub Release 发布 5 平台执行器产物） | S-M |
-| ✅ Q-15 | 模块 docstring 检索词/命名说明 | 已落地（与 R-06 同一批）：`docs/INTERFACES.md §11` 有"历史命名 ↔ 真实职责 ↔ 检索词"索引（`Archive`=记忆 / `Nuwa`=报告 / `work`=诱饵+AST / `guardian`=快照回滚），且每个旧模块 docstring 首行已写清职责；约定"新模块一律 `ace_` 前缀" | S |
+| ✅ Q-15 | 模块 docstring 检索词/命名说明 | 已落地（与 R-06 同一批）：`docs/INTERFACES.md §11` 有"历史命名 ↔ 真实职责 ↔ 检索词"索引（`archive`=记忆 / `nuwa`=报告 / `work`=诱饵+AST / `guardian`=快照回滚），且每个旧模块 docstring 首行已写清职责；约定"新模块一律 `ace_` 前缀" | S |
 
 ## P2 — 结构级(择机)
 

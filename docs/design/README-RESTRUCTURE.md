@@ -38,7 +38,7 @@ README 当前 520 行，四类文档混编（诊断来自评审意见，数字�
 ## 设计取向            ← 保留 3 条（链接改指 SECURITY-MODEL）
 ## 核心能力            ← 8 个钩子行（下表）
 ## 架构概览            ← 简化 Mermaid(用户→网关→执行层→工具) + 每层一句话小表
-                        （支撑模块 work/guardian/Archive/Nuwa 移出图，文字一行带过）
+                        （支撑模块 work/guardian/archive/nuwa 移出图，文字一行带过）
 ## 常用命令            ← ~10 条斜杠/@ + /provider 示例 → 完整命令见 docs/COMMANDS.md
 ## 安全设计            ← 一句话(安全在执行层) → docs/SECURITY-MODEL.md
 ## 配置入口            ← 最小 ~/.ai_code.json 示例 → docs/CONFIGURATION.md

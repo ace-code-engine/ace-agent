@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Archive.py —— SimHash 记忆注入引擎
+archive.py —— SimHash 记忆注入引擎
 
 契约（execution_layer.py）：
-    from Archive import MemoryArchive
+    from archive import MemoryArchive
     archive = MemoryArchive()
     archive.add(user_input)                  # 短输入保护：少于 10 字不存储
     archive.detect_topic_shift(user_input)   # -> "shifted" / "stable"

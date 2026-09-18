@@ -57,7 +57,7 @@
 - 文案:用户可见输出经 `i18n`(`locales/*.json`)或至少不与错误语义耦合;
   **禁止用中文 message 子串当 error_code**(现状已记 BACKLOG)。
 - 日志:内部诊断 `logging.getLogger("ace")`;**禁止宽 except + pass 吞掉 L5/会话日志写入失败**。
-- 新模块命名 `ace_` 前缀小写下划线;`Archive.py/Nuwa.py` 等旧名不再新增同类。
+- 新模块命名 `ace_` 前缀小写下划线;`archive.py/nuwa.py` 等旧名不再新增同类。
 
 ## 4. 安全红线(写代码时默认遵守)
 

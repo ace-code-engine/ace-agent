@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Nuwa.py —— POC 报告生成器（HTML + JSON 双格式）
+nuwa.py —— POC 报告生成器（HTML + JSON 双格式）
 
 契约（execution_layer.py）：
-    from Nuwa import POCGenerator
+    from nuwa import POCGenerator
     nuwa = POCGenerator()
     nuwa.add_metric(category, name, value, status)   # status: pass / fail / warn / info
     nuwa.add_rollback(reason)

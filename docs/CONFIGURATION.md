@@ -12,7 +12,7 @@ config = {
     "confine_files": True,                     # 文件工具限制在项目目录内（含跨盘符检查）
     "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议）
     "max_snapshots": 20,                       # 快照硬上限，自动清理最旧
-    "session_id": "会话标识",                   # Archive 记忆按会话隔离
+    "session_id": "会话标识",                   # archive 记忆按会话隔离
     "bait": {"enabled": True, "frequency": 0}, # 诱饵验证（0 = 每任务一次）
     "guard": {"rules": {"no_hardcoded_secrets": False}},  # 关闭某条守门规则
     "email_smtp": {"host": "smtp.qq.com", "port": 587,

@@ -1391,7 +1391,7 @@ class _SlashCommands:
 
     def _cmd_report(self, parts: List[str]) -> bool:
         path = self.el.generate_poc_report("Agent CLI 会话报告")
-        print(c("green", f"报告已生成: {path}") if path else c("red", "Nuwa 未启用"))
+        print(c("green", f"报告已生成: {path}") if path else c("red", "nuwa 未启用"))
         return True
 
     def _cmd_open(self, parts: List[str]) -> bool:

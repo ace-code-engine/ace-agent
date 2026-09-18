@@ -291,7 +291,7 @@ except Exception as e:  # noqa: BLE001
 # ================================================================ memory
 print("[memory] SimHash 记忆")
 try:
-    from Archive import MemoryArchive  # noqa: E402
+    from archive import MemoryArchive  # noqa: E402
     am = MemoryArchive()
     check("短输入保护（<10 字不存储）", am.add("你好") is False)
     check("正常输入存储", am.add("帮我把订单数据导出成 Excel 报表") is True)

@@ -4631,6 +4631,101 @@ check("键位映射 up 上翻", (key_to_delta("up") or 0) < 0)
 check("键位映射 pagedown 下翻", (key_to_delta("pagedown") or 0) > 0)
 
 
+# ============================================================
+print("[38] 文档/仓库结构一致性 —— 权威树 ↔ 真实文件(Q-06)")
+# ============================================================
+# 规则(与 docs/design/ARCH-TREE-CHECK.md 一致):
+#   R1 树中每条路径必须真实存在(防幽灵条目)
+#   R2 仓库根级条目必须出现在树中(自身或作为前缀,如 .github/workflows/)
+#   R3 树里"已展开"目录(出现了其直接子条目)的直接子项必须全部登记
+#   R4 ci.yml 的 compileall 参数必须覆盖全部根级 .py
+# 仓库真相取自 `git ls-files`(天然排除 .test_tmp/.guardian/benchmarks/results 等未跟踪生成物);
+# git 不可用时如实 skip,绝不假绿(与 Q-03 纪律一致)。
+import re as _re  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+_TREE_DOC = FOLDER / "docs" / "ARCHITECTURE.md"
+_TREE_MIN_ENTRIES = 40   # 实测 72;低于下限视为"树被改坏",直接判失败而非静默全绿
+
+
+def _arch_tree_paths():
+    """解析 ARCHITECTURE.md 的权威树代码块 → 相对路径集合(posix 风格)。"""
+    _blocks = _re.findall(r"```\n(.*?)```", _TREE_DOC.read_text(encoding="utf-8"), _re.S)
+    _blk = next((b for b in _blocks if b.lstrip().startswith("ace-agent/")), None)
+    if _blk is None:
+        return None
+    _anc, _joined = {}, []
+    for _raw in _blk.splitlines():
+        _m = _re.match(r"^([\u2502\s]*)(?:[\u251c\u2514]\u2500\u2500 )(.*)$", _raw)
+        if not _m:
+            continue
+        _depth = len(_m.group(1)) // 4 + 1          # 每级 4 字符(│   / 空格)
+        _name = _m.group(2).split("#")[0].strip()   # 去掉行尾注释
+        if not _name:
+            continue
+        _anc[_depth] = _name.rstrip("/")
+        _joined.append("/".join(_anc[_d] for _d in range(1, _depth + 1)))
+    _paths = set()
+    for _p in _joined:
+        for _cand in (x.strip().rstrip("/") for x in _p.split(" + ")):   # "i18n.py + locales/"
+            if _cand:
+                _paths.add(_cand)
+    return _paths
+
+
+try:
+    _TRACKED = _subprocess.run(["git", "ls-files"], cwd=str(FOLDER), capture_output=True,
+                               text=True, encoding="utf-8", timeout=30).stdout.split()
+    if not _TRACKED:
+        raise RuntimeError("git ls-files 无输出")
+    _GIT_WHY = ""
+except Exception as _exc:  # noqa: BLE001
+    _TRACKED, _GIT_WHY = None, f"git ls-files 不可用: {_exc}"
+
+if _TRACKED is None:
+    for _n in ("[38] 权威树可解析(条目数达标)", "[38] 树中路径全部存在",
+               "[38] 仓库根级条目已登记", "[38] 已展开目录的直接子项已登记",
+               "[38] ci.yml compileall 覆盖根级 .py"):
+        skip(_n, _GIT_WHY)
+else:
+    _TREE = _arch_tree_paths()
+    check("[38] 权威树可解析(条目数 ≥ %d)" % _TREE_MIN_ENTRIES,
+          bool(_TREE) and len(_TREE) >= _TREE_MIN_ENTRIES,
+          f"解析到 {0 if not _TREE else len(_TREE)} 条(树文件缺失或格式被改坏?)")
+
+    if _TREE:
+        _ghosts = sorted(p for p in _TREE if not (FOLDER / p).exists())
+        check("[38] 树中路径全部存在(无幽灵条目)", not _ghosts, f"不存在: {_ghosts[:8]}")
+
+        _tracked_set = set(_TRACKED)
+        _tracked_dirs = {f.rsplit("/", 1)[0] for f in _TRACKED if "/" in f}
+
+        # R2:根级条目(文件/目录)必须在树中登记
+        _root_items = sorted({f.split("/")[0] if "/" in f else f for f in _TRACKED})
+        _r2 = [it for it in _root_items
+               if it not in _TREE and not any(p.startswith(it + "/") for p in _TREE)]
+        check("[38] 仓库根级条目已登记(树内或作为前缀)", not _r2, f"漏登记: {_r2[:8]}")
+
+        # R3:已展开目录的直接子项必须登记
+        _expanded = sorted({p.rsplit("/", 1)[0] for p in _TREE if "/" in p})
+        _r3 = []
+        for _d in _expanded:
+            _kids = {f[len(_d) + 1:].split("/")[0] for f in _tracked_set if f.startswith(_d + "/")}
+            _kids |= {x[len(_d) + 1:].split("/")[0] for x in _tracked_dirs
+                      if x.startswith(_d + "/")}
+            _r3 += [f"{_d}/{c}" for c in sorted(_kids) if f"{_d}/{c}" not in _TREE]
+        check("[38] 已展开目录的直接子项已登记", not _r3, f"漏登记: {_r3[:8]}")
+
+    # R4:compileall 覆盖全部根级 .py
+    _ci_txt = (FOLDER / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    _ci_m = _re.search(r"compileall -q (.+)", _ci_txt)
+    _ci_listed = _ci_m.group(1).split() if _ci_m else []
+    _root_py = sorted(f for f in _TRACKED if "/" not in f and f.endswith(".py"))
+    check("[38] ci.yml compileall 覆盖根级 .py",
+          bool(_ci_m) and not [f for f in _root_py if f not in _ci_listed],
+          f"未覆盖: {[f for f in _root_py if f not in _ci_listed]}")
+
+
 print(f"通过 {len(PASSED)} / {len(PASSED) + len(FAILED)}" + (f"  · 跳过 {len(SKIPPED)}" if SKIPPED else ""))
 if FAILED:
     print("失败项:")

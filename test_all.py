@@ -144,6 +144,19 @@ def _parse_section_args(argv):
 _ONLY, _SKIP, _UPTO, _LIST = _parse_section_args(sys.argv)
 
 
+def _tools_src(*names: str) -> str:
+    """把 tools/ 下若干模块的源码拼起来——供"源码守卫"类断言读。
+
+    R-02 把 tools/file_tools.py 拆成 file_common / file_ops / terminal_view /
+    terminal_exec 之后，原先"读 file_tools.py 找某个字符串"的守卫会**假失败**：
+    代码没变坏，只是换了房间。守卫该跟着代码走，所以做成按模块名拼接；日后调整
+    文件划分时，改的是这里一行，而不是散落的十来条断言。
+    """
+    _base = Path(__file__).parent / "tools"
+    return "\n".join((_base / _n).read_text(encoding="utf-8")
+                     for _n in names if (_base / _n).exists())
+
+
 def _want(num: str) -> bool:
     """这一段这轮要不要跑（含依赖连带与 --skip 排除）。"""
     if num not in _SEEN_SECTIONS:
@@ -2959,7 +2972,7 @@ if _want("19"):
     check("人点头也拦不住 forbidden 档", _r["status"] == "403", _r.get("message"))
 
     # —— 源码守卫 ——
-    _ft_src = (Path(__file__).parent / "tools" / "file_tools.py").read_text(encoding="utf-8")
+    _ft_src = _tools_src("file_common.py", "file_ops.py", "terminal_view.py", "terminal_exec.py", "file_tools.py")
     _el_src = (Path(__file__).parent / "execution_layer.py").read_text(encoding="utf-8")
     check("正则黑名单表已被 execpolicy 取代",
           "_DANGEROUS_CMD_PATTERNS = (" not in _ft_src
@@ -3765,7 +3778,7 @@ if _want("24"):
     check("grep 不返回敏感文件内容", not any("id_rsa" in m for m in _gr_matches), _gr_matches)
     check("grep 结果带 scan_incomplete 字段（截断与'没扫完'分开报）",
           "scan_incomplete" in (_gr.data or {}) and _gr.data["scan_incomplete"] is False)
-    _ft_src = (Path(__file__).parent / "tools" / "file_tools.py").read_text(encoding="utf-8")
+    _ft_src = _tools_src("file_common.py", "file_ops.py", "terminal_view.py", "terminal_exec.py", "file_tools.py")
     check("遍历上限会回传 file_cap（不再假装扫完了）",
           'stats["file_cap"] = True' in _ft_src)
     check("模型正则只在有界长度上跑（re 没超时，长度是唯一能收的界）",

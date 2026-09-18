@@ -51,7 +51,11 @@ ace-agent/
 │   ├── result.py               #   ExecutionResult 结果类型
 │   ├── status.py               #   错误码/状态码唯一目录（Q-10 契约，散落字面量由守卫拒绝）
 │   ├── base.py                 #   共享助手 + 敏感目标判定 + execute 分发
-│   ├── file_tools.py           #   文件/终端/检索（grep/glob/str_replace）
+│   ├── file_common.py          #   file_ops / terminal_view / terminal_exec 共享常量（R-02）
+│   ├── file_ops.py             #   文件与检索（读/写/删/移/局部替换/grep/glob/open/edit）
+│   ├── terminal_view.py        #   只读终端查看（白名单命令，内建实现不经 shell）
+│   ├── terminal_exec.py        #   命令执行（三值判定 + 审批闸门 + Go 执行器边界）
+│   ├── file_tools.py           #   兼容层：FileTools = FileOps + TerminalView + TerminalExec
 │   ├── code_tools.py           #   代码执行（AST 白名单 + Go 执行器/docker 边界）
 │   ├── web_tools.py            #   网络/搜索/search_read/Playwright 浏览器
 │   ├── db_tools.py             #   SQLite 读写

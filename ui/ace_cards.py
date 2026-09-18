@@ -17,7 +17,7 @@
    便于测试、日志落盘与管道传输。ANSI 表与 colorize() 是给调用方的现成工具。
 
 用法示例：
-    from ace_cards import tool_card, status_mark, colorize
+    from ui.ace_cards import tool_card, status_mark, colorize
     for ln in tool_card("terminal_exec", "SUCCESS",
                         params={"command": "ls -la"},
                         output="drwxr-xr-x  foo", elapsed=0.32):
@@ -238,7 +238,7 @@ def tool_card(tool: str, status: str, params: Optional[Dict] = None,
 
 
 # ============================================================
-# 手工演示（python ace_cards.py 直接看效果）
+# 手工演示（python -m ui.ace_cards 直接看效果）
 # ============================================================
 
 if __name__ == "__main__":

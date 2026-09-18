@@ -167,7 +167,7 @@ flowchart LR
     LOOP -.-> GW
 ```
 
-每层职责（一行版）：用户层 = 登录页/REPL/斜杠；交互循环 = 模型↔执行层闭环（最多 20 轮）；执行层 = 协议解析 → 权限裁决 → 安全闸门 → 写前快照 → 工具执行（14 阶段状态机，安全裁决的强制边界所在）；工具集 = registry 单点声明 + 按域执行器；支撑模块 `work.py`/`guardian.py`/`archive.py`/`nuwa.py` 挂在执行层与循环上。
+每层职责（一行版）：用户层 = 登录页/REPL/斜杠；交互循环 = 模型↔执行层闭环（最多 20 轮）；执行层 = 协议解析 → 权限裁决 → 安全闸门 → 写前快照 → 工具执行（14 阶段状态机，安全裁决的强制边界所在）；工具集 = registry 单点声明 + 按域执行器；支撑模块 `core/work.py`/`core/guardian.py`/`core/archive.py`/`core/nuwa.py` 挂在执行层与循环上。
 
 > **Gateway 与执行层的关系**：网关（L1/L2/L4/L5）是执行层**每轮内调用**的策略/辅助层，不是独立的第二道安全流水线——图中虚线即此意。分层详表、权威目录树与 ADR 索引见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -230,7 +230,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
-- **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `ace_model.py`
+- **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `core/ace_model.py`
 - **v3.8.4** (2026-09-18)：斜杠命令表驱动（`run_command` 125→46 行）+ R-01 状态机闭环核对 + `docs/design/STRUCT-REFACTOR.md` 立项卡
 - **v3.8.3** (2026-09-18)：`approval_policy=never` + 无边界（`off` / `danger_full_access`）**拒绝启动**（ADR-002 的"没人 + 没边界"没有可辩护用途）；库调用方同拦（`PolicyRefused`）
 - **v3.8.2** (2026-09-18)：上手路径 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)（三维度矩阵 + 十个坑）+ 沙箱档启动预检（job 非 Windows / 缺执行器 / 缺 docker 启动就提示）
@@ -248,6 +248,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 ace-agent/
 ├── ai_code.py / agent_runner.py   # 前端（登录页/REPL）+ 交互循环
 ├── execution_layer.py             # 执行层：安全裁决的强制边界所在
+├── ui/  cli/  core/               # 终端表现层 / 操作者工具 / 引擎支撑
 ├── tools/  gateway_v2/  executor/ # 工具集 / 网关策略 / Go 沙箱执行器
 ├── test_all.py  benchmarks/  e2e/ # 测试 / 基准 / 真实模型冒烟
 ├── docker/  docs/  demo/          # 容器编排 / 文档（见下）/ 演示
@@ -280,7 +281,7 @@ ace-agent/
 
 诚实起见，以下两件事**没有做完 / 没有验证过**，别把它们当成"应该没问题"：
 
-- **R-03 双前端引擎合并（未完成）** —— `ai_code.ModelClient` ↔ `agent_runner.ModelProvider` 只合并了**安全半边**（两端共用的纯逻辑 `ace_model.py`：历史裁剪 / HTTP 错误码提示）。**客户端本体的合并没有做**：交互式前端是"流式 + requests + 重试 + Anthropic 兼容"，无头前端是 urllib 一次性调用，输出契约也不同（边流边渲染 vs `🤖 Agent:` 单行，`e2e` 与 CI 都依赖后者）；合并属于**改行为**，而现有测试只覆盖 `--mock` 路径，**必须在真机（真实模型端点）上验证过才敢动**。推进顺序写在 [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md) §3。
+- **R-03 双前端引擎合并（未完成）** —— `ai_code.ModelClient` ↔ `agent_runner.ModelProvider` 只合并了**安全半边**（两端共用的纯逻辑 `core/ace_model.py`：历史裁剪 / HTTP 错误码提示）。**客户端本体的合并没有做**：交互式前端是"流式 + requests + 重试 + Anthropic 兼容"，无头前端是 urllib 一次性调用，输出契约也不同（边流边渲染 vs `🤖 Agent:` 单行，`e2e` 与 CI 都依赖后者）；合并属于**改行为**，而现有测试只覆盖 `--mock` 路径，**必须在真机（真实模型端点）上验证过才敢动**。推进顺序写在 [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md) §3。
 - **REL-03 真机冒烟（未验证）** —— 仓库里的自动化只覆盖 `--mock` 离线链路、无头 `agent_runner` 与 CI 上的三档 Python；**"`ace.cmd` → 真实终端对话"这条路径从未在真机上走过一遍**。Windows 控制台的 VT/编码、`prompt_toolkit` 补全菜单、真实模型下的流式渲染都属于这一类。要在有控制台的机器上手动验证一次。
 
 （另一条同类未验证：**darwin/amd64 执行器产物没有原生冒烟**——交叉编译出来了，但没有 Intel Mac 实机跑过。见 [`docs/BACKLOG.md`](docs/BACKLOG.md) 的 REL 段与 `docs/design/EXECUTOR-RELEASE.md` 的验收备注。）

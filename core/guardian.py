@@ -4,7 +4,7 @@
 guardian.py —— 物理快照回滚
 
 契约（execution_layer.py）：
-    from guardian import Guardian
+    from core.guardian import Guardian
     g = Guardian(str(project_root))
     snapshot_id = g.snapshot(tag)      # 返回快照 id（空项目返回 None）
     ok = g.rollback(snapshot_id)       # 完整性预检 → 备份当前状态 → 恢复 → 验证 → 清理备份

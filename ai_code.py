@@ -59,9 +59,9 @@ sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
-from ace_cards import status_mark, tool_card  # noqa: E402
+from ui.ace_cards import status_mark, tool_card  # noqa: E402
 try:
-    from ace_selector import run_selector  # noqa: E402
+    from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
     run_selector = None
 from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E402
@@ -75,12 +75,12 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
                           resolve_permission, resolve_plan,
                           retry_notice, tools_for_permission,
                           sanitize_plain_content, tool_calls_to_protocol)
-from ace_isolation import wrap_untrusted  # noqa: E402
-import ace_http  # noqa: E402
-import ace_context  # noqa: E402
-import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 / 错误码提示，与 agent_runner 共用）
-from i18n import set_language, t  # noqa: E402
-import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
+from core.ace_isolation import wrap_untrusted  # noqa: E402
+from core import ace_http  # noqa: E402
+from cli import ace_context  # noqa: E402
+from core import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 / 错误码提示，与 agent_runner 共用）
+from ui.i18n import set_language, t  # noqa: E402
+from core import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
 
 CONFIG_PATH = Path.home() / ".ai_code.json"
 LEGACY_CONFIG_PATH = Path.home() / ".agent_cli.json"
@@ -2255,7 +2255,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(c("yellow", t("unattended_notice")))
         # 沙箱档预检：拿不到边界是**调用时**才 503 的（这条语义不改），但
         # "job 档在非 Windows 上根本不存在"这种事不该等到第一次工具调用才让人知道。
-        import ace_executor as _ax  # noqa: PLC0415
+        from core import ace_executor as _ax  # noqa: PLC0415
         _pre = execution_layer.sandbox_preflight_notice(
             self.cfg.get("sandbox", "off"),
             executor_ready=_ax.default_binary_path().is_file(),
@@ -2290,7 +2290,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                           if p != current]
             if not candidates:
                 return
-            from ace_sessionlog import SessionLog as _SL
+            from cli.ace_sessionlog import SessionLog as _SL
             prev = _SL(str(candidates[0]))
             history = prev.replay_messages()[-20:]
             if history:
@@ -3063,7 +3063,7 @@ def main() -> None:
                              "下载后跑 --version 自校验）")
     parser.add_argument("--version", action="version",
                         version=f"ACE {version.__version__}",
-                        help="显示版本号并退出（version.py 单源）")
+                        help="显示版本号并退出（core/version.py 单源）")
     args = parser.parse_args()
 
     logging.basicConfig(

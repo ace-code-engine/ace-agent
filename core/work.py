@@ -4,7 +4,7 @@
 work.py —— V1 行为约束：诱饵工厂（BaitFactory）+ AST 行为检测（ASTDetector）
 
 契约（execution_layer.py）：
-    from work import BaitFactory, ASTDetector
+    from core.work import BaitFactory, ASTDetector
 
     bait_factory = BaitFactory()
     baited_code, bait_meta = bait_factory.inject_bait(code)   # 注入语义诱饵

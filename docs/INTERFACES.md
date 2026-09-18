@@ -1,7 +1,7 @@
 # 接口与类型契约(INTERFACES)
 
 > 本文件把 ace 的**对外/对内接口**钉死,供开发与 AI 助手遵守,防止“协议漂移”。
-> 依据:当前源码(`tools/registry.py`、`tools/result.py`、`execution_layer.py`、`agent_runner.py`、`guardian.py`、`archive.py` 等)。与代码冲突时**以代码为准并更新本文**。
+> 依据:当前源码(`tools/registry.py`、`tools/result.py`、`execution_layer.py`、`agent_runner.py`、`core/guardian.py`、`core/archive.py` 等)。与代码冲突时**以代码为准并更新本文**。
 > 未标准化的缺口统一见 [BACKLOG.md](BACKLOG.md)(错误码枚举、状态常量、双前端合并等)。
 
 ## 1. 分层与依赖方向(谁不能绕过谁)
@@ -12,9 +12,9 @@ ai_code.py / agent_runner.py        # 前端(会话/流式/提供商)
          ├── tools/registry.py      #   工具唯一声明(TOOL_SPECS)── 只被派生,不被旁路
          ├── tools/<域>_tools.py    #   handler 实现(ToolExecutor)
          ├── gateway_v2/            #   L1/L2/L4/L5 网关(意图/技能/守门/飞轮)
-         ├── ace_net.py             #   出站闸门(SSRF + 白名单)
-         ├── ace_execpolicy.py      #   命令三值判定(allow/prompt/forbidden)
-         └── guardian.py/archive.py/nuwa.py   # 快照/记忆/报告
+         ├── core/ace_net.py       #   出站闸门(SSRF + 白名单)
+         ├── core/ace_execpolicy.py #  命令三值判定(allow/prompt/forbidden)
+         └── core/guardian.py / core/archive.py / core/nuwa.py   # 快照/记忆/报告
 ```
 铁律:模型只能与执行层对话;执行层是唯一会碰到文件系统/网络/进程的边界。
 
@@ -130,10 +130,10 @@ class ToolSpec:
 
 | 模块 | 契约方法 |
 |---|---|
-| `guardian.py` | `snapshot(reason) -> id|None`、`verify_snapshot(id) -> (ok,msg)`、`rollback(id) -> bool`、`backup_dir` |
-| `archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
-| `nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
-| `universal_document_parser.py` | `parse_document(path) -> ParseResult(success, method, text, truncated, metadata, error)` |
+| `core/guardian.py` | `snapshot(reason) -> id|None`、`verify_snapshot(id) -> (ok,msg)`、`rollback(id) -> bool`、`backup_dir` |
+| `core/archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
+| `core/nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
+| `core/universal_document_parser.py` | `parse_document(path) -> ParseResult(success, method, text, truncated, metadata, error)` |
 
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)
 
@@ -150,10 +150,10 @@ class ToolSpec:
 
 | 模块 | 真实职责 | 检索词 |
 |---|---|---|
-| `archive.py` | SimHash 记忆引擎 | memory / simhash / 记忆 / 主题切换 |
-| `nuwa.py` | POC 报告(HTML+JSON) | report / POC / 通过率 |
-| `work.py` | 诱饵工厂 + AST 行为检测 | bait / ast / 诱饵 / 检测 |
-| `guardian.py` | 物理快照回滚 | snapshot / rollback / undo / 快照 |
+| `core/archive.py` | SimHash 记忆引擎 | memory / simhash / 记忆 / 主题切换 |
+| `core/nuwa.py` | POC 报告(HTML+JSON) | report / POC / 通过率 |
+| `core/work.py` | 诱饵工厂 + AST 行为检测 | bait / ast / 诱饵 / 检测 |
+| `core/guardian.py` | 物理快照回滚 | snapshot / rollback / undo / 快照 |
 | `ace_*` | 执行层支撑(策略/网络/上下文/HTTP/日志/主题/选择器/卡片/隔离) | 直接以 ace_ 前缀检索 |
 
 约定(见 `docs/DEVELOPMENT.md` §3):**新模块一律 `ace_` 前缀、小写下划线**;

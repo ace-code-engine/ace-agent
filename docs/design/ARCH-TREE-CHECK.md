@@ -3,6 +3,7 @@
 > 状态：**已执行**（S1-S4 完成；验收与负向证据见 §7）
 > 来源：`docs/BACKLOG.md` P1 · Q-06「CI 结构一致性校验」；触发于第二轮文档重构后——权威目录树已从 README 迁至本文档（`docs/ARCHITECTURE.md`），成为唯一事实源。
 > 预期产出：一条自动校验，让"树 ↔ 仓库实际文件"的漂移在 CI 与本地都被拦住，而不是靠人工纪律。
+> **后续（R-07）**：本文写于根目录扁平时期，下文示例里的 `version.py` / `i18n.py` / `ace_doctor.py` / `ace_chatscroll.py` 等根级模块，现已下沉到 `ui/` `cli/` `core/`（见 `docs/design/STRUCT-REFACTOR.md` R-07）。**R1-R4 四条规则一个字都没变**，只是被校验的路径换了前缀；示例文字保留原样作为当时的记录。
 
 ---
 

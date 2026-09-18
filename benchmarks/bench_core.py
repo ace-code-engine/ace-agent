@@ -92,7 +92,7 @@ def check(name, cond, detail=""):
 
 # ================================================================ parser
 print("[parser] 文档解析")
-from universal_document_parser import parse_document  # noqa: E402
+from core.universal_document_parser import parse_document  # noqa: E402
 
 REPO_FILE = FOLDER / "prompts" / "agent_system_prompt_v7.md"
 if REPO_FILE.exists():
@@ -106,7 +106,7 @@ if REPO_FILE.exists():
 
     # 格式覆盖：仓库真实文件 + 动态生成文本格式样例
     candidates = {
-        "py": FOLDER / "i18n.py",
+        "py": FOLDER / "ui" / "i18n.py",
         "txt": FOLDER / "requirements.txt",
     }
     fmt_ok, fmt_list = 0, []
@@ -230,7 +230,7 @@ except Exception as e:  # noqa: BLE001
 # ================================================================ ast
 print("[ast] AST 行为检测正确率")
 try:
-    from work import ASTDetector  # noqa: E402
+    from core.work import ASTDetector  # noqa: E402
     ad = ASTDetector()
     clean = ("import math\n\ndef add(a: int, b: int) -> int:\n"
              "    return a + b\n\nprint(add(1, math.floor(2.5)))")
@@ -264,7 +264,7 @@ except Exception as e:  # noqa: BLE001
 # ================================================================ guardian
 print("[guardian] 快照-回滚")
 try:
-    from guardian import Guardian  # noqa: E402
+    from core.guardian import Guardian  # noqa: E402
     gproj = mktemp("guard")
     (gproj / "a.txt").write_text("v1", encoding="utf-8")
     (gproj / "sub").mkdir()
@@ -291,7 +291,7 @@ except Exception as e:  # noqa: BLE001
 # ================================================================ memory
 print("[memory] SimHash 记忆")
 try:
-    from archive import MemoryArchive  # noqa: E402
+    from core.archive import MemoryArchive  # noqa: E402
     am = MemoryArchive()
     check("短输入保护（<10 字不存储）", am.add("你好") is False)
     check("正常输入存储", am.add("帮我把订单数据导出成 Excel 报表") is True)

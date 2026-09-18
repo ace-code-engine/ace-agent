@@ -14,7 +14,7 @@ class ParseTools:
     def _exec_parse_document(self, params: Dict) -> ExecutionResult:
         """文档解析（路径口径与 file_read 一致：内容读取限项目内 + 敏感目标拦截）"""
         try:
-            from universal_document_parser import parse_document
+            from core.universal_document_parser import parse_document
         except ImportError:
             return ExecutionResult(status="error", error_code="500",
                                    message="文档解析器未安装")

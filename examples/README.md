@@ -13,7 +13,7 @@
 ```bash
 python test_all.py --strict   # 全量测试。受限环境下会列出跳过项，那不是失败
 python ai_code.py --mock      # 离线演示：模型 ↔ 执行层的完整闭环
-python ace_doctor.py          # 环境自检：Python / 依赖 / Go 执行器 / Docker / 配置
+python -m cli.ace_doctor      # 环境自检：Python / 依赖 / Go 执行器 / Docker / 配置
 ```
 
 > 这些示例只用到仓库自带能力，不额外拉依赖；文档解析场景按需装增强包（见该目录 README）。

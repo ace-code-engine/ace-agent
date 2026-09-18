@@ -4,7 +4,7 @@
 archive.py —— SimHash 记忆注入引擎
 
 契约（execution_layer.py）：
-    from archive import MemoryArchive
+    from core.archive import MemoryArchive
     archive = MemoryArchive()
     archive.add(user_input)                  # 短输入保护：少于 10 字不存储
     archive.detect_topic_shift(user_input)   # -> "shifted" / "stable"

@@ -245,6 +245,21 @@ fill="{THEME['dim']}">ace-agent — python ai_code.py --mock</text>
 """
 
 
+def project_version() -> str:
+    """读版本单源（`core/version.py`）。
+
+    不能用 `import core.version`：脚本以 `demo/` 为 `sys.path[0]`，仓库根不在路径上。
+    按文件路径加载既保持"版本只有一处"的纪律，又不给这份演示脚本引入 sys.path 手术。
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_ace_version", ROOT / "core" / "version.py")
+    if spec is None or spec.loader is None:
+        raise SystemExit("读不到 core/version.py，无法校验演示图里的版本号")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return str(mod.__version__)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="录制 ace-agent 演示动画（SVG）")
     ap.add_argument("--check", action="store_true",
@@ -254,13 +269,12 @@ def main() -> None:
     args = ap.parse_args()
 
     global SESSION, OUT_SVG
-    targets = [args.session] if args.session else (["happy"] if args.check else ["happy"])
-
-    if args.check and not args.session:
-        # 不带 --session 的 --check：把两套剧本都对一遍（CI 用的就是这条）
-        targets = sorted(SESSIONS)
-    elif args.session:
+    if args.session:
         targets = [args.session]
+    elif args.check:
+        targets = sorted(SESSIONS)      # CI 走的这条：两套剧本都校验
+    else:
+        targets = ["happy"]             # 录制默认只重录主剧本，另一张用 --session 指定
 
     for name in targets:
         SESSION = SESSIONS[name]
@@ -273,11 +287,20 @@ def main() -> None:
         if args.check:
             if not OUT_SVG.exists():
                 raise SystemExit(f"{OUT_SVG} 不存在，先跑一次不带 --check 的录制")
+            old_svg = OUT_SVG.read_text(encoding="utf-8")
             # 时间戳会变（mock 会问当前时间），只比结构：行数与去掉数字后的骨架
-            old = re.sub(r"[\d.]+", "#", OUT_SVG.read_text(encoding="utf-8"))
-            if re.sub(r"[\d.]+", "#", svg) != old:
+            if re.sub(r"[\d.]+", "#", svg) != re.sub(r"[\d.]+", "#", old_svg):
                 raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制")
-            print(f"{OUT_SVG.name} 与当前 CLI 输出一致（{name}）")
+            # 骨架比对把数字都归一化了，版本号会因此**静默过期**（改版本后这张图看着还"一致"）。
+            # 单列一条：图里印的版本必须等于 core/version.py。
+            shown = re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", old_svg)
+            if not shown:
+                raise SystemExit(f"{OUT_SVG.name} 里找不到版本号横幅，录制格式可能变了")
+            if shown.group(1) != project_version():
+                raise SystemExit(
+                    f"{OUT_SVG.name} 里的版本号是 {shown.group(1)}，而 core/version.py 是 "
+                    f"{project_version()} —— 重新录制这张图")
+            print(f"{OUT_SVG.name} 与当前 CLI 输出一致（{name}，v{shown.group(1)}）")
             continue
 
         OUT_SVG.write_text(svg, encoding="utf-8")

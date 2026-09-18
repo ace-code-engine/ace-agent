@@ -3,7 +3,7 @@
 """i18n —— 轻量国际化（JSON 字典 + 全局翻译器，零第三方依赖）
 
 用法：
-    from i18n import t, set_language
+    from ui.i18n import t, set_language
     set_language("en")
     print(t("done", round=3, sec=2.5))
 
@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
-LOCALES_DIR = Path(__file__).resolve().parent / "locales"
+LOCALES_DIR = Path(__file__).resolve().parent.parent / "locales"
 SUPPORTED = ("zh", "en", "ja")
 DEFAULT_LANG = "zh"
 

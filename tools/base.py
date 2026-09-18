@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import ace_execpolicy as execpolicy
+from core import ace_execpolicy as execpolicy
 from tools.registry import SPEC_BY_NAME
 from tools.result import ExecutionResult
 from tools.docker_sandbox import build_sandbox
@@ -220,7 +220,7 @@ class ToolExecutorBase:
         if self._go_client is not None:
             return self._go_client
         try:
-            import ace_executor
+            from core import ace_executor
             client = ace_executor.ExecutorClient()
             if not client.available():
                 self.use_go_executor = False
@@ -299,17 +299,17 @@ class ToolExecutorBase:
         校验与连接一分开，DNS rebinding 和 302 跳内网这两条就立刻回来了 ——
         校验时解析一次、requests 再解析一次，两次之间答案可以变。
         """
-        from ace_net import check_url
+        from core.ace_net import check_url
         return check_url(url)
 
     def _egress_reason(self, url: str) -> Optional[str]:
         """出站目的地是否被白名单拒绝：放行返回 None，否则返回给模型看的原因。"""
-        from ace_net import egress_reject_reason
+        from core.ace_net import egress_reject_reason
         return egress_reject_reason(url, self.egress_allowlist)
 
     def _egress_host_reason(self, host: str) -> Optional[str]:
         """同上，但按主机名判 —— 给不走 URL 的出站用（notify_send 的 SMTP）。"""
-        from ace_net import egress_host_reject_reason
+        from core.ace_net import egress_host_reject_reason
         return egress_host_reject_reason(host, self.egress_allowlist)
 
 

@@ -49,9 +49,9 @@ sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
-from ace_isolation import untrusted_source, wrap_untrusted  # noqa: E402
-import ace_http  # noqa: E402
-import ace_model  # noqa: E402
+from core.ace_isolation import untrusted_source, wrap_untrusted  # noqa: E402
+from core import ace_http  # noqa: E402
+from core import ace_model  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
 from tools.registry import openai_tools  # noqa: E402
 
@@ -476,7 +476,7 @@ def render_result(r: Dict) -> str:
 # ============================================================
 # 外部内容隔离（SEC-011）
 # ============================================================
-# 定界 + 来源标注的实现在 ace_isolation.py —— 那里不 import 项目内任何模块，
+# 定界 + 来源标注的实现在 core/ace_isolation.py —— 那里不 import 项目内任何模块，
 # 因为 execution_layer（记忆预注入）也要用它，而 execution_layer 不能反向依赖入口。
 #
 # 分成两个函数而不是直接改 render_result：render_result 还被人类可读的展示通道
@@ -497,7 +497,7 @@ def truncate_tool_output(text: str, *, head_chars: int = 4000,
     tail = text[-tail_chars:] if tail_chars else ""
     cut = len(text) - head_chars - (tail_chars or 0)
     # 裁剪标记跟随界面语言（i18n 全局切换）
-    from i18n import t as _t
+    from ui.i18n import t as _t
     return (f"{head}\n…[{_t('trunc_hint', cut=cut, total=len(text))}]\n{tail}")
 
 
@@ -757,7 +757,7 @@ def main() -> None:
               "要跑无人值守请显式给 --sandbox job/docker（可配 --approval-policy on_failure），"
               "或改回 --permission readonly。")
     # 沙箱档预检（同 ai_code）：job 档在非 Windows 上不存在，别等到第一次调用才 503
-    import ace_executor as _ax  # noqa: PLC0415
+    from core import ace_executor as _ax  # noqa: PLC0415
     _pre = execution_layer.sandbox_preflight_notice(
         args.sandbox, executor_ready=_ax.default_binary_path().is_file(),
         docker_cli=bool(shutil.which("docker")))

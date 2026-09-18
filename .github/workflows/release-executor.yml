@@ -1,12 +1,12 @@
 name: release-executor
 
 # 交叉编译官方预编译 ace-executor 二进制并发布到 GitHub Release（docs/EXECUTOR-RELEASE.md 的 D1+D2）。
-# 手动触发：留空 version 时自动读 version.py；首次发布会创建仓库第一个 tag v{version}。
+# 手动触发：留空 version 时自动读 core/version.py；首次发布会创建仓库第一个 tag v{version}。
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "发布版本(如 3.7.0;留空自动读 version.py)"
+        description: "发布版本(如 3.7.0;留空自动读 core/version.py)"
         required: false
         type: string
 
@@ -58,7 +58,7 @@ jobs:
           VERSION="${{ inputs.version }}"
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
-            VERSION="$(python -c 'import version; print(version.__version__)')"
+            VERSION="$(python -c 'from core import version; print(version.__version__)')"
           fi
           echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
       - name: Cross-compile (CGO_ENABLED=0)
@@ -107,7 +107,7 @@ jobs:
     needs: [build, native-smoke]
     timeout-minutes: 10
     steps:
-      # 读 version.py 需要仓库文件，必须 checkout（此前缺失导致 import version 失败）
+      # 读 core/version.py 需要仓库文件，必须 checkout（此前缺失导致 import version 失败）
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -137,7 +137,7 @@ jobs:
             gh release create "${TAG}" "${ASSETS[@]}" \
               --repo "${{ github.repository }}" \
               --title "ace-executor ${TAG}" \
-              --notes "ACE 执行器官方预编译二进制（与 version.py 对齐）。
+              --notes "ACE 执行器官方预编译二进制（与 core/version.py 对齐）。
 
           - 安装：\`ace --install-executor\`（Windows 上 \`--sandbox job\` 不再需要手工 \`go build\`）
           - 自编译：\`cd executor && go build -o ace-executor(.exe) .\` 仍支持

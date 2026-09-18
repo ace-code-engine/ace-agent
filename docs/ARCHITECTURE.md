@@ -12,7 +12,9 @@
 | 模型网关 | `gateway_v2/` | L1 意图 → L2 技能 → L4 守门（8 规则）→ L5 飞轮（SFT 数据） |
 | 执行层 | `execution_layer.py` | 单轮 `_stage_*` 状态机（14 阶段，RoundCtx 本轮上下文）；协议解析、权限裁决、安全闸门、快照与守门串联 |
 | 工具集 | `tools/` | registry 单点声明（name/schema/权限组/handler）+ 按域拆分的执行器 |
-| 支撑模块 | `work.py` `guardian.py` `archive.py` `nuwa.py` | 诱饵/AST 行为检测、物理快照回滚（HMAC）、SimHash 记忆、POC 报告 |
+| 表现层 | `ui/` | 调色板 / 搜索式选择器 / 结果卡片 / 滚动引擎 / i18n（只负责画，不参与裁决） |
+| 操作者工具 | `cli/` | 环境自检（doctor）、上下文压缩判定、会话事件日志 |
+| 支撑模块 | `core/work.py` `core/guardian.py` `core/archive.py` `core/nuwa.py` | 诱饵/AST 行为检测、物理快照回滚（HMAC）、SimHash 记忆、POC 报告 |
 
 ## 2. Gateway 与执行层的关系（真话）
 
@@ -31,19 +33,32 @@ ace-agent/
 ├── ai_code.py                  # 命令行前端：登录页 / REPL / 斜杠补全 / 提供商注册表 / goal 续跑 / 会话恢复
 ├── agent_runner.py             # 交互循环：模型 ↔ 执行层多轮闭环，错误自动回喂，工具结果确定性裁剪
 ├── execution_layer.py          # 执行层主入口：单轮 _stage_* 状态机（RoundCtx）；协议解析、权限、安全闸门、Plan Mode、全链路日志
-├── ace_execpolicy.py           # 命令三值判定（allow / prompt / forbidden），纯函数、可单测
-├── ace_net.py                  # 出站请求闸门：全记录校验 + pin-to-IP + 逐跳复检（SSRF）
-├── ace_isolation.py            # 外部内容定界与来源标注（SEC-011）
-├── ace_http.py                 # 模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
-├── ace_context.py              # 上下文压缩判定：保住任务锚点，中间段折成摘要
-├── ace_executor.py             # Go 执行器客户端（NDJSON 协议，纯 stdlib）
-├── ace_model.py                # 模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
-├── ace_sessionlog.py           # 会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
-├── ace_theme.py                # 语义调色板（dark/light 自动检测）
-├── ace_selector.py             # 搜索式选择器（/model /provider 输入即过滤）
-├── ace_cards.py                # 工具结果卡片（状态+参数+折叠输出）
-├── ace_doctor.py               # 环境自检（python ace_doctor.py）
-├── ace_chatscroll.py           # 聊天内置滚动引擎(方案 C:视口只滚会话行)
+├── ui/                         # 表现层：终端渲染与交互（只画，不裁决）
+│   ├── __init__.py             #   包入口
+│   ├── ace_theme.py            #   语义调色板（dark/light 自动检测）
+│   ├── ace_selector.py         #   搜索式选择器（/model /provider 输入即过滤）
+│   ├── ace_cards.py            #   工具结果卡片（状态+参数+折叠输出）
+│   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
+│   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
+├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
+│   ├── __init__.py             #   包入口
+│   ├── ace_doctor.py           #   环境自检（python -m cli.ace_doctor）
+│   ├── ace_context.py          #   上下文压缩判定：保住任务锚点，中间段折成摘要
+│   └── ace_sessionlog.py       #   会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
+├── core/                       # 引擎支撑：策略 / 网络 / 执行器客户端 / 记忆与快照
+│   ├── __init__.py             #   包入口
+│   ├── ace_execpolicy.py       #   命令三值判定（allow / prompt / forbidden），纯函数、可单测
+│   ├── ace_net.py              #   出站请求闸门：全记录校验 + pin-to-IP + 逐跳复检（SSRF）
+│   ├── ace_isolation.py        #   外部内容定界与来源标注（SEC-011）
+│   ├── ace_http.py             #   模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
+│   ├── ace_executor.py         #   Go 执行器客户端（NDJSON 协议，纯 stdlib）
+│   ├── ace_model.py            #   模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
+│   ├── work.py                 #   诱饵工厂 + AST 行为检测（ASTDetector）
+│   ├── guardian.py             #   物理快照回滚：快照 / 完整性预检 / HMAC / 自动清理
+│   ├── archive.py              #   SimHash 记忆引擎
+│   ├── nuwa.py                 #   POC 报告（HTML + JSON）
+│   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
+│   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）
@@ -68,12 +83,7 @@ ace-agent/
 │   ├── kb_tools.py             #   自定义知识库（kb_search/kb_add/kb_list）
 │   └── docker_sandbox.py       #   容器执行层（--sandbox docker）
 ├── gateway_v2/                 # 网关包：intent(L1/L2) · guard(L4) · flywheel(L5)
-├── work.py                     # 诱饵工厂 + AST 行为检测（ASTDetector）
-├── guardian.py                 # 物理快照回滚：快照 / 完整性预检 / HMAC / 自动清理
-├── archive.py                  # SimHash 记忆引擎
-├── nuwa.py                     # POC 报告（HTML + JSON）
-├── universal_document_parser.py# N 合一文档解析 + 懒加载 + 50MB 防线
-├── i18n.py + locales/          # 轻量国际化（zh / en / ja JSON 字典）
+├── locales/                    # 国际化字典（zh / en / ja JSON），由 ui/i18n.py 读取
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
@@ -119,7 +129,6 @@ ace-agent/
 ├── LICENSE                     # MIT
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── SECURITY.md                 # 安全策略：漏洞报告流程 / 承诺 / 已知边界
-├── version.py                  # 版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
 ├── ace.cmd                     # Windows 启动器（PATH 探测 python/py，防商店占位）
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）

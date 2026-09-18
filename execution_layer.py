@@ -5,11 +5,11 @@ execution_layer.py —— Agent 执行层（完整版）
 
 串联 Word 体系 V1+V2：
   · gateway_v2.py  → L1/L2/L4/L5 网关
-  · work.py        → 诱饵 + AST 检测
-  · guardian.py    → 物理快照回滚
-  · archive.py     → SimHash 记忆注入
-  · nuwa.py        → POC 报告生成
-  · universal_document_parser.py → 文档解析
+  · core/work.py   → 诱饵 + AST 检测
+  · core/guardian.py → 物理快照回滚
+  · core/archive.py → SimHash 记忆注入
+  · core/nuwa.py   → POC 报告生成
+  · core/universal_document_parser.py → 文档解析
 
 职责：
   1. 解析 Agent 的 <INTERNAL>/<EXTERNAL> 输出
@@ -66,10 +66,10 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Set, Tuple
 
 from tools import ToolExecutor, repair_backslash_json
-from ace_isolation import wrap_untrusted
-from ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_ROLLBACK,
+from core.ace_isolation import wrap_untrusted
+from cli.ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_ROLLBACK,
                             SessionLog)
-import ace_execpolicy as execpolicy  # noqa: E402
+from core import ace_execpolicy as execpolicy  # noqa: E402
 
 # ============================================================
 # 导入用户代码库（V1 + V2）
@@ -86,14 +86,14 @@ except ImportError:
 
 # V1 行为约束
 try:
-    from work import BaitFactory, ASTDetector
+    from core.work import BaitFactory, ASTDetector
     V1_WORK_AVAILABLE = True
 except ImportError:
     V1_WORK_AVAILABLE = False
 
 # V1 快照回滚
 try:
-    from guardian import Guardian
+    from core.guardian import Guardian
     V1_GUARDIAN_AVAILABLE = True
 except ImportError:
     V1_GUARDIAN_AVAILABLE = False
@@ -101,7 +101,7 @@ except ImportError:
 
 # V1 记忆引擎
 try:
-    from archive import MemoryArchive
+    from core.archive import MemoryArchive
     V1_ARCHIVE_AVAILABLE = True
 except ImportError:
     V1_ARCHIVE_AVAILABLE = False
@@ -109,7 +109,7 @@ except ImportError:
 
 # V1 POC 报告
 try:
-    from nuwa import POCGenerator
+    from core.nuwa import POCGenerator
     V1_NUWA_AVAILABLE = True
 except ImportError:
     V1_NUWA_AVAILABLE = False
@@ -117,7 +117,7 @@ except ImportError:
 
 # 文档解析器
 try:
-    from universal_document_parser import parse_document, ParseResult
+    from core.universal_document_parser import parse_document, ParseResult
     PARSER_AVAILABLE = True
 except ImportError:
     PARSER_AVAILABLE = False
@@ -597,7 +597,7 @@ class ExecutionLayer:
             session_tag=(config or {}).get("session_id", "default")) if V1_ARCHIVE_AVAILABLE else None
         self.nuwa = POCGenerator(str(self.project_root / ".poc_reports")) if V1_NUWA_AVAILABLE else None
 
-        # 诱饵验证配置（work.py）
+        # 诱饵验证配置（core/work.py）
         bait_cfg = (config or {}).get("bait", {})
         self.bait_enabled = bool(bait_cfg.get("enabled", True))
         self.bait_frequency = int(bait_cfg.get("frequency", 0))  # 0 = 每会话仅验证一次
@@ -749,11 +749,11 @@ class ExecutionLayer:
         early = self._stage_permission(tool_call, tool_name, route_meta, ctx)
         if early is not None:
             return early
-        # ⑧ code_execute 专属安全闸门：诱饵验证 + AST 行为检测（work.py）
+        # ⑧ code_execute 专属安全闸门：诱饵验证 + AST 行为检测（core/work.py）
         gate_warnings, early = self._stage_code_gate(tool_call, tool_name)
         if early is not None:
             return early
-        # ⑨ 写入操作前创建快照（guardian.py）→ ctx.snapshot_id（轮末回收）
+        # ⑨ 写入操作前创建快照（core/guardian.py）→ ctx.snapshot_id（轮末回收）
         self._stage_snapshot(tool_name, ctx)
         # ⑩ 执行工具（全链路日志：调用原始参数 + 结果）
         result = self._stage_execute(tool_call, tool_name)
@@ -911,7 +911,7 @@ class ExecutionLayer:
         """
         if tool_name not in EGRESS_TOOLS:
             return None
-        from ace_net import host_in_allowlist, normalize_host, url_host
+        from core.ace_net import host_in_allowlist, normalize_host, url_host
 
         if tool_name == "notify_send":
             if str(tool_call.get("channel") or "").strip().lower() != "email":
@@ -1084,7 +1084,7 @@ class ExecutionLayer:
 
     def _stage_code_gate(self, tool_call: Dict[str, Any], tool_name: str
                          ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        """⑧ code_execute 专属安全闸门：诱饵验证 + AST 检测（work.py）。
+        """⑧ code_execute 专属安全闸门：诱饵验证 + AST 检测（core/work.py）。
         返回 (gate_warnings, early)：early 非 None = 本轮被闸门终止。"""
         if tool_name != "code_execute":
             return None, None
@@ -1094,7 +1094,7 @@ class ExecutionLayer:
         return gate.get("warnings"), None
 
     def _stage_snapshot(self, tool_name: str, ctx: RoundCtx) -> None:
-        """⑨ 写入操作前创建快照（guardian.py）；快照 id 挂 ctx.snapshot_id，轮末回收。"""
+        """⑨ 写入操作前创建快照（core/guardian.py）；快照 id 挂 ctx.snapshot_id，轮末回收。"""
         ctx.snapshot_id = None
         if tool_name in WRITE_TOOLS and self.guardian:
             try:
@@ -1148,7 +1148,7 @@ class ExecutionLayer:
                 self.bait_armed = True
 
     def _stage_poc_metrics(self, tool_name: str, result: Any) -> None:
-        """⑬ 生成 POC 指标（nuwa.py）。"""
+        """⑬ 生成 POC 指标（core/nuwa.py）。"""
         if not self.nuwa:
             return
         status = "pass" if result.status == "success" else "fail"
@@ -1470,7 +1470,7 @@ class ExecutionLayer:
 
 
     def _gate_code_execute(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
-        """code_execute 安全闸门：诱饵验证 + AST 行为检测（work.py）"""
+        """code_execute 安全闸门：诱饵验证 + AST 行为检测（core/work.py）"""
         code = tool_call.get("code", "")
 
         # a. 验证上一轮注入的诱饵是否已被修复
@@ -1564,7 +1564,7 @@ class ExecutionLayer:
         return stats
 
     def generate_poc_report(self, title: str = "Agent 执行层 POC 报告") -> Optional[str]:
-        """生成 POC 报告（nuwa.py）"""
+        """生成 POC 报告（core/nuwa.py）"""
         if not self.nuwa:
             return None
         self.nuwa.title = title

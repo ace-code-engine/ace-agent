@@ -12,7 +12,7 @@
 | 设计取舍 | `docs/ADR.md` | ❌ 无记录地推翻既有决策 |
 | 版本事实 | `CHANGELOG.md` 首条 + README 徽章 | ❌ 双份手抄、只改一边 |
 
-> ✅ 数字纪律(已闭环 v3.8):版本号单源 `version.py`(Q-12);文档口径数字由 `test_all.py [39]` 自动校验(Q-04)——凡触及数字一律写"以源码为准"或与 `PROVIDERS`/`TOOL_SPECS` 一致的实测值,不许再写死,也不许手抄断言总数。
+> ✅ 数字纪律(已闭环 v3.8):版本号单源 `core/version.py`(Q-12);文档口径数字由 `test_all.py [39]` 自动校验(Q-04)——凡触及数字一律写"以源码为准"或与 `PROVIDERS`/`TOOL_SPECS` 一致的实测值,不许再写死,也不许手抄断言总数。
 > ✅ 提示词工具清单(已闭环 v3.8,Q-07):`prompts/` 三个运行时提示词里的工具清单必须覆盖全部暴露工具,由 test_all 的同名断言拦住漂移;提示词里"某工具尚未实现"这类可用性表述也要按现码核对。
 
 ## 1. 标准提交流程
@@ -57,7 +57,8 @@
 - 文案:用户可见输出经 `i18n`(`locales/*.json`)或至少不与错误语义耦合;
   **禁止用中文 message 子串当 error_code**(现状已记 BACKLOG)。
 - 日志:内部诊断 `logging.getLogger("ace")`;**禁止宽 except + pass 吞掉 L5/会话日志写入失败**。
-- 新模块命名 `ace_` 前缀小写下划线;`archive.py/nuwa.py` 等旧名不再新增同类。
+- 新模块命名 `ace_` 前缀小写下划线;`core/archive.py` / `core/nuwa.py` 等旧名不再新增同类。
+- 目录归属:`ui/`(终端表现,不许做裁决)、`cli/`(操作者工具)、`core/`(引擎支撑);根级只留 `ai_code.py` / `agent_runner.py` / `execution_layer.py` / `test_all.py`。新文件放错包会被 `[38]` 结构守卫与评审同时拦下。
 
 ## 4. 安全红线(写代码时默认遵守)
 

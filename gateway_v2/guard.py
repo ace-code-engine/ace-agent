@@ -92,7 +92,7 @@ class InstinctGuard:
                         for r in self.RULE_NAMES}
         self._ast_detector = None
         try:
-            from work import ASTDetector
+            from core.work import ASTDetector
             self._ast_detector = ASTDetector()
         except ImportError:
             self._ast_detector = None

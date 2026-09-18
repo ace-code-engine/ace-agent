@@ -120,7 +120,7 @@ _SECTION_DEPS = {
 from execution_layer import ExecutionLayer, ToolExecutor, RoundCtx as _RC  # noqa: E402,F811
 from tools.registry import SPEC_BY_NAME as _SPECS  # noqa: E402,F811
 from tools.registry import TOOL_SPECS  # noqa: E402,F811
-from guardian import Guardian  # noqa: E402,F811
+from core.guardian import Guardian  # noqa: E402,F811
 
 
 def _parse_section_args(argv):
@@ -253,7 +253,7 @@ if _want("2"):
     # ── [2] ────
     print("[2] work —— 诱饵工厂 + AST 行为检测")
     # ============================================================
-    from work import BaitFactory, ASTDetector  # noqa: E402
+    from core.work import BaitFactory, ASTDetector  # noqa: E402
 
     bf = BaitFactory(seed=42)
     for t in ("unused_import", "type_mismatch", "circular_ref", "infinite_recursion", "missing_return"):
@@ -293,7 +293,7 @@ if _want("3"):
     # ── [3] ────
     print("[3] guardian —— 物理快照回滚")
     # ============================================================
-    from guardian import Guardian  # noqa: E402
+    from core.guardian import Guardian  # noqa: E402
 
     proj = mktemp()
     (proj / "a.txt").write_text("v1", encoding="utf-8")
@@ -322,7 +322,7 @@ if _want("4"):
     # ── [4] ────
     print("[4] archive —— SimHash 记忆注入")
     # ============================================================
-    from archive import MemoryArchive  # noqa: E402
+    from core.archive import MemoryArchive  # noqa: E402
 
     am = MemoryArchive()
     check("短输入保护（<10 字不存储）", am.add("你好") is False)
@@ -344,7 +344,7 @@ if _want("5"):
     # ── [5] ────
     print("[5] nuwa —— POC 报告生成")
     # ============================================================
-    from nuwa import POCGenerator  # noqa: E402
+    from core.nuwa import POCGenerator  # noqa: E402
 
     nuwa = POCGenerator(output_dir=str(mktemp()), title="测试报告")
     nuwa.add_metric("工具执行", "file_read", "pass")
@@ -367,7 +367,7 @@ if _want("6"):
     # ── [6] ────
     print("[6] universal_document_parser —— 文档解析")
     # ============================================================
-    from universal_document_parser import parse_document  # noqa: E402
+    from core.universal_document_parser import parse_document  # noqa: E402
 
     res = parse_document(FOLDER / "prompts" / "agent_system_prompt_v7.md")
     check("md 直接解析", res.success and res.method == "direct_text" and "系统身份层" in res.text)
@@ -1531,7 +1531,7 @@ if _want("10"):
     # —— code_execute 接入 Go 执行器（Tier-1 Job Object 边界） ——
     # 仅当执行器二进制可用（本机 go build 过）时断言 job 边界；CI/Linux 无 exe 时
     # 走进程内回落，这是预期行为，不算失败（与 [13] 的 available() 跳过同一口径）。
-    import ace_executor as _ax_ce  # noqa: E402
+    from core import ace_executor as _ax_ce  # noqa: E402
     if _ax_ce.ExecutorClient().available():
         r = run_agent(el_h, "code_execute", language="python", code="print('go-ce-ok')")
         _sand = r.get("data", {}).get("sandbox", {}) if r["status"] == "SUCCESS" else {}
@@ -2151,7 +2151,7 @@ if _want("10"):
 
     # —— 灰度期加固（4 个坑） ——
     # 坑1：大文件 DoS 防线
-    import universal_document_parser as udp  # noqa: E402
+    from core import universal_document_parser as udp  # noqa: E402
     old_limit = udp.MAX_FILE_SIZE
     udp.MAX_FILE_SIZE = 10   # 调低阈值模拟：10 字节上限
     small_file = mktemp() / "small.txt"
@@ -2199,7 +2199,7 @@ if _want("11"):
     # ── [11] ────
     print("[11] i18n —— 国际化（JSON 字典 + @lang 联动界面）")
     # ============================================================
-    import i18n as i18n_mod  # noqa: E402
+    from ui import i18n as i18n_mod  # noqa: E402
 
     check("默认语言为中文", i18n_mod.current_lang() == "zh")
     check("zh 翻译命中",
@@ -2238,7 +2238,7 @@ if _want("11"):
         check(f"i18n 界面键 {_lang} 齐全（{len(_ui_keys)} 个）",
               not _miss, _miss)
     # 语言切换后界面文本确实变化（英文界面不再显示中文硬编码）
-    from i18n import set_language as _sl  # noqa: E402
+    from ui.i18n import set_language as _sl  # noqa: E402
     _sl("en")
     check("英文界面错误提示为英文",
           "API Key invalid" in i18n_mod.t("model_err_401"), i18n_mod.t("model_err_401"))
@@ -2443,7 +2443,7 @@ if _want("17"):
     # ── [17] ────
     print("[17] 外部内容隔离 —— 定界 + 来源标注 + 提示词约定")
     # ============================================================
-    import ace_isolation as _iso  # noqa: E402
+    from core import ace_isolation as _iso  # noqa: E402
     import re as _re  # noqa: E402
     from agent_runner import render_tool_result as _rtr  # noqa: E402
 
@@ -2557,7 +2557,7 @@ if _want("18"):
     print("[18] 出站请求闸门（SSRF）—— 全记录校验 + 解析失败拒绝 + pin-to-IP + 逐跳复检")
     # ============================================================
     import socket as _socket  # noqa: E402
-    import ace_net as _net  # noqa: E402
+    from core import ace_net as _net  # noqa: E402
 
     # 这一整段不碰真实网络：主机名一律用 IP 字面量（不触发 DNS）或注入假解析器，
     # 请求层用假的 requests 模块。安全测试依赖外网就等于没有测试。
@@ -2763,12 +2763,12 @@ if _want("18"):
     # —— 源码级：出站只能有一条路径，旧的旁路不能再回来 ——
     _web_src = (Path(__file__).parent / "tools" / "web_tools.py").read_text(encoding="utf-8")
     _base_src = (Path(__file__).parent / "tools" / "base.py").read_text(encoding="utf-8")
-    _net_src = (Path(__file__).parent / "ace_net.py").read_text(encoding="utf-8")
+    _net_src = (Path(__file__).parent / "core" / "ace_net.py").read_text(encoding="utf-8")
     check("web_tools 不再直接 requests.get/post",
           "requests.get(" not in _web_src and "requests.post(" not in _web_src)
     check("web_tools 四条出站全部走 safe_request",
           _web_src.count("ace_net.safe_request") >= 4, _web_src.count("ace_net.safe_request"))
-    check("_check_url 委托给 ace_net", "from ace_net import check_url" in _base_src)
+    check("_check_url 委托给 ace_net", "from core.ace_net import check_url" in _base_src)
     check("safe_request 显式关闭自动重定向", "allow_redirects=False" in _net_src)
 
     # ============================================================
@@ -2782,7 +2782,7 @@ if _want("19"):
     # `vssadmin delete shadows` 这些拒绝路径**不需要真的把命令跑起来**就能测。
     # 之前测危险命令只能靠"跑一遍看它被拦住"，那是覆盖率的硬天花板。
 
-    import ace_execpolicy as _pol  # noqa: E402
+    from core import ace_execpolicy as _pol  # noqa: E402
     from tools import ToolExecutor as _PolTE  # noqa: E402
 
     _ROOT = str(mktemp())
@@ -2991,7 +2991,7 @@ if _want("20"):
     # ── [20] ────
     print("\n[20] Go 执行器 —— 三档执行位置 + Tier-1 Job Object + 无静默回退")
     # ============================================================
-    import ace_executor as _ax
+    from core import ace_executor as _ax
 
     _GO_ROOT = str(mktemp())
 
@@ -3051,7 +3051,7 @@ if _want("20"):
     check("forbidden 判定原样传给执行器",
           _p["decision"] == _pol.DECISION_FORBIDDEN and _p["approved"] is False, _p)
 
-    _ax_src = (Path(__file__).parent / "ace_executor.py").read_text(encoding="utf-8")
+    _ax_src = (Path(__file__).parent / "core" / "ace_executor.py").read_text(encoding="utf-8")
     check("ace_executor 不依赖 ace_execpolicy（客户端可独立使用）",
           "import ace_execpolicy" not in _ax_src)
     check("E_POLICY_DENIED 映射到 403", _ax._HTTP_LIKE["E_POLICY_DENIED"] == "403")
@@ -3134,7 +3134,7 @@ if _want("21"):
     print("\n[21] ace_http —— 模型调用的重试与退避（纯判定 + 假传输，不发真实请求、不真睡眠）")
     # ============================================================
     import io as _io
-    import ace_http as _http
+    from core import ace_http as _http
     from dataclasses import fields as _dc_fields
 
     # —— Retry-After 解析：秒数与 HTTP 日期两种合法形式都要认 ——
@@ -3387,7 +3387,7 @@ if _want("22"):
     # ── [22] ────
     print("[22] ace_context —— 上下文压缩（纯判定 + 假摘要函数，不发真实请求）")
 
-    import ace_context as _ctx  # noqa: E402
+    from cli import ace_context as _ctx  # noqa: E402
 
     # —— token 估算：中文不能按 4 字符 1 token 折算 ——
     check("中文按字计 token", _ctx.estimate_tokens("你好世界") == 4,
@@ -3565,7 +3565,7 @@ if _want("22"):
           "self.tools_ok = False\n        try:" in _ai_src
           and "finally:\n            self.tools_ok = saved_tools" in _ai_src)
     check("ace_context 保持纯函数（不自己发请求、不读时钟）",
-          all(s not in (Path(__file__).parent / "ace_context.py").read_text(encoding="utf-8")
+          all(s not in (Path(__file__).parent / "cli" / "ace_context.py").read_text(encoding="utf-8")
               for s in ("import requests", "urlopen", "time.sleep", "time.time")))
 
     # ============================================================
@@ -4093,8 +4093,8 @@ if _want("26"):
     # ── [26] ────
     print("[26] 会话事件日志 —— append-only JSONL（模型可见⟺可记录，阶段 1）")
     # ============================================================
-    from ace_sessionlog import SessionLog  # noqa: E402
-    from ace_sessionlog import (K_ASSISTANT_MESSAGE, K_REQUEST_SNAPSHOT,
+    from cli.ace_sessionlog import SessionLog  # noqa: E402
+    from cli.ace_sessionlog import (K_ASSISTANT_MESSAGE, K_REQUEST_SNAPSHOT,
                                 K_TOOL_RESULT, K_USER_MESSAGE)  # noqa: E402
 
     _sl_root = Path(mktemp("slog"))
@@ -4134,10 +4134,10 @@ if _want("26"):
           and K_REQUEST_SNAPSHOT in _kinds, sorted(_kinds))
 
     # —— 全链路：执行层记录权限/工具/快照（同一份事实源） ——
-    from ace_sessionlog import K_PERMISSION as _K_PERM  # noqa: E402
-    from ace_sessionlog import K_SYSTEM_SNAPSHOT as _K_SYS  # noqa: E402
-    from ace_sessionlog import K_TOOL_CALL as _K_CALL  # noqa: E402
-    from ace_sessionlog import K_SNAPSHOT_CREATE as _K_SNAP  # noqa: E402
+    from cli.ace_sessionlog import K_PERMISSION as _K_PERM  # noqa: E402
+    from cli.ace_sessionlog import K_SYSTEM_SNAPSHOT as _K_SYS  # noqa: E402
+    from cli.ace_sessionlog import K_TOOL_CALL as _K_CALL  # noqa: E402
+    from cli.ace_sessionlog import K_SNAPSHOT_CREATE as _K_SNAP  # noqa: E402
     _slfull_root = Path(mktemp("slogfull"))
     _slfull_path = str(_slfull_root / "full.jsonl")
     _el_sl = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
@@ -4254,7 +4254,7 @@ if _want("27"):
     check("子代理执行层有独立日志（工具往返可审计）",
           len(_sub_files) >= 1, [str(f) for f in _sub_files])
     if _sub_files:
-        from ace_sessionlog import SessionLog as _SL2  # noqa: E402
+        from cli.ace_sessionlog import SessionLog as _SL2  # noqa: E402
         _sub_log = _SL2(str(_sub_files[-1]))
         _sub_kinds = {e["kind"] for e in _sub_log.events()}
         check("子代理日志含工具往返（tool/call + tool/result）",
@@ -4369,7 +4369,7 @@ if _want("29"):
                                   "results": [{"title": "Python Async", "url": "https://example.com/a"},
                                               {"title": "T2", "url": "https://example.com/b"}]}}
     with _mocksr.patch.object(_sr_te, "_exec_search", return_value=_NS(**_fake_search_data)), \
-         _mocksr.patch("ace_net.safe_request", return_value=(_fake_resp, [])):
+         _mocksr.patch("core.ace_net.safe_request", return_value=(_fake_resp, [])):
         r = _sr_te.execute({"tool": "search_read", "query": "python async", "top_k": 2})
     check_env("search_read 搜索+抓正文（RAG 式联网）",
           r.status == "success" and r.data["count"] == 2
@@ -4688,7 +4688,7 @@ if _want("33"):
     # ── [33] ────
     print("[33] 语义主题 —— ace_theme 双套调色板 / 自动检测 / 切换")
     # ============================================================
-    import ace_theme as _theme  # noqa: E402
+    from ui import ace_theme as _theme  # noqa: E402
     # 环境变量隔离：确保测试不受宿主环境 ACE_THEME / COLORFGBG 干扰
     _env_backup = {k: os.environ.get(k) for k in ("ACE_THEME", "COLORFGBG")}
     for _k in ("ACE_THEME", "COLORFGBG"):
@@ -4777,7 +4777,7 @@ if _want("33"):
     # ============================================================
     # [34] 工具卡片 —— ace_cards：三态标记 / 折叠 / 整卡渲染
     # ============================================================
-    from ace_cards import (tool_card, status_mark, collapse_lines,
+    from ui.ace_cards import (tool_card, status_mark, collapse_lines,
                            TOOL_EMOJI, TOOL_GLYPH, GLYPH_FALLBACK,
                            colorize)  # noqa: E402
     from tools.registry import TOOL_SPECS  # noqa: E402
@@ -4888,7 +4888,7 @@ if _want("32"):
     # ── [32] ────
     print("[32] 搜索式选择器 —— ace_selector.run_selector（非 TTY 降级 + 纯逻辑）")
     # ============================================================
-    import ace_selector  # noqa: E402
+    from ui import ace_selector  # noqa: E402
 
     # —— 非 TTY 降级：patch isatty → False，不阻塞直接返回首个匹配 ——
     _sel_items = ["deepseek-v4-flash  DeepSeek 官方",
@@ -5032,7 +5032,7 @@ if _want("35"):
           _r5w.get("status") not in ("403", "PERMISSION_REQUEST"), _r5w.get("message"))
 
     # —— SEC-06: execpolicy 两个小洞（git config 免审批 / --opt=路径 整体跳过）——
-    from ace_execpolicy import evaluate_command  # noqa: E402
+    from core.ace_execpolicy import evaluate_command  # noqa: E402
     _sec6_root = mktemp()
     _gv = evaluate_command("git config --global user.name x",
                            project_root=str(_sec6_root), posix=True)
@@ -5089,7 +5089,7 @@ if _want("37"):
     # ── [37] ────
     print("[37] ace_chatscroll —— 聊天内置滚动引擎(方案 C,纯逻辑)")
     # ============================================================
-    from ace_chatscroll import ChatScroll, decode_wheel, key_to_delta  # noqa: E402
+    from ui.ace_chatscroll import ChatScroll, decode_wheel, key_to_delta  # noqa: E402
 
     _cs = ChatScroll(view_height=5)
     for _i in range(12):
@@ -5302,7 +5302,7 @@ if _want("40"):
     _te40 = ToolExecutor(project_root=str(_p40_root))
     _el40 = ExecutionLayer(project_root=str(_p40_root), permission_level="write",
                            config={"bait": {"enabled": False}})
-    import ace_execpolicy as _ep40  # noqa: E402
+    from core import ace_execpolicy as _ep40  # noqa: E402
 
     # SEC-003：别名 / lambda / 属性脱壳都不许碰危险内建
     for _payload in ("f = open; f('x', 'w')",
@@ -5410,7 +5410,7 @@ if _want("41"):
 if _want("42"):
     # ── [42] ────
     print("[42] 模型层纯逻辑 —— 两个前端共用一份（R-03 安全半边）")
-    import ace_model as _am42  # noqa: E402
+    from core import ace_model as _am42  # noqa: E402
 
     _msgs42 = [{"role": "user", "content": f"m{i}"} for i in range(6)]
     check("[42] trim_history: max_history<=0 = 不裁剪（用户显式关掉）",

@@ -214,7 +214,7 @@ class _StreamCollector:
 
 def default_binary_path() -> Path:
     name = "ace-executor.exe" if os.name == "nt" else "ace-executor"
-    return Path(__file__).resolve().parent / "executor" / name
+    return Path(__file__).resolve().parent.parent / "executor" / name
 
 
 class ExecutorClient:

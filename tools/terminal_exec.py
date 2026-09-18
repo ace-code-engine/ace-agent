@@ -11,7 +11,7 @@ import re
 import subprocess
 from typing import Any, Dict, Optional
 
-import ace_execpolicy as execpolicy
+from core import ace_execpolicy as execpolicy
 from tools.base import MAX_COMMAND_LENGTH, sensitive_target
 from tools.docker_sandbox import DockerUnavailable
 from tools.file_common import _CMD_BUILTIN_BASES
@@ -81,7 +81,7 @@ class TerminalExec:
         client = self._go_executor()
         if client is None:
             return None
-        import ace_executor as _ax
+        from core import ace_executor as _ax
         want_tier = _ax.TIER_JOB_OBJECT if self.sandbox_mode == "job" else None
         if want_tier and want_tier not in client.sandbox_available():
             return None   # 本平台没有 Tier-1（非 Windows），交回调用方

@@ -14,9 +14,9 @@
 | 资源 | 解析方式 | 扁平 wheel 后 |
 |---|---|---|
 | 系统提示词 `prompts/*.md` | `agent_runner.py: FOLDER / "prompts"`(`__file__.parent`) | ✗ 落在 site-packages 根,相对路径失效 |
-| 国际化 `locales/*.json` | `i18n.py: __file__.parent / "locales"` | ✗ 同上 |
+| 国际化 `locales/*.json` | `ui/i18n.py: __file__.parent / "locales"` | ✗ 同上 |
 | CLI 数据/桌面目录注入 | `ai_code.py: FOLDER` | ✗ 同上 |
-| Go 执行器二进制 | `ace_executor.py: __file__.parent / "executor" / <name>` | ✗ 需另行分发/就地 go build |
+| Go 执行器二进制 | `core/ace_executor.py: __file__.parent / "executor" / <name>` | ✗ 需另行分发/就地 go build |
 | 顶层扁平模块 | `import ai_code` 等 21 个根级 .py | wheel 会散落 site-packages 污染命名空间 |
 
 若强行给 `console_scripts: ace = ai_code:main`,安装后第一次读取提示词即失败——比“没有入口”更糟。

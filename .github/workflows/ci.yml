@@ -35,7 +35,7 @@ jobs:
           pip install requests
 
       - name: Compile check
-        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py version.py ace_http.py ace_model.py ace_net.py ace_context.py ace_executor.py ace_execpolicy.py ace_isolation.py ace_sessionlog.py ace_theme.py ace_selector.py ace_cards.py ace_chatscroll.py ace_doctor.py work.py guardian.py archive.py nuwa.py i18n.py universal_document_parser.py test_all.py gateway_v2 tools e2e benchmarks
+        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py test_all.py gateway_v2 tools e2e benchmarks cli core ui
 
       - name: Run tests (端到端全量)
         run: python test_all.py

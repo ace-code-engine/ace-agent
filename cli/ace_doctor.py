@@ -4,8 +4,8 @@
 ace_doctor.py —— 环境自检(纯 stdlib,只读诊断,不联网必须项)
 
 用法:
-    python ace_doctor.py          # 打印诊断;退出码恒 0(诊断本身失败也是信息)
-    ACE_DOCTOR_NET=1 python ace_doctor.py   # 额外探测出网/模型端点(TCP 层,3s 超时)
+    python -m cli.ace_doctor                       # 打印诊断;退出码恒 0(诊断本身失败也是信息)
+    ACE_DOCTOR_NET=1 python -m cli.ace_doctor      # 额外探测出网/模型端点(TCP 层,3s 超时)
 
 用途:装好依赖/切机器/报 issue 前先跑一遍,把"哪一项没就绪"一次说清。
 """
@@ -24,8 +24,8 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-ROOT = Path(__file__).resolve().parent
-import version  # Q-12 版本单源：诊断头展示从这里读
+ROOT = Path(__file__).resolve().parent.parent
+from core import version  # Q-12 版本单源：诊断头展示从这里读
 
 
 def ok(msg: str):
@@ -99,7 +99,7 @@ def main() -> int:
             except OSError as e:
                 warn(f"网络不可达: {host}:{port} ({e})")
     else:
-        info("出网探测跳过;需检查时用 ACE_DOCTOR_NET=1 python ace_doctor.py")
+        info("出网探测跳过;需检查时用 ACE_DOCTOR_NET=1 python -m cli.ace_doctor")
 
     print("自检完成(退出码恒 0;⚠ 仅提示,不影响运行)。")
     return 0

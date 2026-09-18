@@ -11,7 +11,7 @@
 
 - Job Object 是 Windows 专属原语，非 Windows 平台 `--sandbox job` 只能诚实返回 503（`executor/sandbox_other.go` 整文件占位，`sandbox.go` 里 `unavailable[tierJobObject]` 写明原因）。这条**不打算改**——Windows 原生边界 + docker 档跨平台是既定威胁模型。
 - 但"Go 执行器需要额外编译"是**所有平台共有的摩擦**。现状：CI 在 ubuntu/windows 上 `go build` **只为测试**（`.github/workflows/ci.yml` 的 `go-test` job），从不产出产物；Release 上没有任何预编译二进制。
-- 宿主侧预期路径固定为 `executor/ace-executor(.exe)`（`ace_executor.py:default_binary_path()`），找不到时提示"build it with `go build ...`"（`ace_executor.py:262-263`）；`ace_doctor.py:67` 同样只提示手工编译。
+- 宿主侧预期路径固定为 `executor/ace-executor(.exe)`（`core/ace_executor.py:default_binary_path()`），找不到时提示"build it with `go build ...`"（`core/ace_executor.py:262-263`）；`cli/ace_doctor.py:67` 同样只提示手工编译。
 - 执行器只用 Go 标准库 + `syscall`（注释明言"不下载任何模块"），`CGO_ENABLED=0` 交叉编译天然可行，无需 cgo。
 
 结论：缺口不是"没有跨平台边界"，而是**边界已经有了、却没有一条低摩擦的获取通道**。本卡只补通道，不改边界本身。
@@ -20,7 +20,7 @@
 
 1. GitHub Release 上可下载 5 个平台/架构的 `ace-executor` 预编译二进制（Windows amd64、Linux amd64/arm64、macOS amd64/arm64）。
 2. `ace --install-executor` 一键下载对应平台产物到 `executor/`，下载后自校验（能打印版本号）才算成功，失败给出 `go build` 回退指引。
-3. 全部提示文案（`ace_executor.py`、`ace_doctor.py`、README）指向新通道，同时保留手工编译路径。
+3. 全部提示文案（`core/ace_executor.py`、`cli/ace_doctor.py`、README）指向新通道，同时保留手工编译路径。
 4. 语义不变：job 档拿不到边界依旧 503；`--sandbox off` 下执行器依旧"顺带用一下，起不来静默回落"。
 
 ## 3. 非目标
@@ -35,10 +35,10 @@
 |---|---|---|
 | `executor/main.go:22-25` | `serverVersion = "0.1.0"` 是 `const`，无 CLI 参数处理（main 忽略 `os.Args`） | 改 `var` + `--version`/`-v` 分支 |
 | `.github/workflows/ci.yml` | `go-test` 只 build+test，无产物 | 不动；新增独立 workflow |
-| `ace_executor.py:215-217,262-263` | 二进制路径固定 `executor/ace-executor(.exe)`；缺二进制提示只给 `go build` | 提示加 `ace --install-executor` |
-| `ace_doctor.py:62-67` | 探测 `executor/ace-executor(.exe)`/`executor.exe`，未找到只提示 `go build` | 提示加 `ace --install-executor` |
+| `core/ace_executor.py:215-217,262-263` | 二进制路径固定 `executor/ace-executor(.exe)`；缺二进制提示只给 `go build` | 提示加 `ace --install-executor` |
+| `cli/ace_doctor.py:62-67` | 探测 `executor/ace-executor(.exe)`/`executor.exe`，未找到只提示 `go build` | 提示加 `ace --install-executor` |
 | `ai_code.py` | 已有 `--install-ui` 先例：argparse（L2883）+ 底部 dispatch（L2891 一带）+ REPL 防蠢清单（L190）+ 聊天内快捷提示（L1887 一带） | 新增 `--install-executor`，以 `--install-ui` 的既有触点为模板逐一对齐 |
-| `version.py` | `__version__ = "3.6.0"`（版本单源 Q-12） | 发布时随版本号 |
+| `core/version.py` | `__version__ = "3.6.0"`（版本单源 Q-12） | 发布时随版本号 |
 | `README.md` | "唯一需要编译的部分"见 L319、L411；`--sandbox job` 示例 L91、L322；版本历史 L487 仍写"未打 git tag"（过时，仓库已有 v3.3~v3.6 里程碑 tag） | 措辞改预编译通道；L487 去旧描述并注明 v3.7 起随 Release 打同号 tag |
 | `.gitignore:26-29` | 已忽略 `executor/ace-executor(.exe)`/`executor.exe` | ✅ 无需改（下载产物不会被误提交） |
 
@@ -46,9 +46,9 @@
 
 ### D1 · 发布触发与 tag 策略 —— `workflow_dispatch` 手动发布，首次发布创建 `v{version}` tag
 
-仓库现状：版本号在 version.py/README/CHANGELOG 三处同步（Q-12）；里程碑 tag v3.3~v3.6 本地已存在（README L487 的"未打 git tag"是过时描述，S4 一并修正），但**从无携带产物的 GitHub Release**。GitHub Release 必须有 tag 载体。
+仓库现状：版本号在 core/version.py/README/CHANGELOG 三处同步（Q-12）；里程碑 tag v3.3~v3.6 本地已存在（README L487 的"未打 git tag"是过时描述，S4 一并修正），但**从无携带产物的 GitHub Release**。GitHub Release 必须有 tag 载体。
 
-- 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `version.py`（`python -c "import version;print(version.__version__)"`）。
+- 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `core/version.py`（`python -c "import version;print(version.__version__)"`）。
 - `gh release create v{version} <产物…> --title "ace-executor v{version}" --notes "…"`。发布时自动在远端创建/更新 tag `v{version}`——v3.7.0 是**第一个与 GitHub Release 绑定的 tag**，延续既有 v{version} 里程碑 tag 命名，不引入新的日常提交纪律。
 - 理由：发布是显式人工动作（workflow_dispatch），不是每次提交的默认行为；未来若想 tag 驱动可在此 workflow 加 `push: tags: v*` 扩展点。
 
@@ -95,21 +95,21 @@
 
 | 文件 | 改动 |
 |---|---|
-| `ace_executor.py:262-263` | start() 缺二进制提示追加 "；或 `ace --install-executor` 下载官方预编译二进制" |
-| `ace_doctor.py:67` | warn 文案追加同款指引 |
+| `core/ace_executor.py:262-263` | start() 缺二进制提示追加 "；或 `ace --install-executor` 下载官方预编译二进制" |
+| `cli/ace_doctor.py:67` | warn 文案追加同款指引 |
 | `README.md` | L91（快速开始 sandbox job 行）、L319-323（job 段"唯一需要编译的部分"→"默认用官方预编译二进制，需自行编译时…"）、L411（项目结构 executor 注释）、L487（版本历史"未打 git tag"→"v3.7.0 起随发布打 tag"） |
-| `version.py` + `CHANGELOG.md` | 3.6.0 → 3.7.0 + v3.7.0 条目（含本卡）；`docs/DEVELOPMENT.md` 若含发布/产物流程描述则同步补一步 |
+| `core/version.py` + `CHANGELOG.md` | 3.6.0 → 3.7.0 + v3.7.0 条目（含本卡）；`docs/DEVELOPMENT.md` 若含发布/产物流程描述则同步补一步 |
 
 ## 6. 落地步骤（每步独立提交 + 回归）
 
 - **S1 · Go 版本出口**：`executor/main.go`（D4）+ `go vet`、`go test ./...`（本机）。协议零改动。
 - **S2 · 发布工作流**：新建 `.github/workflows/release-executor.yml`（D1+D2）。本地无法完整验证，需 push 后手动 dispatch 一次（见 S5）。
-- **S3 · 安装器**：`ai_code.py`（D3 各触点点位）+ `ace_executor.py`、`ace_doctor.py` 提示（D5）。回归：`ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811` + `python test_all.py`。
-- **S4 · 版本与文档**：`version.py` 3.7.0、`CHANGELOG.md` v3.7.0、`README.md`（D5 四处）。回归：README 徽章/CHANGELOG 首条/version.py 三者一致（Q-12 纪律）。
+- **S3 · 安装器**：`ai_code.py`（D3 各触点点位）+ `core/ace_executor.py`、`cli/ace_doctor.py` 提示（D5）。回归：`ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811` + `python test_all.py`。
+- **S4 · 版本与文档**：`core/version.py` 3.7.0、`CHANGELOG.md` v3.7.0、`README.md`（D5 四处）。回归：README 徽章/CHANGELOG 首条/version.py 三者一致（Q-12 纪律）。
 - **S5 · 发布与真机验证（需有 push 权限 + GitHub token 的环境）**：
   1. push S1-S4 → 手动 dispatch `release-executor` → Release 出现 `v3.7.0` + 5 产物；
   2. 本机删掉 `executor/ace-executor.exe` → `python ai_code.py --install-executor` → 下载 + `--version` 自校验通过；
-  3. `python ace_doctor.py` 显示执行器已找到；`python test_all.py` 全绿（含执行器用例）。
+  3. `python -m cli.ace_doctor` 显示执行器已找到；`python test_all.py` 全绿（含执行器用例）。
 
 ## 7. 全局验收清单
 
@@ -119,8 +119,8 @@
 - [x] 产物矩阵与平台映射正确：Release v3.7.0 含 5 个命名规范产物；native-smoke 在 windows/ubuntu/macos-14 原生跑通 `--version`（覆盖 darwin/arm64）。⬜ darwin/amd64 与 linux 产物未在本机实机跑安装器（同一段映射代码，风险低）。
 - [x] 失败路径诚实：发布前 404 负路径实测 → 明确报"下载失败 + ACE_EXECUTOR_BASE_URL/手工 go build"指引，无假成功。
 - [x] 下载产物被 `.gitignore` 覆盖，`git status` 干净（安装后零未跟踪文件）。
-- [x] 用户可见文案联动：`ace_executor.py` / `ace_doctor.py` / README 四处均已指向 `ace --install-executor`（`ace_doctor` 实测显示 `✅ Go 执行器`）。
-- [x] CI 全绿：push 37f9dfe → CI success（3×Python test_all + ruff + Go vet/build/test + bench）；本地 ruff 零命中；版本号 version.py 3.7.0 / README 徽章 / CHANGELOG 首条三处一致。
+- [x] 用户可见文案联动：`core/ace_executor.py` / `cli/ace_doctor.py` / README 四处均已指向 `ace --install-executor`（`ace_doctor` 实测显示 `✅ Go 执行器`）。
+- [x] CI 全绿：push 37f9dfe → CI success（3×Python test_all + ruff + Go vet/build/test + bench）；本地 ruff 零命中；版本号 core/version.py 3.7.0 / README 徽章 / CHANGELOG 首条三处一致。
 - [x] Release 含 5 个命名规范的产物（D2 表）。**实测**：darwin-amd64 / darwin-arm64 / linux-amd64 / linux-arm64 / windows-amd64.exe 齐全（另有非本工作流上传的 logo.svg，如不需要可在 Release 页删除）。
 
 ## 8. 风险与缓解
@@ -130,7 +130,7 @@
 | 仓库此前 tag 只是里程碑代称、从不挂产物 | v3.7 起 tag 与 GitHub Release 绑定（同 v{version} 命名）；重复运行幂等：已有 Release 只 upload 产物，不重建 |
 | `gh` 缺权限 | workflow `permissions: contents: write`；ubuntu runner 自带 `gh`；失败即红，可重跑 |
 | 国内访问 github.com Release 慢/不通 | 保留 `go build` 路径；`ACE_EXECUTOR_BASE_URL` 支持镜像覆盖（与 `--install-ui` 多镜像思路一致） |
-| 二进制与宿主协议版本漂移 | 协议本有 `initialize` 版本协商；产物按 `version.py` 对齐；`server.version` 可在 `--version` 与 doctor 中比对 |
+| 二进制与宿主协议版本漂移 | 协议本有 `initialize` 版本协商；产物按 `core/version.py` 对齐；`server.version` 可在 `--version` 与 doctor 中比对 |
 | darwin/amd64（Intel）交叉产物无原生 CI | macos-14 原生冒烟已覆盖 darwin/arm64；darwin/amd64 首版发布后人工 mac 冒烟一次（同源代码 + 全 stdlib，风险低） |
 | workflow 需真实 push/dispatch，本地沙箱无法端到端 | S5 明确列为"需在具备 push 权限的环境执行"的 GitHub 侧动作，本机侧验证（下载/doctor/test）不受限 |
 

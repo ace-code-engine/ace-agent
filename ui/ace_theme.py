@@ -7,7 +7,7 @@ ace_theme.py —— ACE 语义主题 token 模块（借鉴 OpenClaw 的 theme.ts
 这一处，并支持深 / 浅色自动检测。
 
 用法：
-    import ace_theme as theme
+    from ui import ace_theme as theme
     color = theme.tc("error")          # 取当前主题下 error 的 ANSI 色名
     theme.set_theme("light")           # 显式切换（缓存）
     theme.set_theme(None)              # 恢复自动检测

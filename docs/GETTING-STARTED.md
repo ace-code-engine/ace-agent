@@ -10,7 +10,7 @@
 git clone https://github.com/jincheng3870682453-hash/ace-agent.git && cd ace-agent
 python test_all.py          # 全量测试（纯 stdlib）。受限环境会列出跳过项，那不是失败
 python ai_code.py --mock    # 离线演示：提问 → 调工具 → 作答 → /status 一条龙
-python ace_doctor.py        # 环境自检：Python / 可选依赖 / Go 执行器 / Docker / 配置
+python -m cli.ace_doctor    # 环境自检：Python / 可选依赖 / Go 执行器 / Docker / 配置
 ```
 
 跑完这三条，你就已经看过"模型 ↔ 执行层"的完整闭环了——**不需要任何 API Key**。

@@ -148,7 +148,7 @@ class CodeTools:
         if self.use_go_executor:
             client = self._go_executor()
             if client is not None:
-                import ace_executor as _ax
+                from core import ace_executor as _ax
                 try:
                     out = client.exec_python(
                         code, cwd=str(self.project_root),

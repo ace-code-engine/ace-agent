@@ -40,7 +40,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
   - 这一条曾写作"本机无 rustc/cargo/go"，是错的：只看 PATH 就下了结论。执行器最终用 Go 实现（`executor/`），而不是本 ADR 原先预期的"Python 执行器，将来可能换 Rust"。
 - 零第三方依赖是项目原则（`docs/ADR.md:25-29` 的 ADR-004）：核心只用 stdlib，`requests`/`prompt_toolkit` 可选懒加载。
 - 已有 `Dockerfile:1-11`（`python:3.12-slim` + `requests`）与 `docker-compose.yml:1-6`（ACE + Ollama）。注意：现有容器化的语义是**把整个 ACE 放进容器**（`CMD ["python", "ai_code.py", "--mock"]`，`Dockerfile:11`），不是"ACE 在宿主、执行器在容器"——后者是本 ADR 讨论的另一件事。
-- `test_all.py` 1121 行纯 stdlib 自写断言，统一入口 `run_agent()`（`test_all.py:59`）与 `check()`（`test_all.py:50`）；`guardian.py` 提供 `snapshot`（`guardian.py:79`）/`verify_snapshot`（`guardian.py:128`）/`rollback`（`guardian.py:162`）/`prune`（`guardian.py:218`）。
+- `test_all.py` 1121 行纯 stdlib 自写断言，统一入口 `run_agent()`（`test_all.py:59`）与 `check()`（`test_all.py:50`）；`core/guardian.py` 提供 `snapshot`（`core/guardian.py:79`）/`verify_snapshot`（`core/guardian.py:128`）/`rollback`（`core/guardian.py:162`）/`prune`（`core/guardian.py:218`）。
 
 ### 参考实现的事实（本地副本，已核对）
 
@@ -57,7 +57,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 1. **消除 `shell=True`**（`tools/file_tools.py:274`）是本 ADR 的首要目标，其余都是为了让这件事做得彻底且不可回退。
 2. **零第三方依赖不可破**（`docs/ADR.md:25-29`）：所有必需路径只能用 stdlib（含 `ctypes`）；需要外部运行时的方案只能是**可选档位**。
 3. **实现语言可替换**：契约必须语言无关，替换实现时宿主侧零改动。（实施结果：执行器直接用 Go 写成，跳过了"先 Python 再换掉"的中间态；这条驱动力因此从"将来可能"变成了"当下就是"。）
-4. **既有测试与 guardian 不能被破坏**：`test_all.py` 全部断言（除下文明确点名的一条）与 `guardian.py` 的快照/回滚语义必须保持。
+4. **既有测试与 guardian 不能被破坏**：`test_all.py` 全部断言（除下文明确点名的一条）与 `core/guardian.py` 的快照/回滚语义必须保持。
 5. **可分阶段、每阶段可独立验证与回滚**：不接受"大爆炸式"重写。
 6. **诚实的隔离声明**：每个档位必须写清"防住什么、防不住什么"。声称的隔离强度高于实际，比没有隔离更危险。
 
@@ -91,7 +91,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 
 宿主侧新增 `executor_client.py`（NDJSON 客户端），执行器侧新增 `executor/`（子进程入口 `python -m executor`）。`ExecutionLayer` 通过配置 `executor.mode = inproc | subprocess` 选路，`terminal_exec` 与 `code_execute` 是首批迁移的两个工具。
 
-> **实施后更正（与 `exec_protocol.py` 那条同类）**：宿主侧客户端最终落在 `ace_executor.py`（`ExecutorClient`），没有 `executor_client.py`；`executor/` 是 **Go 模块**（`go.mod` + `main.go` / `protocol.go` / `run.go` / `sandbox*.go`），不是 Python 包，`python -m executor` 跑不起来。选路开关也不叫 `executor.mode` —— 实际是 `config["use_go_executor"]` 加环境变量 `ACE_USE_GO_EXECUTOR`，三态优先级为「显式参数 > 环境变量 > 默认开」。下文凡出现 `executor.mode` 的地方按这一条读。
+> **实施后更正（与 `exec_protocol.py` 那条同类）**：宿主侧客户端最终落在 `core/ace_executor.py`（`ExecutorClient`），没有 `executor_client.py`；`executor/` 是 **Go 模块**（`go.mod` + `main.go` / `protocol.go` / `run.go` / `sandbox*.go`），不是 Python 包，`python -m executor` 跑不起来。选路开关也不叫 `executor.mode` —— 实际是 `config["use_go_executor"]` 加环境变量 `ACE_USE_GO_EXECUTOR`，三态优先级为「显式参数 > 环境变量 > 默认开」。下文凡出现 `executor.mode` 的地方按这一条读。
 
 **为什么不是 A1**：进程内加固能解决 `shell=True`，但解决不了资源边界与进程树回收——没有独立进程就没有可以整体 kill 的对象，也没有可以整体替换成 Rust 二进制的对象。做完 A1 之后仍然要做 A2，而 A1 的代码会成为需要二次迁移的中间态。
 
@@ -348,7 +348,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
   - `on_request` + `workspace_write`：升权后的日常默认
   - `never` + `danger_full_access`：**唯一必须硬拦的组合**，启动时直接拒绝。无人值守叠加无隔离等于完全没有边界，这个组合不存在合理用途。
 
-#### 命令安全性判定放在哪一层：独立模块 `ace_execpolicy.py`
+#### 命令安全性判定放在哪一层：独立模块 `core/ace_execpolicy.py`
 
 **不放执行器、不放执行层、不放工具，而是独立的纯函数模块 + 数据化规则**（对齐 codex 把它抽成独立 crate 的做法，规则形态与三值决策见 `execpolicy/README.md:5-10`）。四条理由：
 
@@ -380,7 +380,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 - **Tier-2 引入外部运行时依赖**：Docker 只能是可选档，不进核心，零依赖原则得以保住，但也意味着**最强的隔离档位在多数用户机器上不可用**。
 - **必须修改一条既有测试断言**：`test_all.py:326` 使用 `command='echo x > created.txt && echo api_key="abcdef1234567890"'`，依赖 shell 的重定向与 `&&` 语义。阶段 1 之后这条命令会被 execpolicy 判为 `prompt` 或直接拒绝。这是本迁移对"不破坏现有测试"的**唯一例外**，需要在同一个提交里把断言改为"该命令需审批"，并另起一个用例继续覆盖原本要验证的 guard 行为（输出中的硬编码密钥检测，`execution_layer.py:584-598`）。
 - **guardian 的保护范围不会因此变强**：沙箱阻止的是越界，guardian 回滚的是越界之内的破坏，两者不可互相替代。
-- **一处容易被忽略的耦合**：guardian 快照采集的是 `project_root`（`guardian.py:60`）。`terminal_exec` 当前 `cwd` 就是 `project_root`（`tools/file_tools.py:275`），所以快照是有效保护；而 `code_execute` 的 `cwd` 是临时沙箱目录（`tools/code_tools.py:101-104`），与快照范围不重叠——也就是说 `code_execute` 的快照（`execution_layer.py:573-579` 对 `WRITE_TOOLS` 一律建快照，`code_execute` 在 `execution_layer.py:107` 的集合内）**本来就是空保护**。迁移中必须保持 `exec.command` 的 `cwd` 语义不变，否则 guardian 回滚会**静默失效**且没有任何测试能发现。
+- **一处容易被忽略的耦合**：guardian 快照采集的是 `project_root`（`core/guardian.py:60`）。`terminal_exec` 当前 `cwd` 就是 `project_root`（`tools/file_tools.py:275`），所以快照是有效保护；而 `code_execute` 的 `cwd` 是临时沙箱目录（`tools/code_tools.py:101-104`），与快照范围不重叠——也就是说 `code_execute` 的快照（`execution_layer.py:573-579` 对 `WRITE_TOOLS` 一律建快照，`code_execute` 在 `execution_layer.py:107` 的集合内）**本来就是空保护**。迁移中必须保持 `exec.command` 的 `cwd` 语义不变，否则 guardian 回滚会**静默失效**且没有任何测试能发现。
 
 ### 待实测假设（未验证，不得当作已知）
 
@@ -409,7 +409,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 
 ### 阶段 0：引入策略与协议模块，只观测不拦截
 
-- 新增 `ace_execpolicy.py`（纯函数 + 规则数据）与 `exec_protocol.py`（信封与错误码的序列化/校验，无副作用）。**实际落地时没有 `exec_protocol.py`**：宿主侧的信封与错误码收在 `ace_executor.py` 里，执行器侧收在 `executor/protocol.go` 里。两侧各写一份是刻意的——协议要是共享一份实现，"两个独立实现互相校验"这条性质就没了；见「实施后记」。
+- 新增 `core/ace_execpolicy.py`（纯函数 + 规则数据）与 `exec_protocol.py`（信封与错误码的序列化/校验，无副作用）。**实际落地时没有 `exec_protocol.py`**：宿主侧的信封与错误码收在 `core/ace_executor.py` 里，执行器侧收在 `executor/protocol.go` 里。两侧各写一份是刻意的——协议要是共享一份实现，"两个独立实现互相校验"这条性质就没了；见「实施后记」。
 
 - 在 `tools/file_tools.py:243` 的 `_exec_terminal_exec` 入口 shadow 调用策略判定，把 `decision` 写入 `result.metadata`，**不改变任何行为**。
 - 验证：`test_all.py` 全绿（行为未变）+ 新增策略纯函数断言（可覆盖数十条危险命令而无需执行）。
@@ -457,7 +457,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 ## 与其他角色的交接
 
 - **给代码审查师**：架构层坏味道对应的具体代码位置——`tools/file_tools.py:274`（`shell=True`）、`tools/file_tools.py:274-276`（无 env 清洗，与 `tools/code_tools.py:115-125` 不对称）、`tools/file_tools.py:268-270`（命令在执行前被字符串改写，审计字段 `tools/file_tools.py:281` 记录的是改写后的值）、`tools/code_tools.py:162`（`eval`）。
-- **给测试专家**：架构风险区域需要提升覆盖率——execpolicy 三值判定（纯函数，可高密度覆盖）、cancel/timeout 的双 `resp` 语义与幂等性、执行器崩溃后的宿主补偿路径、`sandbox_applied` 是否为实测回报。另需一条**当前缺失**的断言：`code_execute` 的 guardian 快照因 cwd 不重叠而是空保护（`tools/code_tools.py:101-104` vs `guardian.py:60`），这个事实应当被测试固化，而不是靠注释。
+- **给测试专家**：架构风险区域需要提升覆盖率——execpolicy 三值判定（纯函数，可高密度覆盖）、cancel/timeout 的双 `resp` 语义与幂等性、执行器崩溃后的宿主补偿路径、`sandbox_applied` 是否为实测回报。另需一条**当前缺失**的断言：`code_execute` 的 guardian 快照因 cwd 不重叠而是空保护（`tools/code_tools.py:101-104` vs `core/guardian.py:60`），这个事实应当被测试固化，而不是靠注释。
 - **给 SRE**：单点与瓶颈——执行器进程是新的单点（崩溃即所有危险工具不可用，需要重启策略与在途请求补偿）；看门狗超时阈值 `timeout_ms + grace_ms` 需要可配置；孤儿进程数（`orphans_remaining`）与执行器重启次数应作为监控指标；`sandbox_applied.degraded` 为 true 时应告警，因为它意味着实际隔离低于声称值。
 
 ---
@@ -480,7 +480,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 
 - NDJSON over stdio、`initialize` 声明可用档位、`sandbox_applied` 实测回报、审批与沙箱两个正交闸门——全部照原样落地。
 - 判定与执行分离：`ace_execpolicy.evaluate_command()` 是纯函数，不碰进程也不碰网络，因此几十条危险命令可以在单测里高密度覆盖。
-- 主机侧客户端 `ace_executor.py` 与执行器 `executor/` 之间只有协议，没有共享代码。
+- 主机侧客户端 `core/ace_executor.py` 与执行器 `executor/` 之间只有协议，没有共享代码。
 
 ### 与原计划不同的部分
 
@@ -494,11 +494,11 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 原计划把"杀不掉的子进程"当成不会发生的情况；实测下来它是最贵的一类故障，因为代价不是一次失败而是永久泄漏。
 
 - **杀完必须有界地收尸**（`executor/run.go` 的 `reapAfterKill`，宽限 5s ×2 档）。`waitDone` 由 `wg.Wait()` → `cmd.Wait()` 喂，而 pump 只有在**所有**继承了 stdout 句柄的进程都消失后才看到 EOF —— 含孙进程。`killTree` 在 Tier-0 只是尽力而为（整树保证要靠 Tier-1 的 Job Object），跑掉一个就让裸 `<-waitDone` 永久阻塞：goroutine + 句柄 + 管道全泄漏，请求也永远拿不到 `resp`（宿主会把它误报成传输超时）。放弃等待时**不能碰 `outS`/`errS`** —— pump 还在往里写，读 `total`/`buf` 就是 `-race` 抓得到的数据竞争，所以放弃路径如实回报"0 输出 + 原因"。不选"关管道逼退阻塞的 read"：`StdoutPipe` 用的是 `os.Pipe`，Windows 上是没注册到 poller 的同步匿名管道，并发 `Close`/`Read` 行为未定义。
-- **Ctrl+C 必须发 `cancel`**（`ace_executor.py`）。`KeyboardInterrupt` 不是 `Exception`，原来的 `except Exception` 接不到它 —— 而那恰好是最该发 cancel 的时刻，否则执行器的子进程（一次构建、一次下载）会变成没人认领的后台任务继续烧 CPU 和磁盘，直到自己超时。同时给执行器进程加了 `CREATE_NEW_PROCESS_GROUP` / `start_new_session`，让它不被控制台信号连带打死。
+- **Ctrl+C 必须发 `cancel`**（`core/ace_executor.py`）。`KeyboardInterrupt` 不是 `Exception`，原来的 `except Exception` 接不到它 —— 而那恰好是最该发 cancel 的时刻，否则执行器的子进程（一次构建、一次下载）会变成没人认领的后台任务继续烧 CPU 和磁盘，直到自己超时。同时给执行器进程加了 `CREATE_NEW_PROCESS_GROUP` / `start_new_session`，让它不被控制台信号连带打死。
 - **超时只有一个来源**（`ACE_EXEC_TIMEOUT_MS` / `ACE_EXEC_RESP_GRACE_MS`，均带上下钳位），Go 路径与进程内回退共用，两条路径的超时语义不会分叉。钳位不是洁癖：`ACE_EXEC_TIMEOUT_MS=0` 这种手误会让每条命令瞬间超时，而症状（全是 `E_TIMEOUT`）指不到环境变量上。
 - **进程内回退不再是"没有边界的那条路"**（`tools/file_tools.py` 的 `_run_capped`）。原来的 `subprocess.run(timeout=30)` 在 `shell=True` 下会**永久挂住**：它的超时处理是 `Popen.kill()`（只杀直接子进程，也就是 `cmd.exe /c`）后 `communicate()`，而后者要等活着的孙进程给出管道 EOF —— "30 秒超时"变成无限期阻塞。现在是两条 pump 线程 + 整树回收（`taskkill /T /F` / `killpg`）+ 1 MiB 输出上限，**到量后继续排空**（到量就停读会让子进程卡在 `write` 上，"大小限制"悄悄变成"时间限制"），超时按 504 返回并**带上已截获的输出**。
 - **默认环境白名单补了 `SystemDrive` / `ProgramData` / `ALLUSERSPROFILE`**。少了它们，Windows shell 层里 `%SystemDrive%\ProgramData\...` 这类字面量路径展开不了、退化成相对路径，子进程会在自己的 cwd（正常就是用户的项目目录）里造出一棵叫 `%SystemDrive%` 的垃圾目录树 —— 这是在本仓库 `executor/` 下真实长出来过的。故意**不**放行 `APPDATA` / `LOCALAPPDATA`：那是用户可写的状态目录，等于白送一块持久化落脚点。
-  - 这条修了两次，第一次没修在生效的那份上。清单有两份拷贝：`executor/run.go` 的 `defaultEnvAllow` 和宿主 `ace_executor.py` 的 `DEFAULT_ENV_ALLOW`。Go 那份只在 `len(allow) == 0` 时才被查到，而宿主**永远显式下发**自己那份 —— 所以只改 Go 侧等于没改，`%SystemDrive%` 目录树照旧长出来。两份现已一致，并有一条断言从 `run.go` 里正则解析出列表与 Python 侧逐项比对（含顺序）。教训是判据要盯**漂移本身**：一份清单存在两处，就一定会有一次只改了一处。
+  - 这条修了两次，第一次没修在生效的那份上。清单有两份拷贝：`executor/run.go` 的 `defaultEnvAllow` 和宿主 `core/ace_executor.py` 的 `DEFAULT_ENV_ALLOW`。Go 那份只在 `len(allow) == 0` 时才被查到，而宿主**永远显式下发**自己那份 —— 所以只改 Go 侧等于没改，`%SystemDrive%` 目录树照旧长出来。两份现已一致，并有一条断言从 `run.go` 里正则解析出列表与 Python 侧逐项比对（含顺序）。教训是判据要盯**漂移本身**：一份清单存在两处，就一定会有一次只改了一处。
 
 ### 还没做的
 

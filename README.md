@@ -124,7 +124,7 @@ flowchart LR
     EL --> EX
 ```
 
-One line per layer: **user layer** = landing page / REPL / slash commands; **loop** = the model ↔ execution-layer closed loop (up to 20 rounds); **execution layer** = protocol parsing → permission ruling → safety gates → pre-write snapshot → tool execution (a 14-stage state machine, and the only place safety is actually enforced); **tool set** = single-point declaration in `registry.py` plus per-domain executors; support modules (`work.py`, `guardian.py`, `archive.py`, `nuwa.py`) hang off the layer and the loop.
+One line per layer: **user layer** = landing page / REPL / slash commands; **loop** = the model ↔ execution-layer closed loop (up to 20 rounds); **execution layer** = protocol parsing → permission ruling → safety gates → pre-write snapshot → tool execution (a 14-stage state machine, and the only place safety is actually enforced); **tool set** = single-point declaration in `registry.py` plus per-domain executors; support modules (`core/work.py`, `core/guardian.py`, `core/archive.py`, `core/nuwa.py`) hang off the layer and the loop.
 
 > **Gateway vs. execution layer**: the gateway (L1/L2/L4/L5) is a policy/assist layer *called inside each round* by the execution layer — not a second, independent security pipeline. The dashed edge in the diagram says exactly that. Layer table, authoritative directory tree and ADR index: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -189,14 +189,14 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
-- **v3.9.0** (2026-09-18): section-level test runner (0.3s for a targeted section instead of a full run), `tools/file_tools.py` split along its three execution paths (method bodies verified byte-identical), `run_command` 125→25 lines, `converse` 234→175 lines, shared model-layer helpers in `ace_model.py`
+- **v3.9.0** (2026-09-18): section-level test runner (0.3s for a targeted section instead of a full run), `tools/file_tools.py` split along its three execution paths (method bodies verified byte-identical), `run_command` 125→25 lines, `converse` 234→175 lines, shared model-layer helpers in `core/ace_model.py`
 - **v3.8** (2026-09-18): promise guards (`[38]/[39]/[40]`), the full 19-item security-audit reconciliation, the egress gate, snapshot/audit hardening, and the `examples/` scenarios. Same-day tags are merged into one entry — see [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Known gaps and unverified items
 
 To be explicit about what is **not** done or **not** verified — don't read these as "probably fine":
 
-- **R-03 engine merge (not done).** Only the safe half was merged: the pure logic both frontends share now lives in `ace_model.py` (history trimming, HTTP error-code hints). The streaming client itself is **not** merged — the interactive frontend is streaming + `requests` + retries + Anthropic compatibility, while the headless one is a single `urllib` call, and their output contracts differ (stream-as-you-go vs. the single `🤖 Agent:` line that `e2e` and CI depend on). Merging them is a **behaviour change**, and the current tests only cover the `--mock` path — it needs verification against a **real model endpoint** before it is safe to do. The order of work is written down in [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md).
+- **R-03 engine merge (not done).** Only the safe half was merged: the pure logic both frontends share now lives in `core/ace_model.py` (history trimming, HTTP error-code hints). The streaming client itself is **not** merged — the interactive frontend is streaming + `requests` + retries + Anthropic compatibility, while the headless one is a single `urllib` call, and their output contracts differ (stream-as-you-go vs. the single `🤖 Agent:` line that `e2e` and CI depend on). Merging them is a **behaviour change**, and the current tests only cover the `--mock` path — it needs verification against a **real model endpoint** before it is safe to do. The order of work is written down in [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md).
 - **REL-03 native smoke (not verified).** Repo automation covers the offline `--mock` path, the headless `agent_runner`, and CI on three Python versions. **"`ace.cmd` → a real terminal conversation" has never been walked through on a real machine.** Windows console VT/encoding, the `prompt_toolkit` completion menu and streaming under a real model all belong to this bucket.
 - Same class: the **darwin/amd64 executor artifact has no native smoke test** — it cross-compiles, but no Intel Mac has ever run it. See the REL section of [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
@@ -206,6 +206,7 @@ To be explicit about what is **not** done or **not** verified — don't read the
 ace-agent/
 ├── ai_code.py / agent_runner.py   # terminal frontends (landing/REPL) + agent loop
 ├── execution_layer.py             # the layer where safety is actually enforced
+├── ui/  cli/  core/               # terminal presentation / operator tools / engine support
 ├── tools/  gateway_v2/  executor/ # tool registry / gateway policy / Go sandbox executor
 ├── test_all.py  benchmarks/  e2e/ # tests / benchmarks / real-model smoke
 ├── examples/  docker/  docs/  demo/

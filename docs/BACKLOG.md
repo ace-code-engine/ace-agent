@@ -26,14 +26,12 @@
 | ✅ Q-05 | `ace.cmd` 硬编码 `C:\aider_env\...` | 第 10 行,换机器必炸;改 PATH 探测 python/py | S |
 | ✅ Q-06 | CI 结构一致性校验 | 已完成(v3.7)：权威树迁至 `docs/ARCHITECTURE.md` 并补齐 13 条缺口(根级 9 + `.github` 2 + `tools` 2)；`test_all.py` 新增 `[38]` 节自动校验"树↔文件"(R1 存在性/R2 根级/R3 已展开目录/R4 compileall)，随 CI 三档 Python 顺带执行，无需新增 job。立项卡 `docs/design/ARCH-TREE-CHECK.md` | S |
 | ✅ Q-07 | prompts 工具清单 ↔ registry 差集 | 已完成(v3.7)：实测差集——`agent_system_prompt_tools.md` 漏 11 个、`agent_system_prompt_v7.md` 漏 13 个（kb_/skill_/goal_/subagent/search_read/browser_navigate/plan_propose/request_permission 等族全部缺席），`v8` 已齐；已按 registry 的真实权限分组重写 tools 版的【可用工具】并给 v7 补 22-34 条（参数照抄 `ToolSpec.example`，不臆造）。同时修掉两处**可用性谎言**：v7/tools 都写着"browser_click / browser_type 尚未实现(501)"，实际早已实现；v7 的"email 暂未接入(501)"实际是"未配 SMTP 才 501"。CI 守卫：test_all 的提示词断言从"只查 v8"扩到三个运行时提示词全覆盖 | S-M |
-| Q-08 | e2e smoke 抗抖动 | 240s 单次硬超时 → 2-3 次浅提问重试 | S |
+| ✅ Q-08 | e2e smoke 抗抖动 | 已落地：`e2e/real_model_smoke.py` 最多 3 次尝试、每次 150s 超时，第 1 次带工具调用、后两次换浅提问，任一成功即通过；次数可用 `ACE_E2E_ATTEMPTS` 调。v3.7 订正了 docstring 里"单次 240s"的旧描述 | S |
 | ✅ Q-09 | 死代码清理（BehaviorConstraint 已移除） | `work.py:326 BehaviorConstraint` 仅测试引用、AST 规则无人用;执行层死 import | S |
 | ✅ Q-10 | 错误语义与文案解耦 | 靠 message 中文子串判 403;`error_code` 自由字符串散落 ~30 处;状态码无集中常量 | error_code/status 枚举化,文案走 i18n | M |
 | ✅ Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | 已完成(v3.7)：CONTRIBUTING 已改为"总数随平台浮动、不写死数字"；`demo/record_demo.py --check` 进入 CI 的 test job（Py 3.12 单跑）；Docker run 示例补 `--project-root /app/project`。过程中发现演示脚本早就腐化：提示符仍认旧字形 `❯`（v3.6 已改 `▊`）导致用户输入行消失，且录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数——已改为"临时工作目录 + 临时 HOME"的封闭录制、路径折叠成 `…/`，并重录 `demo/demo.svg`（29 行完整会话，结尾不再被 MAX_LINES 截断） | S |
-| Q-12 | 版本单源 `__version__` + v3.1 git tag/Release | 徽章/CHANGELOG/版本表手动三份 | S-M |
-| ✅ Q-13 | 打包结论（源运行;wheel 待 P2 布局重构,见 docs/PACKAGING.md） | `pyproject.toml`(console_scripts ace=…)或明示“源码运行” | 根目录无打包 | M |
-| ✅ Q-14 | locales 补齐（ja 2 键已补全） + 研究文档卫生 | ja.json 缺 2 键;codex/dsh/security 调研文档补上游 URL/许可证、脱敏本机路径 | S |
-| Q-15 | 模块 docstring 检索词/命名说明 | Archive(记忆)/Nuwa(报告)/work(诱饵+AST)名称无信息量;不强行改名,补 docstring | S |
+| ✅ Q-12 | 版本单源 `__version__` + 里程碑 tag/Release | 已落地：`version.py` 是唯一来源，登录/聊天横幅由 `{ver}` 占位符注入（zh/en/ja），`python ai_code.py --version` 可查，`ace_doctor` 报版本，发布流水线用 `-ldflags -X main.serverVersion=…` 把同一版本号注入 Go 执行器；远端已有 `v3.3`~`v3.7` 里程碑 tag（v3.7.0 随 GitHub Release 发布 5 平台执行器产物） | S-M |
+| ✅ Q-15 | 模块 docstring 检索词/命名说明 | 已落地（与 R-06 同一批）：`docs/INTERFACES.md §11` 有"历史命名 ↔ 真实职责 ↔ 检索词"索引（`Archive`=记忆 / `Nuwa`=报告 / `work`=诱饵+AST / `guardian`=快照回滚），且每个旧模块 docstring 首行已写清职责；约定"新模块一律 `ace_` 前缀" | S |
 
 ## P2 — 结构级(择机)
 
@@ -48,13 +46,13 @@
 
 ## REL — 对外发布前
 
-- REL-01 建 `SECURITY.md` + Issue/PR 模板;补 GitHub topics/主页(仓库公开,description 已有)
-- REL-02 README 顶部“生产级”表述与现状对齐;关键数字动态化(Q-04)
-- REL-03 一次真实 Windows 冒烟(ace.cmd → 真机对话)→ Q-05 完成后
+- ✅ REL-01 已建 `SECURITY.md` + Issue/PR 模板（`v3.3`）；GitHub topics/主页属仓库设置，需人工在网页维护
+- ✅ REL-02 已处理：README 顶部"生产级"表述在二轮重构时对齐；关键数字动态化由 `test_all [39]`（Q-04）自动校验，文档里不再写死
+- ⏳ REL-03 真实 Windows 冒烟：`ace.cmd` 与真机对话需人在有控制台的机器上走一遍（本仓库的自动化只覆盖 `--mock` 与无头链路）
 - ✅ REL-04 云端 e2e 激活说明已落文档(README secrets 指引 + e2e 头注释);配置 ACE_E2E_* 后 CI 自动启用
 
 ## 建议顺序
 
-1. **P0 全批**(SEC-01→SEC-02→SEC-03→SEC-04→SEC-05→SEC-06)+ 各自回归测试
-2. P1 快速项:Q-01 → Q-02 → Q-03 → Q-04 → Q-05 → Q-06/Q-07
-3. P2/R-* 与 REL-* 按迭代安排
+1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试
+2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-06 的 v3.7 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
+3. ⏳ 剩余：**P2 结构重构 R-01~R-05**（R-06 已完成）、审计里的 `SEC-017` 剩余面（安全事件分级 / 连续 403 告警）、`REL-03` 真机冒烟

@@ -5252,16 +5252,25 @@ if _want("39"):
         for _a, _b in _re.findall(r"(\d+)\s*家厂商\s*[·・]\s*(\d+)\s*入口", _txt):
             if (int(_a), int(_b)) != (len(_VENDORS), len(_PIDS)):
                 _a_bad.append(f"{_rel}: {_a} 家厂商 · {_b} 入口")
+        # 英文措辞走同一条口径——README 自 v3.9 起英文为主，不覆盖它等于把守卫绕过去
+        for _a, _b in _re.findall(r"(\d+)\s*vendors?\s*[·•]\s*(\d+)\s*endpoints?",
+                                  _txt, _re.IGNORECASE):
+            if (int(_a), int(_b)) != (len(_VENDORS), len(_PIDS)):
+                _a_bad.append(f"{_rel}: {_a} vendors · {_b} endpoints")
         for _n in _re.findall(r"(\d+)\s*家(?:模型)?提供商", _txt):
             if int(_n) != len(_VENDORS):
                 _b_bad.append(f"{_rel}: {_n} 家提供商")
+        for _n in _re.findall(r"(\d+)\s*(?:model\s+)?providers?\b", _txt, _re.IGNORECASE):
+            if int(_n) != len(_VENDORS):
+                _b_bad.append(f"{_rel}: {_n} providers")
         for _n in _re.findall(r"(\d+)\s*个工具", _txt):
             if int(_n) not in (len(TOOL_SPECS), _EXPOSED):
                 _c_bad.append(f"{_rel}: {_n} 个工具")
 
-    check("[39] 文档'家厂商 · 入口'口径与 PROVIDERS 一致", not _a_bad,
+    check("[39] 文档'家厂商 · 入口'(中/英)口径与 PROVIDERS 一致", not _a_bad,
           f"应写 {len(_VENDORS)} 家厂商 · {len(_PIDS)} 入口；不符: {_a_bad}")
-    check("[39] 文档'家提供商'口径与 PROVIDERS 一致", not _b_bad, f"不符: {_b_bad}")
+    check("[39] 文档'家提供商'/'N providers'(中/英)口径与 PROVIDERS 一致",
+          not _b_bad, f"不符: {_b_bad}")
     check("[39] 文档'个工具'口径与 registry 一致", not _c_bad,
           f"应 ∈ {{{len(TOOL_SPECS)} 声明, {_EXPOSED} 暴露}}；不符: {_c_bad}")
 

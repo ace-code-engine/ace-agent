@@ -113,7 +113,8 @@ ace-agent/
 │       ├── dsh_research.md         #   DeepSeek Harness 源码调研（62 项可借鉴设计）
 │       └── prompt-engineering/     #   提示词工程规范 v1→v7 + 上下文包（历史归档）
 
-├── README.md                   # 项目名片与上手入口（架构级短树；权威树见本文档）
+├── README.md                   # 项目名片与上手入口（**英文为主**；架构级短树，权威树见本文档）
+├── README.zh-CN.md             # 中文版 README（与英文版同源，顶部互相切换）
 ├── CONTRIBUTING.md             # 贡献指南（环境 / 测试 / 风格 / PR 流程）
 ├── LICENSE                     # MIT
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）

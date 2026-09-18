@@ -32,7 +32,7 @@ config = {
 |---|---|
 | `on_request`（默认） | 判定为"需审批"时问人 |
 | `on_failure` | **有真实边界**（`--sandbox job/docker`）时"先试后问"：交给边界执行，沙箱拦下才升级给人；**没有边界时退回 `on_request`**（仍要人点头，不会因为写了 on_failure 就免问） |
-| `never` | 从不问人：判定为需审批的一律**拒绝**（不是放行） |
+| `never` | 从不问人：判定为需审批的一律**拒绝**（不是放行）。**必须配真边界**：`never` + `sandbox=off`（或 `sandbox_policy=danger_full_access`）会**拒绝启动**（退出码 2 / 库调用方抛 `PolicyRefused`）——它挡不住不需要审批的工具，所以"没人 + 没边界"没有可辩护的用途 |
 | `untrusted` | 除白名单外一律问 |
 
 无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写/执行工具照跑——见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。

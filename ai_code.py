@@ -3038,6 +3038,15 @@ def main() -> None:
     cfg = merge_config(args)
     if args.no_bait:
         cfg["bait"] = False
+    # 策略组合自检：never（从不问人）+ 没有内核边界 = ADR-002 里"不存在合理用途"的
+    # 组合。执行层构造时也会抛 PolicyRefused（库调用方的兜底），这里提前拦是为了
+    # 给人一条说得清的提示与退出码，而不是一个 traceback。
+    _refuse = execution_layer.policy_refusal_code(
+        cfg.get("approval_policy"), cfg.get("sandbox", "off"),
+        cfg.get("sandbox_policy"))
+    if _refuse:
+        print(c("red", t(f"policy_refused_{_refuse}")))
+        sys.exit(2)
     if args.save_config:
         save_cli_config(cfg)
 

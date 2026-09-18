@@ -702,6 +702,13 @@ def main() -> None:
 
     provider = ModelProvider(args)
     _egress = [s.strip() for s in (args.egress_allowlist or "").split(",") if s.strip()]
+    # 策略组合自检（同 ai_code）：never + 无边界 = 没有边界的无人值守，直接拒绝启动。
+    _refuse = execution_layer.policy_refusal_code(args.approval_policy, args.sandbox)
+    if _refuse:
+        print(f"❌ 拒绝启动：{_refuse} —— approval_policy=never 必须配真实边界"
+              "（--sandbox job|docker）；无人值守叠加无隔离等于没有边界。"
+              "要无人值守请用 --sandbox job|docker + --approval-policy on_failure。")
+        sys.exit(2)
     el = ExecutionLayer(
         project_root=args.project_root,
         permission_level=args.permission,

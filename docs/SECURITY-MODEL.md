@@ -11,6 +11,7 @@
 - 授权两档：「本次」用后即焚，「本会话」本会话内不再询问
 - `terminal_exec` 强制逐次确认，不接受会话级授权
 - **外发工具**（`api_get` / `api_post` / `browser_open` / `browser_navigate` / `notify_send`）在目的地不在白名单内时逐次确认，同样不接受会话级授权——会话级授权是按工具名给的，不区分目的地，"本会话 api_post 免问"等于把出口整个打开
+- **`never` 必须配真边界（启动即拒绝）**：`approval_policy=never`（从不问人）+ `sandbox=off`（没有内核边界）会被**直接拒绝启动**，`never` + `sandbox_policy=danger_full_access` 同理——ADR-002 原话是"无人值守叠加无隔离等于完全没有边界，这个组合不存在合理用途"。注意 `never` 本身不会让危险动作变多（判定为需审批的一律拒绝），它的问题是挡不住**不需要审批**的那批工具；CLI 退出码 2，库调用方会在 `ExecutionLayer(...)` 构造时拿到 `PolicyRefused`
 - 非交互模式（非 tty）下一切授权请求与计划审批都 fail-close 拒绝
 
 **执行隔离**
@@ -67,6 +68,7 @@
 - 所有审批入口（计划审批、临时授权、逐次确认、外发确认、项目外覆盖确认）在非 tty 下统一 **fail-close 拒绝**（`ask_yes_no` / `ask_grant` 是唯一入口）。所以 `terminal_exec`、`api_post` 到未授权域名、覆盖项目外已有文件，**在 CI 里根本走不通**——不是"没人看着所以危险"，是"没人在就拒绝"。
 - 真正跑得动的是**不需要审批**的那一批：`file_write` / `file_delete` / `code_execute` / `db_write` / `api_post`（清单内）……它们只受进程内策略（AST、路径闸门、出站清单、写前快照）约束。**这就是"止血层"在无人值守下的真实暴露面**：要担心的不是 `terminal_exec`，是这些。
 - 想跑无人值守就给真边界，并显式选择审批策略：`--sandbox job`（Windows Job Object）或 `--sandbox docker`，配 `--approval-policy on_failure`（"先试后问"：判定为需审批的命令交给边界执行，沙箱拦下才升级给人）。边界拿不到就 503，**依然不静默回退**。
+- **反过来的组合会被拒绝启动**：`approval_policy=never` + `sandbox=off`（或 `danger_full_access`）直接退出码 2——"没人 + 没边界"没有可辩护的用途（ADR-002）。想做无人值守请走上一行，而不是把审批关掉凑合。
 - 启动时**主动提示**风险组合（非交互 + `off` 档 + 非只读）：提示就打在终端里，不藏在文档里。判定函数 `execution_layer.unattended_without_boundary()` 是纯函数，有断言覆盖。
 - 最小权限原则在这里最值钱：低权限账户 + `readonly` 起步 + `egress_allowlist` 只放必要域名 + `signing_key` 放项目外。
 

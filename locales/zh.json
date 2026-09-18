@@ -47,6 +47,8 @@
   "sandbox_preflight_job_non_windows": "  ⚠ --sandbox job 是 Windows 专有的 Job Object 原语，本平台用不了：启动不拦，但第一次 terminal_exec / code_execute 会诚实返回 503（不会回退宿主执行）。Linux/macOS 请改用 --sandbox docker（一次性容器），或接受 off 档的进程内策略层。",
   "sandbox_preflight_job_no_executor": "  ⚠ --sandbox job 需要 Go 执行器，但没找到二进制：第一次调用会返回 503。先跑 `ace --install-executor`（官方预编译，无需本机 Go），或 `cd executor && go build -o ace-executor(.exe) .`。",
   "sandbox_preflight_docker_no_cli": "  ⚠ --sandbox docker 需要 Docker CLI，PATH 里没找到 docker：第一次调用会返回 503（不会回退宿主执行）。装好并启动 Docker 后重试，或先用 off 档（仅进程内策略层）。",
+  "policy_refused_never_without_boundary": "  ❌ 拒绝启动：approval_policy=never（从不问人）+ sandbox=off（没有内核边界）。「never」并不会让危险动作变多（需审批的一律拒绝），但它挡不住**不需要审批**的那批工具（file_write / code_execute / api_post …）——没人 + 没边界，等于没有边界。要无人值守请给真边界：--sandbox job 或 --sandbox docker（可配 --approval-policy on_failure 走「先试后问」）。",
+  "policy_refused_never_with_danger_full_access": "  ❌ 拒绝启动：approval_policy=never + sandbox_policy=danger_full_access。这是 ADR-002 里明确写「不存在合理用途」的组合（无人值守叠加无隔离）。请改为 workspace_write / read_only，或用 --sandbox job|docker 给真边界。",
   "done": "  ✓ 完成（{round} 轮, {sec:.1f}s）",
   "error_line": "  ✗ {status}: {msg}",
   "tool_line": "  ↳ 工具 {tool} {mark} [{status}]",

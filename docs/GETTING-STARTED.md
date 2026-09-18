@@ -30,6 +30,7 @@ ACE 的所有配置混乱几乎都来自把这三件事混成一件事：
 - `--permission write --sandbox off` = 能写能跑，但只有进程内策略（默认形态）
 - `--permission readonly --sandbox docker` = 只读，但连只读命令都跑在容器里（多半没必要）
 - `--permission write --sandbox job` = 能写能跑，且命令在 Windows Job Object 里
+- `--approval-policy never`（从不问人）**必须**配 `--sandbox job|docker`：`never` + `off` 会被**拒绝启动**（"没人 + 没边界"没有可辩护的用途，退出码 2）
 
 ## 2 · 按场景抄一条命令
 

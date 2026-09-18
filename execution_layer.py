@@ -205,6 +205,35 @@ def unattended_without_boundary(permission: str, sandbox_mode: str) -> bool:
     return str(permission or "readonly") != "readonly"
 
 
+def policy_refusal_code(approval_policy: Optional[str], sandbox_mode: Optional[str],
+                       sandbox_policy: Optional[str] = None) -> Optional[str]:
+    """启动前必须拒掉的策略组合——返回拒绝码，None = 可以启动。
+
+    ADR-002 写得很直白：**无人值守叠加无隔离等于完全没有边界，这个组合不存在合理用途**。
+    落到今天的旋钮上就是"从不问人"（`approval_policy=never`）+ "没有内核边界"
+    （`sandbox=off`，或显式把判定策略设成 `danger_full_access`）：
+
+    · `never` 的真实语义是"需审批的一律拒绝"，所以它并不会让危险动作变多；真正的问题
+      是**不需要审批的那批工具**（`file_write` / `code_execute` / `api_post` …）会在
+      没有人、也没有边界的情况下照跑——边界只剩进程内策略层。
+    · 想跑无人值守就给真边界：`--sandbox job|docker`。那才有"先试后问"的资格
+      （`approval_policy: on_failure`）。
+
+    返回码而不是句子：文案要走 i18n，由前端渲染。
+    """
+    if str(approval_policy or "") != "never":
+        return None
+    if str(sandbox_policy or "") == "danger_full_access":
+        return "never_with_danger_full_access"
+    if str(sandbox_mode or "off") not in ("job", "docker"):
+        return "never_without_boundary"
+    return None
+
+
+class PolicyRefused(RuntimeError):
+    """策略组合被拒（启动即失败，fail-close）。见 policy_refusal_code()。"""
+
+
 def sandbox_preflight_notice(mode: str, *, platform: str = os.name,
                              executor_ready: bool = True,
                              docker_cli: bool = True) -> Optional[str]:
@@ -496,6 +525,18 @@ class ExecutionLayer:
 
     def __init__(self, project_root: str = ".", permission_level: str = "readonly",
                  config: Optional[Dict] = None):
+        # 策略组合自检（fail-close，不是警告）：只靠"没人可问就拒绝"挡不住
+        # 不需要审批的那批工具——见 policy_refusal_code 的说明。
+        _refuse = policy_refusal_code(
+            (config or {}).get("approval_policy"),
+            ((config or {}).get("sandbox") or {}).get("mode")
+            if isinstance((config or {}).get("sandbox"), dict)
+            else (config or {}).get("sandbox"),
+            (config or {}).get("sandbox_policy"))
+        if _refuse:
+            raise PolicyRefused(
+                f"{_refuse}: approval_policy=never 需要真实边界（--sandbox job/docker）；"
+                "无人值守叠加无隔离等于没有边界")
         self.project_root = Path(project_root).resolve()
         self.permission = PermissionManager(permission_level)
         self.executor = ToolExecutor(

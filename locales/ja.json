@@ -47,6 +47,8 @@
   "sandbox_preflight_job_non_windows": "  ⚠ --sandbox job は Windows 専用の Job Object プリミティブで、このプラットフォームでは動作しません：起動は止めませんが、最初の terminal_exec / code_execute は正直に 503 を返します（ホスト実行へは絶対に戻しません）。Linux/macOS では --sandbox docker（使い捨てコンテナ）を使うか、off 档のプロセス内ポリシー層を受け入れてください。",
   "sandbox_preflight_job_no_executor": "  ⚠ --sandbox job には Go 実行器が必要ですが、バイナリが見つかりません：最初の呼び出しは 503 になります。`ace --install-executor`（公式プリビルド、Go 不要）か `cd executor && go build -o ace-executor(.exe) .` を実行してください。",
   "sandbox_preflight_docker_no_cli": "  ⚠ --sandbox docker には Docker CLI が必要ですが、PATH に docker がありません：最初の呼び出しは 503 になります（ホストへは戻しません）。Docker を導入・起動して再試行するか、off 档（プロセス内ポリシーのみ）のままにしてください。",
+  "policy_refused_never_without_boundary": "  ❌ 起動を拒否：approval_policy=never（一切尋ねない）+ sandbox=off（カーネル境界なし）。never は危険な操作を増やしません（承認が必要なものは拒否）が、承認不要のツール（file_write / code_execute / api_post …）は止められません——人がいない + 境界がない = 境界がないのと同じです。無人実行には実境界を与えてください：--sandbox job または --sandbox docker（--approval-policy on_failure で「試してから尋ねる」も可）。",
+  "policy_refused_never_with_danger_full_access": "  ❌ 起動を拒否：approval_policy=never + sandbox_policy=danger_full_access。ADR-002 が「妥当な用途が存在しない」と明記した組み合わせです（無人 + 隔離なし）。workspace_write / read_only にするか、--sandbox job|docker で実境界を与えてください。",
   "done": "  ✓ 完了（{round} ラウンド, {sec:.1f}s）",
   "error_line": "  ✗ {status}: {msg}",
   "tool_line": "  ↳ ツール {tool} {mark} [{status}]",

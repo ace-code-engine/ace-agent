@@ -4308,6 +4308,29 @@ check("预检：docker 档缺 CLI → 提示",
 check("预检：off 档永远不提示（这一档本来就没承诺边界）",
       _spn("off", platform="posix", executor_ready=False, docker_cli=False) is None)
 
+# —— 策略组合硬拦（ADR-002）：never + 无边界 = 拒绝启动，不是警告 ——
+from execution_layer import policy_refusal_code as _prc, PolicyRefused as _PR  # noqa: E402
+check("硬拦：never + off 档 → 拒绝",
+      _prc("never", "off") == "never_without_boundary")
+check("硬拦：never + danger_full_access → 拒绝（ADR-002 点名的不存在合理用途）",
+      _prc("never", "docker", "danger_full_access") == "never_with_danger_full_access")
+check("硬拦：never + 真边界（job/docker）→ 放行",
+      _prc("never", "job") is None and _prc("never", "docker") is None)
+check("硬拦：其它审批档不受影响（on_request/on_failure/untrusted）",
+      all(_prc(p, "off") is None for p in ("on_request", "on_failure", "untrusted", None)))
+_raised = False
+try:
+    ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                   config={"bait": {"enabled": False}, "approval_policy": "never"})
+except _PR:
+    _raised = True
+check("库调用方也拦：ExecutionLayer 构造即抛 PolicyRefused（不只是 CLI 提示）", _raised)
+_ok_never = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                           config={"bait": {"enabled": False}, "approval_policy": "never",
+                                   "sandbox": {"mode": "docker"}})
+check("给了真边界就能构造（never + docker）",
+      _ok_never.executor.approval_policy == "never")
+
 # —— 切换类命令：/sandbox 档位热切换 + /permission 显式切换（会话状态无损） ——
 _sbx_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",

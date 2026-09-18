@@ -23,7 +23,11 @@ python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演�
 - **临时目录统一落 `.test_tmp/`**（gitignore），避免受限环境系统临时区只读导致整脚本崩溃。
 - **受限环境 SKIPPED 通道**：无 requests / 无 Go Job Object / 无联网时相关用例优雅跳过并如实标注（`⏭` 计数），不许假绿、不许整脚本 traceback；`--strict` 把跳过当失败。
 - 改了行为就把断言旧行为的用例一起改掉——不要只加新用例。
-- **`[38]` 文档/仓库结构一致性（Q-06）**：把 `docs/ARCHITECTURE.md` 的权威树与 `git ls-files` 对账——R1 树中路径必须真实存在；R2 仓库根级条目必须登记（自身或作为前缀）；R3 树的"已展开"目录（出现其直接子条目者）的直接子项必须全登记；R4 `ci.yml` 的 compileall 必须覆盖全部根级 `.py`。**因此：加/删/改文件名要同步权威树与 compileall 清单，否则 test_all 变红。** 规则与实测缺口见 `docs/design/ARCH-TREE-CHECK.md`；git 不可用时整节跳过（`--strict` 按失败处理）。
+- **`[38]`/`[39]`/`[40]` 三条"文档与安全承诺"守卫**（Q-06 / Q-04 / 审计对账）：
+  - `[38]` **结构一致性**：`docs/ARCHITECTURE.md` 权威树 ↔ `git ls-files`——R1 树中路径必须存在；R2 仓库根级条目必须登记（自身或作为前缀）；R3 已展开目录的直接子项必须全登记；R4 `ci.yml` 的 compileall 覆盖全部根级 `.py`。**加/删/改文件名要同步树与 compileall，否则变红。** 规则见 `docs/design/ARCH-TREE-CHECK.md`。
+  - `[39]` **文档口径数字**：文档里"家厂商 · 入口"/"家提供商"/"个工具"必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致；README/CONTRIBUTING/CHANGELOG 头部禁止出现写死的用例/断言总数。
+  - `[40]` **安全审计 payload 回归**：把 `docs/SECURITY-AUDIT.md` 对账表里可自动化的原始 payload 钉成断言（SEC-003 引用级拦截 / SEC-005 open_file 只给链接 / SEC-006 内容限项目内但目录可越界 / SEC-007+018 越界路径非 allow / SEC-010 签名默认开 / SEC-014 密钥不进快照 / SEC-019 安全 403 不进熔断）；Windows 专有命令在非 Windows 上走 SKIPPED。
+  - 三条都随 CI 的 `test job` 在 Python 3.10/3.11/3.12 顺带执行；`[38]` 在 git 不可用时整节跳过（`--strict` 按失败处理）。
 
 ## 3. CI 矩阵（.github/workflows/ci.yml）
 

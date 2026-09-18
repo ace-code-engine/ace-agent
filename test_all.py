@@ -4969,6 +4969,84 @@ check("[39] 无硬编码用例/断言总数(README/CONTRIBUTING/CHANGELOG 头部
       f"应改为'以 test_all 输出为准'；命中: {_hard}")
 
 
+# ============================================================
+print("[40] 安全审计 payload 回归 —— 让「对账」变成断言(SEC-003/006/007/010/014/018/019)")
+# ============================================================
+# 为什么要有这一节：docs/SECURITY-AUDIT.md 的对账表是**某一天的实测记录**，
+# 而 SEC-009 那次的教训正是"文档写着要问，代码里从来没问过"。
+# 把能自动化的 payload 钉成断言，对账才不会随时间重新变成一纸承诺。
+# 已经单独覆盖的（SEC-009 项目外覆盖/删除、SEC-017 审计状态不可写、SEC-013 外发闸门、
+# SEC-016 回滚容错）不在这里重复。
+_p40_root = mktemp("p40")
+_te40 = ToolExecutor(project_root=str(_p40_root))
+_el40 = ExecutionLayer(project_root=str(_p40_root), permission_level="write",
+                       config={"bait": {"enabled": False}})
+import ace_execpolicy as _ep40  # noqa: E402
+
+# SEC-003：别名 / lambda / 属性脱壳都不许碰危险内建
+for _payload in ("f = open; f('x', 'w')",
+                 "(lambda: open)()('x', 'w')",
+                 "(lambda: exec)()('print(1)')",
+                 "().__getattribute__('__class__')"):
+    _rp = run_agent(_el40, "code_execute", language="python", code=_payload)
+    check(f"SEC-003 引用级拦截: {_payload[:26]}", _rp["status"] == "403", _rp.get("message"))
+
+# SEC-005：open_file 只给链接不弹窗（不触发本机程序执行）
+(_p40_root / "readme_probe.md").write_text("x", encoding="utf-8")
+_r40 = run_agent(_el40, "open_file", path="readme_probe.md")
+check("SEC-005 open_file 返回链接且未直接打开",
+      _r40["status"] == "SUCCESS" and (_r40.get("data") or {}).get("opened") is False
+      and _SPECS["open_file"].permission == "read", _r40.get("data"))
+
+# SEC-006：只读查看里"内容"限项目内、"目录名单"可越界
+_r40 = _te40.execute({"tool": "terminal_view", "command": "cat /etc/passwd"})
+check("SEC-006 cat 项目外文件 → 403", _r40.error_code == "403", _r40.message)
+_outside_dir = "C:\\Windows" if os.name == "nt" else "/tmp"
+_r40 = _te40.execute({"tool": "terminal_view", "command": f"ls {_outside_dir}"})
+check("SEC-006 ls 项目外目录 → 放行（只泄露文件名，不泄露内容）",
+      _r40.status == "success", _r40.message)
+
+# SEC-007 / SEC-018：带路径参数的枚举与创建，在两种方言下都要"要人确认/拒绝"
+for _cmd in ("mkdir ../outside_probe", "mkdir /tmp/outside_probe"):
+    _v = _ep40.evaluate_command(_cmd, str(_p40_root), posix=True)
+    check(f"SEC-018 {_cmd} → 非 allow（越界路径要人确认）", not _v.allowed,
+          (_v.decision, [h[0] for h in _v.hits]))
+_v_in = _ep40.evaluate_command("mkdir inner_probe", str(_p40_root), posix=True)
+check("SEC-018 项目内 mkdir 仍 allow（别把功能墙当安全）", _v_in.allowed, _v_in.decision)
+if os.name == "nt":
+    for _cmd in ("where /R C:\\ secret", "tree C:\\",
+                 "type C:\\Windows\\win.ini", "del /f C:\\probe.txt"):
+        _rv = _te40.execute({"tool": "terminal_view", "command": _cmd})
+        check(f"SEC-007/018 Windows 只读白名单拦下: {_cmd[:26]}",
+              _rv.error_code == "403", _rv.message)
+else:
+    skip("SEC-007/018 Windows 专有命令（where /R、tree C:\\ 等）", "非 Windows 平台")
+
+# SEC-010 / SEC-014：签名默认开；密钥类文件不进快照
+_g40 = Guardian(str(_p40_root))
+(_p40_root / "seed2.txt").write_text("v1", encoding="utf-8")
+(_p40_root / ".env").write_text("API_KEY=secret\n", encoding="utf-8")
+(_p40_root / "svc.pem").write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
+_sid40 = _g40.snapshot("audit40")
+_snap40 = _g40.snap_dir / _sid40
+check("SEC-010 无配置时签名密钥自动生成且签名文件存在（签名默认开）",
+      (_g40.store / "signing_key").exists() and (_snap40 / "meta.json.sig").exists()
+      and _g40.verify_snapshot(_sid40)[0] is True)
+_snap_names40 = {p.name for p in (_snap40 / "files").rglob("*") if p.is_file()}
+check("SEC-014 .env / *.pem 不进快照（只备份普通文件）",
+      "seed2.txt" in _snap_names40 and ".env" not in _snap_names40
+      and "svc.pem" not in _snap_names40, sorted(_snap_names40))
+
+# SEC-019：熔断只为防死循环，安全 403 不进熔断计数
+_el40ro = ExecutionLayer(project_root=str(_p40_root), permission_level="readonly",
+                         config={"bait": {"enabled": False}})
+for _i in range(4):
+    run_agent(_el40ro, "file_read", path=f"../outside_{_i}.txt")
+check("SEC-019 安全 403 不进熔断计数（熔断不是安全边界，也不该被安全拦截喂饱）",
+      _el40ro.repeat_fail == {} and len(_el40ro.security_denials) == 4,
+      (_el40ro.repeat_fail, len(_el40ro.security_denials)))
+
+
 print(f"通过 {len(PASSED)} / {len(PASSED) + len(FAILED)}" + (f"  · 跳过 {len(SKIPPED)}" if SKIPPED else ""))
 if FAILED:
     print("失败项:")

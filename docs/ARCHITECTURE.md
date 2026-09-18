@@ -46,8 +46,10 @@ ace-agent/
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）
+│   ├── __init__.py             #   包入口：组合各域 mixin 的 ToolExecutor（__all__ 导出）
 │   ├── registry.py             #   工具唯一声明处（name / schema / 权限组 / handler）
 │   ├── result.py               #   ExecutionResult 结果类型
+│   ├── status.py               #   错误码/状态码唯一目录（Q-10 契约，散落字面量由守卫拒绝）
 │   ├── base.py                 #   共享助手 + 敏感目标判定 + execute 分发
 │   ├── file_tools.py           #   文件/终端/检索（grep/glob/str_replace）
 │   ├── code_tools.py           #   代码执行（AST 白名单 + Go 执行器/docker 边界）
@@ -98,14 +100,26 @@ ace-agent/
 │       ├── dsh_research.md         #   DeepSeek Harness 源码调研（62 项可借鉴设计）
 │       └── prompt-engineering/     #   提示词工程规范 v1→v7 + 上下文包（历史归档）
 
+├── README.md                   # 项目名片与上手入口（架构级短树；权威树见本文档）
+├── CONTRIBUTING.md             # 贡献指南（环境 / 测试 / 风格 / PR 流程）
 ├── LICENSE                     # MIT
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── SECURITY.md                 # 安全策略：漏洞报告流程 / 承诺 / 已知边界
+├── version.py                  # 版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
+├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
+├── ace.cmd                     # Windows 启动器（PATH 探测 python/py，防商店占位）
+├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
+├── docker-compose.yml          # 整体镜像一键起停编排
+├── .gitignore                  # 忽略规则：生成物 / 缓存 / 密钥
+├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
-└── .github/workflows/          # ci.yml（测试/ruff/Go/bench/e2e）+ release-executor.yml（预编译产物发布）
+└── .github/                    # 仓库协作配置
+    ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e）+ release-executor.yml（预编译产物发布）
+    ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    └── pull_request_template.md#   PR 模板
 ```
 
-> 维护纪律：树里出现的每个路径应真实存在；新增文件后同步本树（BACKLOG Q-06 曾提 CI 自动校验，未实现前靠人工）。
+> 维护纪律：树里出现的每个路径必须真实存在，仓库根级与"已展开目录"的直接子项必须登记（BACKLOG Q-06）。该约束由 `test_all.py` 的 `[38] 文档/仓库结构一致性` 自动校验——删文件、加文件、改树名都会让测试变红。
 
 ## 4. 深入文档索引
 

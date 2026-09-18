@@ -7,6 +7,22 @@
 - 审计范围：`tools/`（base / file_tools / code_tools / db_tools / web_tools / notify_tools）、`execution_layer.py`、`guardian.py`、`ai_code.py` 的确认与权限链路。
 - 首轮结论：**存在 P0，阻塞发布**。
 - 当前结论（2026-08-22 复审后）：**首轮 P0 五项与后续复审新增的 P0（SEC-013 出站白名单逐跳复检）均已修复并有回归覆盖，不再阻塞发布**；剩余未闭合项集中在 P2 与"待实测"，逐条状态见「复审记录」。下面的「结论摘要」保留首轮原文不改 —— 它记录的是修复前的事实，改写它会让这份报告失去可对照的基线。
+- v3.7 复核（2026-09-06）：见下一节「对账状态」——只对**本次实际重跑过**的条目给结论，没复核的条目如实标注，不许读者把"没提"当成"已复核"。
+
+---
+
+## 对账状态（v3.7 复核，2026-09-06）
+
+**先分清两套编号**，否则很容易把两次体检当成一份：本报告用三位数（`SEC-001`~`SEC-019`，2026-08-22 首轮 + 同日复审）；`docs/BACKLOG.md` 用两位数（`SEC-01`~`SEC-06`，2026-09-05 的第二次体检，条目不同）。对应关系举例：BACKLOG `SEC-01` ≈ 本报告 `SEC-003`（`code_execute` 绕过），BACKLOG `SEC-05` ≈ 本报告 `SEC-012`（截图可外带），BACKLOG `SEC-06` ≈ 本报告 `SEC-001` 的一个残留缺口（execpolicy 小洞）。
+
+本次**逐条重跑**（读现码 + 实调判定函数）后更新的两条：
+
+| 本报告条目 | 现码核对结果 | 证据 |
+|---|---|---|
+| SEC-002（P0）默认权限为 write | **已闭合**：三个入口的默认值现在都是 `readonly`，"文档说默认只读、代码默认 write"的矛盾不复存在 | `agent_runner.py:668` `--permission default="readonly"`；`execution_layer.py:1344` 同；`ai_code.py:656` `cfg.setdefault("permission", "readonly")`。对应 BACKLOG `SEC-03` 前半 → 可勾选 |
+| SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **仍开放（部分）**：出站只有 SSRF 闸门常开；`egress_allowlist` 默认 `None` = **不启用**（`base.py:316` 闸门关着时连逐跳回调都不挂），而 `CONFIRM_TOOLS` 只含 `terminal_exec`（`registry.py:177` `confirm=True`），因此 `api_post` / `api_get` / `image_generate` / `notify_send(email)` 在 write 档下依然**不需要人工点头** | `base.py:295-318`；`execution_layer.py:144` `CONFIRM_TOOLS`；对应 BACKLOG `SEC-03` 后半 → 仍待排期 |
+
+其余条目**本次未重跑**，其状态以「复审记录」（2026-08-22）与 `docs/BACKLOG.md` 的 `SEC-01`/`SEC-02`/`SEC-04`/`SEC-05`/`SEC-06` 已完成项为准。要推翻或确认其中任一条，方法同「复审记录」：不看"改过没有"，只拿报告里的原始 payload 打当前代码。
 
 ---
 

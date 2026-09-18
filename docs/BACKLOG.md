@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | ✅ SEC-01 | **code_execute 沙箱可绕过 → RCE/任意写** | `code_tools.py:80-91` 只拦 Call.func 精确名;实测 `f=open;f(..)('a','w')`、`(lambda:open)()(...)` 成功落盘、`(lambda:exec)()('print(1)')` 成功执行 | Name/引用级白名单或去 builtins;叠 Go 执行器/job 边界;补 6 条回归测试 | M |
 | ✅ SEC-02 | **parse_document 只读越界读** | `parse_tools.py:22-29` 不过 confine/sensitive;readonly 下读项目外 README/execution_layer.py 实测 SUCCESS(file_read 同路径 403) | 与 file_read 同口径路径判定+敏感目标+回归测试 | S |
-| ◐ SEC-03 | **默认权限矛盾 + 外发零确认** | `agent_runner.py:668` 默认 write,与“默认 readonly”矛盾;api_post/api_get 无确认、egress_allowlist 默认关 → 注入可外带 .env | 三入口(ai_code/agent_runner/执行层)默认 readonly 对齐;外发写工具默认确认或默认开白名单 | S-M |
+| ◐ SEC-03 | **默认权限矛盾 + 外发零确认** | v3.7 复核：**前半已闭合** —— `agent_runner.py:668` / `execution_layer.py:1344` / `ai_code.py:656` 三入口默认均为 `readonly`。**后半仍开放** —— 出站只有 SSRF 闸门常开，`egress_allowlist` 默认 `None`（不启用，`base.py:316`），`CONFIRM_TOOLS` 只含 `terminal_exec`，故 `api_post`/`api_get`/`image_generate`/`notify_send(email)` 在 write 档下无需人工确认（对账见 `docs/SECURITY-AUDIT.md` 的「对账状态」节） | 外发写工具默认确认或默认开白名单 | S-M |
 | ✅ SEC-04 | 快照 HMAC 默认关 + 敏感文件明文入 `.guardian` | `guardian.py:142/60`;signing_key 不配即无签名;.env/.pem 无排除 | 默认生成项目外密钥;敏感文件只记哈希;补测试 | M |
 | ✅ SEC-05 | `browser_screenshot` 属只读且无确认 | `registry.py:117-119` | 归 WRITE + 逐次确认 | S |
 | ✅ SEC-06 | execpolicy allow 档小洞 | `ace_execpolicy.py:314` 跳过 `-` 开头 token 可越区;`git config` 被当只读可 `--global` 写 | 选项值含路径不跳过;config 限 `--get/--list` | S |

@@ -19,18 +19,11 @@
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.9.0%20(2026--09--18)-brightgreen"></a>
 </p>
 
-<p align="center">
-  <img src="demo/demo.svg" alt="ACE terminal session: ask → tool call → answer → status → drop permission" width="820">
-</p>
-
-<p align="center">
-  <sub>Recorded from a real <code>python ai_code.py --mock</code> session (offline, no key needed).
-  Re-record with <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a>; CI runs <code>--check</code> so the image can't silently rot.</sub>
-</p>
-
-**Local** — pure-stdlib core, runs on your machine, no cloud in the loop; the offline demo needs no API key.
-**Model-agnostic** — 9 vendors · 10 endpoints behind one `/provider` switch (Zhipu, DeepSeek, Moonshot, OpenAI, Anthropic, Qwen, SiliconFlow, OpenRouter, Ollama), OpenAI *and* Anthropic wire formats.
-**Pluggable** — every tool is declared once in [`tools/registry.py`](tools/registry.py); skills are plain `SKILL.md` files; MCP is just `register()`-ing a `ToolSpec`.
+| Property | What you get |
+|---|---|
+| **Local** | pure-stdlib core, runs on your machine, no cloud in the loop; the offline demo needs no API key |
+| **Model-agnostic** | 9 vendors · 10 endpoints behind one `/provider` switch (Zhipu, DeepSeek, Moonshot, OpenAI, Anthropic, Qwen, SiliconFlow, OpenRouter, Ollama), OpenAI *and* Anthropic wire formats |
+| **Pluggable** | every tool is declared once in [`tools/registry.py`](tools/registry.py); skills are plain `SKILL.md` files; MCP is just `register()`-ing a `ToolSpec` |
 
 ## Why ACE?
 
@@ -62,6 +55,27 @@ Real models: `python ai_code.py` → menu `2` runs the setup wizard → `1` ente
 On Windows the repo ships `ace.cmd` — add it to `PATH` and just type `ace`.
 
 Prefer to read before running? [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) has the 5-minute path, the three-axis matrix (`permission` / `sandbox` / `approval_policy`) and the ten classic traps. Three hands-on scenarios live in [`examples/`](examples/README.md).
+
+## See it run
+
+<p align="center">
+  <img src="demo/demo.svg" alt="ACE terminal session: ask → tool call → answer → status → drop permission" width="820">
+</p>
+
+<p align="center">
+  <sub>Recorded from a real <code>python ai_code.py --mock</code> session (offline, no key needed).
+  Re-record with <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a>; CI runs <code>--check</code> so the image can't silently rot.</sub>
+</p>
+
+<p align="center">
+  <img src="demo/demo_blocked.svg" alt="ACE terminal session: the agent asks to read an SSH private key and is refused with 403 by the execution layer" width="820">
+</p>
+
+<p align="center">
+  <sub><b>The same agent, trying something it shouldn't.</b> It reaches for <code>~/.ssh/id_rsa</code>; the execution layer refuses before the tool ever runs —
+  <code>403</code>, path outside the project. Not a prompt asking nicely: a check the model cannot argue with.
+  Recorded from a real session with <code>python ai_code.py --mock</code> (<code>--session blocked</code>).</sub>
+</p>
 
 ## Design stance
 

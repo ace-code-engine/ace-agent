@@ -21,15 +21,11 @@
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
-<p align="center">
-  <img src="demo/demo.svg" alt="ACE 终端会话演示：提问 → 调用工具 → 作答 → 查状态 → 降权限" width="820">
-</p>
-
-<p align="center">
-  <sub>上图是 <code>python ai_code.py --mock</code> 的真实会话录制（离线、无需密钥），
-  用 <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a> 可随时重录；
-  CI 跑 <code>--check</code> 盯着它，CLI 输出一变这张图就得跟着重录。</sub>
-</p>
+| 关键属性 | 说明 |
+|---|---|
+| **本地跑** | 核心纯 stdlib，跑在你自己的机器上，链路里没有云；离线演示不需要任何 API Key |
+| **模型无关** | 9 家厂商 · 10 个入口，一个 `/provider` 切换（智谱、DeepSeek、Moonshot、OpenAI、Anthropic、通义千问、SiliconFlow、OpenRouter、Ollama），同时支持 OpenAI 与 Anthropic 两种报文格式 |
+| **可插拔** | 每个工具只在 [`tools/registry.py`](tools/registry.py) 声明一次；技能就是普通 `SKILL.md` 文件；接 MCP 不过是 `register()` 一个 `ToolSpec` |
 
 大多数 Agent 把安全交给提示词："请不要删除文件"。ACE 不这么做：模型的每一次工具调用都要穿过一个独立的执行层，由它做权限裁决、危险行为检测、写入前快照。提示词失效时，执行层仍然拦得住。
 
@@ -50,6 +46,7 @@ v3.8 起，**执行层的承诺有断言守着**：数据发往模型指定的�
 ## 目录
 
 - [快速开始](#快速开始)
+- [看它跑起来](#看它跑起来)
 - [Why ACE?](#why-ace)
 - [设计取向](#设计取向)
 - [核心能力](#核心能力)
@@ -95,6 +92,28 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 ```
 
 </details>
+
+## 看它跑起来
+
+<p align="center">
+  <img src="demo/demo.svg" alt="ACE 终端会话演示：提问 → 调用工具 → 作答 → 查状态 → 降权限" width="820">
+</p>
+
+<p align="center">
+  <sub>上图是 <code>python ai_code.py --mock</code> 的真实会话录制（离线、无需密钥），
+  用 <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a> 可随时重录；
+  CI 跑 <code>--check</code> 盯着它，CLI 输出一变这张图就得跟着重录。</sub>
+</p>
+
+<p align="center">
+  <img src="demo/demo_blocked.svg" alt="ACE 终端会话演示：Agent 去读 SSH 私钥，被执行层以 403 拦下" width="820">
+</p>
+
+<p align="center">
+  <sub><b>同一个 Agent，想干一件它不该干的事。</b>它伸手去读 <code>~/.ssh/id_rsa</code>，执行层在工具真正执行之前就拒了：
+  <code>403</code>，路径越界。这不是"提示词里写了请不要"，是模型无法说服的一道检查。
+  同样来自真实会话：<code>python ai_code.py --mock</code>（<code>--session blocked</code>）。</sub>
+</p>
 
 ## 设计取向
 

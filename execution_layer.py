@@ -56,6 +56,7 @@ process_agent_output 每轮创建、轮末 finally 回收；跨轮状态（授�
 计数/前缀免确认）不放进 ctx，仍挂在 ExecutionLayer 实例上。
 """
 
+import os
 import re
 import sys
 import json
@@ -202,6 +203,27 @@ def unattended_without_boundary(permission: str, sandbox_mode: str) -> bool:
     if str(sandbox_mode or "off") in ("job", "docker"):
         return False
     return str(permission or "readonly") != "readonly"
+
+
+def sandbox_preflight_notice(mode: str, *, platform: str = os.name,
+                             executor_ready: bool = True,
+                             docker_cli: bool = True) -> Optional[str]:
+    """启动时预检所选沙箱档在本机**能不能真的用起来**——返回提示码，None = 没问题。
+
+    为什么要在启动时报：拿不到边界是**调用时**才返回 503 的，这条语义不能改
+    （绝不静默回退宿主）。但"踩了才知道"对新用户太贵——尤其 `--sandbox job`
+    是 Windows 专有原语，在 Linux/macOS 上根本不存在，而错误要等到第一次
+    `terminal_exec` 才出现。返回的是**码**而不是句子的原因：文案要走 i18n。
+    """
+    m = str(mode or "off")
+    if m == "job":
+        if platform != "nt":
+            return "job_non_windows"
+        if not executor_ready:
+            return "job_no_executor"
+    elif m == "docker" and not docker_cli:
+        return "docker_no_cli"
+    return None
 AST_RULE_DESCRIPTIONS = {
     "unused_import": "未用导入",
     "type_hints": "函数缺少类型注解",

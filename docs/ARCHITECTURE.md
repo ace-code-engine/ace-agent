@@ -82,6 +82,7 @@ ace-agent/
 ├── assets/logo.svg             # 标识（原创几何构图，无第三方素材）
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
+│   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── ARCHITECTURE.md         #   本文档：分层职责 + 权威目录树 + ADR 索引
 │   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读
 │   ├── CONFIGURATION.md        #   配置全项：config 键 + 出站白名单/检索/编码/DB 边界

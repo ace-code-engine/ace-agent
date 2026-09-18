@@ -4295,6 +4295,19 @@ check("无人值守判定：有真实边界就不提示",
 check("无人值守判定：只读不提示（没得写，也没得跑）",
       _uwb("readonly", "off") is False)
 
+# —— 沙箱档启动预检（纯函数）：平台/依赖不满足时，别等到第一次调用才 503 ——
+from execution_layer import sandbox_preflight_notice as _spn  # noqa: E402
+check("预检：job 档在非 Windows 上点名平台不适用",
+      _spn("job", platform="posix") == "job_non_windows")
+check("预检：job 档缺执行器二进制 → 提示去装/编译",
+      _spn("job", platform="nt", executor_ready=False) == "job_no_executor")
+check("预检：job 档平台对、二进制在 → 不提示",
+      _spn("job", platform="nt", executor_ready=True) is None)
+check("预检：docker 档缺 CLI → 提示",
+      _spn("docker", platform="posix", docker_cli=False) == "docker_no_cli")
+check("预检：off 档永远不提示（这一档本来就没承诺边界）",
+      _spn("off", platform="posix", executor_ready=False, docker_cli=False) is None)
+
 # —— 切换类命令：/sandbox 档位热切换 + /permission 显式切换（会话状态无损） ——
 _sbx_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",

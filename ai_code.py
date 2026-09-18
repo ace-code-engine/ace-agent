@@ -2218,6 +2218,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
                 self.cfg["permission"], self.cfg.get("sandbox", "off")):
             print(c("yellow", t("unattended_notice")))
+        # 沙箱档预检：拿不到边界是**调用时**才 503 的（这条语义不改），但
+        # "job 档在非 Windows 上根本不存在"这种事不该等到第一次工具调用才让人知道。
+        import ace_executor as _ax  # noqa: PLC0415
+        _pre = execution_layer.sandbox_preflight_notice(
+            self.cfg.get("sandbox", "off"),
+            executor_ready=_ax.default_binary_path().is_file(),
+            docker_cli=bool(shutil.which("docker")))
+        if _pre:
+            print(c("yellow", t(f"sandbox_preflight_{_pre}")))
         # 会话恢复：从上次会话的事件日志重建消息历史（DSH「消息历史 = 日志派生」）。
         # 重启后对话接着来，而不是从零开始。
         self._resume_previous_session()

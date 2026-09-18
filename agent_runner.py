@@ -26,6 +26,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import re
 import sys
 import urllib.error
@@ -726,6 +727,13 @@ def main() -> None:
               "无需审批的写/执行工具（file_write / code_execute / api_post …）照跑。"
               "要跑无人值守请显式给 --sandbox job/docker（可配 --approval-policy on_failure），"
               "或改回 --permission readonly。")
+    # 沙箱档预检（同 ai_code）：job 档在非 Windows 上不存在，别等到第一次调用才 503
+    import ace_executor as _ax  # noqa: PLC0415
+    _pre = execution_layer.sandbox_preflight_notice(
+        args.sandbox, executor_ready=_ax.default_binary_path().is_file(),
+        docker_cli=bool(shutil.which("docker")))
+    if _pre:
+        print(f"⚠ 沙箱档预检: {_pre}（详见 docs/SECURITY-MODEL.md；启动不拦，调用时诚实 503）")
     stats = el.get_stats()
     print(f"模块状态: v2_gateway={stats['v2_gateway']} v1={stats['v1_modules']} parser={stats['parser']}")
 

@@ -4726,6 +4726,58 @@ else:
           f"未覆盖: {[f for f in _root_py if f not in _ci_listed]}")
 
 
+# ============================================================
+print("[39] 文档数字一致性 —— 手抄数字必须与源码一致(Q-04)")
+# ============================================================
+# 规则:文档里的口径数字要么与源码/实测一致,要么不写(不许第二个真相源)。
+#   N-a 提供商:"N 家厂商 · M 入口" / "N 家[模型]提供商" 必须等于 ai_code.PROVIDERS 实测值
+#       (厂商 = id 第一段去重,入口 = 列表长度;智谱占 2 个入口)
+#   N-b 工具数:文档若写 "N 个工具",N 必须是 TOOL_SPECS 的声明数或暴露数之一
+#   N-c 禁止硬编码用例/断言总数:README / CONTRIBUTING / CHANGELOG 头部不得出现
+#       "N 项(条)断言(用例)" 或 "实测 N"(CHANGELOG 的历史版本条目豁免——那是当时的运行记录)
+_NUM_DOCS = [FOLDER / "README.md", FOLDER / "CONTRIBUTING.md",
+             *sorted((FOLDER / "docs").glob("*.md"))]
+_AI_SRC = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+_pv_m = _re.search(r"^PROVIDERS\s*=\s*\[(.*?)^\]", _AI_SRC, _re.S | _re.M)
+_PIDS = _re.findall(r'"id"\s*:\s*"([^"]+)"', _pv_m.group(1)) if _pv_m else []
+_VENDORS = {_p.split("-")[0] for _p in _PIDS}
+_EXPOSED = sum(1 for _s in TOOL_SPECS if _s.expose)   # TOOL_SPECS 来自 tools.registry
+
+check("[39] 提供商口径可从源码解析", len(_PIDS) >= 5 and len(_VENDORS) >= 5,
+      f"解析到 {len(_PIDS)} 个入口 / {len(_VENDORS)} 家")
+
+_a_bad, _b_bad, _c_bad = [], [], []
+for _doc in _NUM_DOCS:
+    _txt = _doc.read_text(encoding="utf-8")
+    _rel = _doc.relative_to(FOLDER).as_posix()
+    for _a, _b in _re.findall(r"(\d+)\s*家厂商\s*[·・]\s*(\d+)\s*入口", _txt):
+        if (int(_a), int(_b)) != (len(_VENDORS), len(_PIDS)):
+            _a_bad.append(f"{_rel}: {_a} 家厂商 · {_b} 入口")
+    for _n in _re.findall(r"(\d+)\s*家(?:模型)?提供商", _txt):
+        if int(_n) != len(_VENDORS):
+            _b_bad.append(f"{_rel}: {_n} 家提供商")
+    for _n in _re.findall(r"(\d+)\s*个工具", _txt):
+        if int(_n) not in (len(TOOL_SPECS), _EXPOSED):
+            _c_bad.append(f"{_rel}: {_n} 个工具")
+
+check("[39] 文档'家厂商 · 入口'口径与 PROVIDERS 一致", not _a_bad,
+      f"应写 {len(_VENDORS)} 家厂商 · {len(_PIDS)} 入口；不符: {_a_bad}")
+check("[39] 文档'家提供商'口径与 PROVIDERS 一致", not _b_bad, f"不符: {_b_bad}")
+check("[39] 文档'个工具'口径与 registry 一致", not _c_bad,
+      f"应 ∈ {{{len(TOOL_SPECS)} 声明, {_EXPOSED} 暴露}}；不符: {_c_bad}")
+
+_CL_HEAD = (FOLDER / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ", 1)[0]
+_hard = []
+for _name, _txt in (("README.md", (FOLDER / "README.md").read_text(encoding="utf-8")),
+                    ("CONTRIBUTING.md", (FOLDER / "CONTRIBUTING.md").read_text(encoding="utf-8")),
+                    ("CHANGELOG.md(头部)", _CL_HEAD)):
+    _hard += [f"{_name}: {_hit}" for _hit in
+              _re.findall(r"\d{3,4}\s*(?:项|条|个)?\s*(?:断言|用例)", _txt)]
+    _hard += [f"{_name}: 实测 {_hit}" for _hit in _re.findall(r"实测\s*\*{0,2}(\d{3,4})", _txt)]
+check("[39] 无硬编码用例/断言总数(README/CONTRIBUTING/CHANGELOG 头部)", not _hard,
+      f"应改为'以 test_all 输出为准'；命中: {_hard}")
+
+
 print(f"通过 {len(PASSED)} / {len(PASSED) + len(FAILED)}" + (f"  · 跳过 {len(SKIPPED)}" if SKIPPED else ""))
 if FAILED:
     print("失败项:")

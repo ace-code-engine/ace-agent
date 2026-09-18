@@ -23,6 +23,7 @@ python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演�
 - **临时目录统一落 `.test_tmp/`**（gitignore），避免受限环境系统临时区只读导致整脚本崩溃。
 - **受限环境 SKIPPED 通道**：无 requests / 无 Go Job Object / 无联网时相关用例优雅跳过并如实标注（`⏭` 计数），不许假绿、不许整脚本 traceback；`--strict` 把跳过当失败。
 - 改了行为就把断言旧行为的用例一起改掉——不要只加新用例。
+- **`[38]` 文档/仓库结构一致性（Q-06）**：把 `docs/ARCHITECTURE.md` 的权威树与 `git ls-files` 对账——R1 树中路径必须真实存在；R2 仓库根级条目必须登记（自身或作为前缀）；R3 树的"已展开"目录（出现其直接子条目者）的直接子项必须全登记；R4 `ci.yml` 的 compileall 必须覆盖全部根级 `.py`。**因此：加/删/改文件名要同步权威树与 compileall 清单，否则 test_all 变红。** 规则与实测缺口见 `docs/design/ARCH-TREE-CHECK.md`；git 不可用时整节跳过（`--strict` 按失败处理）。
 
 ## 3. CI 矩阵（.github/workflows/ci.yml）
 

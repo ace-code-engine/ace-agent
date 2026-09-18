@@ -1,7 +1,7 @@
 # Changelog
 
-> ACE 开发期未打 git tag，以下**版本号为按开发阶段归纳的检索代称**（非发布版本号），
-> 精确到每次提交请 `git log --oneline`。
+> v3.3–v3.7 已打里程碑 tag（v3.7.0 起随 GitHub Release 发布预编译执行器产物）；更早的版本号
+> 为按开发阶段归纳的检索代称。精确到每次提交请 `git log --oneline`。
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），最新 Windows 实测 **955**。
 
@@ -32,6 +32,8 @@
 - ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
 - ⚙️ 版本号单源(Q-12)下沉到 UI：登录/聊天横幅的 `v1.0` 硬编码改为 `{ver}` 占位符，由 `version.py` 注入（zh/en/ja 三语言）；新增 `python ai_code.py --version`；`ace_doctor` 诊断头报 ACE 版本
 - 📚 README 瘦身(520→299 行)：安全模型/配置/命令参考拆至 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，README 变"名片 + 精简上手 + 文档枢纽"（docs/design/README-RESTRUCTURE.md）
+- ⚙️ Q-06 结构一致性校验：`test_all.py` 新增 `[38]` 节——树中路径必须存在（R1）/ 根级条目必须登记（R2）/ 已展开目录的直接子项必须登记（R3）/ ci.yml 的 compileall 覆盖全部根级 `.py`（R4），仓库真相取自 `git ls-files`，git 不可用则如实跳过（不假绿）；随 CI 三档 Python 的全量测试顺带执行，无需新增 job
+- ⚙️ 同批清零既有漂移：权威树补齐 13 条缺口（根级 9 + `.github` 2 + `tools` 2），ci.yml compileall 补 `ace_chatscroll/ace_doctor/test_all/version` 4 个模块（docs/design/ARCH-TREE-CHECK.md）
 - 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
 
 ## [v3.6] · 2026-09-05

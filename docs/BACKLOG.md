@@ -24,7 +24,7 @@
 | ✅ Q-03 | test_all 环境敏感自识别(SKIPPED 通道 + `--strict`) | Go Job Object 附加失败/缺 requests/禁联网/系统 temp 只读应跳过并如实标注,不许假绿/整脚本 traceback;9 处裸 mkdtemp 统一走 `.test_tmp` | M |
 | Q-04 | README/CI 手抄数字单一来源 | “40 工具”实为 41 声明/39 暴露;“readonly 16”实为 25;agent_runner 注释“24”;“10 家提供商”实为 9 家 10 端点;断言数“238/950/955”互斥 → 一律以源码/测试输出为准或 CI 生成 | S |
 | ✅ Q-05 | `ace.cmd` 硬编码 `C:\aider_env\...` | 第 10 行,换机器必炸;改 PATH 探测 python/py | S |
-| Q-06 | CI 结构一致性校验 | README 结构树漏 ace_cards/ace_selector/ace_theme/skill_tools/result;ci.yml compileall 漏 ace_http 等 7 根模块;补“树↔文件存在性”job | S |
+| ✅ Q-06 | CI 结构一致性校验 | 已完成(v3.7)：权威树迁至 `docs/ARCHITECTURE.md` 并补齐 13 条缺口(根级 9 + `.github` 2 + `tools` 2)；`test_all.py` 新增 `[38]` 节自动校验"树↔文件"(R1 存在性/R2 根级/R3 已展开目录/R4 compileall)，随 CI 三档 Python 顺带执行，无需新增 job。立项卡 `docs/design/ARCH-TREE-CHECK.md` | S |
 | ◐ Q-07 | prompts 工具清单 ↔ registry 差集 | tools 版提示词手写 26 漏 12(kb_/skill_/goal_/subagent 等);双份 v7(14KB/21KB)漂移 | 由 TOOL_SPECS 生成 + CI diff;docs 版标 archive 或同步 | S-M |
 | Q-08 | e2e smoke 抗抖动 | 240s 单次硬超时 → 2-3 次浅提问重试 | S |
 | ✅ Q-09 | 死代码清理（BehaviorConstraint 已移除） | `work.py:326 BehaviorConstraint` 仅测试引用、AST 规则无人用;执行层死 import | S |

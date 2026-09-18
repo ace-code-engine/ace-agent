@@ -137,11 +137,12 @@ class ToolSpec:
 
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)
 
-- 错误码/状态码集中常量 + 枚举化,文案与语义解耦 → BACKLOG Q-10
-- 双 v7 提示词(运行时 `prompts/` vs 规范 `docs/history/prompt-engineering/`)同步/标注 → BACKLOG Q-07
-- `parse_document` 未走文件路径闸门(只读越界)→ BACKLOG SEC-02
-- `code_execute` AST 精确名拦截可被别名/lambda 绕过 → BACKLOG SEC-01
-- 模块命名风格(旧 `Archive/Nuwa/work/guardian` vs 新 `ace_*`)→ BACKLOG R-06
+- ✅ 错误码/状态码集中常量 + 枚举化 → 已落地(v3.5, Q-10)：`tools/status.py` 唯一目录 + test_all 的散落字面量守卫
+- ✅ 双提示词同步 → 已处理(v3.7, Q-07)：运行时 `prompts/` 三个提示词的工具清单由 test_all 断言覆盖全部暴露工具；规范版(`docs/history/prompt-engineering/`)按历史归档，不再逐版同步
+- ✅ `parse_document` 未走文件路径闸门(只读越界) → 已修(v3.2, SEC-02)
+- ✅ `code_execute` AST 精确名拦截可被别名/lambda 绕过 → 已修(v3.2, SEC-01，改危险内建引用级拦截)
+- ✅ 模块命名风格(旧 `Archive/Nuwa/work/guardian` vs 新 `ace_*`) → 已定(v3.3, R-06)：新模块统一 `ace_` 前缀，旧名补导流 docstring
+- 仍开放项以 `docs/BACKLOG.md` 为准（如 SEC-03 默认权限与外发确认、Q-08 e2e 抗抖动、Q-15 docstring、R-01~R-05 结构重构）
 
 ## 11. 命名与检索索引(R-06)
 

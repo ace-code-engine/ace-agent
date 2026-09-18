@@ -1573,12 +1573,20 @@ check("agent_runner.TOOLS 与注册表一致",
       {t["function"]["name"] for t in _AR_TOOLS} == {t["function"]["name"] for t in _oai()},
       len(_AR_TOOLS))
 
-# 提示词是模型看到的第二份清单：漏登记的工具模型永远不会调
-_v8_prompt = (Path(__file__).parent / "prompts" / "agent_system_prompt_v8.md").read_text(encoding="utf-8")
-_missing_in_prompt = [t["function"]["name"] for t in _oai()
-                      if t["function"]["name"] not in _v8_prompt]
-check("暴露的工具都出现在 v8 提示词里（防提示词与注册表漂移）",
-      not _missing_in_prompt, _missing_in_prompt)
+# 提示词是模型看到的第二份清单：漏登记的工具模型永远不会调。
+# 三个运行时提示词都要查 —— tools 版（原生工具调用）/ v8（默认文本协议）/ v7（旧版回退），
+# Q-07 记的就是这份清单长期缺 kb_/skill_/goal_/subagent 等族（曾漏 11-13 个）。
+_PROMPT_FILES = ("agent_system_prompt_tools.md", "agent_system_prompt_v8.md",
+                 "agent_system_prompt_v7.md")
+_prompt_gaps = {}
+for _pf in _PROMPT_FILES:
+    _txt = (Path(__file__).parent / "prompts" / _pf).read_text(encoding="utf-8")
+    _missing_in_prompt = [t["function"]["name"] for t in _oai()
+                          if t["function"]["name"] not in _txt]
+    if _missing_in_prompt:
+        _prompt_gaps[_pf] = _missing_in_prompt
+check("暴露的工具都出现在三个运行时提示词里（防提示词与注册表漂移）",
+      not _prompt_gaps, _prompt_gaps)
 
 # 权限等级现算而非快照：注册表新增只读工具后，readonly 立刻可用
 from execution_layer import PermissionManager as _PM  # noqa: E402

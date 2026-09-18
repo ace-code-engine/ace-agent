@@ -25,7 +25,7 @@
 | ✅ Q-04 | 文档/CI 手抄数字单一来源 | 已完成(v3.7)：README 里的提供商家数（原写 10 家）改为"9 家厂商 · 10 入口"；CHANGELOG 头部去掉写死的断言总数（改为"以 test_all 输出为准"）；`test_all.py` 新增 `[39]` 节自动校验——文档中"家厂商 · 入口"/"家提供商"/"个工具"三类口径必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，且 README/CONTRIBUTING/CHANGELOG 头部不得出现硬编码的用例/断言总数 | S |
 | ✅ Q-05 | `ace.cmd` 硬编码 `C:\aider_env\...` | 第 10 行,换机器必炸;改 PATH 探测 python/py | S |
 | ✅ Q-06 | CI 结构一致性校验 | 已完成(v3.7)：权威树迁至 `docs/ARCHITECTURE.md` 并补齐 13 条缺口(根级 9 + `.github` 2 + `tools` 2)；`test_all.py` 新增 `[38]` 节自动校验"树↔文件"(R1 存在性/R2 根级/R3 已展开目录/R4 compileall)，随 CI 三档 Python 顺带执行，无需新增 job。立项卡 `docs/design/ARCH-TREE-CHECK.md` | S |
-| ◐ Q-07 | prompts 工具清单 ↔ registry 差集 | tools 版提示词手写 26 漏 12(kb_/skill_/goal_/subagent 等);双份 v7(14KB/21KB)漂移 | 由 TOOL_SPECS 生成 + CI diff;docs 版标 archive 或同步 | S-M |
+| ✅ Q-07 | prompts 工具清单 ↔ registry 差集 | 已完成(v3.7)：实测差集——`agent_system_prompt_tools.md` 漏 11 个、`agent_system_prompt_v7.md` 漏 13 个（kb_/skill_/goal_/subagent/search_read/browser_navigate/plan_propose/request_permission 等族全部缺席），`v8` 已齐；已按 registry 的真实权限分组重写 tools 版的【可用工具】并给 v7 补 22-34 条（参数照抄 `ToolSpec.example`，不臆造）。同时修掉两处**可用性谎言**：v7/tools 都写着"browser_click / browser_type 尚未实现(501)"，实际早已实现；v7 的"email 暂未接入(501)"实际是"未配 SMTP 才 501"。CI 守卫：test_all 的提示词断言从"只查 v8"扩到三个运行时提示词全覆盖 | S-M |
 | Q-08 | e2e smoke 抗抖动 | 240s 单次硬超时 → 2-3 次浅提问重试 | S |
 | ✅ Q-09 | 死代码清理（BehaviorConstraint 已移除） | `work.py:326 BehaviorConstraint` 仅测试引用、AST 规则无人用;执行层死 import | S |
 | ✅ Q-10 | 错误语义与文案解耦 | 靠 message 中文子串判 403;`error_code` 自由字符串散落 ~30 处;状态码无集中常量 | error_code/status 枚举化,文案走 i18n | M |

@@ -258,11 +258,11 @@ answer.
 
 17. browser_click
     {"tool":"browser_click","selector":"#btn"}
-    ⚠️ 暂未实现（返回 501）：浏览器自动化需接入 Playwright 等驱动
+    在受控页面点击元素（需先 browser_navigate 打开页面）
 
 18. browser_type
     {"tool":"browser_type","selector":"#input","text":"admin"}
-    ⚠️ 暂未实现（返回 501）：浏览器自动化需接入 Playwright 等驱动
+    在受控页面输入框输入文本（需先 browser_navigate）
 
 19. db_write
     {"tool":"db_write","query":"INSERT ..."}
@@ -272,11 +272,67 @@ answer.
 20. notify_send
     {"tool":"notify_send","channel":"file","to":"...","content":"..."}
     通知渠道：console（终端打印）/ file（写入项目 notifications.log）/
-    toast（系统弹窗，需 plyer）；email 暂未接入（501）
+    toast（系统弹窗，需 plyer）；email 需在配置里给 email_smtp（host/port/user/password），
+    没配则返回 501
 
 21. image_generate
     {"tool":"image_generate","prompt":"...","size":"512x512"}
     通过 pollinations.ai 免费生成图片（无需密钥），保存到项目 .ace_images/
+
+22. browser_navigate
+    {"tool":"browser_navigate","url":"https://example.com"}
+    在受控页面（Playwright）打开 URL，之后才能 browser_click / browser_type / browser_screenshot；
+    与 browser_open 不同 —— 后者是把系统浏览器打开给人看
+
+23. plan_propose
+    {"tool":"plan_propose","title":"任务","steps":["步骤1","步骤2"]}
+    复杂任务先提分步计划，等用户批准再执行（执行层直接处理，不落工具执行）
+
+24. request_permission
+    {"tool":"request_permission","target":"terminal_exec","reason":"原因"}
+    被 403 拦下后申请临时授权（执行层直接处理）
+
+25. goal_create
+    {"tool":"goal_create","objective":"实现登录模块并跑通测试","max_rounds":10}
+    建持久目标：长任务自动逐轮续跑，直到完成/暂停/阻塞/预算耗尽
+
+26. goal_status
+    {"tool":"goal_status"}
+    查当前目标状态（含 revision；更新前必须先查）
+
+27. goal_update
+    {"tool":"goal_update","id":"...","revision":3,"phase":"blocked",
+     "reason_code":"api_unavailable","reason_message":"DeepSeek API 401，等用户换 key"}
+    phase: active/paused/blocked/complete；自报 blocked 必须给机器 code（难度/不确定不算阻塞）
+
+28. subagent
+    {"tool":"subagent","mode":"spawn","prompt":"审查这段代码的安全问题：..."}
+    spawn=全新上下文 / fork=继承父会话最近几轮；适合研究、草案、独立验证、代码审查，
+    返回的文本要自己整合，不要原样转述
+
+29. kb_search
+    {"tool":"kb_search","query":"SQL 注入 防护"}
+    检索用户自己的知识库（项目 .ace_kb/ 或外挂目录），跨会话持久
+
+30. kb_add
+    {"tool":"kb_add","filename":"notes/deploy.md","content":"部署命令：... 注意事项：..."}
+    把值得长期记住的信息（用户偏好 / 常用命令 / 踩坑记录）存进知识库
+
+31. kb_list
+    {"tool":"kb_list"}
+    列出知识库文件（含大小）
+
+32. search_read
+    {"tool":"search_read","query":"python async 最佳实践","top_k":3}
+    搜索并抓 top 结果正文（一步拿到可引用内容，不必 search + api_get 两步）
+
+33. skill_list
+    {"tool":"skill_list"}
+    列出可用专业技能（--skills 目录里的 SKILL.md），含名称与简介
+
+34. skill_load
+    {"tool":"skill_load","name":"write-swift"}
+    载入指定技能的完整 instructions，之后按其中规则完成任务
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【正确 vs 错误示例】

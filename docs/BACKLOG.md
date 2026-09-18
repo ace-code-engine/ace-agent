@@ -51,11 +51,11 @@
 - ✅ REL-02 已处理：README 顶部"生产级"表述在二轮重构时对齐；关键数字动态化由 `test_all [39]`（Q-04）自动校验，文档里不再写死
 - ⏳ REL-03 真实 Windows 冒烟：`ace.cmd` 与真机对话需人在有控制台的机器上走一遍（本仓库的自动化只覆盖 `--mock` 与无头链路）
 - ✅ REL-04 云端 e2e 激活说明已落文档(README secrets 指引 + e2e 头注释);配置 ACE_E2E_* 后 CI 自动启用
-- ⏳ REL-05 改 GitHub 账号名（需人工在网页设置里改；旧链接会自动重定向，但仓库内硬编码不会自己变）：实测只有 **7 个文件 13 处**硬编码 `jincheng3870682453-hash` —— `README.md`(4) `README.zh-CN.md`(4) `LICENSE` `ai_code.py` `docs/GETTING-STARTED.md` `docs/design/EXECUTOR-RELEASE.md` `docs/history/prompt-engineering/README.md`（大部分是 clone 命令与 CI 徽章 URL）。改名当天 `git ls-files -z | xargs -0 sed -i "s/旧名/新名/g"` 一次扫掉，然后核对 CI 徽章是否变色（徽章 URL 里带账号名，改名后旧 URL 仍能302 到新仓库）
+- ✅ REL-05 仓库落到组织名下（2026-09-18）：新建组织 **`ace-code-engine`**（个人号保留不动 —— 著作权署名仍是它），仓库过继为 `github.com/ace-code-engine/ace-agent`。实测过继后 **Issues / PR / Releases（v3.7.0 六件产物）、全部 tag、Actions 运行历史与两个 workflow 状态（active）都跟过来了**，旧地址 302 到新地址。仓库内 9 处"仓库地址"意义上的硬编码已换（`README.md`×3、`README.zh-CN.md`×3、`docs/GETTING-STARTED.md`、`docs/design/EXECUTOR-RELEASE.md`、`ai_code.py:194` 的 `_EXECUTOR_REPO` —— 最后一个不是装饰，`ace --install-executor` 就照它下载 Release 资产）；署名行（`LICENSE`、两份 README 页脚）与 `docs/history/**` 按纪律**不换**。遗留：组织侧 Actions 权限策略若日后收紧，注意 `release-executor.yml` 依赖 `permissions: contents: write`（workflow 内已显式声明）
 
 ## 建议顺序
 
 1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试
 2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-18 的 v3.8 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
 3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**只剩 R-03 的引擎合并**（安全半边已完成，剩下的属"改行为"需真机验证）。详见 `docs/design/STRUCT-REFACTOR.md`
-4. ⏳ 剩余（都需人工，各一两分钟）：`REL-03` 真机冒烟（`ace.cmd` + 真实终端对话，需人在有控制台的机器上走一遍）、`REL-05` 改账号名（网页设置 + 一条 sed）
+4. ⏳ 剩余（都需人工，各一两分钟）：`REL-03` 真机冒烟（`ace.cmd` + 真实终端对话，需人在有控制台的机器上走一遍）；`REL-05` 已闭环（仓库现挂在组织 `ace-code-engine` 下），可顺手做的只有 v3.7.0 Release 上那个多余的 `logo.svg` 资产（非必需，删不删都不影响 `ace --install-executor`）

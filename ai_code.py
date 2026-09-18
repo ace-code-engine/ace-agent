@@ -191,7 +191,7 @@ def _pip_install_with_fallbacks(target: str) -> bool:
 
 # —— 官方预编译执行器下载通道（docs/EXECUTOR-RELEASE.md，D3） ——
 # owner/repo 与 README 徽章一致；产物名与 .github/workflows/release-executor.yml 的矩阵一一对应。
-_EXECUTOR_REPO = "jincheng3870682453-hash/ace-agent"
+_EXECUTOR_REPO = "ace-code-engine/ace-agent"
 _EXECUTOR_ASSETS = {
     ("win32", "amd64"): "ace-executor-windows-amd64.exe",
     ("linux", "amd64"): "ace-executor-linux-amd64",

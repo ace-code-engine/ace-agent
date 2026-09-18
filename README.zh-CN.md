@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jincheng3870682453-hash/ace-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jincheng3870682453-hash/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
@@ -68,7 +68,7 @@ v3.8 起，**执行层的承诺有断言守着**：数据发往模型指定的�
 **前置**：Python ≥ 3.10（用到 `int.bit_count`，建议 3.11/3.12）。核心不需要装任何第三方包。
 
 ```bash
-git clone https://github.com/jincheng3870682453-hash/ace-agent.git && cd ace-agent
+git clone https://github.com/ace-code-engine/ace-agent.git && cd ace-agent
 python test_all.py          # 端到端测试，纯 stdlib，应当全绿
 python ai_code.py --mock    # 离线演示：完整跑一遍 模型↔执行层 闭环
 ```

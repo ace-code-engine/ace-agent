@@ -79,7 +79,7 @@
 2. 模块级 helper（放 `_pip_install_with_fallbacks` 旁）：
    - 实现机制用**标准库 `urllib.request`**（带 UA、超时），不新增依赖——`requests` 本就是可选项，安装通道不该反过来要求它。
    - `platform` + `platform.machine()` 规范化（`AMD64`/`x86_64`→`amd64`；`arm64`/`aarch64`→`arm64`）→ 查 D2 表；查不到（如 win32/arm64）明确报"无预编译产物，请 `cd executor && go build`"。
-   - 下载源：默认 `https://github.com/jincheng3870682453-hash/ace-agent/releases/latest/download/{asset}`（owner/repo 写死在 helper，与 README 徽章一致），环境变量 `ACE_EXECUTOR_BASE_URL` 可覆盖（镜像/内网）。
+   - 下载源：默认 `https://github.com/ace-code-engine/ace-agent/releases/latest/download/{asset}`（owner/repo 写死在 helper，与 README 徽章一致），环境变量 `ACE_EXECUTOR_BASE_URL` 可覆盖（镜像/内网）。
    - 下载到 `executor/ace-executor(.exe)`（临时文件 + rename，非 Windows `chmod 0o755`）。
    - **自校验**：跑 `{binary} --version`，能打印版本即成功；失败删除文件并提示手工 `go build`。绝不把"看着像下载成功"当成功。
    - 成功文案带下一步：`python ai_code.py --sandbox job`（Windows）或说明非 Windows 上 job 档不可用、二进制供 `off` 档进程树回收/未来档位。

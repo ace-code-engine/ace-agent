@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jincheng3870682453-hash/ace-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/jincheng3870682453-hash/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
@@ -46,7 +46,7 @@ If you only want chat-style code help, you probably don't need ACE. If your agen
 ## Run it in 30 seconds (no API key)
 
 ```bash
-git clone https://github.com/jincheng3870682453-hash/ace-agent.git && cd ace-agent
+git clone https://github.com/ace-code-engine/ace-agent.git && cd ace-agent
 python test_all.py         # end-to-end test suite, pure stdlib — should be all green
 python ai_code.py --mock   # offline demo: the full model ↔ execution-layer loop
 ```

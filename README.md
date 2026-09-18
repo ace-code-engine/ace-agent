@@ -15,7 +15,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.7%20(2026--09--06)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.8%20(2026--09--18)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -200,8 +200,8 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.8** (2026-09-18)：文档/安全承诺守卫（`test_all [38]/[39]/[40]`）+ 审计 19 条全面对账 + 场景示例 `examples/`（P1 全清）
 - **v3.7** (2026-09-06)：执行器官方预编译二进制 + `ace --install-executor`（首个 GitHub Release）
-- **v3.6** (2026-09-05)：UI 交互重设计（/thinking + 内置滚动引擎）、环境自检 ace_doctor、issue 模板
 
 → 完整版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 

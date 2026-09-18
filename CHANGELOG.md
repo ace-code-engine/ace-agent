@@ -1,12 +1,13 @@
 # Changelog
 
-> v3.3–v3.7 已打里程碑 tag（v3.7.0 起随 GitHub Release 发布预编译执行器产物）；更早的版本号
+> v3.3–v3.8 已打里程碑 tag（v3.7.0 起随 GitHub Release 发布预编译执行器产物）；更早的版本号
 > 为按开发阶段归纳的检索代称。精确到每次提交请 `git log --oneline`。
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），**以 `python test_all.py` 的实际输出为准，本文不写死数字**（历史条目里的数字是当时那次运行的记录）。
 
 **版本目录**
 
+- [v3.8 · 2026-09-18 · 文档/安全承诺守卫 + 审计 19 条对账 + 场景示例（P1 全清）](#v38-2026-09-18)
 - [v3.7 · 2026-09-06 · 执行器发布通道：官方预编译二进制 + ace --install-executor](#v37-2026-09-06)
 - [v3.6 · 2026-09-05 · UI 交互增强 + 诊断工具 + 发布卫生](#v36-2026-09-05)
 - [v3.5 · 2026-09-05 · Q-10 错误码目录 + P2/REL 收尾（开发中）](#v35-2026-09-05)
@@ -32,6 +33,12 @@
 - ⚙️ `ace_executor` / `ace_doctor` 缺二进制提示补 `ace --install-executor` 指引；README 同步（job 档不再"必须 go build"）
 - ⚙️ 版本号单源(Q-12)下沉到 UI：登录/聊天横幅的 `v1.0` 硬编码改为 `{ver}` 占位符，由 `version.py` 注入（zh/en/ja 三语言）；新增 `python ai_code.py --version`；`ace_doctor` 诊断头报 ACE 版本
 - 📚 README 瘦身(520→299 行)：安全模型/配置/命令参考拆至 `docs/SECURITY-MODEL.md` / `docs/CONFIGURATION.md` / `docs/COMMANDS.md`，README 变"名片 + 精简上手 + 文档枢纽"（docs/design/README-RESTRUCTURE.md）
+- 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
+
+## [v3.8] · 2026-09-18
+
+**文档与安全承诺守卫（`[38]/[39]/[40]`）· 审计 19 条全面对账 · 场景示例 `examples/`（P1 全清）**
+
 - ⚙️ Q-06 结构一致性校验：`test_all.py` 新增 `[38]` 节——树中路径必须存在（R1）/ 根级条目必须登记（R2）/ 已展开目录的直接子项必须登记（R3）/ ci.yml 的 compileall 覆盖全部根级 `.py`（R4），仓库真相取自 `git ls-files`，git 不可用则如实跳过（不假绿）；随 CI 三档 Python 的全量测试顺带执行，无需新增 job
 - ⚙️ 同批清零既有漂移：权威树补齐 13 条缺口（根级 9 + `.github` 2 + `tools` 2），ci.yml compileall 补 `ace_chatscroll/ace_doctor/test_all/version` 4 个模块（docs/design/ARCH-TREE-CHECK.md）
 - ⚙️ Q-04 文档数字单一来源：README 顶部提供商家数口径与 `/provider` 对齐；CHANGELOG 头部去掉写死的断言总数（改为"以 `test_all.py` 输出为准"）；`test_all.py` 新增 `[39]` 节——文档中"家厂商 · 入口"/"家提供商"/"个工具"必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，README/CONTRIBUTING/CHANGELOG 头部禁止硬编码用例总数（CI 三档 Python 顺带执行）
@@ -39,7 +46,7 @@
 - 🐛 Q-11 演示动画修复 + 纳入 CI：`demo/record_demo.py` 仍在认旧提示符 `❯`（v3.6 已改主题色方块 `▊`），导致录出来的画面里**用户敲的命令整行消失**；同时录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数，换台机器 `--check` 必然失败。改为在**临时工作目录 + 临时 HOME** 里封闭录制（不再读本机 `~/.ai_code.json`，权限档回到默认 readonly），路径一律折叠成 `…/`，`MAX_LINES` 从 26 提到 32 让结尾的 `/exit` 不再被截断；重录 `demo/demo.svg`。CI test job（Py 3.12）新增 `python demo/record_demo.py --check` 盯着这张图；Docker run 示例补 `--project-root /app/project`
 - 🐛 配置文件里的键此前有 6 个是"写了不生效"：`signing_key` / `max_snapshots` / `confine_files` / `email_smtp` / `egress_allowlist` / `session_id` 只在程序化构造 `ExecutionLayer` 时被读取，CLI 构造执行层时没透传 —— 用户按 `docs/CONFIGURATION.md` 配了出站白名单或签名密钥，实际闸门关着、密钥是自动生成的，且没有任何提示。现已在 `ai_code._init_execution_layer` 原样透传，并补 4 条断言（`egress_allowlist` / `max_snapshots` / `confine_files`+`email_smtp` / `session_id`）防回归
 - 📚 安全审计对账（OPEN-5）：`docs/SECURITY-AUDIT.md` 新增「对账状态」节——先说清本报告 `SEC-001~019` 与 BACKLOG `SEC-01~06` 是两套编号（两次体检），再给出本次**实际重跑**的两条：`SEC-002` 默认权限已闭合（三入口默认 `readonly`），`SEC-013` 外发确认仍开放（出站仅 SSRF 常开，`egress_allowlist` 默认不启用，`CONFIRM_TOOLS` 只有 `terminal_exec`）；未复核的条目如实标注"本次未重跑"，不把沉默当已核；BACKLOG `SEC-03` 据此拆成"前半已闭合 / 后半仍开放"
-- 🛡️ SEC-013/SEC-03 外发闸门（v3.7）：注册表新增 `ToolSpec.egress` 标记（`api_get` / `api_post` / `browser_open` / `browser_navigate` / `notify_send`），执行层在**目的地既不在内置清单、也不在用户 `egress_allowlist`** 时插一次逐次确认（弹给用户"发往哪个主机、发的是什么 URL"），并让外发工具**拒绝会话级授权**——会话级授权按工具名给、不区分目的地，"本会话 api_post 免问"等于把出口整个打开，要免问请用白名单指定域名。`notify_send` 按渠道判：console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问；`image_generate` 目的地是固定内置服务故不问，但 prompt 明文交第三方，已在 `SECURITY-MODEL.md` 单列。协议错误（非 http/https）仍交给工具自己的 400，不用确认框遮住真实错误。测试 +8 条，`docs/SECURITY-MODEL.md` 新增「外发闸门」表，BACKLOG `SEC-03` 与审计 `SEC-013` 双双闭合
+- 🛡️ SEC-013/SEC-03 外发闸门：注册表新增 `ToolSpec.egress` 标记（`api_get` / `api_post` / `browser_open` / `browser_navigate` / `notify_send`），执行层在**目的地既不在内置清单、也不在用户 `egress_allowlist`** 时插一次逐次确认（弹给用户"发往哪个主机、发的是什么 URL"），并让外发工具**拒绝会话级授权**——会话级授权按工具名给、不区分目的地，"本会话 api_post 免问"等于把出口整个打开，要免问请用白名单指定域名。`notify_send` 按渠道判：console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问；`image_generate` 目的地是固定内置服务故不问，但 prompt 明文交第三方，已在 `SECURITY-MODEL.md` 单列。协议错误（非 http/https）仍交给工具自己的 400，不用确认框遮住真实错误。测试 +8 条，`docs/SECURITY-MODEL.md` 新增「外发闸门」表，BACKLOG `SEC-03` 与审计 `SEC-013` 双双闭合
 - 📚 BACKLOG 对账：P1（Q-01~Q-15）全清——本轮核对出 Q-08（e2e 三次尝试抗抖动）与 Q-15（`INTERFACES §11` 的命名/检索索引）其实早已落地，只是卡片没勾；Q-12（版本单源 + v3.3~v3.7 里程碑 tag）同样已闭环；`e2e/real_model_smoke.py` docstring 里"单次 240s 硬超时"的旧描述订正为"最多 3 次 × 150s 超时"
 - 🛡️ SEC-016/017 复核并修（审计里从未重跑过的两条 P2）：`guardian.rollback` 的删除/恢复/校验三个阶段改为**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"，失败项逐条打印、保留删除前备份、返回 `False` 而不是抛裸异常（`shutil.copy2` 原本不在 try 里，`_sha256` 校验同样会炸）；`.ace_sessions` / `.agent_flywheel` / `.poc_reports` / `.ace_goals.json` / `.agent_memory.json` 纳入敏感目标，文件工具写删一律 403（与 `.guardian` 同一道闸，让被审计方改不了自己的记录）。SEC-017 的"安全事件分级 / 连续 403 告警"仍开放，已在审计对账里标注。+6 条断言
 - 🛡️ SEC-017 剩余面闭合（安全事件分级 + 连续拦截告警）：403 里"执行层主动防御"（路径越界/白名单/沙盒/敏感目标）与"模型参数写错"彻底分开——前者单列事件类型 `security/denied`（`/audit` 带 ⚠ 与累计次数），**会话累计到 3 次就向用户告警**（中英日三语：次数、最近工具、涉及工具、"可能有人在借被读取的文件/网页注入指令，先停下核对来源"），越过阈值每 +5 次再提醒一次；同时把"已向用户告警"写回模型 instruction（让它知道人已知情，别继续换路径试）。计数据会话累计而非严格连续——夹一次成功调用不该把试探清零。+5 条断言，locale 三语键位对齐
@@ -48,7 +55,7 @@
 - 📚 审计 19 条对账补齐：`docs/SECURITY-AUDIT.md` 的「对账状态」从 7 条扩到**全部 19 条**（按编号排列），每条给出结论 + 证据类型（实测 payload / 既有断言 / 代码阅读）。本轮实调 `evaluate_command` / `ToolExecutor.execute` / `_stage_permission` 复核了 SEC-001/003/004/005/008/010/011/012/014/015/019，其中 SEC-005（open_file 只返回链接、`permission=read`）、SEC-010（签名密钥自动生成且 `verify_snapshot` 通过）、SEC-014（`.env`/`*.pem` 不进快照，实测快照内只有 `seed.txt`）、SEC-019（安全 403 不进熔断计数：4 次 403 后 `repeat_fail` 仍为空）都拿到了当次运行证据
 - 🧪 对账变成断言：`test_all.py` 新增 `[40] 安全审计 payload 回归`——把 `SECURITY-AUDIT.md` 对账表里可自动化的原始 payload 钉成 17 条断言（SEC-003 四种引用级绕过 payload / SEC-005 `open_file` 只给链接不弹窗 / SEC-006 内容限项目内而目录可越界 / SEC-007+018 越界路径非 allow / SEC-010 签名密钥自动生成且 `verify_snapshot` 通过 / SEC-014 `.env`+`*.pem` 不进快照 / SEC-019 安全 403 不进熔断计数），Windows 专有命令在非 Windows 上走 SKIPPED。理由写在节头：SEC-009 那次的教训正是"文档写着要问、代码里从来没问过"——对账表不变成断言，就会随时间重新变成一纸承诺。`docs/TESTING.md` 把 `[38]/[39]/[40]` 三条守卫合并成一段说明
 - ✨ 场景示例目录 `examples/`（OPEN-1，此前"工程化清单"里唯一确认的空缺）：三个可直接照做的剧本——`01_security_lab`（默认只读 403 → `/permission write` → 写前快照 → `/snapshots` → `/undo`，外加 `terminal_exec` 逐次确认与路径越界，配"应该看到什么 / 看到它说明什么"对照表）、`02_document_parsing`（懒加载解析器按需装 + 读取边界 403 实测）、`03_multi_turn_agent`（`goal_create` 自动续跑 / `subagent` 拆活 / `kb_add`+`kb_search` 沉淀，附 `config.example.json`）；README 快速开始与文档地图各加入口，权威树同步登记
-- 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
+- 回归：本机 **1052/1061**（本轮新增 `[38]`/`[39]`/`[40]` 三节共 27 条守卫与安全断言），9 项环境性失败与基线逐项同名（Go Job Object 受进程沙箱限制，非本轮引入）；CI 三次 push 全绿（run 126/127/128）
 
 ## [v3.6] · 2026-09-05
 

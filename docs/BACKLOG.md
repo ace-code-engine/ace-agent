@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | ✅ SEC-01 | **code_execute 沙箱可绕过 → RCE/任意写** | `code_tools.py:80-91` 只拦 Call.func 精确名;实测 `f=open;f(..)('a','w')`、`(lambda:open)()(...)` 成功落盘、`(lambda:exec)()('print(1)')` 成功执行 | Name/引用级白名单或去 builtins;叠 Go 执行器/job 边界;补 6 条回归测试 | M |
 | ✅ SEC-02 | **parse_document 只读越界读** | `parse_tools.py:22-29` 不过 confine/sensitive;readonly 下读项目外 README/execution_layer.py 实测 SUCCESS(file_read 同路径 403) | 与 file_read 同口径路径判定+敏感目标+回归测试 | S |
-| ✅ SEC-03 | **默认权限矛盾 + 外发零确认** | 已闭合(v3.7)：前半——`agent_runner.py:668` / `execution_layer.py:1344` / `ai_code.py:656` 三入口默认均为 `readonly`；后半——注册表新增 `ToolSpec.egress`（`api_get`/`api_post`/`browser_open`/`browser_navigate`/`notify_send`），执行层在目的地不在内置清单也不在用户 `egress_allowlist` 时**逐次弹确认**，并拒绝会话级授权（授权按工具名给 = 出口全开，要免问请用白名单指定域名）；`notify_send` 按渠道判（console/file/toast 不问，email 每次问）。测试覆盖 8 条（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） | S-M |
+| ✅ SEC-03 | **默认权限矛盾 + 外发零确认** | 已闭合(v3.8)：前半——`agent_runner.py:668` / `execution_layer.py:1344` / `ai_code.py:656` 三入口默认均为 `readonly`；后半——注册表新增 `ToolSpec.egress`（`api_get`/`api_post`/`browser_open`/`browser_navigate`/`notify_send`），执行层在目的地不在内置清单也不在用户 `egress_allowlist` 时**逐次弹确认**，并拒绝会话级授权（授权按工具名给 = 出口全开，要免问请用白名单指定域名）；`notify_send` 按渠道判（console/file/toast 不问，email 每次问）。测试覆盖 8 条（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） | S-M |
 | ✅ SEC-04 | 快照 HMAC 默认关 + 敏感文件明文入 `.guardian` | `guardian.py:142/60`;signing_key 不配即无签名;.env/.pem 无排除 | 默认生成项目外密钥;敏感文件只记哈希;补测试 | M |
 | ✅ SEC-05 | `browser_screenshot` 属只读且无确认 | `registry.py:117-119` | 归 WRITE + 逐次确认 | S |
 | ✅ SEC-06 | execpolicy allow 档小洞 | `ace_execpolicy.py:314` 跳过 `-` 开头 token 可越区;`git config` 被当只读可 `--global` 写 | 选项值含路径不跳过;config 限 `--get/--list` | S |
@@ -22,14 +22,14 @@
 | ✅ Q-01 | ruff 扩选 F401/F841/E711/F811 | 实测 F401=42 死导入全可 autofix(execution_layer.py:27-31 os/ast/html) | S |
 | ✅ Q-02 | bench 功能 check 失败应 exit≠0;`benchmarks/results/` 入 .gitignore | 现在退出码恒 0、结果入库致本机跑即脏树 | S |
 | ✅ Q-03 | test_all 环境敏感自识别(SKIPPED 通道 + `--strict`) | Go Job Object 附加失败/缺 requests/禁联网/系统 temp 只读应跳过并如实标注,不许假绿/整脚本 traceback;9 处裸 mkdtemp 统一走 `.test_tmp` | M |
-| ✅ Q-04 | 文档/CI 手抄数字单一来源 | 已完成(v3.7)：README 里的提供商家数（原写 10 家）改为"9 家厂商 · 10 入口"；CHANGELOG 头部去掉写死的断言总数（改为"以 test_all 输出为准"）；`test_all.py` 新增 `[39]` 节自动校验——文档中"家厂商 · 入口"/"家提供商"/"个工具"三类口径必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，且 README/CONTRIBUTING/CHANGELOG 头部不得出现硬编码的用例/断言总数 | S |
+| ✅ Q-04 | 文档/CI 手抄数字单一来源 | 已完成(v3.8)：README 里的提供商家数（原写 10 家）改为"9 家厂商 · 10 入口"；CHANGELOG 头部去掉写死的断言总数（改为"以 test_all 输出为准"）；`test_all.py` 新增 `[39]` 节自动校验——文档中"家厂商 · 入口"/"家提供商"/"个工具"三类口径必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，且 README/CONTRIBUTING/CHANGELOG 头部不得出现硬编码的用例/断言总数 | S |
 | ✅ Q-05 | `ace.cmd` 硬编码 `C:\aider_env\...` | 第 10 行,换机器必炸;改 PATH 探测 python/py | S |
-| ✅ Q-06 | CI 结构一致性校验 | 已完成(v3.7)：权威树迁至 `docs/ARCHITECTURE.md` 并补齐 13 条缺口(根级 9 + `.github` 2 + `tools` 2)；`test_all.py` 新增 `[38]` 节自动校验"树↔文件"(R1 存在性/R2 根级/R3 已展开目录/R4 compileall)，随 CI 三档 Python 顺带执行，无需新增 job。立项卡 `docs/design/ARCH-TREE-CHECK.md` | S |
-| ✅ Q-07 | prompts 工具清单 ↔ registry 差集 | 已完成(v3.7)：实测差集——`agent_system_prompt_tools.md` 漏 11 个、`agent_system_prompt_v7.md` 漏 13 个（kb_/skill_/goal_/subagent/search_read/browser_navigate/plan_propose/request_permission 等族全部缺席），`v8` 已齐；已按 registry 的真实权限分组重写 tools 版的【可用工具】并给 v7 补 22-34 条（参数照抄 `ToolSpec.example`，不臆造）。同时修掉两处**可用性谎言**：v7/tools 都写着"browser_click / browser_type 尚未实现(501)"，实际早已实现；v7 的"email 暂未接入(501)"实际是"未配 SMTP 才 501"。CI 守卫：test_all 的提示词断言从"只查 v8"扩到三个运行时提示词全覆盖 | S-M |
-| ✅ Q-08 | e2e smoke 抗抖动 | 已落地：`e2e/real_model_smoke.py` 最多 3 次尝试、每次 150s 超时，第 1 次带工具调用、后两次换浅提问，任一成功即通过；次数可用 `ACE_E2E_ATTEMPTS` 调。v3.7 订正了 docstring 里"单次 240s"的旧描述 | S |
+| ✅ Q-06 | CI 结构一致性校验 | 已完成(v3.8)：权威树迁至 `docs/ARCHITECTURE.md` 并补齐 13 条缺口(根级 9 + `.github` 2 + `tools` 2)；`test_all.py` 新增 `[38]` 节自动校验"树↔文件"(R1 存在性/R2 根级/R3 已展开目录/R4 compileall)，随 CI 三档 Python 顺带执行，无需新增 job。立项卡 `docs/design/ARCH-TREE-CHECK.md` | S |
+| ✅ Q-07 | prompts 工具清单 ↔ registry 差集 | 已完成(v3.8)：实测差集——`agent_system_prompt_tools.md` 漏 11 个、`agent_system_prompt_v7.md` 漏 13 个（kb_/skill_/goal_/subagent/search_read/browser_navigate/plan_propose/request_permission 等族全部缺席），`v8` 已齐；已按 registry 的真实权限分组重写 tools 版的【可用工具】并给 v7 补 22-34 条（参数照抄 `ToolSpec.example`，不臆造）。同时修掉两处**可用性谎言**：v7/tools 都写着"browser_click / browser_type 尚未实现(501)"，实际早已实现；v7 的"email 暂未接入(501)"实际是"未配 SMTP 才 501"。CI 守卫：test_all 的提示词断言从"只查 v8"扩到三个运行时提示词全覆盖 | S-M |
+| ✅ Q-08 | e2e smoke 抗抖动 | 已落地：`e2e/real_model_smoke.py` 最多 3 次尝试、每次 150s 超时，第 1 次带工具调用、后两次换浅提问，任一成功即通过；次数可用 `ACE_E2E_ATTEMPTS` 调。v3.8 订正了 docstring 里"单次 240s"的旧描述 | S |
 | ✅ Q-09 | 死代码清理（BehaviorConstraint 已移除） | `work.py:326 BehaviorConstraint` 仅测试引用、AST 规则无人用;执行层死 import | S |
 | ✅ Q-10 | 错误语义与文案解耦 | 靠 message 中文子串判 403;`error_code` 自由字符串散落 ~30 处;状态码无集中常量 | error_code/status 枚举化,文案走 i18n | M |
-| ✅ Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | 已完成(v3.7)：CONTRIBUTING 已改为"总数随平台浮动、不写死数字"；`demo/record_demo.py --check` 进入 CI 的 test job（Py 3.12 单跑）；Docker run 示例补 `--project-root /app/project`。过程中发现演示脚本早就腐化：提示符仍认旧字形 `❯`（v3.6 已改 `▊`）导致用户输入行消失，且录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数——已改为"临时工作目录 + 临时 HOME"的封闭录制、路径折叠成 `…/`，并重录 `demo/demo.svg`（29 行完整会话，结尾不再被 MAX_LINES 截断） | S |
+| ✅ Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | 已完成(v3.8)：CONTRIBUTING 已改为"总数随平台浮动、不写死数字"；`demo/record_demo.py --check` 进入 CI 的 test job（Py 3.12 单跑）；Docker run 示例补 `--project-root /app/project`。过程中发现演示脚本早就腐化：提示符仍认旧字形 `❯`（v3.6 已改 `▊`）导致用户输入行消失，且录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数——已改为"临时工作目录 + 临时 HOME"的封闭录制、路径折叠成 `…/`，并重录 `demo/demo.svg`（29 行完整会话，结尾不再被 MAX_LINES 截断） | S |
 | ✅ Q-12 | 版本单源 `__version__` + 里程碑 tag/Release | 已落地：`version.py` 是唯一来源，登录/聊天横幅由 `{ver}` 占位符注入（zh/en/ja），`python ai_code.py --version` 可查，`ace_doctor` 报版本，发布流水线用 `-ldflags -X main.serverVersion=…` 把同一版本号注入 Go 执行器；远端已有 `v3.3`~`v3.7` 里程碑 tag（v3.7.0 随 GitHub Release 发布 5 平台执行器产物） | S-M |
 | ✅ Q-15 | 模块 docstring 检索词/命名说明 | 已落地（与 R-06 同一批）：`docs/INTERFACES.md §11` 有"历史命名 ↔ 真实职责 ↔ 检索词"索引（`Archive`=记忆 / `Nuwa`=报告 / `work`=诱饵+AST / `guardian`=快照回滚），且每个旧模块 docstring 首行已写清职责；约定"新模块一律 `ace_` 前缀" | S |
 
@@ -54,5 +54,5 @@
 ## 建议顺序
 
 1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试
-2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-06 的 v3.7 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
+2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-18 的 v3.8 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
 3. ⏳ 剩余：**P2 结构重构 R-01~R-05**（R-06 已完成）、审计里的 `SEC-017` 剩余面（安全事件分级 / 连续 403 告警）、`REL-03` 真机冒烟

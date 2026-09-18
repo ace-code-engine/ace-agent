@@ -3,7 +3,7 @@
 > 本文档由 README「配置」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
 > 配置优先级见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 顶部（命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量）。
 > **下面的键写进 `~/.ai_code.json` 即生效**（CLI 会原样透传给执行层）；`python ai_code.py --save-config` 可把当前命令行参数落盘。
-> v3.7 修正：`signing_key` / `max_snapshots` / `confine_files` / `email_smtp` / `egress_allowlist` / `session_id` 此前**只在程序化构造 `ExecutionLayer` 时生效**，写进配置文件会被静静忽略——配置写了不生效比没这个键更坏（用户以为闸门开着），现已修复并有 test_all 断言盯着。
+> v3.8 修正：`signing_key` / `max_snapshots` / `confine_files` / `email_smtp` / `egress_allowlist` / `session_id` 此前**只在程序化构造 `ExecutionLayer` 时生效**，写进配置文件会被静静忽略——配置写了不生效比没这个键更坏（用户以为闸门开着），现已修复并有 test_all 断言盯着。
 
 ```python
 config = {
@@ -26,7 +26,7 @@ config = {
 
 内网判定（`ace_net`）管的是"别打到内网去"，白名单管的是"能把数据带到哪个公网站点去"。后者只有宿主知道哪些站点算正当，所以**默认关闭**：不配这个键，`api_get` / `api_post` / `browser_open` / `web_search` 的行为和以前完全一样。
 
-但"默认关闭"不等于"默认没人管"：**没配清单时，外发工具只要目的地不在内置端点里，就会逐次弹确认**（v3.7 起，见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 的「外发闸门」）。清单是给"别再问我了"用的——写好之后清单内直接放行，清单外一律 403。
+但"默认关闭"不等于"默认没人管"：**没配清单时，外发工具只要目的地不在内置端点里，就会逐次弹确认**（v3.8 起，见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 的「外发闸门」）。清单是给"别再问我了"用的——写好之后清单内直接放行，清单外一律 403。
 
 配上之后：
 

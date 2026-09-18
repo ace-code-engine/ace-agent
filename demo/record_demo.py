@@ -19,23 +19,29 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
+import uuid
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 OUT_SVG = HERE / "demo.svg"
+TMP_ROOT = ROOT / ".test_tmp"        # 临时工作目录（gitignore），与 test_all.py 同一取态
 
 # 演示脚本：mock 是两步剧本（工具调用 → 基于结果作答），其余都是本地斜杠命令。
 # 不要写"改代码/装依赖"这种 mock 演不出来的台词，演示必须和真实行为一致。
 SESSION = ["现在几点", "/status", "/permission readonly", "/exit"]
 
 # 只保留演示需要的行数：/help 那张大表会把画面撑爆，不进脚本。
-MAX_LINES = 26
-PROMPT = "❯"
+# 上限要够装下完整一场（清干净的工作目录下约 29 行），否则结尾的 /exit 会被截掉。
+MAX_LINES = 32
+# 输入提示符：v3.6 起是主题色方块 ▊；❯ 是补全菜单不可用时的旧形态。
+# 两个都认 —— 改一次提示符就让演示录制失效，是这份脚本最容易腐化的地方。
+PROMPTS = ("▊", "❯")
 
 # 一眼能看懂的暗色主题（对比度按 WCAG AA 选的，前景 #d7dce5 / 背景 #11141b）
 THEME = {
@@ -67,20 +73,49 @@ def display_width(text: str) -> int:
 
 
 def capture_session() -> str:
-    """真的把 CLI 跑起来，拿它打印的原始字节（含 ANSI）。"""
-    env = dict(os.environ)
-    env["FORCE_COLOR"] = "1"          # 管道下强制上色，见 ai_code.py 的 USE_COLOR
-    env.pop("NO_COLOR", None)
-    env["PYTHONIOENCODING"] = "utf-8"
-    proc = subprocess.run(
-        [sys.executable, "ai_code.py", "--mock"],
-        input="\n".join(SESSION) + "\n",
-        cwd=str(ROOT), env=env, text=True, encoding="utf-8",
-        capture_output=True, timeout=120,
-    )
-    if proc.returncode != 0:
-        raise SystemExit(f"录制失败（退出码 {proc.returncode}）:\n{proc.stderr[-2000:]}")
-    return proc.stdout
+    """真的把 CLI 跑起来，拿它打印的原始字节（含 ANSI）。
+
+    跑在**临时工作目录 + 临时 HOME** 里，让录制与录制者的机器状态无关：
+    否则会把 ~/.ai_code.json、`.ace_sessions/`（"已恢复上次会话"）、`.ace_kb`
+    的绝对路径、`.guardian` 快照数一并录进 README 首屏 —— 既泄露本机路径，
+    也让 --check 换台机器就必然失败。
+
+    临时目录落仓库内 `.test_tmp/`（gitignore）而不是系统临时区：受限环境下
+    系统 temp 常常不可写（与 test_all.py 同一取态）。注意用 `mkdir(parents=True)`
+    而不是 `tempfile.mkdtemp` —— 后者建的目录在本机连子目录都写不进去。
+    """
+    TMP_ROOT.mkdir(exist_ok=True)
+    tmp = TMP_ROOT / f"demo_{uuid.uuid4().hex[:8]}"
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        work, home = tmp / "project", tmp / "home"
+        work.mkdir()
+        home.mkdir()
+        env = dict(os.environ)
+        env["FORCE_COLOR"] = "1"          # 管道下强制上色，见 ai_code.py 的 USE_COLOR
+        env.pop("NO_COLOR", None)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["HOME"] = env["USERPROFILE"] = str(home)   # 不读录制者的 ~/.ai_code.json
+        env.pop("HOMEDRIVE", None)
+        env.pop("HOMEPATH", None)
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "ai_code.py"), "--mock"],
+            input="\n".join(SESSION) + "\n",
+            cwd=str(work), env=env, text=True, encoding="utf-8",
+            capture_output=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            raise SystemExit(f"录制失败（退出码 {proc.returncode}）:\n{proc.stderr[-2000:]}")
+        raw = proc.stdout
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    # 临时目录/临时 home 的绝对路径一律折叠成占位符：SVG 里不留任何本机路径。
+    # 分隔符统一成 "/" —— 否则 Windows 录的 "…\.ace_kb" 与 Linux CI 的 "…/.ace_kb"
+    # 对不上，--check 会在 CI 上误报。
+    for path in (work, home):
+        for form in (str(path), path.as_posix()):
+            raw = raw.replace(form, "…")
+    return raw.replace("…\\", "…/")
 
 
 def to_transcript(raw: str) -> list[tuple[str, bool]]:
@@ -90,7 +125,7 @@ def to_transcript(raw: str) -> list[tuple[str, bool]]:
     把「提示符 + 紧跟其后的输出」拆成两行并补回用户敲的内容、合并重复的转轮帧。
 
     提示符是 print(..., end="") 打出来的，管道里它和后面的输出粘在同一物理行；
-    真实终端上用户先看到 "❯ 我敲的字"，回车后输出才另起一行 —— 拆开才还原真实画面。
+    真实终端上用户先看到 "▊ 我敲的字"，回车后输出才另起一行 —— 拆开才还原真实画面。
     """
     typed = list(SESSION)
     out: list[tuple[str, bool]] = []
@@ -113,11 +148,12 @@ def to_transcript(raw: str) -> list[tuple[str, bool]]:
     for physical in raw.replace("\r\n", "\n").split("\n"):
         line = _ANSI_OTHER_RE.sub("", physical.split("\r")[-1].rstrip())
         plain = _SGR_RE.sub("", line)
-        if PROMPT in plain and plain.lstrip().startswith(PROMPT):
+        hit = next((p for p in PROMPTS if plain.lstrip().startswith(p)), None)
+        if hit:
             if not typed:
                 continue
-            push(f"{PROMPT} {typed.pop(0)}", is_input=True)
-            idx = line.find(PROMPT) + len(PROMPT)
+            push(f"{hit} {typed.pop(0)}", is_input=True)
+            idx = line.find(hit) + len(hit)
             push(line[idx:].lstrip())                       # 提示符后面粘着的那段输出
             continue
         push(line)

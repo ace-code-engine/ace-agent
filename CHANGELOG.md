@@ -35,6 +35,7 @@
 - ⚙️ Q-06 结构一致性校验：`test_all.py` 新增 `[38]` 节——树中路径必须存在（R1）/ 根级条目必须登记（R2）/ 已展开目录的直接子项必须登记（R3）/ ci.yml 的 compileall 覆盖全部根级 `.py`（R4），仓库真相取自 `git ls-files`，git 不可用则如实跳过（不假绿）；随 CI 三档 Python 的全量测试顺带执行，无需新增 job
 - ⚙️ 同批清零既有漂移：权威树补齐 13 条缺口（根级 9 + `.github` 2 + `tools` 2），ci.yml compileall 补 `ace_chatscroll/ace_doctor/test_all/version` 4 个模块（docs/design/ARCH-TREE-CHECK.md）
 - ⚙️ Q-04 文档数字单一来源：README 顶部提供商家数口径与 `/provider` 对齐；CHANGELOG 头部去掉写死的断言总数（改为"以 `test_all.py` 输出为准"）；`test_all.py` 新增 `[39]` 节——文档中"家厂商 · 入口"/"家提供商"/"个工具"必须与 `PROVIDERS` / `TOOL_SPECS` 实测一致，README/CONTRIBUTING/CHANGELOG 头部禁止硬编码用例总数（CI 三档 Python 顺带执行）
+- 🐛 Q-11 演示动画修复 + 纳入 CI：`demo/record_demo.py` 仍在认旧提示符 `❯`（v3.6 已改主题色方块 `▊`），导致录出来的画面里**用户敲的命令整行消失**；同时录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数，换台机器 `--check` 必然失败。改为在**临时工作目录 + 临时 HOME** 里封闭录制（不再读本机 `~/.ai_code.json`，权限档回到默认 readonly），路径一律折叠成 `…/`，`MAX_LINES` 从 26 提到 32 让结尾的 `/exit` 不再被截断；重录 `demo/demo.svg`。CI test job（Py 3.12）新增 `python demo/record_demo.py --check` 盯着这张图；Docker run 示例补 `--project-root /app/project`
 - 回归：本机 992/1001 · 环境性失败 9 项与基线一致（Go Job Object 受进程沙箱限制，非本次引入）
 
 ## [v3.6] · 2026-09-05

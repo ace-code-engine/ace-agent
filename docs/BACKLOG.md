@@ -29,7 +29,7 @@
 | Q-08 | e2e smoke 抗抖动 | 240s 单次硬超时 → 2-3 次浅提问重试 | S |
 | ✅ Q-09 | 死代码清理（BehaviorConstraint 已移除） | `work.py:326 BehaviorConstraint` 仅测试引用、AST 规则无人用;执行层死 import | S |
 | ✅ Q-10 | 错误语义与文案解耦 | 靠 message 中文子串判 403;`error_code` 自由字符串散落 ~30 处;状态码无集中常量 | error_code/status 枚举化,文案走 i18n | M |
-| Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | CONTRIBUTING:16“238 项”等全过期;章节号混乱 | S |
+| ✅ Q-11 | CONTRIBUTING 更新 + demo --check 入 CI + Docker run 示例补 `--project-root` | 已完成(v3.7)：CONTRIBUTING 已改为"总数随平台浮动、不写死数字"；`demo/record_demo.py --check` 进入 CI 的 test job（Py 3.12 单跑）；Docker run 示例补 `--project-root /app/project`。过程中发现演示脚本早就腐化：提示符仍认旧字形 `❯`（v3.6 已改 `▊`）导致用户输入行消失，且录制会吸入录制者的 `.ace_sessions/`（"已恢复上次会话"）、`.ace_kb` 绝对路径与快照数——已改为"临时工作目录 + 临时 HOME"的封闭录制、路径折叠成 `…/`，并重录 `demo/demo.svg`（29 行完整会话，结尾不再被 MAX_LINES 截断） | S |
 | Q-12 | 版本单源 `__version__` + v3.1 git tag/Release | 徽章/CHANGELOG/版本表手动三份 | S-M |
 | ✅ Q-13 | 打包结论（源运行;wheel 待 P2 布局重构,见 docs/PACKAGING.md） | `pyproject.toml`(console_scripts ace=…)或明示“源码运行” | 根目录无打包 | M |
 | ✅ Q-14 | locales 补齐（ja 2 键已补全） + 研究文档卫生 | ja.json 缺 2 键;codex/dsh/security 调研文档补上游 URL/许可证、脱敏本机路径 | S |

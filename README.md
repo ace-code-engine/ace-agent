@@ -25,7 +25,8 @@
 
 <p align="center">
   <sub>上图是 <code>python ai_code.py --mock</code> 的真实会话录制（离线、无需密钥），
-  用 <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a> 可随时重录。</sub>
+  用 <a href="demo/record_demo.py"><code>demo/record_demo.py</code></a> 可随时重录；
+  CI 跑 <code>--check</code> 盯着它，CLI 输出一变这张图就得跟着重录。</sub>
 </p>
 
 大多数 Agent 把安全交给提示词："请不要删除文件"。ACE 不这么做：模型的每一次工具调用都要穿过一个独立的执行层，由它做权限裁决、危险行为检测、写入前快照。提示词失效时，执行层仍然拦得住。

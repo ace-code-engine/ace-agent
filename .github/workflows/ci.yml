@@ -40,6 +40,12 @@ jobs:
       - name: Run tests (端到端全量)
         run: python test_all.py
 
+      # README 首屏那张动画是真实会话录出来的,会随 CLI 输出漂移;
+      # --check 在临时工作目录里重放一遍并比对骨架(数字已归一化)。跑一次就够。
+      - name: Demo 动画与当前 CLI 输出一致
+        if: matrix.python-version == '3.12'
+        run: python demo/record_demo.py --check
+
   go-test:
     name: Go executor (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

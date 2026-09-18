@@ -29,7 +29,7 @@ python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演�
 
 | Job | 内容 |
 |---|---|
-| `test` | Python 3.10 / 3.11 / 3.12 × compileall + 全量 test_all（ubuntu） |
+| `test` | Python 3.10 / 3.11 / 3.12 × compileall + 全量 test_all（ubuntu）；Python 3.12 额外跑 `demo/record_demo.py --check`（README 首屏动画必须与当前 CLI 输出一致） |
 | `go-test` | Go executor：ubuntu + windows 原生 vet / build / test；race 仅 ubuntu（Windows runner 无 C 编译器） |
 | `lint` | ruff 硬错误子集 + 死导入/未用变量 |
 | `bench` | `bench_core.py --quick` 健康门 + 报告摘要 |

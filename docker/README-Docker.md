@@ -34,12 +34,14 @@ docker build -f docker/Dockerfile.full -t ace-agent:full .
 
 ```bash
 # Lite: 需要你自己提供 API Key
+# --project-root /app/project 不是可选项：镜像 WORKDIR 是 /app（烤进去的代码副本），
+# 不指这一项，ace 会把镜像内的代码当成工作目录，你的挂载盘反而没被用到。
 docker run -it --rm \
   -e AGENT_BASE_URL=https://api.deepseek.com/v1 \
   -e AGENT_API_KEY=sk-xxx \
   -e AGENT_MODEL=deepseek-chat \
   -v $(pwd):/app/project \
-  ace-agent:lite
+  ace-agent:lite python ai_code.py --project-root /app/project
 
 # Standard: 内置 VLM，无需外部 API 也能识图
 docker run -it --rm \
@@ -47,7 +49,7 @@ docker run -it --rm \
   -e AGENT_API_KEY=sk-xxx \
   -v $(pwd):/app/project \
   -p 8080:8080 \
-  ace-agent:standard
+  ace-agent:standard python ai_code.py --project-root /app/project
 
 # 用 docker compose (推荐)
 docker compose -f docker/docker-compose.yml up ace-standard

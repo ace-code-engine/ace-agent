@@ -51,6 +51,7 @@ from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ace_isolation import untrusted_source, wrap_untrusted  # noqa: E402
 import ace_http  # noqa: E402
+import ace_model  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
 from tools.registry import openai_tools  # noqa: E402
 
@@ -434,12 +435,8 @@ class ModelProvider:
         return data["choices"][0]["message"]["content"]
 
     def _trim_history(self) -> None:
-        """限制对话历史长度，防止本地小模型上下文溢出（保留最近 N 轮）"""
-        if self.max_history <= 0:
-            return
-        max_msgs = self.max_history * 2
-        if len(self.history) > max_msgs:
-            self.history = self.history[-max_msgs:]
+        """限制对话历史长度（保留最近 N 轮）——口径与 ai_code 共用 ace_model"""
+        self.history = ace_model.trim_history(self.history, self.max_history)
 
 
 def render_result(r: Dict) -> str:

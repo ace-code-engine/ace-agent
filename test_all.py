@@ -109,7 +109,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -186,7 +186,7 @@ def _want(num: str) -> bool:
 # 有人加了一段却忘了写进这里，整跑时会有一条断言报出来——比默默多一段好。
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
-             "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41"]
+             "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42"]
 _SEEN_SECTIONS: list = []
 
 
@@ -3550,9 +3550,14 @@ if _want("22"):
         check(f"{_lang_ctx}.json 含压缩文案", _miss == [], _miss)
 
     # —— 接入点源码守卫：压缩是"合"进硬截断之后的一层，不是另起一套机制 ——
+    # R-04b 把"模型调用 + trim_messages"提成了 _model_turn，所以守卫不再盯字面相邻，
+    # 改盯**语义顺序**：trim 发生在 _model_turn 里，_compact_if_needed 紧随其调用之后。
     check("压缩紧跟在 trim_messages 之后（max_history 仍是用户显式上限）",
-          "self.max_history)\n            # 压缩放在硬截断之后" in _ai_src
-          and "self._compact_if_needed(system)" in _ai_src)
+          "self.client.trim_messages(" in _ai_src
+          and "_model_turn(msgs)" in _ai_src
+          and _ai_src.index("output, system, disp = self._model_turn(msgs)")
+          < _ai_src.index("self._compact_if_needed(system)"),
+          "trim 在 _model_turn 内，压缩紧随其后")
     check("压缩异常不打断会话", "except Exception as e:\n            # 压缩是增强" in _ai_src)
     # 摘要请求带着 tools 会拿回一段 tool_call JSON 当"摘要"；用完必须还原，
     # 否则一次压缩把整个会话的原生工具调用关掉。
@@ -5392,6 +5397,38 @@ if _want("41"):
               and "[40]" not in _p_skip.stdout, _p_skip.stdout[-200:])
 
 
+# ============================================================
+if _want("42"):
+    # ── [42] ────
+    print("[42] 模型层纯逻辑 —— 两个前端共用一份（R-03 安全半边）")
+    import ace_model as _am42  # noqa: E402
+
+    _msgs42 = [{"role": "user", "content": f"m{i}"} for i in range(6)]
+    check("[42] trim_history: max_history<=0 = 不裁剪（用户显式关掉）",
+          _am42.trim_history(_msgs42, 0) == _msgs42)
+    check("[42] trim_history: 保留最近 N 轮 = 2N 条",
+          [m["content"] for m in _am42.trim_history(_msgs42, 2)] == ["m2", "m3", "m4", "m5"])
+    check("[42] trim_history: 不够长时原样返回（不复制、不截断）",
+          _am42.trim_history(_msgs42[:2], 5) == _msgs42[:2])
+
+    class _FakeHTTPErr(Exception):
+        def __init__(self, code):
+            self.response = type("R", (), {"status_code": code})()
+
+    _hint42 = _am42.error_hint(_FakeHTTPErr(401), lambda k: f"<{k}>")
+    check("[42] error_hint: 401 映射到 i18n 键",
+          _hint42 == "<model_err_401>", _hint42)
+    check("[42] error_hint: 5xx 走 model_err_5xx；无码返回空串",
+          _am42.error_hint(_FakeHTTPErr(503), lambda k: f"<{k}>") == "<model_err_5xx>"
+          and _am42.error_hint(Exception("boom"), lambda k: f"<{k}>") == "")
+
+    _ai42 = (Path(__file__).parent / "ai_code.py").read_text(encoding="utf-8")
+    _ar42 = (Path(__file__).parent / "agent_runner.py").read_text(encoding="utf-8")
+    check("[42] 两个前端都委托给 ace_model（不再各写一份裁剪/提示）",
+          "ace_model.trim_history(" in _ai42 and "ace_model.error_hint(" in _ai42
+          and "ace_model.trim_history(" in _ar42)
+
+
 if _LIST:
     print("段号    依赖（空 = 自包含可单跑；* = 跑到它为止的全部前置段；未列 = 默认整跑）")
     for _n in _SECTIONS:
@@ -5401,7 +5438,7 @@ if _LIST:
     sys.exit(0)
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
-if not (_ONLY or _SKIP or _UPTO):
+if not (_ONLY or _SKIP or _UPTO or _LIST):
     check("段注册表覆盖全部段（新增段要同步 _SECTIONS）",
           sorted(_SEEN_SECTIONS, key=int) == sorted(_SECTIONS, key=int),
           f"文件里 {len(_SEEN_SECTIONS)} 段 / 已登记 {len(_SECTIONS)} 段；"

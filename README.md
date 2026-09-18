@@ -15,7 +15,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.8.4%20(2026--09--18)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.9.0%20(2026--09--18)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -208,7 +208,8 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
-- **v3.8.4** (2026-09-18)：结构重构起步——斜杠命令表驱动（`run_command` 125→46 行）、R-01 状态机闭环、`docs/design/STRUCT-REFACTOR.md` 立项卡
+- **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `ace_model.py`
+- **v3.8.4** (2026-09-18)：斜杠命令表驱动（`run_command` 125→46 行）+ R-01 状态机闭环核对 + `docs/design/STRUCT-REFACTOR.md` 立项卡
 - **v3.8.3** (2026-09-18)：`approval_policy=never` + 无边界（`off` / `danger_full_access`）**拒绝启动**（ADR-002 的"没人 + 没边界"没有可辩护用途）；库调用方同拦（`PolicyRefused`）
 - **v3.8.2** (2026-09-18)：上手路径 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)（三维度矩阵 + 十个坑）+ 沙箱档启动预检（job 非 Windows / 缺执行器 / 缺 docker 启动就提示）
 - **v3.8.1** (2026-09-18)：无人值守边界写清楚（需要审批的动作在 CI 里被拒绝、无需审批的工具照跑）+ `--approval-policy` 与策略键透传 + 启动风险提示；自评边界与红队清单入档

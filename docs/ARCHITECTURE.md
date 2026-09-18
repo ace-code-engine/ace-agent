@@ -37,6 +37,7 @@ ace-agent/
 ├── ace_http.py                 # 模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
 ├── ace_context.py              # 上下文压缩判定：保住任务锚点，中间段折成摘要
 ├── ace_executor.py             # Go 执行器客户端（NDJSON 协议，纯 stdlib）
+├── ace_model.py                # 模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
 ├── ace_sessionlog.py           # 会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
 ├── ace_theme.py                # 语义调色板（dark/light 自动检测）
 ├── ace_selector.py             # 搜索式选择器（/model /provider 输入即过滤）

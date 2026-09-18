@@ -78,6 +78,7 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
 from ace_isolation import wrap_untrusted  # noqa: E402
 import ace_http  # noqa: E402
 import ace_context  # noqa: E402
+import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 / 错误码提示，与 agent_runner 共用）
 from i18n import set_language, t  # noqa: E402
 import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
 
@@ -270,19 +271,8 @@ def _looks_like_cli_command(line: str) -> bool:
 
 
 def _model_error_hint(e: Exception) -> str:
-    """根据 HTTP 错误码返回排查提示（401 等常见错误不再只甩英文；跟随界面语言）"""
-    code = getattr(getattr(e, "response", None), "status_code", None)
-    if code == 401:
-        return t("model_err_401")
-    if code == 403:
-        return t("model_err_403")
-    if code == 404:
-        return t("model_err_404")
-    if code == 429:
-        return t("model_err_429")
-    if code and 500 <= code < 600:
-        return t("model_err_5xx")
-    return ""
+    """HTTP 错误码 → 排查提示（跟随界面语言）。映射表在 ace_model，两个前端共用"""
+    return ace_model.error_hint(e, t)
 
 
 # —— 项目指令（AGENTS.md，借鉴 Codex agents_md.rs） ——
@@ -908,11 +898,8 @@ class ModelClient:
 
     @staticmethod
     def trim_messages(messages: List[Dict], max_history: int) -> List[Dict]:
-        """限制对话历史长度，防止本地小模型上下文溢出（保留最近 N 轮）"""
-        if max_history <= 0:
-            return messages
-        max_msgs = max_history * 2
-        return messages[-max_msgs:] if len(messages) > max_msgs else messages
+        """限制对话历史长度（保留最近 N 轮）——实现在 ace_model，两个前端共用一份"""
+        return ace_model.trim_history(messages, max_history)
 
     def summarize_context(self, prompt: str) -> str:
         """上下文压缩用的单次纯文本调用。
@@ -1290,29 +1277,10 @@ class _SlashCommands:
         if name in ("exit", "quit"):
             return False
 
-        # 兼容无空格参数：/search关键词 → /search 关键词
-        if name not in self.COMMANDS:
-            parsed_name, inline_arg = _parse_slash_command(cmd)
-            if parsed_name in self.COMMANDS and inline_arg:
-                name = parsed_name
-                parts = [parsed_name, inline_arg]
-
-        # 前缀补全：/ 或 /h 这类输入自动提示；唯一匹配直接执行
-        if name not in self.COMMANDS:
-            matches = [k for k in self.COMMANDS if k.startswith(name)] if name else list(self.COMMANDS)
-            if not name:
-                matches = list(self.COMMANDS)
-            if len(matches) == 1:
-                parts[0] = matches[0]
-                name = matches[0]
-            else:
-                if matches:
-                    print(c("dim", t("you_typed", cmd=cmd or "/")))
-                    for k in matches:
-                        print(f"    {c('magenta', k):<26} {t(self.COMMANDS[k])}")
-                else:
-                    print(t("unknown_prefix", name=name))
-                return True
+        _resolved = self._resolve_command(cmd, parts)
+        if _resolved is None:
+            return True                     # 提示已经打过了（候选列表 / 未知前缀）
+        name, parts = _resolved
 
         # 表驱动分发：命令 → (处理函数, 是否收 parts)。表在 COMMAND_HANDLERS，
         # 键集与 COMMANDS 由断言守着一致；这里只负责"查表 + 调用 + 归一化返回值"。
@@ -1324,6 +1292,36 @@ class _SlashCommands:
         _method, _takes_parts = _entry
         _fn = getattr(self, _method)
         return (_fn(parts) if _takes_parts else _fn()) is not False
+
+    def _resolve_command(self, cmd: str, parts: List[str]) -> Optional[Tuple[str, List[str]]]:
+        """把用户输入规整成 (命令名, 参数表)；解析不出来就打印提示并返回 None。
+
+        两件事：(a) 无空格参数的兼容——`/search关键词` → `/search 关键词`；
+        (b) 前缀补全——`/` 或 `/h` 列出候选、唯一匹配直接执行、无匹配报未知前缀。
+        抽出来是为了让 run_command 只剩"分发"一件事（R-04）。
+        """
+        name = parts[0].lower() if parts else ""
+        # (a) 兼容无空格参数
+        if name not in self.COMMANDS:
+            parsed_name, inline_arg = _parse_slash_command(cmd)
+            if parsed_name in self.COMMANDS and inline_arg:
+                name = parsed_name
+                parts = [parsed_name, inline_arg]
+        if name in self.COMMANDS:
+            return name, parts
+        # (b) 前缀补全
+        matches = ([k for k in self.COMMANDS if k.startswith(name)] if name
+                   else list(self.COMMANDS))
+        if len(matches) == 1:
+            parts = [matches[0], *parts[1:]]
+            return matches[0], parts
+        if matches:
+            print(c("dim", t("you_typed", cmd=cmd or "/")))
+            for k in matches:
+                print(f"    {c('magenta', k):<26} {t(self.COMMANDS[k])}")
+        else:
+            print(t("unknown_prefix", name=name))
+        return None
 
     # ---------- 斜杠命令的具体处理（从 run_command 的 if/elif 里提出来） ----------
 
@@ -2543,6 +2541,77 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
         return {"state": st, "on_delta": on_delta}
 
+    def _model_turn(self, msgs: List[Dict]) -> Tuple[Optional[str], str, Dict]:
+        """跑一轮"模型调用 + 流式显示"。返回 (输出, 系统提示词, 显示状态)；输出 None = 本轮中止。
+
+        中止的两种情况（用户中断 / 模型调用失败）都在这里提示完，调用方直接 return。
+        抽出来的理由：这一段以前埋在 converse 的循环体里，占了 45 行，而它只做一件事。
+        """
+        spinner = _Spinner(t("thinking"))
+        disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner)
+        spinner.start()
+        system = self._build_system_prompt()
+        try:
+            # 会话事件日志：记录每次模型请求的 envelope 与完整系统提示词
+            # （可重建"模型看到了什么"——含 AGENTS.md/记忆注入/目标）
+            self.session_log.record_request(
+                model=self.client.model,
+                base_url=self.client.base_url,
+                permission=str(self.cfg.get("permission", "readonly")),
+                system_len=len(system),
+                messages_count=len(msgs))
+            self.session_log.record_system(system)
+            output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"])
+        except KeyboardInterrupt:
+            spinner.stop(newline=True)
+            print("\n" + t("interrupted"))
+            return None, system, disp
+        except Exception as e:
+            spinner.stop(newline=True)
+            hint = _model_error_hint(e)
+            self.session_log.record_model_error(str(e), hint)
+            print(c("red", "\n" + t("model_call_failed", err=e)
+                    + (f"\n  提示: {hint}" if hint else "")))
+            return None, system, disp
+        # 状态行/流式正文收尾换行
+        if disp["state"]["state"] in ("thinking", "tool"):
+            spinner.stop(newline=True)
+        elif disp["state"]["reply_printed"]:
+            spinner.stop()
+            print()
+        else:
+            spinner.stop()
+        # 会话事件日志：记录模型本轮完整输出（原文，可重放）
+        self.session_log.record_assistant(output)
+        self.messages = self.client.trim_messages(
+            msgs + [{"role": "assistant", "content": output}], self.max_history)
+        return output, system, disp
+
+    def _note_round_progress(self, result: Dict) -> bool:
+        """连续失败/无进展熔断记账。返回 False = 已达阈值（调用方应结束本次对话）。
+
+        工具反复失败说明模型已死循环，不再浪费轮数。**查看类工具的成功不算进展**：
+        否则模型靠反复 ls 假装干活就能绕过熔断。
+        """
+        _status = result["status"]
+        _VIEW_TOOLS = {"terminal_view", "file_read", "search", "browser_screenshot"}
+        if result.get("tool") and _status == "SUCCESS":
+            self._tool_ran_in_request = True     # 本次请求内确实有工具落地执行过
+        if _status == "FINAL_REPLY":
+            self._fail_streak = 0
+        elif _status == "SUCCESS":
+            if result.get("tool") not in _VIEW_TOOLS:
+                self._fail_streak = 0
+        elif _status in ("PLAN_PROPOSED", "PLAN_ALREADY_APPROVED",
+                         "PERMISSION_REQUEST", "PLAN_PENDING"):
+            pass                                 # 计划/权限交互是正常流程
+        else:
+            self._fail_streak += 1
+            if self._fail_streak >= STALL_ABORT_ROUNDS:
+                print(c("red", "\n" + t("stall_abort", n=self._fail_streak)))
+                return False
+        return True
+
     def converse(self, user_input: str, echo_input: bool = True) -> None:
         if echo_input:
             # 单次对话（--input）没有终端回显，打印聊天标题
@@ -2555,54 +2624,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.session_log.record_user(user_input)
         # 记忆预注入：模型生成前把相关历史记忆放进 prompt（无记忆时原样返回）
         next_user = self.el.prepare_context(user_input)
-        fail_streak = 0
-        # 反幻觉：本次请求内是否真有工具落地执行、已经纠正过几次
-        tool_ran = False
-        claim_nudges = 0
+        # 反幻觉与熔断状态：本次请求内是否真有工具落地、已经纠正过几次、连续无进展轮数
+        self._tool_ran_in_request = False
+        self._fail_streak = 0
+        self._claim_nudges = 0
         for _round in range(1, MAX_ROUNDS + 1):
             msgs = self.messages + [{"role": "user", "content": next_user}]
-            spinner = _Spinner(t("thinking"))
-            disp = self._make_display(tools_mode=bool(self.client.tools),
-                                      spinner=spinner)
-            spinner.start()
-            try:
-                # 基础提示词 + 语言/技能/引用上下文
-                system = self._build_system_prompt()
-                # 会话事件日志：记录每次模型请求的 envelope 与完整系统提示词
-                # （可重建"模型看到了什么"——含 AGENTS.md/记忆注入/目标）
-                self.session_log.record_request(
-                    model=self.client.model,
-                    base_url=self.client.base_url,
-                    permission=str(self.cfg.get("permission", "readonly")),
-                    system_len=len(system),
-                    messages_count=len(msgs))
-                self.session_log.record_system(system)
-                output = self.client.stream_generate(system, msgs,
-                                                     on_delta=disp["on_delta"])
-            except KeyboardInterrupt:
-                spinner.stop(newline=True)
-                print("\n" + t("interrupted"))
-                return
-            except Exception as e:
-                spinner.stop(newline=True)
-                hint = _model_error_hint(e)
-                self.session_log.record_model_error(str(e), hint)
-                print(c("red", "\n" + t("model_call_failed", err=e)
-                        + (f"\n  提示: {hint}" if hint else "")))
-                return
-            # 状态行/流式正文收尾换行
-            if disp["state"]["state"] in ("thinking", "tool"):
-                spinner.stop(newline=True)
-            elif disp["state"]["reply_printed"]:
-                spinner.stop()
-                print()
-            else:
-                spinner.stop()
-            # 会话事件日志：记录模型本轮完整输出（原文，可重放）
-            self.session_log.record_assistant(output)
-            self.messages = self.client.trim_messages(
-                msgs + [{"role": "assistant", "content": output}],
-                self.max_history)
+            output, system, disp = self._model_turn(msgs)
+            if output is None:
+                return                      # 中断/模型报错：提示已经打过了
             # 压缩放在硬截断之后：max_history 是用户显式设的上限，压缩只负责
             # 在仍然超出模型窗口时把中间段折成摘要，而不是替用户改主意。
             self._compact_if_needed(system)
@@ -2629,28 +2659,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 exec_spinner.stop(newline=True)
             self.session["rounds"] += 1
 
-            # 连续失败/无进展熔断：工具反复失败说明模型已死循环，不再浪费轮数。
-            # 查看类工具（terminal_view/file_read/search/browser_screenshot）成功不算进展，
-            # 防止模型靠反复 ls 假装干活、绕过熔断。
-            _status = result["status"]
-            _VIEW_TOOLS = {"terminal_view", "file_read", "search", "browser_screenshot"}
-            if result.get("tool") and _status == "SUCCESS":
-                tool_ran = True  # 本次请求内确实有工具落地执行过
-            if _status == "FINAL_REPLY":
-                fail_streak = 0
-            elif _status == "SUCCESS":
-                if result.get("tool") in _VIEW_TOOLS:
-                    pass  # 查看类成功不重置（不视为实质进展）
-                else:
-                    fail_streak = 0
-            elif _status in ("PLAN_PROPOSED", "PLAN_ALREADY_APPROVED",
-                             "PERMISSION_REQUEST", "PLAN_PENDING"):
-                pass  # 计划/权限交互是正常流程，不计数也不重置
-            else:
-                fail_streak += 1
-                if fail_streak >= STALL_ABORT_ROUNDS:
-                    print(c("red", "\n" + t("stall_abort", n=fail_streak)))
-                    return
+            if not self._note_round_progress(result):
+                return                      # 连续无进展：已打印熔断提示
 
             if result["status"] == "PLAN_PROPOSED":
                 print(c("cyan", f"\n  {result.get('plan') or result.get('message', '')}"))
@@ -2691,10 +2701,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # 反幻觉闸门：模型声称"已创建/已保存/已执行"，但本次请求里一个工具都
                 # 没落地 —— 那就是编的。不能打绿色的 ✓ 完成然后退出（用户会以为成功，
                 # 桌面上什么都没有）。先让模型自己改一次；改不动就把真相打给用户。
-                if (not tool_ran
+                if (not self._tool_ran_in_request
                         and claims_completed_action(result.get("message") or "")):
-                    if claim_nudges < 1:
-                        claim_nudges += 1
+                    if self._claim_nudges < 1:
+                        self._claim_nudges += 1
                         print(c("yellow", "\n" + t("unverified_claim")))
                         next_user = PROMPT_UNVERIFIED_CLAIM
                         continue
@@ -2720,9 +2730,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                              "继续推进目标；完成用 goal_update(phase=complete)，"
                              "遇到无法继续的阻塞用 goal_update(phase=blocked, "
                              "reason_code=..., reason_message=...)。")
-                fail_streak = 0
-                tool_ran = False
-                claim_nudges = 0
+                self._fail_streak = 0
+                self._tool_ran_in_request = False
+                self._claim_nudges = 0
                 continue
 
             if result["status"] in ERROR_STATUSES:

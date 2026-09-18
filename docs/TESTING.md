@@ -7,6 +7,11 @@
 ```bash
 python test_all.py                          # 全量测试，退出码非 0 即失败
 python test_all.py --strict                 # 把"能力不足跳过"当失败（CI / 严格复现）
+python test_all.py --list                   # 列出所有 [N] 段与它们的依赖
+python test_all.py --only 40                # 只跑 [40]（连带跑它声明依赖的段）
+python test_all.py --only 38,39,40          # 只跑这三段（含依赖）
+python test_all.py --skip 20,21             # 整跑但跳过这两段
+python test_all.py --upto 23                # 跑到 [23] 为止（调试早期段用）
 ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811   # CI 同款；F401/F841 用 ruff --fix
 python -m compileall -q <改动的模块>          # 编译检查
 python benchmarks/bench_core.py             # 实测基准 → benchmarks/results/bench_report.md
@@ -15,6 +20,12 @@ python e2e/real_model_smoke.py              # 真实模型端到端（需 ACE_E2
 python ace_doctor.py                        # 环境自检（Python/依赖/Go 执行器/Docker/配置）
 python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演示动画
 ```
+
+**分段运行（R-05，v3.9 起）**：`test_all.py` 的 35 个 `[N]` 段各自包在 `if _want("N")` 里，默认全跑。
+分段时**依赖关系是显式声明的**（`_SECTION_DEPS`）——段与段之间共享顶层状态，只按标题切文本会得到
+"单跑某段就 NameError"的假能力，所以宁可保守（`["*"]` = 连带跑它之前的全部段）。
+`[41]` 是运行器自检：它会起子进程验证 `--list/--only/--skip` 真的按预期工作（子进程用
+`ACE_TESTALL_NESTED=1` 防止递归）。加新段时记得同步 `_SECTIONS` —— 忘了登记，整跑时那条断言会响。
 
 ## 2. 测试框架与断言
 

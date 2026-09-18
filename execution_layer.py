@@ -62,7 +62,7 @@ import json
 import time
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Set, Tuple
 
 from tools import ToolExecutor, repair_backslash_json
 from ace_isolation import wrap_untrusted
@@ -489,6 +489,8 @@ class ExecutionLayer:
         self.session_log = SessionLog(_slog_path) if _slog_path else None
         # 安全事件（会话级，跨轮）：执行层主动拦截的明细，供分级、告警与 /audit 用
         self.security_denials: List[Dict[str, Any]] = []
+        # 已获会话级批准的项目外路径（按路径而不是按工具，见 _outside_destructive_reason）
+        self.approved_outside: Set[str] = set()
 
 
         self.parser = AgentOutputParser()
@@ -860,6 +862,45 @@ class ExecutionLayer:
         _shown = _url if len(_url) <= 200 else _url[:200] + " …（已截断）"
         return f"外发到 {_host}（不在 egress_allowlist / 内置清单内）: {_shown}"
 
+    def _outside_destructive_reason(self, tool_name: str, tool_call: Dict[str, Any]
+                                    ) -> Optional[str]:
+        """要覆盖或删除**项目外已存在**的东西时，返回给人看的原因（否则 None）。
+
+        为什么要单独一条：项目内的写有快照兜底（`/undo` 能回滚），项目外没有——
+        一次误写就是永久的。审计的复审记录把两件事分开写得很清楚：
+        "项目外**新建**"沿用"绝对路径 = 用户明确意图"，不问；"项目外**覆盖已存在**"要问。
+        实测发现这后半句一直没实现（`file_write` / `file_delete` 对绝对路径直接落盘/删除），
+        这里补上，并且**按路径**授权：用户点头的是这一个文件，不是这个工具以后随便写。
+        """
+        if tool_name not in ("file_write", "file_delete", "str_replace", "file_move"):
+            return None
+        raw = str(tool_call.get("path") or tool_call.get("dest") or "").strip()
+        if not raw:
+            return None
+        try:
+            p = Path(raw).expanduser()
+            if not p.is_absolute():
+                return None          # 相对路径要么落在项目内，要么越界已被路径闸门拦下
+            p = p.resolve()
+        except (OSError, ValueError):
+            return None
+        try:
+            p.relative_to(self.project_root)
+            return None              # 项目内：快照兜底，不打扰用户
+        except ValueError:
+            pass
+        if not p.exists():
+            return None              # 项目外新建：不摧毁任何东西（"往桌面丢个文件"要顺手）
+        # 敏感目标（凭据/私钥/自启动入口）是**硬拒**，不该走确认：让工具层直接 403。
+        # 否则用户会被问一个"点了同意也不会发生"的问题——那比不问更坏。
+        from tools.base import sensitive_target
+        if sensitive_target(p):
+            return None
+        if str(p) in self.approved_outside:
+            return None              # 本会话已经为这条路径点过头
+        what = "删除" if tool_name == "file_delete" else "覆盖"
+        return f"{what}项目外已存在的文件（项目外没有快照可回滚）: {p}"
+
     def _stage_permission(self, tool_call: Dict[str, Any], tool_name: str,
                           route_meta: Dict[str, Any], ctx: RoundCtx
                           ) -> Optional[Dict[str, Any]]:
@@ -879,6 +920,23 @@ class ExecutionLayer:
         # 下面的授权流程，不必叠两遍提示。
         if (tool_name not in self.permission.temp_grants
                 and tool_name in self.permission.allowed_tools(self.permission.level)):
+            _outside = self._outside_destructive_reason(tool_name, tool_call)
+            if _outside:
+                self.pending_permission = {"tool": tool_name, "reason": _outside,
+                                           "outside_path": str(tool_call.get("path")
+                                                               or tool_call.get("dest") or "")}
+                if self.session_log:
+                    self.session_log.record_permission(
+                        tool_name, "confirm_outside", self.permission.level, _outside[:100])
+                return {
+                    "status": "PERMISSION_REQUEST",
+                    "tool": tool_name,
+                    "reason": _outside,
+                    "message": f"'{tool_name}' 要动项目外已存在的文件: {_outside}",
+                    "instruction": ("等待用户确认结果；不要重复调用，也不要改用其他工具绕过确认。"
+                                    "用户若同意，授权只对**这一个路径**有效"),
+                    **route_meta,
+                }
             _egress_reason = self._egress_confirm_reason(tool_name, tool_call)
             if _egress_reason:
                 self.pending_permission = {"tool": tool_name, "reason": _egress_reason}
@@ -1259,9 +1317,14 @@ class ExecutionLayer:
         if not self.pending_permission:
             return False
         target = self.pending_permission.get("tool", "")
+        # 项目外覆盖/删除这类确认是**按路径**给的：用户点头的是"这一个文件"，
+        # 不是"这个工具以后随便写"。所以会话级批准只记住那一条路径。
+        outside_path = self.pending_permission.get("outside_path")
         if target:
             if session:
                 self.permission.grant_session(target)
+                if outside_path:
+                    self.approved_outside.add(str(outside_path))
             else:
                 self.permission.grant_temp(target)
         self.pending_permission = None

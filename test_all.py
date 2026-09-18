@@ -1188,6 +1188,49 @@ check("安全拦截写进事件日志、且与权限裁决分开一类",
       _kinds17.count("security/denied") >= 2 and "permission/decision" in _kinds17,
       _kinds17[:14])
 
+# —— SEC-009：项目外"覆盖/删除已存在的东西"必须问人（项目内不打扰） ——
+_el09 = ExecutionLayer(project_root=str(mktemp("sec09")), permission_level="write",
+                       config={"bait": {"enabled": False}})
+_outdir = _el09.project_root.parent          # 项目外，但仍在 workspace 内（可写）
+_out_existing = _outdir / "sec09_exists.txt"
+_out_existing.write_text("原本就在项目外", encoding="utf-8")
+_ctx09 = _RC()
+_r09a = _el09._stage_permission({"tool": "file_write", "path": str(_out_existing),
+                                 "content": "覆盖"}, "file_write", {}, _ctx09)
+check("SEC-009 覆盖项目外已存在文件 → 需要人确认",
+      _r09a is not None and _r09a["status"] == "PERMISSION_REQUEST"
+      and "项目外" in _r09a.get("reason", ""), _r09a)
+_r09b = _el09._stage_permission({"tool": "file_write", "path": str(_outdir / "sec09_new.txt"),
+                                 "content": "新建"}, "file_write", {}, _RC())
+check("SEC-009 在项目外新建文件 → 不问（绝对路径 = 明确意图，且没摧毁任何东西）",
+      _r09b is None, _r09b)
+_r09c = _el09._stage_permission({"tool": "file_delete", "path": str(_out_existing)},
+                                "file_delete", {}, _RC())
+check("SEC-009 删除项目外已存在文件 → 需要人确认",
+      _r09c is not None and _r09c["status"] == "PERMISSION_REQUEST", _r09c)
+# 会话级批准只记住"这一个路径"，不是"这个工具以后随便写"
+_el09.pending_permission = {"tool": "file_write", "reason": "x",
+                            "outside_path": str(_out_existing)}
+_el09.grant_pending_permission(session=True)
+check("SEC-009 会话级批准记住了那条路径",
+      str(_out_existing.resolve()) in _el09.approved_outside, _el09.approved_outside)
+check("SEC-009 同一路径不再问",
+      _el09._stage_permission({"tool": "file_write", "path": str(_out_existing),
+                               "content": "再来一次"}, "file_write", {}, _RC()) is None
+      and _el09.permission.grant_temp("file_write") is None)
+_el09.permission.temp_grants.clear()
+_out_other = _outdir / "sec09_other.txt"
+_out_other.write_text("另一条项目外已存在文件", encoding="utf-8")
+check("SEC-009 换了另一条项目外路径还要问",
+      _el09._stage_permission({"tool": "file_write", "path": str(_out_other),
+                               "content": "x"}, "file_write", {}, _RC()) is not None)
+_out_other.unlink(missing_ok=True)
+_ctx09b = _RC()
+check("SEC-009 项目内写不受影响",
+      _el09._stage_permission({"tool": "file_write", "path": "inner.txt", "content": "x"},
+                              "file_write", {}, _ctx09b) is None)
+_out_existing.unlink(missing_ok=True)
+
 # —— terminal_exec 逐次确认闸门：权限等级够也要人点头 ——
 r = run_agent(el_h, "terminal_exec", command="echo hi")
 check("terminal_exec 即使 full 权限也要逐次确认",

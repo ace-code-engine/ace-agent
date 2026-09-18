@@ -15,19 +15,33 @@
 
 **先分清两套编号**，否则很容易把两次体检当成一份：本报告用三位数（`SEC-001`~`SEC-019`，2026-08-22 首轮 + 同日复审）；`docs/BACKLOG.md` 用两位数（`SEC-01`~`SEC-06`，2026-09-05 的第二次体检，条目不同）。对应关系举例：BACKLOG `SEC-01` ≈ 本报告 `SEC-003`（`code_execute` 绕过），BACKLOG `SEC-05` ≈ 本报告 `SEC-012`（截图可外带），BACKLOG `SEC-06` ≈ 本报告 `SEC-001` 的一个残留缺口（execpolicy 小洞）。
 
-本次**逐条重跑**（读现码 + 实调判定函数）后更新的两条：
+本次把**全部 19 条**逐一打进当前代码（读现码 + 实调 `evaluate_command` / `ToolExecutor.execute` / `ExecutionLayer._stage_permission`），逐条给出结论与证据：
 
 | 本报告条目 | 现码核对结果 | 证据 |
 |---|---|---|
+| SEC-001（P0）terminal_exec 无命令校验 | **已闭合**：判定前置到 `ace_execpolicy.evaluate_command()`（allow / prompt / forbidden 三值），再叠 `sensitive_target()` 逐 token 硬拦 | 实测 `mkdir newdir`→allow、`mkdir C:\outside`→prompt(`path_escape`)、`where /R C:\`→prompt、`type %USERPROFILE%\.ai_code.json`→prompt |
 | SEC-002（P0）默认权限为 write | **已闭合**：三个入口的默认值现在都是 `readonly`，"文档说默认只读、代码默认 write"的矛盾不复存在 | `agent_runner.py:668` `--permission default="readonly"`；`execution_layer.py:1344` 同；`ai_code.py:656` `cfg.setdefault("permission", "readonly")`。对应 BACKLOG `SEC-03` 前半 → 可勾选 |
-| SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **已闭合**（v3.7）：注册表加 `ToolSpec.egress` 标记，执行层在目的地**既不在内置清单也不在用户 `egress_allowlist`** 时插一次逐次确认，并且外发工具拒绝会话级授权（授权按工具名给 = 出口全开）。`notify_send` 按渠道判（console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问）；`image_generate` 目的地是固定内置服务故不问，但它把 prompt 明文交第三方，已单列在 `SECURITY-MODEL.md` 的「外发闸门」里 | `execution_layer.py` `_egress_confirm_reason` / `grant_session`；`tools/registry.py` 的 `egress=True`；test_all [23] 8 条断言（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） |
-| SEC-016（P2）rollback 先删后恢复，中断即数据丢失 | **已闭合**（v3.7）：删除、恢复、校验三个阶段全部**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"；失败项逐条打给用户，并**保留删除前的备份**且给出人工恢复路径；返回 `False` 而不是抛裸异常。审计建议的"临时目录 + 原子替换"未采纳（改动面大且需跨盘 rename 语义），改为等价的"失败可控 + 可人工恢复" | `guardian.py:209-240`；test_all 三条断言（返回 False / 其余文件仍恢复 / 备份保留） |
-| SEC-017（P2）执行日志位于项目目录内，Agent 自身可篡改；无安全事件分级 | **已闭合**（v3.7）：① 篡改面 —— `.ace_sessions`（会话事件日志）、`.agent_flywheel`、`.poc_reports`、`.ace_goals.json`、`.agent_memory.json` 全部纳入敏感目标，文件工具写删一律 403（与 `.guardian` 同一道闸）；② 分级与告警 —— 安全拦截（路径越界/白名单/沙盒/敏感目标）**单列一类事件** `security/denied`（`/audit` 带 ⚠ 与累计次数），**到阈值（默认 3 次）向用户告警**（中英日三语，含次数/工具/来源可疑提示），并把"已告警"写回模型 instruction。剩余：`terminal_exec` 仍能删日志——但那一步每次都需人确认，本身就是可见动作 | `tools/base.py` `_AGENT_STATE_DIRNAMES`；`execution_layer.py` `note_security_denial` / `SECURITY_ALERT_THRESHOLD`；`ace_sessionlog.py` `record_security`；test_all 7 条断言（敏感目标命中 / 写日志 403 / 删目标 403 / 1-2 次不打扰 / 第 3 次告警 / instruction 同步 / 日志单列一类） |
-| SEC-018（P2）terminal_exec 的内建 mkdir 分支无路径约束 | **已闭合**（v3.7 复核）：那个正则特例**已随执行层重构删除**。实测：`terminal_view` 下 `mkdir`/`rmdir`/`del` 一律 403（不在只读白名单）；`terminal_exec` 下 `mkdir C:\outside_probe` → `prompt`（`path_escape`）需人确认，`mkdir newdir` → allow | 复跑脚本：`ace_execpolicy.evaluate_command` + `ToolExecutor.execute` 实调（本次复核输出见 CHANGELOG） |
-| SEC-006（P1）terminal_view 的 cat/ls 分支绕过项目目录约束 | **已闭合**（v3.7 复核）：实测 `type C:\Windows\win.ini` → 403、`cat /etc/passwd` → 403（内容只读限项目内），而 `ls C:\` / `dir C:\` 仍允许（目录名单可越界）——正是审计建议 2 的口径 | 同上，实调 `ToolExecutor.execute` |
-| SEC-007（P1）where/tree 可全盘递归枚举 | **已闭合**（v3.7 复核）：实测 `where /R C:\ secret` → 403、`tree C:\` → 403（路径参数必须落在项目内）；`where python`（无路径、无递归）仍 allow。terminal_exec 路径上同类命令判 `prompt` | 同上 |
+| SEC-003（P0）code_execute AST 黑名单可绕过 | **已闭合**：改为**危险内建引用级**拦截（Load 引用即 403），不再依赖调用点精确名 | 实测四种 payload 全 403：`f=open;f('x','w')`、`(lambda: open)()(…)`、`(lambda: exec)()(…)`、`().__getattribute__('__class__')`；BACKLOG `SEC-01` 6 条回归 |
+| SEC-004（P0）非交互模式计划被自动批准 | **已闭合**：两个前端共用同一套审批口径，非 tty 下 fail-close | test_all「会话状态机单源」段（曾因各写一份而 CLI 拒绝 / agent_runner 自动批准）；`ask_grant` 的 fail-close 分支 |
+| SEC-005（P0）open_file 无路径约束 + 可触发任意程序执行 | **已闭合**：`open_file` 只**返回链接**不弹窗（人点才开），权限档 `read` | 实测 `data.opened is False`；registry `open_file.permission == "read"`；test_all「open_file 默认给链接不弹窗」 |
+| SEC-006（P1）terminal_view 的 cat/ls 分支绕过项目目录约束 | **已闭合**：内容只读限项目内，目录名单可越界 | 实测 `type C:\Windows\win.ini`→403、`cat /etc/passwd`→403；`ls C:\` / `dir C:\`→success |
+| SEC-007（P1）where/tree 可全盘递归枚举 | **已闭合**：带路径参数即 403 / prompt | 实测 `where /R C:\ secret`→403、`tree C:\`→403；`where python`（无路径无递归）→allow |
+| SEC-008（P1）SSRF 的 DNS rebinding / 多记录绕过窗口 | **已闭合**：pin-to-IP + 逐跳复检 + 非全球地址兜底 | test_all [23] 段（rebinding stub、多记录、重定向逐跳、`not is_global` 兜底） |
+| SEC-009（P1）file_write / file_delete 对绝对路径无条件放行 | **本轮新发现并已修**：复审记录写的"项目外**覆盖已存在**要问"此前并未实现——实测覆盖/删除项目外已存在文件直接 SUCCESS。现在按**路径**逐次确认（项目外新建不打扰；敏感目标仍硬 403；会话级批准只记住那一条路径） | `execution_layer._outside_destructive_reason` / `grant_pending_permission`；test_all 7 条断言（覆盖要问 / 新建不问 / 删除要问 / 路径记忆 / 同路径不再问 / 换路径仍问 / 项目内不受影响） |
+| SEC-010（P1）快照 HMAC 从未启用，无配置入口 | **已闭合**：无配置时自动生成并持久化密钥，签名默认开启 | 实测 `.guardian/signing_key` 自动生成、`meta.json.sig` 存在、`verify_snapshot → True`；BACKLOG `SEC-04` |
+| SEC-011（P1）外部内容无隔离直接进上下文 | **已闭合**：`ace_isolation` 定界 + 来源标注 + 提示词约定 | test_all [17] 段（nonce 稳定、定界、注入样本） |
+| SEC-012（P1）browser_screenshot 在 readonly 可全屏截图 | **已闭合**：归 `write` 权限 + 逐次授权路径 | `SPEC_BY_NAME["browser_screenshot"].permission == "write"`；BACKLOG `SEC-05` |
+| SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **已闭合**：注册表加 `ToolSpec.egress` 标记，执行层在目的地**既不在内置清单也不在用户 `egress_allowlist`** 时插一次逐次确认，并且外发工具拒绝会话级授权（授权按工具名给 = 出口全开）。`notify_send` 按渠道判（console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问） | `execution_layer.py` `_egress_confirm_reason` / `grant_session`；`tools/registry.py` 的 `egress=True`；test_all [23] 8 条断言（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） |
+| SEC-014（P1）Guardian 快照明文复制密钥文件 | **已闭合**：`.env` / `*.pem` 等不再进快照 | 实测（放入 `.env` 与 `server.pem` 后）快照目录内仍只有 `seed.txt`；BACKLOG `SEC-04` |
+| SEC-015（P2）image_generate 把 prompt 明文发第三方 | **已闭合（转为明示）**：目的地是固定内置服务（不由模型挑）故不逐次确认，但该事实写进 `SECURITY-MODEL.md` 的「外发闸门」，不当隐藏行为 | 文档 + registry 的 `egress=True` 注释 |
+| SEC-016（P2）rollback 先删后恢复，中断即数据丢失 | **已闭合**：删除、恢复、校验三阶段全部**逐项兜异常并继续**——单个文件被占用（Windows 上编辑器/杀软很常见）不再让其余文件停在"已删除、未恢复"；失败项逐条打给用户，并**保留删除前的备份**且给出人工恢复路径；返回 `False` 而不是抛裸异常。审计建议的"临时目录 + 原子替换"未采纳（改动面大且需跨盘 rename 语义），改为等价的"失败可控 + 可人工恢复" | `guardian.py` `rollback`；test_all 3 条断言（返回 False / 其余文件仍恢复 / 备份保留） |
+| SEC-017（P2）执行日志位于项目目录内，Agent 自身可篡改；无安全事件分级 | **已闭合**：① 篡改面 —— `.ace_sessions`、`.agent_flywheel`、`.poc_reports`、`.ace_goals.json`、`.agent_memory.json` 纳入敏感目标，文件工具写删一律 403（与 `.guardian` 同一道闸）；② 分级与告警 —— 安全拦截单列 `security/denied`（`/audit` 带 ⚠ 与累计次数），**到阈值（默认 3 次）向用户告警**（中英日三语），并把"已告警"写回模型 instruction。剩余：`terminal_exec` 仍能删日志——但那一步每次都需人确认，本身就是可见动作 | `tools/base.py` `_AGENT_STATE_DIRNAMES`；`execution_layer.py` `note_security_denial` / `SECURITY_ALERT_THRESHOLD`；`ace_sessionlog.py` `record_security`；test_all 7 条断言 |
+| SEC-018（P2）terminal_exec 的内建 mkdir 分支无路径约束 | **已闭合**：那个正则特例**已随执行层重构删除**，统一走 execpolicy | 实测 `terminal_view` 下 `mkdir`/`rmdir`/`del` 一律 403（不在只读白名单）；`terminal_exec` 下 `mkdir C:\outside_probe` → `prompt`（`path_escape`），`mkdir newdir` → allow |
+| SEC-019（P2）熔断不被当作安全边界 | **已闭合（语义确认）**：熔断只为防小模型死循环，**安全 403 不进熔断计数**（`_note_tool_failure` 对 403 直接返回），安全拦截另走事件计数与告警 | 实测连续 4 次安全 403 后 `repeat_fail == {}`，而安全事件计数为 4 |
 
-其余条目**本次未重跑**，其状态以「复审记录」（2026-08-22）与 `docs/BACKLOG.md` 的 `SEC-01`/`SEC-02`/`SEC-04`/`SEC-05`/`SEC-06` 已完成项为准。要推翻或确认其中任一条，方法同「复审记录」：不看"改过没有"，只拿报告里的原始 payload 打当前代码。
+**结论**：19 条全部有结论（上表按编号排列），其中 **SEC-009 的"半个承诺没兑现"是本轮唯一的新发现**（已修）。"已闭合"的口径是"报告里那条原始 payload 现在打不穿"，不等于"同类风险永不存在"——策略层枚举不完是这份报告自己反复强调的前提，真正的边界仍是 `--sandbox job` / `docker`。
+
+要推翻其中任一条，方法同「复审记录」：不看"改过没有"，只拿报告里的原始 payload 打当前代码。
 
 ---
 

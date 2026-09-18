@@ -20,7 +20,7 @@
 | 本报告条目 | 现码核对结果 | 证据 |
 |---|---|---|
 | SEC-002（P0）默认权限为 write | **已闭合**：三个入口的默认值现在都是 `readonly`，"文档说默认只读、代码默认 write"的矛盾不复存在 | `agent_runner.py:668` `--permission default="readonly"`；`execution_layer.py:1344` 同；`ai_code.py:656` `cfg.setdefault("permission", "readonly")`。对应 BACKLOG `SEC-03` 前半 → 可勾选 |
-| SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **仍开放（部分）**：出站只有 SSRF 闸门常开；`egress_allowlist` 默认 `None` = **不启用**（`base.py:316` 闸门关着时连逐跳回调都不挂），而 `CONFIRM_TOOLS` 只含 `terminal_exec`（`registry.py:177` `confirm=True`），因此 `api_post` / `api_get` / `image_generate` / `notify_send(email)` 在 write 档下依然**不需要人工点头** | `base.py:295-318`；`execution_layer.py:144` `CONFIRM_TOOLS`；对应 BACKLOG `SEC-03` 后半 → 仍待排期 |
+| SEC-013（P1）多条数据外发通道在 write 权限下无确认 | **已闭合**（v3.7）：注册表加 `ToolSpec.egress` 标记，执行层在目的地**既不在内置清单也不在用户 `egress_allowlist`** 时插一次逐次确认，并且外发工具拒绝会话级授权（授权按工具名给 = 出口全开）。`notify_send` 按渠道判（console/file/toast 不出本机不问，email 的收件人由模型给 → 每次问）；`image_generate` 目的地是固定内置服务故不问，但它把 prompt 明文交第三方，已单列在 `SECURITY-MODEL.md` 的「外发闸门」里 | `execution_layer.py` `_egress_confirm_reason` / `grant_session`；`tools/registry.py` 的 `egress=True`；test_all [23] 8 条断言（未配清单要问 / 内置端点不问 / 白名单内不问 / 白名单外仍问 / 已批准不重复问 / 会话级降级 / email 要问 / console 不问） |
 
 其余条目**本次未重跑**，其状态以「复审记录」（2026-08-22）与 `docs/BACKLOG.md` 的 `SEC-01`/`SEC-02`/`SEC-04`/`SEC-05`/`SEC-06` 已完成项为准。要推翻或确认其中任一条，方法同「复审记录」：不看"改过没有"，只拿报告里的原始 payload 打当前代码。
 

@@ -45,6 +45,14 @@ class ToolSpec:
     control: bool = False
     expose: bool = True
     confirm: bool = False
+    egress: bool = False
+    """该工具会把数据送到**模型指定的目的地**（URL / 收件人 / 第三方服务）。
+
+    语义是"数据出得去"，不是"会联网"：`search` 也联网，但目的地是内置端点、不由模型挑，
+    所以不算。标记它的工具在目的地**既不在用户白名单也不在内置白名单**时，
+    由执行层插一次逐次确认（见 execution_layer 的 `_egress_confirm_reason`）——
+    配了 `egress_allowlist` 就等于把这件事一次性授权掉。
+    """
 
 
 def _obj(properties: Dict, required: Optional[List[str]] = None) -> Dict:
@@ -100,6 +108,7 @@ TOOL_SPECS: List[ToolSpec] = [
         description="GET 请求获取数据（自动拦截内网/SSRF）",
         parameters=_obj({"url": {"type": "string"}}, ["url"]),
         example='{"tool":"api_get","url":"https://example.com"}',
+        egress=True,   # URL 由模型指定：查询串本身就是一条外发通道
     ),
     ToolSpec(
         name="db_query", permission=PERM_READ, handler="_exec_db_query",
@@ -134,6 +143,7 @@ TOOL_SPECS: List[ToolSpec] = [
         description="用系统默认浏览器打开 http/https 链接",
         parameters=_obj({"url": {"type": "string"}}, ["url"]),
         example='{"tool":"browser_open","url":"https://example.com"}',
+        egress=True,   # URL 交给系统浏览器，查询串同样能带数据出去
     ),
     ToolSpec(
         name="parse_document", permission=PERM_READ, handler="_exec_parse_document",
@@ -217,6 +227,7 @@ TOOL_SPECS: List[ToolSpec] = [
         description="POST 请求提交数据",
         parameters=_obj({"url": {"type": "string"}, "data": {"type": "object"}}, ["url"]),
         example='{"tool":"api_post","url":"https://example.com","data":{"key":"value"}}',
+        egress=True,   # 模型指定的 URL + 自己拼的 body：最直接的外带通道
     ),
     ToolSpec(
         name="code_execute", permission=PERM_WRITE, handler="_exec_code_execute",
@@ -231,6 +242,7 @@ TOOL_SPECS: List[ToolSpec] = [
                     "打开后可用 browser_click / browser_type 操作页面）",
         parameters=_obj({"url": {"type": "string"}}, ["url"]),
         example='{"tool":"browser_navigate","url":"https://example.com"}',
+        egress=True,   # 同样是模型指定的 URL
     ),
     ToolSpec(
         name="browser_click", permission=PERM_WRITE, handler="_exec_browser_click",
@@ -257,12 +269,14 @@ TOOL_SPECS: List[ToolSpec] = [
         parameters=_obj({"channel": {"type": "string"}, "to": {"type": "string"},
                          "content": {"type": "string"}}, ["channel", "content"]),
         example='{"tool":"notify_send","channel":"console","content":"hello"}',
+        egress=True,   # 只有 email 渠道真外发（收件人由模型给），执行层按渠道判
     ),
     ToolSpec(
         name="image_generate", permission=PERM_WRITE, handler="_exec_image_generate",
         description="生成图片保存到 .ace_images/（pollinations.ai 免费）",
         parameters=_obj({"prompt": {"type": "string"}, "size": {"type": "string"}}, ["prompt"]),
         example='{"tool":"image_generate","prompt":"a cat","size":"512x512"}',
+        egress=True,   # prompt 会明文发给第三方服务（目的地固定但不由用户逐次选择）
     ),
 
     # —— 目标状态机（持久化长任务：goal_create / goal_update / goal_status） ——
@@ -396,6 +410,11 @@ def control_tool_names() -> set:
 def confirm_tool_names() -> set:
     """每次调用都需用户确认的工具（权限等级放行也不例外）"""
     return {s.name for s in TOOL_SPECS if s.confirm}
+
+
+def egress_tool_names() -> set:
+    """会把数据送往模型指定目的地的工具（目的地不受信时执行层插一次确认）"""
+    return {s.name for s in TOOL_SPECS if s.egress}
 
 
 def tool_examples() -> Dict[str, str]:

@@ -142,6 +142,9 @@ HIGH_RISK_TOOLS: set = set()
 CONTROL_TOOLS: set = set()
 # 每次调用都需用户确认的工具：权限等级放行也不例外（见 ToolSpec.confirm）
 CONFIRM_TOOLS: set = set()
+# 会把数据送往**模型指定目的地**的工具：目的地不在任何清单里时插一次逐次确认
+# （见 ToolSpec.egress / _egress_confirm_reason）
+EGRESS_TOOLS: set = set()
 
 # 参数报错时给模型的具体示例（小模型常漏参数，示例能显著提升修正成功率）
 TOOL_EXAMPLES = {}
@@ -158,12 +161,13 @@ def refresh_tool_sets() -> None:
     """
     from tools.registry import (PERM_HIGH_RISK, PERM_READ, PERM_WRITE,
                                confirm_tool_names, control_tool_names,
-                               names_with_permission, tool_examples)
+                               egress_tool_names, names_with_permission, tool_examples)
     for target, names in ((READ_TOOLS, names_with_permission(PERM_READ)),
                           (WRITE_TOOLS, names_with_permission(PERM_WRITE)),
                           (HIGH_RISK_TOOLS, names_with_permission(PERM_HIGH_RISK)),
                           (CONTROL_TOOLS, control_tool_names()),
-                          (CONFIRM_TOOLS, confirm_tool_names())):
+                          (CONFIRM_TOOLS, confirm_tool_names()),
+                          (EGRESS_TOOLS, egress_tool_names())):
         target.clear()
         target.update(names)
     TOOL_EXAMPLES.clear()
@@ -380,8 +384,12 @@ class PermissionManager:
         CONFIRM_TOOLS 里的工具（terminal_exec）拒绝会话级授权——它的危险命令
         黑名单本身可被绕过，"逐次由人看一眼命令"就是它唯一有效的防线，一旦允许
         一次性放行整场会话，这道防线等于没有。这里是唯一入口，所以在此处把门。
+
+        外发工具（api_post/api_get/browser_*/notify_send）同样拒绝：会话级授权是
+        按**工具名**给的，不区分目的地，"本次会话 api_post 免问"等于把出口整个打开。
+        要免问请用 `egress_allowlist` 指定域名——那才是"授权给谁"，而不是"授权做什么"。
         """
-        if tool_name in CONFIRM_TOOLS:
+        if tool_name in CONFIRM_TOOLS or tool_name in EGRESS_TOOLS:
             self.grant_temp(tool_name)
             return False
         self.session_grants.add(tool_name)
@@ -800,6 +808,50 @@ class ExecutionLayer:
             }
         return tool_call, tool_name, None
 
+    def _egress_confirm_reason(self, tool_name: str, tool_call: Dict[str, Any]
+                               ) -> Optional[str]:
+        """外发工具这次调用的目的地，是否需要人点一次头（需要则返回给人看的原因）。
+
+        与 CONFIRM_TOOLS 的区别：那个是"这个工具永远要问"，这里是"这个目的地要问"。
+
+        · 目的地在内置清单或用户的 `egress_allowlist` 里 → 认定已授权，不问；
+        · 项目外/未列出的目的地 → 返回原因，调用方据此弹确认。
+
+        配了 `egress_allowlist` 时，清单外目的地走到工具里本来就会 403（文案告诉模型
+        "只有人能把域名加进清单"），所以这条闸门主要覆盖**默认档**：没配清单时
+        `api_post` 想去哪就去哪 —— 那正是"注入一次就能把上下文里的东西带出去"的通道。
+        """
+        if tool_name not in EGRESS_TOOLS:
+            return None
+        from ace_net import host_in_allowlist, normalize_host, url_host
+
+        if tool_name == "notify_send":
+            if str(tool_call.get("channel") or "").strip().lower() != "email":
+                return None                       # console / file / toast 不出本机
+            _smtp = str((getattr(self.executor, "email_smtp", None) or {}).get("host") or "")
+            _label = f"邮件外发到 {tool_call.get('to') or '（未写收件人）'}"
+            if _smtp and host_in_allowlist(_smtp, self.executor.egress_allowlist):
+                return None                       # SMTP 主机已在清单里
+            return f"{_label}（SMTP 主机 {_smtp or '未配置'} 不在白名单内）"
+        if tool_name == "image_generate":
+            _host = "image.pollinations.ai"
+            if host_in_allowlist(_host, self.executor.egress_allowlist):
+                return None
+            return "图片 prompt 会明文发给第三方服务 image.pollinations.ai（不在白名单内）"
+
+        _url = str(tool_call.get("url") or "").strip()
+        if not _url.lower().startswith(("http://", "https://")):
+            # 连协议都不对：交给工具自己的协议校验去报 400。
+            # 用确认框遮住真实的格式错误，只会让人以为自己批了个可疑外发。
+            return None
+        _host = normalize_host(url_host(_url))
+        if not _host:
+            return None
+        if host_in_allowlist(_host, self.executor.egress_allowlist):
+            return None
+        _shown = _url if len(_url) <= 200 else _url[:200] + " …（已截断）"
+        return f"外发到 {_host}（不在 egress_allowlist / 内置清单内）: {_shown}"
+
     def _stage_permission(self, tool_call: Dict[str, Any], tool_name: str,
                           route_meta: Dict[str, Any], ctx: RoundCtx
                           ) -> Optional[Dict[str, Any]]:
@@ -814,6 +866,26 @@ class ExecutionLayer:
         """
         ctx.confirmed = (tool_name in self.permission.temp_grants
                          or tool_name in self.permission.session_grants)
+        # 外发闸门（SEC-013）：目的地不在白名单内就问人一次。放在权限等级判定之前——
+        # 已授权（temp_grants）的那次调用不该被重复问，而权限不足的调用本来就会走
+        # 下面的授权流程，不必叠两遍提示。
+        if (tool_name not in self.permission.temp_grants
+                and tool_name in self.permission.allowed_tools(self.permission.level)):
+            _egress_reason = self._egress_confirm_reason(tool_name, tool_call)
+            if _egress_reason:
+                self.pending_permission = {"tool": tool_name, "reason": _egress_reason}
+                if self.session_log:
+                    self.session_log.record_permission(
+                        tool_name, "confirm_egress", self.permission.level, _egress_reason[:100])
+                return {
+                    "status": "PERMISSION_REQUEST",
+                    "tool": tool_name,
+                    "reason": _egress_reason,
+                    "message": f"'{tool_name}' 会把数据发到未经授权的目的地: {_egress_reason}",
+                    "instruction": ("等待用户确认结果；不要重复调用，也不要改用其他工具绕过确认。"
+                                    "用户若希望以后免问，请他自己把域名加进配置 egress_allowlist"),
+                    **route_meta,
+                }
         if (tool_name in CONFIRM_TOOLS
                 and tool_name not in self.permission.temp_grants
                 and tool_name in self.permission.allowed_tools(self.permission.level)):

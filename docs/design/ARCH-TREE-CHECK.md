@@ -3,7 +3,7 @@
 > 状态：**已执行**（S1-S4 完成；验收与负向证据见 §7）
 > 来源：`docs/BACKLOG.md` P1 · Q-06「CI 结构一致性校验」；触发于第二轮文档重构后——权威目录树已从 README 迁至本文档（`docs/ARCHITECTURE.md`），成为唯一事实源。
 > 预期产出：一条自动校验，让"树 ↔ 仓库实际文件"的漂移在 CI 与本地都被拦住，而不是靠人工纪律。
-> **后续（R-07）**：本文写于根目录扁平时期，下文示例里的 `version.py` / `i18n.py` / `ace_doctor.py` / `ace_chatscroll.py` 等根级模块，现已下沉到 `ui/` `cli/` `core/`（见 `docs/design/STRUCT-REFACTOR.md` R-07）。**R1-R4 四条规则一个字都没变**，只是被校验的路径换了前缀；示例文字保留原样作为当时的记录。
+> **后续（R-07）**：本文写于根目录扁平时期，下文示例里的 `version.py` / `i18n.py` / `ace_doctor.py` / `ace_chatscroll.py` 等根级模块，现已下沉到 `ui/` `cli/` `core/`（见 `docs/design/STRUCT-REFACTOR.md` R-07）。**R1-R4 四条规则一个字都没变**，只是被校验的路径换了前缀；示例文字保留原样作为当时的记录。另追加一条 **R5**（包化当天补的）：`compileall` 的参数必须覆盖**全部** `.py`（文件或包目录），且列出的每个路径都真实存在 —— 它上线时当场揪出 `demo/record_demo.py` 与 `docker/download_model.py` 两个从来没进过编译检查的脚本。
 
 ---
 
@@ -52,7 +52,7 @@
 | # | 决策 | 理由 |
 |---|---|---|
 | **D1** | 校验落在 **`test_all.py` 新增 `[38]` 节**，而不是新增 CI job | Q-06 原文写"补 job"，但 CI 的 `test` job 已在 **3 个 Python 版本**跑 test_all——加 job 只是第三份重复，还要再装解释器；放进 test_all 则**本地 `python test_all.py` 同样拦截**。与 `[36]`（Q-10）的既有做法一致。若你坚持独立 job，仅需把同一函数抽成 `scripts/` 脚本 + 一个 3 行 job，S2 可平移。 |
-| **D2** | 四条判定规则，全部可判定、无人工解释 | R1 正向存在性；R2 根级全覆盖；R3 展开目录的直接子项必须列全；R4 compileall ⊇ 根级 `.py`。 |
+| **D2** | 四条判定规则，全部可判定、无人工解释 | R1 正向存在性；R2 根级全覆盖；R3 展开目录的直接子项必须列全；R4 compileall ⊇ 根级 `.py`。**（R-07 追加 R5：compileall ⊇ 全部 `.py`（文件或包目录），且列出的路径都存在）** |
 | **D3** | 仓库真相用 **`git ls-files`**，git 不可用则 `skip()` | 文件系统扫描会把未跟踪生成物（`.test_tmp/`、`.guardian/`、`benchmarks/results/`）误判成漂移；`git ls-files` 天然只返回"仓库真实内容"。沿用既有的 `SKIPPED` / `--strict` 通道（Q-03 的纪律：不许假绿）。 |
 | **D4** | **先清零，再上线**：S1 先补齐树里 13 条缺口与 compileall 4 项，S2 才加检查 | 否则检查一合并 CI 立刻红。 |
 | **D5** | 白名单**写进文档**（`.gitignore`/`.dockerignore`/`.github/` 等 dot 项**入树**而非豁免） | 白名单藏在代码里就是下一个漂移源。倾向全部入树（它们本来就在仓库里），白名单留空。 |
@@ -66,7 +66,7 @@
 | 步 | 内容 | 回归 |
 |---|---|---|
 | **S1** | 文档与 CI 参数对齐：`docs/ARCHITECTURE.md` 树补 **13 条**（R2 的 9 项根级含 `README/CONTRIBUTING/version.py/requirements.txt/ace.cmd/Dockerfile/docker-compose.yml/.gitignore/.dockerignore`；R3 的 `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md`、`tools/__init__.py`、`tools/status.py`）；末尾"维护纪律"句改写为"由 test_all [38] 自动校验"；`.github/workflows/ci.yml:38` compileall 补 4 个模块（`ace_chatscroll.py` `ace_doctor.py` `test_all.py` `version.py`） | 复跑 `audit_tree4.py`：R1/R2/R3 缺口归零；YAML 结构复核 |
-| **S2** | `test_all.py` 末尾新增 `[38] 文档/仓库结构一致性（Q-06）`，约 60-80 行纯 stdlib：解析树 → `git ls-files` → R1/R2/R3/R4 各若干 `check()` | `python test_all.py` |
+| **S2** | `test_all.py` 末尾新增 `[38] 文档/仓库结构一致性（Q-06）`，约 60-80 行纯 stdlib：解析树 → `git ls-files` → R1/R2/R3/R4 各若干 `check()`（R-07 后为 R1-R5，七条 `check()`） | `python test_all.py` |
 | **S3** | 文档同步：`docs/BACKLOG.md` Q-06 标 ✅ + 证据句；`docs/TESTING.md` 补一行 [38]；`CHANGELOG.md` v3.7 补一条 | — |
 | **S4** | 验证与快照：全量 test_all、**负向注入验证**（见验收）、ruff、compileall；按既有习惯每步一个快照 | 见 §7 |
 
@@ -79,6 +79,7 @@
 - [x] 展开目录（6 个）的直接子项零漏项（R3）—— 检查上线首跑即抓到漏登记的 `docs/design/ARCH-TREE-CHECK.md`（本卡自身）；删 `tools/result.py` 行后再次变红
 - [x] ci.yml compileall 覆盖全部根级 `.py`（R4）—— 从 compileall 行移出 `version.py` 后实测变红
 - [x] **负向注入变红**（两次注入运行，均 `exit 1`）：① R1 幽灵 + R2 漏登记；② R3 漏登记 + R4 未覆盖
+- [x] **R5（R-07 包化当天追加）**：compileall ⊇ 全部 `.py`（文件或包目录）+ 列出的路径都存在 —— 上线首跑当场点名 `demo/record_demo.py` 与 `docker/download_model.py`（两个从来没进过编译检查的脚本，补进 `compileall` 行后归零）；负向注入新目录 `tmp_r5_probe/probe.py` 后实测变红（`未覆盖: ['tmp_r5_probe/probe.py']`），删掉即恢复 7/7
 - [x] `git ls-files` 不可用时报 `SKIPPED`（`--strict` 按失败处理），不假绿 —— 代码走 `skip()` 通道（本机 git 可用，未触发）
 - [x] 全量 `python test_all.py`：**997 / 1006**（新增 5 条用例全绿）；9 项失败与基线逐项同名（Go Job Object 受进程沙箱限制），零新回归
 - [x] 无新增 CI job、无新依赖、无业务代码改动；ruff（CI 同款选择集）零命中；快照 `0f0ed09` `e648817` `7953343` `7929965` 可逐条 revert

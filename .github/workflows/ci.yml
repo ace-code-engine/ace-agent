@@ -35,7 +35,7 @@ jobs:
           pip install requests
 
       - name: Compile check
-        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py test_all.py gateway_v2 tools e2e benchmarks cli core ui
+        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py test_all.py gateway_v2 tools e2e benchmarks cli core ui demo docker
 
       - name: Run tests (端到端全量)
         run: python test_all.py

@@ -5134,6 +5134,8 @@ if _want("38"):
     #   R2 仓库根级条目必须出现在树中(自身或作为前缀,如 .github/workflows/)
     #   R3 树里"已展开"目录(出现了其直接子条目)的直接子项必须全部登记
     #   R4 ci.yml 的 compileall 参数必须覆盖全部根级 .py
+    #   R5(R-07 包化后追加) ci.yml 的 compileall 参数必须覆盖**全部** .py(文件或包目录),
+    #      且列出的每个路径都真实存在 —— 新模块放错包/新开包忘记登记,不该静默躲过编译检查
     # 仓库真相取自 `git ls-files`(天然排除 .test_tmp/.guardian/benchmarks/results 等未跟踪生成物);
     # git 不可用时如实 skip,绝不假绿(与 Q-03 纪律一致)。
     import re as _re  # noqa: E402
@@ -5180,7 +5182,9 @@ if _want("38"):
     if _TRACKED is None:
         for _n in ("[38] 权威树可解析(条目数达标)", "[38] 树中路径全部存在",
                    "[38] 仓库根级条目已登记", "[38] 已展开目录的直接子项已登记",
-                   "[38] ci.yml compileall 覆盖根级 .py"):
+                   "[38] ci.yml compileall 覆盖根级 .py",
+                   "[38] ci.yml compileall 覆盖全部 .py(含包目录)",
+                   "[38] ci.yml compileall 列出的路径都存在"):
             skip(_n, _GIT_WHY)
     else:
         _TREE = _arch_tree_paths()
@@ -5219,6 +5223,20 @@ if _want("38"):
         check("[38] ci.yml compileall 覆盖根级 .py",
               bool(_ci_m) and not [f for f in _root_py if f not in _ci_listed],
               f"未覆盖: {[f for f in _root_py if f not in _ci_listed]}")
+
+        # R5(随 R-07 包化新增):compileall 的参数必须覆盖**全部** .py(不止根级),
+        # 且列出的每个路径都真实存在 —— 否则新模块放错地方(比如新开一个包忘了登记)
+        # 会静默逃过编译检查:语法错在 CI 里看不见。
+        _listed_dirs = {x for x in _ci_listed if (FOLDER / x).is_dir()}
+        _rooted = {x for x in _ci_listed if (FOLDER / x).is_file()}
+        _uncovered = sorted(
+            f for f in _TRACKED if f.endswith(".py")
+            and f not in _rooted and f.split("/")[0] not in _listed_dirs)
+        check("[38] ci.yml compileall 覆盖全部 .py(含包目录)", bool(_ci_m) and not _uncovered,
+              f"未覆盖: {_uncovered[:8]}")
+        _missing = sorted(x for x in _ci_listed if not (FOLDER / x).exists())
+        check("[38] ci.yml compileall 列出的路径都存在", bool(_ci_m) and not _missing,
+              f"不存在: {_missing[:8]}")
 
 
     # ============================================================

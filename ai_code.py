@@ -58,6 +58,7 @@ _ACE_SHOW_THINKING = False
 sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
+import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ace_cards import status_mark, tool_card  # noqa: E402
 try:
     from ace_selector import run_selector  # noqa: E402
@@ -649,6 +650,7 @@ def merge_config(args) -> Dict:
         "permission": args.permission, "project_root": args.project_root,
         "kb_root": getattr(args, "kb", None),
         "skills_dir": getattr(args, "skills", None),
+        "approval_policy": getattr(args, "approval_policy", None),
     }.items() if v})
     cfg.setdefault("base_url", os.environ.get("AGENT_BASE_URL", ""))
     cfg.setdefault("api_key", os.environ.get("AGENT_API_KEY", ""))
@@ -2211,6 +2213,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._resumed_from: Optional[str] = None
         self._init_execution_layer()
         self.session_log = self.el.session_log
+        # 无人值守提示：非 tty（管道/CI）下"需要审批的动作会被直接拒绝，而不需要审批的
+        # 写/执行工具照跑"——这反直觉，必须在启动时说出来，别让人以为"没人看着更安全"。
+        if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
+                self.cfg["permission"], self.cfg.get("sandbox", "off")):
+            print(c("yellow", t("unattended_notice")))
         # 会话恢复：从上次会话的事件日志重建消息历史（DSH「消息历史 = 日志派生」）。
         # 重启后对话接着来，而不是从零开始。
         self._resume_previous_session()
@@ -2281,6 +2288,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 "email_smtp": self.cfg.get("email_smtp"),
                 "egress_allowlist": self.cfg.get("egress_allowlist"),
                 "session_id": self.cfg.get("session_id"),
+                # 审批/沙箱策略（ADR-002 的两个正交维度）：不配则用各自默认值
+                # （on_request / workspace_write）。想跑无人值守得显式给
+                # approval_policy: on_failure + 真实边界（job/docker）。
+                "approval_policy": self.cfg.get("approval_policy"),
+                "sandbox_policy": self.cfg.get("sandbox_policy"),
             },
         )
 
@@ -2972,6 +2984,12 @@ def main() -> None:
                                                "用 docker/Dockerfile.sandbox 构建）")
     parser.add_argument("--tools", action="store_true",
                         help="使用原生工具调用（OpenAI 兼容 function calling，不支持时自动降级）")
+    parser.add_argument("--approval-policy",
+                        choices=["never", "on_failure", "on_request", "untrusted"],
+                        help="审批策略（与沙箱正交）：on_request = 默认，判定为需审批时问人；"
+                             "on_failure = 有 job/docker 边界时先试后问，沙箱拦下才升级给人；"
+                             "never = 从不问人，需审批的一律拒绝；untrusted = 除白名单外都问。"
+                             "无人值守要跑危险动作，请显式组合 on_failure + --sandbox job/docker")
     parser.add_argument("--max-history", type=int, default=0,
                         help="保留最近 N 轮对话历史（0 = 不裁剪）")
     parser.add_argument("--context-window", type=int, default=0,

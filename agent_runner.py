@@ -47,6 +47,7 @@ FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
+import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ace_isolation import untrusted_source, wrap_untrusted  # noqa: E402
 import ace_http  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
@@ -686,6 +687,11 @@ def main() -> None:
                         help="执行位置档位：off=宿主直跑 / job=Job Object / docker=一次性容器")
     parser.add_argument("--egress-allowlist", default="",
                         help="出站域名白名单，逗号分隔（缺省 = 闸门关闭）")
+    parser.add_argument("--approval-policy", default=None,
+                        choices=["never", "on_failure", "on_request", "untrusted"],
+                        help="审批策略（与沙箱正交，默认 on_request）："
+                             "on_failure 在有 job/docker 边界时先试后问；"
+                             "never 从不问人、需审批的一律拒绝")
     args = parser.parse_args()
 
 
@@ -703,6 +709,7 @@ def main() -> None:
                 # 没给 --egress-allowlist 时传 None（闸门关），而不是空列表 ——
                 # 空列表的含义是"配了，但除内置端点外全拦"，两者不能混。
                 "egress_allowlist": _egress or None,
+                "approval_policy": args.approval_policy,
                 "sandbox_base": str(Path(args.project_root).resolve() / ".sandbox_tmp")},
     )
     print(f"Agent 已启动 | 模型: {provider.mode} | 权限: {args.permission} | "
@@ -711,6 +718,14 @@ def main() -> None:
 
     if args.permission != "readonly":
         print("⚠ 当前为写权限：terminal_exec 可执行任意 shell 命令。生产环境建议 readonly 起步。")
+    # 无人值守的真实行为与直觉相反：需要审批的动作会被直接拒绝（terminal_exec 在 CI 里
+    # 用不了），而不需要审批的写/执行工具照跑、只有进程内策略。启动时说出来。
+    if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
+            args.permission, args.sandbox):
+        print("⚠ 无人值守 + 无内核边界：需要审批的动作【直接拒绝】，"
+              "无需审批的写/执行工具（file_write / code_execute / api_post …）照跑。"
+              "要跑无人值守请显式给 --sandbox job/docker（可配 --approval-policy on_failure），"
+              "或改回 --permission readonly。")
     stats = el.get_stats()
     print(f"模块状态: v2_gateway={stats['v2_gateway']} v1={stats['v1_modules']} parser={stats['parser']}")
 

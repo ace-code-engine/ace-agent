@@ -187,6 +187,21 @@ AST_STYLE_RULES = {"unused_import", "type_hints"}
 # 计数按会话累计而不是严格连续：中间夹一次成功调用不该把试探清零——与熔断计数同一取法。
 SECURITY_ALERT_THRESHOLD = 3
 SECURITY_ALERT_REPEAT_EVERY = 5      # 越过阈值后每 +5 次再提醒一次，不做成无限刷屏
+
+
+def unattended_without_boundary(permission: str, sandbox_mode: str) -> bool:
+    """无人值守下"没有内核边界却还允许写/执行"——启动时该大声说出来的组合。
+
+    把这件事写成一个纯函数，是因为它最容易被误解成"没人看着所以更危险"：
+    真实行为是反的——**需要审批的动作在非交互下直接拒绝**（fail-close），
+    所以 `terminal_exec` 在 CI 里根本用不了；真正跑得动的是**不需要审批**的
+    写/执行类工具（`file_write` / `code_execute` / `api_post` …），它们只受
+    进程内策略约束。所以"无人值守 + `off` 档 + 非只读权限"值得显式提示，
+    而 `--sandbox job/docker` 或 `readonly` 都不需要提示。
+    """
+    if str(sandbox_mode or "off") in ("job", "docker"):
+        return False
+    return str(permission or "readonly") != "readonly"
 AST_RULE_DESCRIPTIONS = {
     "unused_import": "未用导入",
     "type_hints": "函数缺少类型注解",

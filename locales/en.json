@@ -43,6 +43,7 @@
   "security_alert": "  ⚠ {n} execution-layer security blocks in this session (latest: {tool}).",
   "security_alert_tools": "  Tools involved: {tools}",
   "security_alert_hint": "  If this wasn't your request, something read from a file/web page may be injecting instructions — stop and check the sources, or end this session (/exit).",
+  "unattended_notice": "  ⚠ Unattended + no kernel boundary (non-TTY stdin, sandbox off, not read-only): actions that need approval are REJECTED outright (terminal_exec is unusable in CI), while write/execute tools that need no approval (file_write / code_execute / api_post …) run under in-process policy only. For unattended runs pass --sandbox job/docker (optionally --approval-policy on_failure), or go back to --permission readonly.",
   "done": "  ✓ Done ({round} rounds, {sec:.1f}s)",
   "error_line": "  ✗ {status}: {msg}",
   "tool_line": "  ↳ Tool {tool} {mark} [{status}]",

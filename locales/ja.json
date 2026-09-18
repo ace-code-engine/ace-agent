@@ -43,6 +43,7 @@
   "security_alert": "  ⚠ このセッションで実行層のセキュリティ遮断が {n} 回発生（直近: {tool}）。",
   "security_alert_tools": "  関与したツール: {tools}",
   "security_alert_hint": "  心当たりが無い場合、読み込んだファイル／Web ページ経由で指示が注入されている可能性があります。作業を止めて出所を確認するか、このセッションを終了してください（/exit）。",
+  "unattended_notice": "  ⚠ 無人実行 + カーネル境界なし（非対話ターミナル、sandbox off、読み取り専用でない）：承認が必要な操作は【拒否】されます（CI では terminal_exec は使えません）。一方、承認不要の書き込み／実行ツール（file_write / code_execute / api_post …）はプロセス内ポリシーのみで動きます。無人実行には --sandbox job/docker（必要なら --approval-policy on_failure）を明示するか、--permission readonly に戻してください。",
   "done": "  ✓ 完了（{round} ラウンド, {sec:.1f}s）",
   "error_line": "  ✗ {status}: {msg}",
   "tool_line": "  ↳ ツール {tool} {mark} [{status}]",

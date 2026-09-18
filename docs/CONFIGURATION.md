@@ -19,8 +19,23 @@ config = {
                    "user": "you@qq.com", "password": "授权码",
                    "use_tls": True},           # notify_send email 渠道（缺省时返回 501）
     "egress_allowlist": ["api.github.com", ".openai.com"],  # 出站目的地白名单（缺省 = 闸门关闭）
+    "approval_policy": "on_request",       # 审批策略：on_request（默认）/ on_failure / never / untrusted
+    "sandbox_policy": "workspace_write",   # 判定用沙箱策略：read_only / workspace_write / danger_full_access
 }
 ```
+
+### 审批策略与沙箱策略（两个正交维度）
+
+`approval_policy` 回答"要不要问人"，`sandbox_policy` 回答"允许它碰什么"；两者与权限档（`permission`）正交，共三个维度。CLI 入口是 `--approval-policy`（`ai_code.py` 与 `agent_runner.py` 都有），写进 `~/.ai_code.json` 同样生效（v3.8.1 起透传，此前只在程序化构造 `ExecutionLayer` 时被读取）。
+
+| 档位 | 语义 |
+|---|---|
+| `on_request`（默认） | 判定为"需审批"时问人 |
+| `on_failure` | **有真实边界**（`--sandbox job/docker`）时"先试后问"：交给边界执行，沙箱拦下才升级给人；**没有边界时退回 `on_request`**（仍要人点头，不会因为写了 on_failure 就免问） |
+| `never` | 从不问人：判定为需审批的一律**拒绝**（不是放行） |
+| `untrusted` | 除白名单外一律问 |
+
+无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写/执行工具照跑——见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。
 
 ### 出站白名单（`egress_allowlist`）
 

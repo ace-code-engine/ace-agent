@@ -4277,6 +4277,24 @@ check("配置键 session_id 透到记忆会话标签",
       _cfgfwd_cli.el.archive is not None and _cfgfwd_cli.el.archive.session_tag == "s-cfg",
       getattr(_cfgfwd_cli.el.archive, "session_tag", None))
 
+# 审批策略键也必须真的到达执行层（同一类"写了不生效"）；无人值守要靠它才跑得动
+_cfgap_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
+                               "bait": False, "base_url": "", "api_key": "", "model": "m1",
+                               "tools": False, "approval_policy": "on_failure"},
+                              mock=True)
+check("配置键 approval_policy 透到执行器",
+      _cfgap_cli.el.executor.approval_policy == "on_failure",
+      _cfgap_cli.el.executor.approval_policy)
+
+# —— 无人值守的边界提示（纯函数）：反直觉的那件事要说出来 ——
+from execution_layer import unattended_without_boundary as _uwb  # noqa: E402
+check("无人值守判定：off 档 + 写权限 → 需要提示",
+      _uwb("write", "off") is True and _uwb("full", "off") is True)
+check("无人值守判定：有真实边界就不提示",
+      _uwb("write", "job") is False and _uwb("write", "docker") is False)
+check("无人值守判定：只读不提示（没得写，也没得跑）",
+      _uwb("readonly", "off") is False)
+
 # —— 切换类命令：/sandbox 档位热切换 + /permission 显式切换（会话状态无损） ——
 _sbx_cli = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",

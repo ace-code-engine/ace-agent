@@ -6028,6 +6028,67 @@ if _want("38"):
         check("[38] workflows 里的版本读取都用 from core import version（R-07 后不许裸 import）",
               not _wf_bad, _wf_bad[:4])
 
+        # —— F401 口径：仓库内模块不得有未使用的导入 ——
+        # 为什么放在这里：CI 的 lint job 跑 ruff（E9/F63/F7/F82/F401/F841/E711/F811），
+        # 而本机常常装不上 ruff（镜像不稳）。结果就是"本地全绿、CI 红"——
+        # v3.15.0 真栽过一次（ui/ace_diff.py 多导入了一个 display_width）。
+        # 这里用 AST 近似那条选集的**未使用导入**部分：认 noqa 注解、跳过
+        # `__future__` 与 `*`。它取代不了 ruff，但足以让这个错在本地就被拦住。
+        import ast as _ast  # noqa: E402
+        _f401_bad = []
+        for _py in sorted(FOLDER.rglob("*.py")):
+            # 跳过点目录（.git / .guardian 快照 / .test_tmp / .ace_kb …）：
+            # `.guardian/snapshots/*/files/` 里存着改动前的**旧副本**，扫它等于
+            # 拿历史文件当现状 —— 第一次运行就被它误报，正好说明这层过滤必要。
+            _rel_parts = _py.relative_to(FOLDER).parts
+            if any(_p.startswith(".") for _p in _rel_parts) or "_reference" in _rel_parts:
+                continue
+            try:
+                _src = _py.read_text(encoding="utf-8")
+                _tree = _ast.parse(_src)
+            except (OSError, SyntaxError):
+                continue
+            _lines = _src.splitlines()
+            _imports = {}
+            _dunder_all: set = set()
+            for _node in _ast.walk(_tree):
+                if isinstance(_node, _ast.Assign):
+                    for _tgt in _node.targets:
+                        if isinstance(_tgt, _ast.Name) and _tgt.id == "__all__":
+                            for _el in getattr(_node.value, "elts", []):
+                                if isinstance(_el, _ast.Constant):
+                                    _dunder_all.add(_el.value)
+                if isinstance(_node, (_ast.Import, _ast.ImportFrom)):
+                    _mod = getattr(_node, "module", "") or ""
+                    if _mod == "__future__":
+                        continue
+                    _lineno = _node.lineno
+                    if _lineno <= len(_lines) and "noqa" in _lines[_lineno - 1]:
+                        continue
+                    for _a in _node.names:
+                        if _a.name == "*":
+                            continue
+                        _imports[_a.asname or _a.name.split(".")[0]] = _lineno
+            _used = set(_dunder_all)
+            for _node in _ast.walk(_tree):
+                if isinstance(_node, _ast.Name):
+                    _used.add(_node.id)
+                elif isinstance(_node, _ast.Attribute):
+                    _n = _node
+                    while isinstance(_n, _ast.Attribute):
+                        _n = _n.value
+                    if isinstance(_n, _ast.Name):
+                        _used.add(_n.id)
+            for _name, _ln in _imports.items():
+                if _name not in _used:
+                    try:
+                        _rel = _py.relative_to(FOLDER)
+                    except ValueError:
+                        _rel = _py
+                    _f401_bad.append(f"{_rel}:{_ln} {_name}")
+        check("[38] 无未使用的导入（F401 口径；ruff 不在本机时也拦得住）",
+              not _f401_bad, _f401_bad[:6])
+
 
     # ============================================================
 

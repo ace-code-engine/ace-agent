@@ -15,7 +15,7 @@
 
 from typing import Any, Dict, List, Tuple
 
-from ui.ace_text import ELLIPSIS, display_width, truncate_width
+from ui.ace_text import ELLIPSIS, truncate_width
 
 __all__ = ["looks_like_diff", "summarize_diff", "diff_marker", "color_name",
            "colorize_diff", "stat_text", "split_for_display", "MAX_DIFF_LINES"]

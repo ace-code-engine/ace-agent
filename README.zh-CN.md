@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.1%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -250,6 +250,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.16.1** (2026-09-19)：前两个 tag 的 CI 在 **lint job** 上红了（测试矩阵全绿）——`ui/ace_diff.py` 多导入了一个只在 docstring 里被提到的 `display_width`。修掉它，并在 `[38]` 加了一条 **AST 版"无未使用导入"**（F401 口径）的本地守卫：装了不 ruff 的环境也能在本地拦住同类错。这条守卫是**注入回去验证过会红**的
 - **v3.16.0** (2026-09-19)：输入行补齐了。**多行输入**：`Alt+Enter` 或 `Ctrl+J` 换行（终端支持扩展键协议时 `Shift+Enter` 也行），`Enter` 发送，续行用 `… ` 对齐。**`/history [关键词]`** 用选择器那套子序列评分模糊检索历史（`dsk` 能命中 `deepseek` 那条），命中字符高亮，选中后填进下一次输入行——**不自动发送**。**25 条命令分成四组**（会话/安全/模型/工具），`/` 菜单与 `/help` 同一套分组；菜单数据源是纯函数，所以在没装 prompt_toolkit 的环境里也照样被断言
 - **v3.15.0** (2026-09-19)：写入类工具的卡片带上**上色 diff**（标题挂 `+N -M`，`+` 绿、`-` 红、区块头青）——跑错一条命令当场就知道，**改错一行往往几天后才发现**。`file_write` 新增 `data["diff"]`；`str_replace` 早就返回 diff，只是终端从来没显示过。三条边界：新文件不给 diff、**凭据文件不读旧内容**（与"快照不留副本"复用 SEC-04 名单，否则旧内容会进卡片、也顺着工具结果进模型上下文）、超过 200 KB 不算 diff。命令卡片带 `· exit N`（"跑完"≠"成功"），一轮里调 ≥2 次工具会收尾给一行时间线。演示新增第四张图并纳入 CI
 - **v3.14.0** (2026-09-19)：首屏重做——**「当前会话」面板**（模型 / 边界四轴 / 目录 / "恢复了哪一次会话"）、**「最近会话」面板**、**分组菜单**，全部由新增的宽度感知排版层 `ui/ace_panel.py` 画，硬保证是"每行宽度严格等于面板宽"（中文按两列算）。自动续聊从 v3.9 就有，但界面上从没说过**恢复的是哪一次**，现在说出来了。新增 `ace --preview`：只画一遍首屏就退出，不开交互终端也能看见界面——README 首图与 CI 校验都靠它。`ui/ace_text` 补上 ANSI 感知：颜色码在终端里占 0 列，此前会被当成十几个字符，于是"上个色边框就歪"

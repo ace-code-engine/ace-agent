@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.1%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |
@@ -209,6 +209,7 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
+- **v3.16.1** (2026-09-19): CI's lint job had gone red on the two previous tags while the test matrix stayed green — `ui/ace_diff.py` imported a `display_width` that only its docstring mentioned. Fixed, and `[38]` now runs an AST-based **unused-import check** (F401's shape) locally, so the same "green here, red in CI" cannot repeat when ruff is unavailable. The check was verified by injecting the import back and watching it fail
 - **v3.16.0** (2026-09-19): the input line grew up. **Multiline**: `Alt+Enter` or `Ctrl+J` inserts a newline (`Shift+Enter` where the terminal reports it), `Enter` sends, and continuation lines are aligned with `… `. **`/history [keyword]`** fuzzy-searches your past inputs with the picker's subsequence scoring (`dsk` finds the `deepseek` entry), highlights the match, and fills the next prompt with the pick — never auto-sends. **25 commands are grouped** (Session / Security / Model / Tools) in the `/` menu and in `/help`, and the menu's data source is a pure function so it is asserted even where prompt_toolkit is absent
 - **v3.15.0** (2026-09-19): write-tool cards now carry a **colourised unified diff** (`+N -M` in the title, `+` green, `-` red, hunk headers cyan) — run the wrong command and you know at once, change the wrong line and you may not find out for days. `file_write` gained `data["diff"]`; `str_replace` had been returning one all along that the terminal never showed. Three boundaries: no diff for new files, **no re-read of credential files** (same SEC-04 list the snapshot refuses to copy — otherwise old contents reach the card *and* the model context), and nothing over 200 KB. Command cards show `· exit N` ("finished" ≠ "succeeded"), and a request that runs two or more tools ends with a one-line timeline. A fourth demo image joins CI
 - **v3.14.0** (2026-09-19): the landing screen was rebuilt — a **session panel** (model, the four boundary axes, directory, and which past session was resumed), a **recent-sessions panel**, and a grouped menu, all laid out by a new width-aware `ui/ace_panel.py` that guarantees every line matches the panel width (CJK counted as two columns). The previous session has been auto-resumed since v3.9, but nothing on screen ever said *which* one; now it does. New `ace --preview` draws that screen and exits — no interactive terminal needed, which is how the README hero image and its CI check work. `ui/ace_text` now ignores ANSI colour codes when measuring width, so colouring a line no longer shifts the border

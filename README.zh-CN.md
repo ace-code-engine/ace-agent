@@ -230,7 +230,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
-- **v3.11.0** (2026-09-19)：容器档的运行参数做了一轮加固，并且**在真实 daemon 上验过**而不是读代码觉得没问题——`--init`（回收僵尸，否则它们吃光 `--pids-limit` 名额）、`--ulimit nofile`、`HOME=/tmp`（只读根下 pip 写不了缓存）、SELinux Enforcing 宿主自动加 `,z`（Fedora/RHEL 不加就写不进挂载盘）、`--label` 便于清理、可选 `ACE_SANDBOX_SECCOMP`。CI 新增 `sandbox-smoke`：构建镜像并用客户端自己的参数构造真跑一遍，断言 `--network none` 与 `--read-only` 真的成立。**不发布官方预编译镜像**：组织的包策略不允许把 GHCR 包设为公开，所以默认仍是"本地构建一次"，`ACE_SANDBOX_PULL=1` 留给自建 registry 的场景
+- **v3.11.0** (2026-09-19)：容器档的运行参数做了一轮加固，并且**在真实 daemon 上验过**而不是读代码觉得没问题——`--init`（回收僵尸，否则它们吃光 `--pids-limit` 名额）、`--ulimit nofile`、`HOME=/tmp`（只读根下 pip 写不了缓存）、SELinux Enforcing 宿主自动加 `,z`（Fedora/RHEL 不加就写不进挂载盘）、`--label` 便于清理、可选 `ACE_SANDBOX_SECCOMP`。CI 新增 `sandbox-smoke`：构建镜像并用客户端自己的参数构造真跑一遍，断言 `--network none` 与 `--read-only` 真的成立。**不发布官方预编译镜像**：组织的包策略不允许把 GHCR 包设为公开，所以默认仍是"本地构建一次"，`ACE_SANDBOX_PULL=1` 留给自建 registry 的场景 → [完整更新介绍](docs/RELEASE-NOTES-v3.11.0.md)
 - **v3.10.1** (2026-09-19)：三处由真机冒烟与实际运行逼出来的修复。格式纠错不再把执行层的报错包进 SEC-011 的外部内容块（模型照约定拒绝纠错、一路耗到 Stall 断路器介入），纠正指令改为附上执行层实际收到的原文；Go 执行器只在真需要时才索取 `PROCESS_SUSPEND_RESUME`，附加失败时点名被拒的访问位，并可在受限令牌宿主下退回普通启动（如实标 `degraded`）保住 Tier-1；`ace.cmd` 改 CRLF 并由 `.gitattributes` 钉死。**这一版要重发预编译执行器** —— 重发之前 `ace --install-executor` 拿到的仍是修复前的二进制
 - **v3.10.0** (2026-09-18)：根目录瘦身——20 个模块下沉 `ui/`（终端表现）/ `cli/`（自检·上下文·会话日志）/ `core/`（策略·网络·执行器客户端·记忆与快照），根级只留 4 个 `.py`；README 改为英文为主（中文在本文件）；演示补上"被拦下"那条路径
 - **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `core/ace_model.py`

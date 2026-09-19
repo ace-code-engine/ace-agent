@@ -31,6 +31,8 @@
 > 面向 Linux / macOS 的容器路径：把运行参数按"每条对应一类威胁"过了一遍，并第一次在**真实
 > docker daemon** 上验证它们（此前从来没有人验过）；同时把"发布官方预编译镜像"这条路
 > 试了一遍 —— 结果**不成立**，如实记录在下面。默认行为不变：镜像自己 build 一次。
+>
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.11.0.md`](docs/RELEASE-NOTES-v3.11.0.md)
 
 ### 🛡️ 容器运行参数加固（Linux / macOS）
 

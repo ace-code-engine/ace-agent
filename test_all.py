@@ -1298,6 +1298,32 @@ if _want("9"):
             cli_toggle.run_command("/clear")
         check("/clear 后提醒水位归零（新会话该提醒还提醒）",
               cli_toggle._ctx_warn_band == 0 and cli_toggle.messages == [])
+
+        # 走一遍真实对话路径（mock，不发网络）：提醒是不是真的接在请求之前？
+        # 只测纯函数会出现"函数对、没人调用"——那用户照样看不到任何东西。
+        cli_real = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "readonly",
+                                     "bait": False, "base_url": "", "api_key": "",
+                                     "model": "m1", "context_window": 8192}, mock=True)
+        cli_real.messages = [{"role": "user", "content": "字" * 4000}]   # ≈4004 tokens
+        _band_before = cli_real._ctx_warn_band
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_real.converse("继续说", echo_input=False)
+        _real_out = buf.getvalue()
+        check("真实对话路径：逼近阈值时在请求前提醒（不是只有纯函数对）",
+              cli_real._ctx_warn_band > _band_before and "⚠" in _real_out,
+              (_band_before, cli_real._ctx_warn_band, _real_out[:300]))
+        # 同一次请求里每一轮都可能跨档（历史增长），但**同一段历史**连续两轮只能提醒一次
+        _same_msgs = [{"role": "user", "content": "字" * 4000}]
+        cli_real._ctx_warn_band = 0          # 把水位归零，单独看这两轮
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_real._model_turn(_same_msgs)
+            _one_round = buf.getvalue().count("⚠")
+            cli_real._model_turn(_same_msgs)
+        check("同一段历史连续两轮只提醒一次（节流在真实路径上生效）",
+              _one_round == 1 and buf.getvalue().count("⚠") == 1,
+              (_one_round, buf.getvalue().count("⚠")))
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 

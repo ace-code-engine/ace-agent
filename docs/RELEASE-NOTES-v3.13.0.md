@@ -40,7 +40,7 @@
 
 ## 🛡️ 守卫
 
-`[9]` +17 条：三档边界（按 4096 窗口的真实阈值算）、窗口未知 → `unknown` 且底栏空串、`over` 的 tokens 确实 ≥ 触发点、`pct` 与 `trigger_pct` 两个分母不混用、**"显示口径 = 决策口径"的同源不变量**、底栏真的含占比且颜色随状态变、`/status` 真的打出 tokens 与窗口、提醒的节流（首次提醒 → 同档沉默 → 跨档再提醒 → 回安全区沉默 → `/clear` 后水位归零）。
+`[9]` +20 条：三档边界（按 4096 窗口的真实阈值算）、窗口未知 → `unknown` 且底栏空串、`over` 的 tokens 确实 ≥ 触发点、`pct` 与 `trigger_pct` 两个分母不混用、**"显示口径 = 决策口径"的同源不变量**、底栏真的含占比且颜色随状态变、`/status` 真的打出 tokens 与窗口、提醒的节流（首次提醒 → 同档沉默 → 跨档再提醒 → 回安全区沉默 → `/clear` 后水位归零），另加两条**集成断言**：走一遍真实 `converse`（mock，不发网络）确认提醒发生在请求之前，且同一段历史连续两轮只提醒一次——只测纯函数会出现"函数对、没人调用"，那用户照样什么都看不到。
 
 `[11]` 的键集一致性断言自动覆盖新增的 5 个 i18n 键（断言里的键数是从文件读的，所以从 196 变 201 不用改断言）。
 
@@ -93,7 +93,7 @@ When the window is unknown the item is **not shown** — no fake percentage comp
 
 ## 🛡️ Guards
 
-`[9]` +17: band boundaries against the real thresholds for a 4096 window, unknown window → `unknown` with an empty footer segment, `over` tokens genuinely ≥ trigger, `pct` and `trigger_pct` denominators never mixed, a **"display policy = decision policy" invariant**, the footer really carrying the figure with the colour tracking state, `/status` really printing tokens and window, and the warning throttle (first warn → same band silent → next band re-arms → back in the safe zone silent → `/clear` resets the watermark).
+`[9]` +20: band boundaries against the real thresholds for a 4096 window, unknown window → `unknown` with an empty footer segment, `over` tokens genuinely ≥ trigger, `pct` and `trigger_pct` denominators never mixed, a **"display policy = decision policy" invariant**, the footer really carrying the figure with the colour tracking state, `/status` really printing tokens and window, and the warning throttle (first warn → same band silent → next band re-arms → back in the safe zone silent → `/clear` resets the watermark) — plus two **integration** assertions that drive a real `converse` (mock, no network) to prove the warning fires before the request and stays silent on a repeated identical history. Helper-only tests would pass while nothing in the product ever called the helper.
 
 `[11]`'s key-parity assertion covers the 5 new i18n keys automatically, since the key count is read from the files rather than hard-coded.
 

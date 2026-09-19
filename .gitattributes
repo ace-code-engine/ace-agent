@@ -1,0 +1,14 @@
+# 批处理文件必须是 CRLF —— cmd.exe 在 LF-only 的 .cmd/.bat 上会**错位重读**，
+# 把行片段当成命令执行。2026-09-19 真机冒烟实测：工作树里 LF 版的 ace.cmd
+# 启动时吐出 4 行 "not recognized as an internal or external command"
+# （片段是 .ai_code.json、]、UTF8、想直进聊天可:），把同一份内容改成 CRLF
+# 的副本则是 0 行 —— 唯一变量就是行尾。（chcp 65001 压不住，与代码页无关。）
+#
+# 为什么用 -text 而不是惯例的 `text eol=crlf`：
+#   `text eol=crlf` 只在**检出**时转换，对象库里存的仍是 LF。于是任何不走检出
+#   过滤的路径 —— GitHub 的 "Download ZIP"、core.autocrlf=false 的克隆、
+#   Linux 检出后拷回 Windows、CI 产物 —— 拿到的还是那个坏启动器。
+#   -text 让对象库里存的就是 CRLF 原文，不依赖任何一侧的转换行为。
+#   代价：git diff 视其为二进制。26 行的启动器，这个代价可以接受。
+*.cmd -text
+*.bat -text

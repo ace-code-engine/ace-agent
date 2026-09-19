@@ -245,5 +245,22 @@
   "mcp_tools_count": "ツール {n} 個",
   "mcp_tools_of": "    ツール一覧（{name}）:",
   "mcp_tools_more": "    …他 {n} 個",
-  "mcp_footer": "  注意: MCP サーバーはあなたが設定した子プロセスで、**ACE のサンドボックス内ではありません** —— 信頼できるサーバーだけを設定してください。/mcp notools で状態のみ表示。"
+  "mcp_footer": "  注意: MCP サーバーはあなたが設定した子プロセスで、**ACE のサンドボックス内ではありません** —— 信頼できるサーバーだけを設定してください。/mcp notools で状態のみ表示。",
+  "cmd_hooks": "イベントフック（自分のチェック）と前回の結果を表示",
+  "cmd_plugins": "読み込まれたプラグインと提供内容を表示",
+  "group_extend": "拡張",
+  "group_custom": "カスタムコマンド",
+  "hooks_title": "  イベントフック（{n} 件）:",
+  "hooks_none": "  イベントフックが設定されていません。",
+  "hooks_config_hint": "  設定: ~/.ai_code.json に \"hooks\": {\"pre_tool\": [\"python .ace/hooks/check.py\"]}、またはプロジェクト内 .ace/hooks.json（プラグインの hooks.json も追加されます）。フックは stdin で JSON を受け取り、stdout に {\"decision\":\"allow|block\",\"reason\":\"...\"} を返します。終了コード 2 = ブロック。",
+  "hooks_timeout": "タイムアウト {s}s",
+  "hooks_ignored": "  ⚠ 不明なイベントを無視しました（綴りミス？）: {items}",
+  "hooks_footer": "  フックは**あなたが設定したローカルコマンドで、ACE のサンドボックス内ではありません**。既定ではエラー時にブロック（on_error: block）。緩くするなら warn を明示。",
+  "plugins_title": "  プラグイン（{n} 件）:",
+  "plugins_none": "  プラグインはありません。",
+  "plugins_hint": "  .ace/plugins/<名前>/ に置きます: commands/*.md でスラッシュコマンド、hooks.json でフック。この版ではプラグインは**ツールを持てません**（プロセス内でコードを実行させることになるため）。",
+  "plugins_items": "コマンド {c} · フック {h}",
+  "plugins_footer": "  プラグインのコマンドにはプラグイン名が前置されます（例 /myplugin:review）。",
+  "hook_blocked_prompt": "  ⚠ user_prompt フックがこの入力をブロックしました: {reason}（モデルには送信していません）",
+  "hook_context_added": "  （user_prompt フックがコンテキストを追加しました）"
 }

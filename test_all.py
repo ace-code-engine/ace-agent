@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43"]
+             "43", "44"]
 _SEEN_SECTIONS: list = []
 
 
@@ -6586,8 +6586,274 @@ for line in sys.stdin:
 
     # ============================================================
 
-if _LIST:
+# ============================================================
+if _want("44"):
+    # ── [44] ────
+    print("[44] 扩展点 —— 事件钩子 / 自定义斜杠命令 / 插件目录")
+    # ============================================================
+    # 这一段不碰网络：钩子是**本机 Python 子进程**，命令与插件是临时目录里的真文件。
+    import io as _io44  # noqa: E402
+    import json as _json44  # noqa: E402
+    import contextlib as _cl44  # noqa: E402
+    import ai_code as _ai44  # noqa: E402
+    from core import ace_hooks as _hk44  # noqa: E402
+    from core import ace_commands as _cm44  # noqa: E402
 
+    # —— 纯逻辑：钩子输出协议 ——
+    _allow_json = _hk44.parse_hook_output(
+        0, '{"decision":"allow","additional_context":"看这里"}', "")
+    check("exit 0 + JSON allow → 放行，带补充上下文",
+          _allow_json.decision == "allow"
+          and _allow_json.additional_context == "看这里", _allow_json)
+    check("exit 0 + JSON block → 拦截并带理由",
+          _hk44.parse_hook_output(
+              0, '{"decision":"block","reason":"不许改 migrations"}', "").blocked, "")
+    _e2 = _hk44.parse_hook_output(2, "", "文件在东侧")
+    check("exit 2 → 拦截，理由取 stderr（与 Claude Code 约定一致）",
+          _e2.blocked and _e2.reason == "文件在东侧", _e2)
+    check("exit 2 且 stderr 为空也不许空着理由",
+          _hk44.parse_hook_output(2, "", "").reason != "", "")
+    _err_b = _hk44.parse_hook_output(3, "", "boom", "block")
+    check("其它非零 + on_error=block → 拦截（fail-close）",
+          _err_b.blocked and "3" in _err_b.reason, _err_b)
+    _err_w = _hk44.parse_hook_output(3, "", "boom", "warn")
+    check("其它非零 + on_error=warn → 放行但记下错误",
+          (not _err_w.blocked) and _err_w.error == "boom", _err_w)
+    check("exit 0 且 stdout 为空 → 放行",
+          _hk44.parse_hook_output(0, "", "").decision == "allow", "")
+    check("exit 0 但 stdout 不是 JSON → 当说明（不算错）",
+          _hk44.parse_hook_output(0, "我就是想打印一句", "").additional_context
+          == "我就是想打印一句", "")
+    check("exit 0 + JSON 数组（不是对象）→ 当说明，而不是崩",
+          _hk44.parse_hook_output(0, "[1,2]", "").decision == "allow", "")
+    check("block 但没给理由 → 补一句默认理由（不留空）",
+          _hk44.parse_hook_output(0, '{"decision":"block"}', "").reason != "", "")
+    check("理由超长截断（不让钩子把上下文吃掉）",
+          len(_hk44.parse_hook_output(
+              0, '{"decision":"block","reason":"' + "x" * 5000 + '"}',
+              "").reason) <= _hk44.MAX_REASON_CHARS, "")
+
+    # —— 纯逻辑：配置规整 ——
+    _cfg44 = _hk44.load_hooks({
+        "pre_tool": ["python a.py", {"command": "python b.py", "timeout": 3,
+                                     "on_error": "warn", "name": "B"}],
+        "post_tool": "python c.py",
+        "没这个事件": ["python d.py"],
+        "user_prompt": [{"timeout": "x", "on_error": "乱写", "command": "python e.py"}],
+    }, project_file=None)
+    check("三种写法都认：字符串 / 对象 / 列表",
+          [s.command for s in _cfg44["pre_tool"]] == ["python a.py", "python b.py"]
+          and _cfg44["post_tool"][0].command == "python c.py", _cfg44)
+    check("未知事件被忽略（不猜、不崩）", "没这个事件" not in _cfg44, list(_cfg44))
+    check("坏 timeout / 坏 on_error 回落到安全默认",
+          _cfg44["user_prompt"][0].timeout == _hk44.DEFAULT_TIMEOUT
+          and _cfg44["user_prompt"][0].on_error == "block", _cfg44["user_prompt"][0])
+    _pf44 = mktemp() / "hooks.json"
+    _pf44.write_text(_json44.dumps({"hooks": {"pre_tool": ["python proj.py"]}}),
+                     encoding="utf-8")
+    _cfg44b = _hk44.load_hooks({"pre_tool": ["python user.py"]}, str(_pf44))
+    check("项目级钩子**追加**在用户级之后（不是覆盖）",
+          [s.command for s in _cfg44b["pre_tool"]] == ["python user.py", "python proj.py"],
+          _cfg44b["pre_tool"])
+
+    # —— 真脚本：放行 / 拦截 / 崩 / 超时 / 巨量输出 ——
+    _hk_dir = mktemp()
+    (_hk_dir / "allow.py").write_text(
+        "import json,sys\nsys.stdin.read()\n"
+        "print(json.dumps({'decision':'allow','additional_context':'来自钩子的附注'}))\n",
+        encoding="utf-8")
+    (_hk_dir / "deny.py").write_text(
+        "import sys\nsys.stderr.write('这条规矩写在 deny.py 里')\nsys.exit(2)\n",
+        encoding="utf-8")
+    (_hk_dir / "boom.py").write_text("import sys\nsys.exit(7)\n", encoding="utf-8")
+    (_hk_dir / "slow.py").write_text("import time\ntime.sleep(5)\n", encoding="utf-8")
+    (_hk_dir / "loud.py").write_text("print('x' * 300000)\n", encoding="utf-8")
+    _py44 = sys.executable
+
+    def _spec44(name: str, on_error: str = "block", timeout: float = 10.0):
+        return _hk44.HookSpec(event="pre_tool",
+                              command=f"{_py44} {_hk_dir / name}",
+                              on_error=on_error, timeout=timeout, name=name)
+
+    _r44 = _hk44.run_hook(_spec44("allow.py"), {"event": "pre_tool"})
+    check("真脚本：放行 + 附注原样带回来",
+          (not _r44.blocked) and _r44.additional_context == "来自钩子的附注", _r44)
+    _r44 = _hk44.run_hook(_spec44("deny.py"), {"event": "pre_tool"})
+    check("真脚本：exit 2 拦下，理由来自 stderr",
+          _r44.blocked and "deny.py" in _r44.reason, _r44)
+    _r44 = _hk44.run_hook(_spec44("boom.py", on_error="block"), {"event": "pre_tool"})
+    check("真脚本：崩了（exit 7）默认**拦住**（fail-close）",
+          _r44.blocked and "7" in _r44.reason, _r44)
+    _r44 = _hk44.run_hook(_spec44("boom.py", on_error="warn"), {"event": "pre_tool"})
+    check("显式 on_error=warn 时才放行（宽松要自己写）",
+          (not _r44.blocked) and bool(_r44.error), _r44)
+    _r44 = _hk44.run_hook(_spec44("slow.py", timeout=1.0), {"event": "pre_tool"})
+    check("真脚本：超时 → 拦住并说明超时秒数",
+          _r44.blocked and "超时" in _r44.reason, _r44)
+    _r44 = _hk44.run_hook(_spec44("loud.py"), {"event": "pre_tool"})
+    check("真脚本：输出过大 → 拦住（不把兆级数据吃进来）",
+          _r44.blocked and "过大" in _r44.reason, _r44)
+    _run44 = _hk44.HookRunner({"pre_tool": [_spec44("allow.py"), _spec44("deny.py")]},
+                              str(_hk_dir))
+    _r44 = _run44.run("pre_tool", {"event": "pre_tool"})
+    check("一条反对 = 整体拦截，且放行方的附注仍在（不丢信息）",
+          _r44.blocked and "deny.py" in _r44.reason
+          and _r44.additional_context == "来自钩子的附注", _r44)
+    _st44 = _run44.status()
+    check("/hooks 状态：跑过的显示结果，且取值只在合法集合里",
+          any(x["last"] == "block" for x in _st44)
+          and all(x["last"] in ("", "ok", "block", "error") for x in _st44), _st44)
+    _st44b = _hk44.HookRunner({"post_tool": [_spec44("allow.py")]}, str(_hk_dir)).status()
+    check("从未跑过的钩子 last 为空串（`/hooks` 不会 AttributeError）",
+          _st44b[0]["last"] == "", _st44b)
+
+    # —— 真执行链：pre_tool 拦下来，文件就真的不该被写 ——
+    _hook_root = mktemp()
+    (_hook_root / "guard.py").write_text(
+        "import json,sys\np=json.loads(sys.stdin.read())\n"
+        "if p.get('tool')=='file_write':\n"
+        "    print(json.dumps({'decision':'block','reason':'本仓库禁止直接写文件'}))\n"
+        "else:\n"
+        "    print(json.dumps({'decision':'allow','additional_context':'看到 '+str(p.get('tool'))}))\n",
+        encoding="utf-8")
+    _el44 = ExecutionLayer(project_root=str(_hook_root), permission_level="write",
+                           config={"bait": {"enabled": False},
+                                   "hooks": {
+                                       "pre_tool": [f"{_py44} guard.py"],
+                                       "post_tool": [f"{_py44} guard.py"],
+                                       "user_prompt": [f"{_py44} guard.py"]}})
+    check("执行层按配置装载钩子", _el44.hooks is not None and not _el44.hooks_error,
+          _el44.hooks_error)
+    _r44 = run_agent(_el44, "file_write", path="被钩子挡住的.txt", content="x")
+    check("pre_tool 拦截：状态是 HOOK_BLOCKED",
+          _r44["status"] == "HOOK_BLOCKED", _r44)
+    check("pre_tool 拦截：工具**真的没执行**（文件不存在）",
+          not (_hook_root / "被钩子挡住的.txt").exists(), "")
+    check("pre_tool 拦截：理由与'别重试'的指令一起回给模型",
+          "禁止直接写文件" in str(_r44.get("message") or "")
+          and "钩子" in str(_r44.get("instruction") or ""), _r44)
+    _r44 = run_agent(_el44, "file_read", path="guard.py")
+    check("放行的工具照常执行，且 post_tool 的附注挂在结果上",
+          _r44["status"] == "SUCCESS"
+          and "看到 file_read" in str((_r44.get("data") or {}).get("hook_note") or ""),
+          _r44.get("data"))
+    from agent_runner import ERROR_STATUSES as _ERR44  # noqa: E402
+    check("HOOK_BLOCKED 不在 ERROR_STATUSES 里（不计入安全违规计数）",
+          "HOOK_BLOCKED" not in _ERR44, list(_ERR44))
+    _el44.close()
+
+    # —— 自定义斜杠命令与插件 ——
+    _cmd_root = mktemp()
+    (_cmd_root / ".ace" / "commands").mkdir(parents=True)
+    (_cmd_root / ".ace" / "commands" / "review.md").write_text(
+        "---\ndescription: 跑全量测试并逐条列失败项\nargument-hint: [段号]\n---\n"
+        "请运行 python test_all.py $ARGUMENTS，失败项逐条列出；不要改测试文件。\n",
+        encoding="utf-8")
+    (_cmd_root / ".ace" / "commands" / "裸命令.md").write_text(
+        "# 打个招呼\n\n你好，介绍一下你能做什么。\n", encoding="utf-8")
+    (_cmd_root / ".ace" / "commands" / "bad name.md").write_text("x", encoding="utf-8")
+    _plug = _cmd_root / ".ace" / "plugins" / "demo"
+    (_plug / "commands").mkdir(parents=True)
+    (_plug / "commands" / "hi.md").write_text("插件命令 $1\n", encoding="utf-8")
+    (_plug / "plugin.json").write_text(
+        _json44.dumps({"name": "demo", "description": "示例插件"}), encoding="utf-8")
+    (_plug / "hooks.json").write_text(
+        _json44.dumps({"post_tool": ["python plugin_hook.py"],
+                       "不存在的事件": ["python x.py"]}), encoding="utf-8")
+
+    _cmds44 = _cm44.load_commands_dir(str(_cmd_root / ".ace" / "commands"))
+    check("默认目录里的 .md 变成命令（带 frontmatter 的）",
+          "review" in _cmds44 and _cmds44["review"].description.startswith("跑全量测试"),
+          sorted(_cmds44))
+    check("没写 frontmatter 也认：描述取正文第一行",
+          _cmds44["裸命令"].description == "打个招呼", _cmds44["裸命令"].description)
+    check("非法命令名（带空格）被丢弃", "bad name" not in _cmds44, sorted(_cmds44))
+    check("$ARGUMENTS 展开正确",
+          _cmds44["review"].expand("40") ==
+          "请运行 python test_all.py 40，失败项逐条列出；不要改测试文件。",
+          _cmds44["review"].expand("40"))
+    check("菜单项带参数提示", _cmds44["review"].menu_entry()[0] == "/review [段号]",
+          _cmds44["review"].menu_entry())
+    _plugins44 = _cm44.load_plugins(str(_cmd_root))
+    check("插件目录被识别（commands + hooks + plugin.json）",
+          len(_plugins44) == 1 and _plugins44[0].name == "demo"
+          and _plugins44[0].description == "示例插件", _plugins44)
+    check("插件命令带插件名前缀（不会和内置/其它插件撞名）",
+          "demo:hi" in _plugins44[0].commands, sorted(_plugins44[0].commands))
+    check("插件钩子被读出来", bool(_plugins44[0].hooks.get("post_tool")),
+          _plugins44[0].hooks)
+    _ignored44 = _cm44.merge_plugin_hooks(_plugins44, {"post_tool": []}, _hk44.EVENTS)
+    check("插件里的未知事件被如实报告（不是静默丢掉）",
+          any("不存在的事件" in x for x in _ignored44), _ignored44)
+    _badplug = _cmd_root / ".ace" / "plugins" / "broken"
+    _badplug.mkdir(parents=True)
+    (_badplug / "plugin.json").write_text("{不是 JSON", encoding="utf-8")
+    _plugins44b = _cm44.load_plugins(str(_cmd_root))
+    _broken = next(p for p in _plugins44b if p.path.endswith("broken"))
+    check("坏 plugin.json：记错误但不影响其它插件",
+          bool(_broken.errors) and any(p.name == "demo" for p in _plugins44b),
+          _broken.errors)
+
+    _cli44 = _ai44.AgentCLI({"project_root": str(_cmd_root), "permission": "readonly",
+                             "bait": False, "base_url": "", "api_key": "", "model": "m1"},
+                            mock=True)
+    check("CLI 装载了项目命令与插件命令",
+          set(_cli44.custom_commands) >= {"review", "裸命令", "demo:hi"},
+          sorted(_cli44.custom_commands))
+    check("内置命令不会被自定义命令顶掉", _cli44._maybe_custom_command("/help") is None, "")
+    check("自定义命令展开成提示词（参数代进去）",
+          "test_all.py 40" in str(_cli44._maybe_custom_command("/review 40")), "")
+    _buf44 = _io44.StringIO()
+    with _cl44.redirect_stdout(_buf44):
+        _cli44.run_command("/help")
+    _help44 = _buf44.getvalue()
+    check("/help 里有「自定义命令」分组且列出命令",
+          "自定义命令" in _help44 and "/review" in _help44 and "/demo:hi" in _help44,
+          _help44[-300:])
+    _buf44 = _io44.StringIO()
+    with _cl44.redirect_stdout(_buf44):
+        _cli44.run_command("/plugins")
+    check("/plugins 列出插件与它贡献的命令",
+          "demo" in _buf44.getvalue() and "/demo:hi" in _buf44.getvalue(),
+          _buf44.getvalue()[:300])
+    _buf44 = _io44.StringIO()
+    with _cl44.redirect_stdout(_buf44):
+        _cli44.run_command("/hooks")
+    check("/hooks 列出插件带来的钩子",
+          "post_tool" in _buf44.getvalue(), _buf44.getvalue()[:300])
+
+    # user_prompt 钩子：拦下就**整轮不发**（省一次调用，也让"这条不许问"真的成立）
+    _up_root = mktemp()
+    (_up_root / "deny_prompt.py").write_text(
+        "import json,sys\np=json.loads(sys.stdin.read())\n"
+        "if '不许问' in str(p.get('prompt','')):\n"
+        "    print(json.dumps({'decision':'block','reason':'这句话不许发出去'}))\n"
+        "else:\n"
+        "    print(json.dumps({'decision':'allow','additional_context':'补充：今天是周五'}))\n",
+        encoding="utf-8")
+    _cli44b = _ai44.AgentCLI({"project_root": str(_up_root), "permission": "readonly",
+                              "bait": False, "base_url": "", "api_key": "", "model": "m1",
+                              "hooks": {"user_prompt": [f"{_py44} deny_prompt.py"]}},
+                             mock=True)
+    _buf44 = _io44.StringIO()
+    with _cl44.redirect_stdout(_buf44):
+        _cli44b.converse("这句话不许问", echo_input=False)
+    check("user_prompt 钩子拦下 → 这一轮不发（messages 没变化）",
+          _cli44b.messages == [] and "不许发出去" in _buf44.getvalue(),
+          _buf44.getvalue()[:200])
+    _buf44 = _io44.StringIO()
+    with _cl44.redirect_stdout(_buf44):
+        _cli44b.converse("随便问一句", echo_input=False)
+    check("放行时钩子的补充上下文进了这一轮（用户原话不改写）",
+          any("补充：今天是周五" in str(m.get("content")) for m in _cli44b.messages),
+          _cli44b.messages[:2])
+    _cli44b.close()
+    _cli44.close()
+
+    # ============================================================
+
+if _LIST:
+    print("段号    依赖（空 = 自包含可单跑；* = 跑到它为止的全部前置段；未列 = 默认整跑）")
     for _n in _SECTIONS:
         _d = _SECTION_DEPS.get(_n)
         _shown = "自包含" if _d == [] else ("*（全部前置）" if _d else "（未声明 → 跑前置）")

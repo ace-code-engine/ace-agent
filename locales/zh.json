@@ -245,5 +245,22 @@
   "mcp_tools_count": "{n} 个工具",
   "mcp_tools_of": "    工具清单（{name}）：",
   "mcp_tools_more": "    …还有 {n} 个",
-  "mcp_footer": "  提示：MCP server 是你配置的子进程，**不在 ACE 的沙箱里** —— 只有信得过的 server 才该写进配置。/mcp notools 只看状态。"
+  "mcp_footer": "  提示：MCP server 是你配置的子进程，**不在 ACE 的沙箱里** —— 只有信得过的 server 才该写进配置。/mcp notools 只看状态。",
+  "cmd_hooks": "查看事件钩子（用户自己的检查）与上次结果",
+  "cmd_plugins": "查看已加载的插件与它们贡献的命令/钩子",
+  "group_extend": "扩展",
+  "group_custom": "自定义命令",
+  "hooks_title": "  事件钩子（{n} 条）：",
+  "hooks_none": "  没有配置事件钩子。",
+  "hooks_config_hint": "  配置方式：~/.ai_code.json 里写 \"hooks\": {\"pre_tool\": [\"python .ace/hooks/check.py\"], \"post_tool\": [...]}，或项目内 .ace/hooks.json；插件目录的 hooks.json 也会追加。钩子从 stdin 读 JSON、从 stdout 回 {\"decision\":\"allow|block\",\"reason\":\"...\"}，退出码 2 = 拦截。",
+  "hooks_timeout": "超时 {s}s",
+  "hooks_ignored": "  ⚠ 忽略了未知事件（名字写错？）：{items}",
+  "hooks_footer": "  钩子是**你自己配置的本地命令，不在 ACE 的沙箱里**；默认出错即拦截（on_error: block），要宽松就显式写 warn。",
+  "plugins_title": "  插件（{n} 个）：",
+  "plugins_none": "  没有插件。",
+  "plugins_hint": "  插件放 .ace/plugins/<名字>/：commands/*.md 提供斜杠命令，hooks.json 提供钩子。这一版插件**不能带工具**（那等于让插件在进程内跑代码）。",
+  "plugins_items": "命令 {c} · 钩子 {h}",
+  "plugins_footer": "  插件里的命令带插件名前缀（如 /myplugin:review），不会和内置或其它插件撞名。",
+  "hook_blocked_prompt": "  ⚠ user_prompt 钩子拦下了这次输入：{reason}（这一轮没有发给模型）",
+  "hook_context_added": "  （user_prompt 钩子追加了上下文）"
 }

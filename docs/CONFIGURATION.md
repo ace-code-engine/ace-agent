@@ -31,6 +31,23 @@ config = {
 }
 ```
 
+### 事件钩子（`hooks`）
+
+```json
+"hooks": {
+  "pre_tool": ["python .ace/hooks/no_migrations.py"],
+  "post_tool": [{"command": "python .ace/hooks/audit.py", "timeout": 5, "on_error": "warn"}],
+  "user_prompt": ["python .ace/hooks/add_context.py"]
+}
+```
+
+- 四个事件：`session_start` / `user_prompt` / `pre_tool` / `post_tool` / `session_end`
+- 钩子从 **stdin** 读 JSON、从 **stdout** 回 `{"decision":"allow|block","reason":"…","additional_context":"…"}`；**退出码 2 = 拦截**
+- 项目内 `.ace/hooks.json` 与插件 `hooks.json` **追加**生效（同名不覆盖）
+- **`on_error` 默认 `block`（fail-close）**：钩子崩了/超时了不算"检查通过"；要宽松显式写 `warn`
+- 命令的 `cwd` 是项目根；`/hooks` 看装了哪些、上次结果如何
+- 完整协议与边界见 [EXTENDING.md](EXTENDING.md)
+
 ### MCP server（`mcp_servers`）
 
 - **协议**：stdio 上的 JSON-RPC 2.0（一行一个消息），实现 `initialize` 握手、`tools/list`、`tools/call`。HTTP/SSE 传输**没有实现**。

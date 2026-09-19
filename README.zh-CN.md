@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.1%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.18.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -250,6 +250,8 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.18.0** (2026-09-19)：把"你自己的规矩"接进来。**事件钩子**（`pre_tool` / `post_tool` / `user_prompt` / `session_start` / `session_end`）从 stdin 读 JSON、从 stdout 回 `{"decision":"block","reason":…}`，退出码 2 = 拦截；**默认 fail-close**——钩子崩了或超时**不算**"检查通过"。`pre_tool` 拦下是 `HOOK_BLOCKED`（**不计入安全违规**），而且工具**真的没执行**。**自定义斜杠命令**来自 `.ace/commands/*.md`（文件名即命令，`$ARGUMENTS`/`$1` 代入，不引 YAML 依赖，内置命令优先）。**插件**放 `.ace/plugins/<名>/`，贡献命令（自动加前缀）与钩子，**刻意不能带工具**。钩子与 MCP 同一条边界：本地命令、不在沙箱里 → [`docs/EXTENDING.md`](docs/EXTENDING.md)
+- **v3.17.0** (2026-09-19)：ACE 会说 **MCP** 了（stdio JSON-RPC 2.0：`initialize` → `tools/list` → `tools/call`）。把 `mcp_servers` 指向一个 server，它的工具就以 `mcp__<server>__<工具名>` 出现、schema 原样透传；权限/审批/审计照旧。`/mcp` 看状态、失败原因与工具清单。权限默认从严（对面声明 `readOnlyHint` 才算只读）。失败分开报：`503` 不可用 / `504` 超时 / `500` 协议错或对面 `isError`；子进程显式收掉。**只支持 stdio**，HTTP/SSE 未实现
 - **v3.16.1** (2026-09-19)：前两个 tag 的 CI 在 **lint job** 上红了（测试矩阵全绿）——`ui/ace_diff.py` 多导入了一个只在 docstring 里被提到的 `display_width`。修掉它，并在 `[38]` 加了一条 **AST 版"无未使用导入"**（F401 口径）的本地守卫：装了不 ruff 的环境也能在本地拦住同类错。这条守卫是**注入回去验证过会红**的
 - **v3.16.0** (2026-09-19)：输入行补齐了。**多行输入**：`Alt+Enter` 或 `Ctrl+J` 换行（终端支持扩展键协议时 `Shift+Enter` 也行），`Enter` 发送，续行用 `… ` 对齐。**`/history [关键词]`** 用选择器那套子序列评分模糊检索历史（`dsk` 能命中 `deepseek` 那条），命中字符高亮，选中后填进下一次输入行——**不自动发送**。**25 条命令分成四组**（会话/安全/模型/工具），`/` 菜单与 `/help` 同一套分组；菜单数据源是纯函数，所以在没装 prompt_toolkit 的环境里也照样被断言
 - **v3.15.0** (2026-09-19)：写入类工具的卡片带上**上色 diff**（标题挂 `+N -M`，`+` 绿、`-` 红、区块头青）——跑错一条命令当场就知道，**改错一行往往几天后才发现**。`file_write` 新增 `data["diff"]`；`str_replace` 早就返回 diff，只是终端从来没显示过。三条边界：新文件不给 diff、**凭据文件不读旧内容**（与"快照不留副本"复用 SEC-04 名单，否则旧内容会进卡片、也顺着工具结果进模型上下文）、超过 200 KB 不算 diff。命令卡片带 `· exit N`（"跑完"≠"成功"），一轮里调 ≥2 次工具会收尾给一行时间线。演示新增第四张图并纳入 CI

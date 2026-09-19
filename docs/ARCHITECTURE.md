@@ -62,6 +62,8 @@ ace-agent/
 │   ├── nuwa.py                 #   POC 报告（HTML + JSON）
 │   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
 │   ├── ace_mcp.py              #   MCP 客户端：stdio JSON-RPC 2.0（握手 / tools-list / tools-call + 子进程生命周期）
+│   ├── ace_hooks.py            #   事件钩子：session_start / user_prompt / pre_tool / post_tool / session_end（JSON 进出）
+│   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
@@ -102,7 +104,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.17.0.md #  本版更新介绍（可直接贴进 GitHub Release；MCP 客户端）
+│   ├── RELEASE-NOTES-v3.18.0.md #  本版更新介绍（可直接贴进 GitHub Release；钩子 + 自定义命令 + 插件）
+│   ├── RELEASE-NOTES-v3.17.0.md #  v3.17 更新介绍（MCP 客户端）
 │   ├── RELEASE-NOTES-v3.16.0.md #  v3.16 更新介绍（多行输入 + /history + 分组）
 │   ├── RELEASE-NOTES-v3.15.0.md #  v3.15 更新介绍（改动可见 + 时间线）
 │   ├── RELEASE-NOTES-v3.14.0.md #  v3.14 更新介绍（首屏重构 + --preview）
@@ -113,6 +116,7 @@ ace-agent/
 │   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读
 │   ├── CONFIGURATION.md        #   配置全项：config 键 + 出站白名单/检索/编码/DB 边界
 │   ├── COMMANDS.md             #   命令参考：斜杠/@ 全表 + 启动参数
+│   ├── EXTENDING.md            #   扩展点：事件钩子 / 自定义命令 / 插件 / MCP（边界写清楚）
 │   ├── TESTING.md              #   测试：全量/CI 矩阵/基准/e2e/ruff
 │   ├── DEVELOPMENT.md          #   开发者标准化流程（改代码到推送八步 + 新增工具八步清单）
 │   ├── INTERFACES.md           #   接口与类型契约（文本协议/状态码/注册表/权限模型/网络）

@@ -12,6 +12,7 @@
 | 分类 | 命令 |
 |---|---|
 | 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/expand` `/mcp` `/exit` |
+| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
@@ -54,6 +55,12 @@
 | `@refs` / `@clear` | 查看 / 清空当前引用（最多保留 3 项） | `@refs` |
 
 可选技能：`coding`（默认推荐 `code_execute` `file_write` `terminal_exec`）· `writing` · `analysis` · `fiction` · `general`。
+
+**扩展**：钩子、自定义命令、插件与 MCP 都写在 [`docs/EXTENDING.md`](EXTENDING.md)。
+- `.ace/commands/*.md` → 斜杠命令（`$ARGUMENTS` / `$1` 代入参数；内置命令优先，不会被顶掉）
+- `.ace/plugins/<名>/` → 插件：`commands/*.md` + `hooks.json`（命令带插件名前缀 `/名:cmd`）
+- `hooks`（`~/.ai_code.json` 或 `.ace/hooks.json`）→ 四个事件的用户检查；**默认出错即拦截**（fail-close），要宽松显式写 `on_error: warn`
+- `/hooks` 看装了哪些钩子与上次结果，`/plugins` 看插件加载情况
 
 **MCP（外部进程工具）**：在 `~/.ai_code.json` 写 `mcp_servers`（或项目内 `.ace/mcp.json`），启动时按 stdio JSON-RPC 2.0 握手并把对面的工具注册成 `mcp__<server>__<工具名>`——模型可以直接调用它们，权限/审批/审计照旧。`/mcp` 看 server 状态与工具清单（`/mcp notools` 只看状态）。**MCP server 不在 ACE 的沙箱里**：它是你配置的子进程，只写你信得过的。
 

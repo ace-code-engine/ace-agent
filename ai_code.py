@@ -485,15 +485,20 @@ def c(color: str, text: str) -> str:
     return f"{ANSI[color]}{text}{ANSI['reset']}" if USE_COLOR else text
 
 
-def _build_slash_completer(commands: Dict[str, str]):
+def _build_slash_completer(commands: Dict[str, str], custom: Optional[List] = None):
     """构建 / 命令实时补全器（Claude Code 同款：按下 / 弹菜单，边打字边过滤）
-    需要 prompt_toolkit；/open /edit 后面接文件路径补全。"""
+    需要 prompt_toolkit；/open /edit 后面接文件路径补全。
+
+    `custom` 是自定义命令的 (显示名, 说明) 列表（`.ace/commands/*.md` 与插件），
+    排在内置命令之后 —— 它们是用户自己的东西，不该插进内置分组里。
+    """
     from prompt_toolkit.completion import Completer, Completion, PathCompleter
     from prompt_toolkit.document import Document as PTDocument
 
     class SlashCompleter(Completer):
         def __init__(self) -> None:
             self.commands = commands
+            self.custom = list(custom or [])
             self._path = PathCompleter(only_directories=False, expanduser=True)
 
         def get_completions(self, document, complete_event):
@@ -550,6 +555,10 @@ def _build_slash_completer(commands: Dict[str, str]):
             # 用户得靠眼睛扫全表才知道有哪些类别。排序与文案都在 menu_entries()。
             prefix = text[1:]
             for name, meta in _SlashCommands.menu_entries():
+                if name.startswith("/" + prefix):
+                    yield Completion(name, start_position=-len(text),
+                                     display_meta=meta)
+            for name, meta in self.custom:
                 if name.startswith("/" + prefix):
                     yield Completion(name, start_position=-len(text),
                                      display_meta=meta)
@@ -1299,6 +1308,7 @@ class _SlashCommands:
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
         ("group_tools", ["/open", "/edit", "/search", "/memory", "/report", "/goal"]),
+        ("group_extend", ["/mcp", "/hooks", "/plugins"]),
     ]
     GROUP_FALLBACK = "group_more"
 
@@ -1360,6 +1370,8 @@ class _SlashCommands:
         "/thinking": "cmd_thinking",
         "/history": "cmd_history",
         "/mcp": "cmd_mcp",
+        "/hooks": "cmd_hooks",
+        "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
@@ -1393,6 +1405,8 @@ class _SlashCommands:
         "/thinking": ("_cmd_thinking", True),
         "/history": ("_cmd_history", True),
         "/mcp": ("_cmd_mcp", True),
+        "/hooks": ("_cmd_hooks", True),
+        "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
@@ -1469,6 +1483,11 @@ class _SlashCommands:
             print(c("dim", ace_panel.section(t(group_key), _w)))
             for k in names:
                 print(f"  {c('magenta', k):<22} {t(self.COMMANDS[k])}")
+        if self.custom_commands:
+            print(c("dim", ace_panel.section(t("group_custom"), _w)))
+            for name, cmd in sorted(self.custom_commands.items()):
+                shown, desc = cmd.menu_entry()
+                print(f"  {c('magenta', shown):<22} {desc}")
         print(c("dim", t("help_hint")))
         return True
 
@@ -2637,6 +2656,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         set_language(self.lang)  # 界面语言跟随配置/@lang
         self.skill = str(cfg.get("skill", "general"))
         self.context_refs: List[str] = []
+        # 自定义斜杠命令（.ace/commands/*.md + 插件提供的）：{名字: CustomCommand}
+        self.custom_commands: Dict[str, Any] = {}
+        self._load_custom_commands()
         # 项目指令（AGENTS.md）会话缓存：None = 未计算
         self._project_instructions: Optional[str] = None
         # SEC-011：隔离块的 id 按会话固定。每轮换 id 会让系统提示词逐轮变化，
@@ -2660,6 +2682,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._resumed_from: Optional[str] = None
         self._init_execution_layer()
         self.session_log = self.el.session_log
+        # session_start 钩子：会话真的建起来了才跑（执行层构造失败时不该跑）
+        _hk_start = self._fire_hook("session_start")
+        if _hk_start is not None and _hk_start.additional_context:
+            print(c("dim", _hk_start.additional_context))
         # 无人值守提示：非 tty（管道/CI）下"需要审批的动作会被直接拒绝，而不需要审批的
         # 写/执行工具照跑"——这反直觉，必须在启动时说出来，别让人以为"没人看着更安全"。
         if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
@@ -2719,10 +2745,108 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """
         el = getattr(self, "el", None)
         if el is not None:
+            self._fire_hook("session_end")
             try:
                 el.close()
             except Exception:  # noqa: BLE001 —— 收尾失败不该掩盖主流程
                 pass
+
+    # ---------- 扩展：自定义命令与事件钩子 ----------
+
+    def _load_custom_commands(self) -> None:
+        """装载 `.ace/commands/*.md` 与插件里的命令（插件名做前缀，避免撞名）。"""
+        self.custom_commands = {}
+        try:
+            from core import ace_commands as _acmd
+            root = str(self.cfg.get("project_root", "."))
+            self.custom_commands.update(
+                _acmd.load_commands_dir(str(Path(root) / ".ace" / "commands"),
+                                        source="project"))
+            for plugin in _acmd.load_plugins(root):
+                self.custom_commands.update(plugin.commands)
+        except Exception:  # noqa: BLE001 —— 自定义命令坏了不该让 CLI 起不来
+            self.custom_commands = {}
+
+    def _fire_hook(self, event: str, **fields: Any) -> Any:
+        """跑一个事件钩子（执行层没起来时安静跳过）。"""
+        el = getattr(self, "el", None)
+        hooks = getattr(el, "hooks", None) if el is not None else None
+        if hooks is None:
+            return None
+        try:
+            from core.ace_hooks import hook_payload
+            return hooks.run(event, hook_payload(
+                event, cwd=str(self.cfg.get("project_root", ".")),
+                session_id=Path(str(self.cfg.get("session_log", ""))).name, **fields))
+        except Exception:  # noqa: BLE001 —— 钩子坏了不该影响主流程
+            return None
+
+    def _maybe_custom_command(self, line: str) -> Optional[str]:
+        """输入是自定义命令吗？是则返回**展开后的提示词**，否则 None。
+
+        内置命令优先：`/help` 这类在 COMMANDS 里，永远不会被自定义命令顶掉。
+        """
+        if not line.startswith("/"):
+            return None
+        parts = line[1:].split(None, 1)
+        if not parts:
+            return None
+        name = parts[0]
+        if name in self.COMMANDS:
+            return None
+        cmd = self.custom_commands.get(name)
+        if cmd is None:
+            return None
+        return cmd.expand(parts[1] if len(parts) > 1 else "")
+
+    def _cmd_hooks(self, parts: List[str]) -> bool:
+        """`/hooks`：看装了哪些钩子、各自上次的结果。"""
+        el = getattr(self, "el", None)
+        hooks = getattr(el, "hooks", None) if el is not None else None
+        if hooks is None:
+            print(c("dim", t("hooks_none")))
+            print(c("dim", t("hooks_config_hint")))
+            _err = getattr(el, "hooks_error", "") if el is not None else ""
+            if _err:
+                print(c("red", "  " + _err[:200]))
+            return True
+        rows = hooks.status()
+        print(t("hooks_title", n=len(rows)))
+        for r in rows:
+            mark, color = (("✓", "green") if r["last"] == "ok"
+                           else ("✗", "red") if r["last"] == "block"
+                           else ("⚠", "yellow") if r["last"] == "error"
+                           else ("·", "dim"))
+            print(f"  {c(color, mark)} {c('bold', r['event'])}  {r['name']}  "
+                  f"{t('hooks_timeout', s=r['timeout'])}")
+            print(c("dim", f"      $ {r['command']}"))
+            if r["detail"]:
+                print(c("dim", f"      {r['detail'][:200]}"))
+        ignored = getattr(el, "hook_ignored", []) or []
+        if ignored:
+            print(c("yellow", t("hooks_ignored", items=", ".join(ignored))))
+        print(c("dim", t("hooks_footer")))
+        return True
+
+    def _cmd_plugins(self, parts: List[str]) -> bool:
+        """`/plugins`：看加载了哪些插件、它们贡献了什么。"""
+        el = getattr(self, "el", None)
+        plugins = getattr(el, "plugins", []) if el is not None else []
+        if not plugins:
+            print(c("dim", t("plugins_none")))
+            print(c("dim", t("plugins_hint")))
+            return True
+        print(t("plugins_title", n=len(plugins)))
+        for p in plugins:
+            print(f"  {c('bold', p.name)}  {t('plugins_items', c=len(p.commands), h=sum(len(v) for v in p.hooks.values()))}")
+            if p.description:
+                print(c("dim", f"      {p.description}"))
+            if p.commands:
+                print(c("dim", "      " + ", ".join("/" + k for k in p.commands)))
+            for err in p.errors:
+                print(c("red", f"      {err[:200]}"))
+        print(c("dim", t("plugins_footer")))
+        return True
 
     def _init_execution_layer(self) -> None:
         # 重建前先收掉旧层：/clear 会走到这里，不收就会漏 MCP 子进程
@@ -2747,6 +2871,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 "mcp_servers": self.cfg.get("mcp_servers"),
                 "mcp_project_file": str(Path(self.cfg.get("project_root", "."))
                                         / ".ace" / "mcp.json"),
+                # 事件钩子（用户自己的检查）：用户配置 + 项目 .ace/hooks.json + 插件
+                "hooks": self.cfg.get("hooks"),
+                "hooks_project_file": str(Path(self.cfg.get("project_root", "."))
+                                          / ".ace" / "hooks.json"),
                 # 联网开关（/net 切换；默认开）
                 "network_enabled": bool(self.cfg.get("network_enabled", True)),
                 # 第三方搜索 API（可选；search 先试 API，失败自动回退免 key 爬虫）
@@ -3100,6 +3228,17 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.session_log.record_user(user_input)
         # 记忆预注入：模型生成前把相关历史记忆放进 prompt（无记忆时原样返回）
         next_user = self.el.prepare_context(user_input)
+        # user_prompt 钩子：进模型**之前**的最后一道用户规矩。
+        # 拦下就整轮不发（省一次调用，也让"这条不许问"真的成立）；
+        # 补充上下文则追加到这一轮的用户消息里（不改写用户原话，避免"我以为我打的是这个"）。
+        _hk = self._fire_hook("user_prompt", prompt=user_input[:4000])
+        if _hk is not None:
+            if _hk.blocked:
+                print(c("yellow", t("hook_blocked_prompt", reason=_hk.reason or "")))
+                return
+            if _hk.additional_context:
+                print(c("dim", t("hook_context_added")))
+                next_user = next_user + "\n\n" + _hk.additional_context
         # 反幻觉与熔断状态：本次请求内是否真有工具落地、已经纠正过几次、连续无进展轮数
         self._tool_ran_in_request = False
         self._fail_streak = 0
@@ -3491,7 +3630,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     kb.add(_hotkey)(_hotkey_handler)
 
                 session = PromptSession(
-                    completer=_build_slash_completer(self.COMMANDS),
+                    completer=_build_slash_completer(
+                        self.COMMANDS,
+                        [c.menu_entry() for c in self.custom_commands.values()]),
                     complete_while_typing=True,
                     key_bindings=kb,
                     history=_history,
@@ -3563,6 +3704,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self._handle_at_command(line)
                 continue
             if line.startswith("/") or line.lower() in ("exit", "quit"):
+                # 自定义命令（.ace/commands/*.md / 插件）优先于"当聊天发出去"：
+                # 它们展开成一段提示词，走正常对话流程（内置命令在 _maybe_custom_command
+                # 里被排除，永远不会被自定义命令顶掉）。
+                _expanded = self._maybe_custom_command(line)
+                if _expanded is not None:
+                    try:
+                        self.converse(_expanded, echo_input=False)
+                    except KeyboardInterrupt:
+                        print("\n" + t("interrupted"))
+                    except Exception as e:
+                        print(c("red", t("chat_error", err=e)))
+                    continue
                 try:
                     if not self.run_command(line):
                         break

@@ -245,5 +245,22 @@
   "mcp_tools_count": "{n} tools",
   "mcp_tools_of": "    Tools ({name}):",
   "mcp_tools_more": "    …{n} more",
-  "mcp_footer": "  Note: an MCP server is a child process you configured and is **not inside ACE's sandbox** — only add servers you trust. /mcp notools shows status only."
+  "mcp_footer": "  Note: an MCP server is a child process you configured and is **not inside ACE's sandbox** — only add servers you trust. /mcp notools shows status only.",
+  "cmd_hooks": "Show event hooks (your own checks) and their last results",
+  "cmd_plugins": "Show loaded plugins and what they contribute",
+  "group_extend": "Extend",
+  "group_custom": "Custom commands",
+  "hooks_title": "  Event hooks ({n}):",
+  "hooks_none": "  No event hooks configured.",
+  "hooks_config_hint": "  Configure with \"hooks\": {\"pre_tool\": [\"python .ace/hooks/check.py\"], \"post_tool\": [...]} in ~/.ai_code.json, or a project-level .ace/hooks.json; plugin hooks.json files are appended too. A hook reads JSON on stdin and answers {\"decision\":\"allow|block\",\"reason\":\"...\"} on stdout; exit code 2 blocks.",
+  "hooks_timeout": "timeout {s}s",
+  "hooks_ignored": "  ⚠ ignored unknown events (typo?): {items}",
+  "hooks_footer": "  Hooks are **local commands you configured and are not inside ACE's sandbox**; by default an error blocks (on_error: block) — write warn explicitly to be lax.",
+  "plugins_title": "  Plugins ({n}):",
+  "plugins_none": "  No plugins.",
+  "plugins_hint": "  Drop plugins in .ace/plugins/<name>/: commands/*.md adds slash commands, hooks.json adds hooks. Plugins **cannot ship tools** in this version (that would mean running plugin code in-process).",
+  "plugins_items": "{c} commands · {h} hooks",
+  "plugins_footer": "  Plugin commands are prefixed with the plugin name (e.g. /myplugin:review) so they never collide with built-ins or other plugins.",
+  "hook_blocked_prompt": "  ⚠ A user_prompt hook blocked this input: {reason} (nothing was sent to the model)",
+  "hook_context_added": "  (a user_prompt hook added context)"
 }

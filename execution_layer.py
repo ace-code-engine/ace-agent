@@ -628,7 +628,27 @@ class ExecutionLayer:
         # 已获会话级批准的项目外路径（按路径而不是按工具，见 _outside_destructive_reason）
         self.approved_outside: Set[str] = set()
 
-        # MCP（外部进程工具）：只在配置里真的写了 mcp_servers 时才启动子进程。
+        # 事件钩子：**用户自己的检查**（用户配置 hooks + 项目 .ace/hooks.json + 插件）。
+        # 与 MCP 一样属于"用户配置的本地命令"，不在我们的沙箱里；执行层只决定
+        # "要不要跑、以及它说的话算不算数"。
+        self.hooks = None
+        self.hooks_error = ""
+        self.hook_ignored: List[str] = []
+        self.plugins: List[Any] = []
+        try:
+            from core import ace_commands as _acmd
+            from core import ace_hooks as _ahk
+            _resolved = _ahk.load_hooks((config or {}).get("hooks"),
+                                        (config or {}).get("hooks_project_file"))
+            self.plugins = _acmd.load_plugins(str(self.project_root))
+            self.hook_ignored = _acmd.merge_plugin_hooks(self.plugins, _resolved,
+                                                        _ahk.EVENTS)
+            if any(_resolved.values()):
+                self.hooks = _ahk.HookRunner(_resolved, str(self.project_root))
+        except Exception as e:  # noqa: BLE001 —— 钩子是增强，坏了也不能拖垮会话
+            self.hooks = None
+            self.hooks_error = f"{type(e).__name__}: {e}"
+
         # **起不来不影响会话** —— 状态记在 self.mcp 里，由 /mcp 如实展示（用户在配置里
         # 写错一个路径是常事，不该让整个会话跟着失败）。
         self.mcp = None
@@ -1207,15 +1227,67 @@ class ExecutionLayer:
                 ctx.snapshot_id = None
 
     def _stage_execute(self, tool_call: Dict[str, Any], tool_name: str) -> Any:
-        """⑩ 执行工具（全链路日志：调用原始参数 + 结果）。"""
+        """⑩ 执行工具（全链路日志：调用原始参数 + 结果）。
+
+        前后各挂一次用户钩子（`pre_tool` / `post_tool`）：
+
+        - `pre_tool` 在**权限已经放行之后**跑：钩子是"我们团队的规矩"，不该替用户
+          决定权限（那是权限档的事），但有权在这次调用上投反对票。
+        - 被钩子拦下时返回 `HOOK_BLOCKED`：**不**计入安全违规（那是用户的规矩，
+          不是有人在试探边界），但仍然作为一次失败回喂给模型，让它换路子而不是重试。
+        - `post_tool` 改不了已经发生的事，它的 `additional_context` 会挂进结果
+          （`data.hook_note` / message），让人和模型都看见。
+        """
         if self.session_log:
             self.session_log.record_tool_call(
                 tool_name, {k: v for k, v in tool_call.items() if k != "tool"})
+        if self.hooks is not None and self.hooks.has("pre_tool"):
+            from core.ace_hooks import hook_payload
+            hr = self.hooks.run("pre_tool", hook_payload(
+                "pre_tool", tool=tool_name,
+                params={k: v for k, v in tool_call.items() if k != "tool"},
+                cwd=str(self.project_root),
+                session_id=str((self.session_log.path.name if self.session_log else ""))))
+            if self.session_log:
+                self.session_log.record_guard(
+                    "hook:pre_tool", "block" if hr.blocked else "allow",
+                    (hr.reason or "")[:200])
+            if hr.blocked:
+                # 返回 ExecutionResult（而不是 dict）：⑩ 之后的阶段都按对象取 .status，
+                # 第一次实现返回了 dict，直接在下游 AttributeError（实测）。
+                from tools.result import ExecutionResult as _ER
+                return _ER(
+                    status="error", error_code="HOOK_BLOCKED",
+                    message=hr.reason or "钩子拦下了这次调用",
+                    metadata={"hook": "pre_tool"})
         result = self.executor.execute(tool_call)
+        if self.hooks is not None and self.hooks.has("post_tool"):
+            from core.ace_hooks import hook_payload
+            hr = self.hooks.run("post_tool", hook_payload(
+                "post_tool", tool=tool_name,
+                params={k: v for k, v in tool_call.items() if k != "tool"},
+                status=getattr(result, "status", ""),
+                message=str(getattr(result, "message", ""))[:500],
+                cwd=str(self.project_root)))
+            if self.session_log and (hr.additional_context or hr.blocked or hr.error):
+                self.session_log.record_guard(
+                    "hook:post_tool", "block" if hr.blocked else "note",
+                    (hr.additional_context or hr.reason or hr.error)[:200])
+            if hr.additional_context:
+                res = getattr(result, "data", None)
+                if isinstance(res, dict):
+                    res["hook_note"] = hr.additional_context
+                else:
+                    try:
+                        result.message = ((result.message + " | 钩子附注: "
+                                           + hr.additional_context).strip(" |"))
+                    except Exception:  # noqa: BLE001 —— 附注挂不上不该影响工具结果
+                        pass
         if self.session_log:
             self.session_log.record_tool_result(
                 tool_name, result.status, result.message)
         return result
+
 
     def _stage_output_guard(self, tool_name: str, result: Any, user_input: str,
                             ctx: RoundCtx) -> Optional[Dict[str, Any]]:
@@ -1306,6 +1378,13 @@ class ExecutionLayer:
         elif result.error_code == "400" and tool_name in TOOL_EXAMPLES:
             # 参数缺失/格式错误：直接给模型一个可抄的示例
             extra_instruction = f"参数格式示例: {TOOL_EXAMPLES[tool_name]}"
+        elif result.error_code == "HOOK_BLOCKED":
+            # 用户自己的钩子投了反对票：告诉模型"这是人的规矩、换路子"，别重试同一个调用。
+            # 这条**不计入安全违规**（session["violations"] 只在 ERROR_STATUSES 里涨，
+            # 而 HOOK_BLOCKED 不在其中）—— 它不是有人在试探边界，是团队规矩。
+            extra_instruction = (
+                f"被 pre_tool 钩子拦下：{result.message or '用户规则'}。"
+                "不要重复同一个调用；换一种做法，或先向用户确认。")
         # 重复失败熔断：同工具同错误连续失败达阈值 → 禁止再调用
         fail_hint = self._note_tool_failure(tool_name, result.error_code)
         if fail_hint:

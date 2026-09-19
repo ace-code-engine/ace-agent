@@ -120,7 +120,7 @@ jobs:
           VERSION="${{ inputs.version }}"
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
-            VERSION="$(python -c 'import version; print(version.__version__)')"
+            VERSION="$(python -c 'from core import version; print(version.__version__)')"
           fi
           echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
       - name: Create or update release (幂等可重跑)

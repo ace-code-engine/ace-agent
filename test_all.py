@@ -5246,7 +5246,8 @@ if _want("38"):
                    "[38] ci.yml compileall 覆盖全部 .py(含包目录)",
                    "[38] ci.yml compileall 列出的路径都存在",
                    "[38] 批处理在工作树里是 CRLF(防 cmd.exe 错位重读)",
-                   "[38] .gitattributes 钉死批处理行尾(-text,让对象库就是 CRLF)"):
+                   "[38] .gitattributes 钉死批处理行尾(-text,让对象库就是 CRLF)",
+                   "[38] workflows 里的版本读取都用 from core import version（R-07 后不许裸 import）"):
             skip(_n, _GIT_WHY)
     else:
         _TREE = _arch_tree_paths()
@@ -5317,6 +5318,24 @@ if _want("38"):
         _ga = _ga_path.read_text(encoding="utf-8") if _ga_path.exists() else ""
         check("[38] .gitattributes 钉死批处理行尾(-text,让对象库就是 CRLF)",
               "*.cmd" in _ga and "*.bat" in _ga and "-text" in _ga, _ga[:120])
+
+        # R7(2026-09-19 发布前发现):workflows 里的版本读取必须走 `from core import version`
+        #   R-07 把 version.py 下沉进 core/ 时，release-executor.yml 的两处引用只改了一处：
+        #   build job 改了、release job 没改。后果不是"少一个产物"，而是**留空 version
+        #   这条默认路径必崩** —— build 全绿、release 在 Resolve version 那步
+        #   ModuleNotFoundError，Release 根本建不出来。CHANGELOG 与 STRUCT-REFACTOR 当时
+        #   都写着"两处都改了"，没有任何东西盯着它，于是漂了整整一个版本。
+        _wf_bad = []
+        for _wf in sorted((FOLDER / ".github" / "workflows").glob("*.yml")):
+            _txt = _wf.read_text(encoding="utf-8")
+            for _ln in _txt.splitlines():
+                if "python -c" not in _ln or "version" not in _ln:
+                    continue
+                _cue = _ln.split("python -c", 1)[1]
+                if "from core import version" not in _cue:
+                    _wf_bad.append(f"{_wf.name}: {_ln.strip()[:70]}")
+        check("[38] workflows 里的版本读取都用 from core import version（R-07 后不许裸 import）",
+              not _wf_bad, _wf_bad[:4])
 
 
     # ============================================================

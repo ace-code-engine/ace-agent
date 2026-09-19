@@ -48,7 +48,7 @@
 
 仓库现状：版本号在 core/version.py/README/CHANGELOG 三处同步（Q-12）；里程碑 tag v3.3~v3.6 本地已存在（README L487 的"未打 git tag"是过时描述，S4 一并修正），但**从无携带产物的 GitHub Release**。GitHub Release 必须有 tag 载体。
 
-- 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `core/version.py`（`python -c "import version;print(version.__version__)"`）。
+- 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `core/version.py`（`python -c "from core import version;print(version.__version__)"`）。注意 `core.` 前缀不可省：R-07 之后版本模块在 `core/version.py`，裸 `import version` 会 `ModuleNotFoundError`，而它只在 version 输入留空这条路径上才会被执行。
 - `gh release create v{version} <产物…> --title "ace-executor v{version}" --notes "…"`。发布时自动在远端创建/更新 tag `v{version}`——v3.7.0 是**第一个与 GitHub Release 绑定的 tag**，延续既有 v{version} 里程碑 tag 命名，不引入新的日常提交纪律。
 - 理由：发布是显式人工动作（workflow_dispatch），不是每次提交的默认行为；未来若想 tag 驱动可在此 workflow 加 `push: tags: v*` 扩展点。
 

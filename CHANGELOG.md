@@ -57,6 +57,13 @@
 - 🛡️ `[20]` 能力探测 + 如实跳过：宿主令牌不允许 `PROCESS_SUSPEND_RESUME` 时，三条 Tier-1 断言按 Q-03 的口径跳过并逐字写明原因；`--strict` 下仍按失败处理（什么都没被藏起来）
 - 🛡️ `executor/attach_relax_windows_test.go`：2 条 Windows 专用单测（重试判据 `canAssignWithoutSuspend` + 错误必须点名被拒的访问位），`//go:build windows` 隔离，ubuntu CI 不编译
 
+### 🐛 发布通道：`release-executor.yml` 的默认路径其实是崩的（发布前当场发现）
+
+- 🐛 **R-07 只改了一半**：把 `version.py` 下沉进 `core/` 时，`release-executor.yml` 的两处版本读取只改了 build job 那一处（L61），release job 那处（L123）仍是裸 `import version`。后果不是"少一个产物"，而是**留空 version 这条默认路径必崩**——build 全绿、release 在 Resolve version 那步抛 `ModuleNotFoundError: No module named 'version'`，Release 根本建不出来
+- 📋 **漂了整整一个版本，没人盯**：v3.10.0 的 CHANGELOG 与 `docs/design/STRUCT-REFACTOR.md` 都写着"两处 `python -c 'import version'` 改成 `'from core import version'`"，而实际只改了一处——这是本仓库专门建 `[38]/[39]/[40]` 去防的那类"承诺漂移"，只不过没人给 workflow 的接线写守卫。此处订正上一版那句话
+- 🛡️ **新增守卫**（`[38]` R7）：`workflows/*.yml` 里凡出现 `python -c` 读取版本的，必须用 `from core import version`，裸 `import version` 直接判失败。负向注入（把那行改回去）实测变红
+- 📚 `docs/design/EXECUTOR-RELEASE.md` 的 D1 段补上 `core.` 前缀并写明"它只在 version 留空这条路径上才会被执行"——正是这一点让它在日常 CI 里躲过了所有检查
+
 ## [v3.10.0] · 2026-09-18
 
 ### 根目录瘦身：20 个模块下沉 `ui/` `cli/` `core/`（R-07）

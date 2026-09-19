@@ -201,7 +201,8 @@ def _format_params(tool: str, params: Dict) -> str:
 def tool_card(tool: str, status: str, params: Optional[Dict] = None,
               message: str = "", output: str = "",
               elapsed: float = 0.0, collapsed: bool = True,
-              max_lines: int = 12,
+              max_lines: int = 12, exit_code: Optional[int] = None,
+              diff: str = "",
               glyphs: Optional[Dict[str, str]] = None) -> List[str]:
     """渲染一张工具调用卡片（纯文本行，可直接 print）。
 
@@ -211,12 +212,16 @@ def tool_card(tool: str, status: str, params: Optional[Dict] = None,
     - message:   失败原因（截断 60 字符）
     - output:    工具输出（collapsed 时只留前 max_lines 行 + 折叠提示）
     - elapsed:   耗时秒数（> 0 时在标题尾显示 "· 0.32s"）
+    - exit_code: 进程退出码（命令类工具；None = 不显示）。非 0 也照样显示 ——
+                 "命令跑完了"与"命令成功"是两件事，把 0/非 0 摆出来由人判断
+    - diff:      unified diff 文本（写入类工具）。标题挂 `+3 -1` 统计，正文按
+                 `+`/`-` 逐行展开（颜色由调用方按 ui.ace_diff.color_name 上）
     - collapsed: 是否折叠输出；False 则输出全部行
     - glyphs:    符号表，默认 TOOL_GLYPH（ASCII，Windows 安全）；
                  传 TOOL_EMOJI 切回 emoji 版
 
     返回形如：
-      ["  > terminal_exec ✓ [SUCCESS] · 0.32s",
+      ["  > terminal_exec ✓ [SUCCESS] · 0.32s · exit 0",
        "    $ ls -la",                    # 参数摘要（dim，调用方可上色）
        "    drwxr-xr-x ...",              # output 前 N 行（缩进 4 空格）
        "    … 已折叠 40 行 (用 /expand 看完整)"]  # 折叠提示
@@ -226,6 +231,11 @@ def tool_card(tool: str, status: str, params: Optional[Dict] = None,
     title = f"  {glyph} {tool} {mark} [{status}]"
     if isinstance(elapsed, (int, float)) and elapsed > 0:
         title += f" · {elapsed:.2f}s"
+    if exit_code is not None:
+        title += f" · exit {int(exit_code)}"
+    _stat = _diff_stat(diff)
+    if _stat:
+        title += f" · {_stat}"
     lines: List[str] = [title]
     if params:
         lines.append("    " + _format_params(tool, params))
@@ -236,7 +246,20 @@ def tool_card(tool: str, status: str, params: Optional[Dict] = None,
         if collapsed:
             out_lines = collapse_lines(out_lines, max_lines)
         lines.extend("    " + ln for ln in out_lines)
+    if diff:
+        d_lines = [ln for ln in str(diff).splitlines() if ln.strip()]
+        if collapsed:
+            d_lines = collapse_lines(d_lines, max_lines)
+        lines.extend("    " + ln for ln in d_lines)
     return lines
+
+
+def _diff_stat(diff: str) -> str:
+    """`+3 -1` 统计（没有改动就不显示）。import 放在函数里，避免卡片模块开局就拉 diff。"""
+    if not diff:
+        return ""
+    from ui.ace_diff import stat_text
+    return stat_text(diff)
 
 
 # ============================================================

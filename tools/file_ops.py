@@ -15,12 +15,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from core.guardian import is_credential_file
 from tools.base import sensitive_target
 from tools.file_common import (
     FILE_READ_DEFAULT_LIMIT, GLOB_DEFAULT_MAX_RESULTS, GREP_DEFAULT_MAX_RESULTS,
     _SEARCH_MAX_FILE_BYTES, _SEARCH_MAX_FILES, _SEARCH_MAX_LINE_CHARS,
     _SEARCH_MAX_MATCH_CHARS, _SEARCH_SKIP_DIRS, _STR_REPLACE_MAX_BYTES,
-    _STR_REPLACE_MAX_DIFF_LINES, _TEXT_EXTENSIONS)
+    _STR_REPLACE_MAX_DIFF_LINES, _TEXT_EXTENSIONS, _WRITE_DIFF_MAX_BYTES)
 from tools.result import ExecutionResult
 
 
@@ -130,8 +131,17 @@ class FileOps:
                                            message=f"path 是目录: {path}，file_write 需要完整文件路径"
                                                    "（如 C:\\Users\\<用户名>\\Desktop\\文件.py）")
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(params.get("content", ""), encoding="utf-8")
-                return ExecutionResult(status="success", data={"path": str(path), "bytes_written": len(params.get("content", ""))})
+                content = params.get("content", "")
+                diff = self._write_diff(path, content)
+                path.write_text(content, encoding="utf-8")
+                data = {"path": str(path), "bytes_written": len(content)}
+                if diff:
+                    # 改动可见：终端把 diff 逐行上色打印，模型侧也拿得到同一份事实。
+                    # 只在与自身内容有关的改动上提供（见 _write_diff 的三条边界）。
+                    data["diff"] = diff
+                    data["summary"] = f"已写入 {len(content)} 字符"
+                    data["content"] = (f"已写入 {len(content)} 字符\n" + diff)
+                return ExecutionResult(status="success", data=data)
             elif tool_name == "file_delete":
                 if path.is_dir():
                     return ExecutionResult(status="error", error_code="400",
@@ -453,6 +463,7 @@ class FileOps:
             "path": str(path), "replaced": replaced, "matched_by": matched_by,
             "encoding": src_encoding,
             "diff": "\n".join(diff),
+            "summary": f"已替换 {replaced} 处（匹配方式: {matched_by}）",
             "content": (f"已替换 {replaced} 处（匹配方式: {matched_by}）\n" + "\n".join(diff)),
         })
 
@@ -486,6 +497,41 @@ class FileOps:
         except ValueError:
             return path.as_posix()
 
+
+    def _write_diff(self, path: Path, new_content: str) -> str:
+        """覆盖已有文件时算一份 unified diff（供终端逐行上色 + 模型核对）。
+
+        三条边界，都是刻意的：
+
+        1. **新文件不给 diff**：全是 `+` 行没有信息量，还会把一次性写入的几百行
+           灌进模型上下文。
+        2. **凭据文件不读旧内容**：`.env` / `*.pem` / `id_rsa` 这类按 SEC-04 名单
+           认定，与"快照不留副本"同一份名单 —— 即便允许写，也不该为了显示 diff
+           把旧内容读出来（它会进卡片，也会顺着工具结果进模型上下文）。
+        3. **超大文件不读**：旧文件或新内容任一超过上限就放弃 diff（读 10MB 只为
+           渲染 8 行，代价远大于收益）。
+        """
+        try:
+            if not path.is_file():
+                return ""
+            if sensitive_target(path) is not None or is_credential_file(path):
+                return ""
+            if path.stat().st_size > _WRITE_DIFF_MAX_BYTES \
+                    or len(new_content) > _WRITE_DIFF_MAX_BYTES:
+                return ""
+            old = self._read_text_any(path)
+            old_s, new_s = (old or "").replace("\r\n", "\n"), new_content.replace("\r\n", "\n")
+            if old_s == new_s:
+                return ""
+            import difflib
+            diff = list(difflib.unified_diff(
+                old_s.split("\n"), new_s.split("\n"),
+                fromfile=f"a/{path.name}", tofile=f"b/{path.name}", lineterm="", n=3))
+            if len(diff) > _STR_REPLACE_MAX_DIFF_LINES:
+                diff = diff[:_STR_REPLACE_MAX_DIFF_LINES] + ["... [diff 已截断]"]
+            return "\n".join(diff)
+        except (OSError, UnicodeDecodeError, UnicodeEncodeError):
+            return ""          # 读不出来就不显示 diff —— 展示功能不该让写入失败
 
     def _search_visible(self, path: Path) -> bool:
         """这条检索命中可以交出去吗？

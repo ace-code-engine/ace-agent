@@ -222,5 +222,6 @@
   "menu_group_more": "More",
   "preview_hint": "This is a UI preview (--preview draws the screen and exits). In a real run: ↑/↓ to move · digits to jump · Enter to confirm · Esc/q to quit.",
   "preview_footer_title": "Status bar (live in a real session)",
-  "panel_turns": "{n} turns"
+  "panel_turns": "{n} turns",
+  "round_tools": "  {n} tool calls · {sec}s · {tools}"
 }

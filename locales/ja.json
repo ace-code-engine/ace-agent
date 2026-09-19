@@ -222,5 +222,6 @@
   "menu_group_more": "その他",
   "preview_hint": "これは画面プレビューです（--preview は描画のみで対話に入りません）。実行時: ↑/↓ 選択 · 数字で直接選択 · Enter 確定 · Esc/q 終了。",
   "preview_footer_title": "ステータスバー（実行時はリアルタイム更新）",
-  "panel_turns": "{n} ターン"
+  "panel_turns": "{n} ターン",
+  "round_tools": "  ツール呼び出し {n} 回 · {sec}s · {tools}"
 }

@@ -222,5 +222,6 @@
   "menu_group_more": "其他",
   "preview_hint": "以上是界面预览（--preview 只画界面、不进对话）。真正运行时：↑/↓ 选择 · 数字直选 · Enter 确认 · Esc/q 退出。",
   "preview_footer_title": "底部状态栏（真实运行时实时刷新）",
-  "panel_turns": "{n} 轮"
+  "panel_turns": "{n} 轮",
+  "round_tools": "  {n} 次工具调用 · {sec}s · {tools}"
 }

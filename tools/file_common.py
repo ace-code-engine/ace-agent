@@ -38,3 +38,6 @@ FILE_READ_DEFAULT_LIMIT = 2_000
 # str_replace 上限：超过就该整文件重写或拆分，不在局部编辑工具里处理
 _STR_REPLACE_MAX_BYTES = 5_000_000
 _STR_REPLACE_MAX_DIFF_LINES = 200
+# file_write 覆盖已有文件时算 diff 的上限（旧文件与新内容任一超过就放弃）。
+# 只为渲染几行改动去读一个 10MB 文件，代价远大于收益。
+_WRITE_DIFF_MAX_BYTES = 200_000

@@ -61,6 +61,7 @@ from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ui.ace_cards import status_mark, tool_card  # noqa: E402
 from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：框、分栏、菜单）
+from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色，颜色由这里定）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -2839,6 +2840,29 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             msgs + [{"role": "assistant", "content": output}], self.max_history)
         return output, system, disp
 
+    def _print_tool_timeline(self) -> None:
+        """本轮工具调用汇总（一行）：`3 次工具调用 · 1.8s · terminal_exec ✓ · file_write +3 -1 ✓`
+
+        为什么要有它：卡片是一条条刷过去的，一轮里跑了五六次工具之后，用户只记得
+        "好像动过几个东西"。收尾给一行，才看得出这次到底做了什么、有没有失败项。
+        只调一次工具时不打（那一张卡片本身就是全部信息，再汇总一遍是噪音）。
+        """
+        tools = list(getattr(self, "_round_tools", []) or [])
+        self._round_tools = []
+        if len(tools) < 2:
+            return
+        secs = sum(e for _t, _s, e, _rc in tools)
+        parts = []
+        for name, status, _e, rc in tools:
+            mark, _col = status_mark(status)
+            seg = f"{name} {mark}"
+            if rc not in (None, 0):
+                seg += f"(exit {rc})"
+            parts.append(seg)
+        # 最多列 5 个，再多就省略（一行汇总不该自己变成一屏）
+        shown = " · ".join(parts[:5]) + (" …" if len(parts) > 5 else "")
+        print(c("dim", t("round_tools", n=len(tools), sec=f"{secs:.2f}", tools=shown)))
+
     def _note_round_progress(self, result: Dict) -> bool:
         """连续失败/无进展熔断记账。返回 False = 已达阈值（调用方应结束本次对话）。
 
@@ -2880,6 +2904,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._tool_ran_in_request = False
         self._fail_streak = 0
         self._claim_nudges = 0
+        # 本轮工具时间线：这一问到底动了几次工具、分别成没成、总共多久。
+        # 工具卡片是一条条刷过去的，多轮之后用户只会记得"好像跑了几个东西"；
+        # 收尾给一行汇总，才看得出这次到底做了什么。
+        self._round_tools: List[Tuple[str, str, float, Optional[int]]] = []
         for _round in range(1, MAX_ROUNDS + 1):
             msgs = self.messages + [{"role": "user", "content": next_user}]
             output, system, disp = self._model_turn(msgs)
@@ -2965,6 +2993,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     # 兜底：流式展示未覆盖时补打完整回复
                     print()
                     print(result["message"], end="", flush=True)
+                self._print_tool_timeline()
                 print(c("green", t("done", round=_round,
                                    sec=time.time() - t0)))
                 # 目标轮次驱动（借鉴 DSH goal-round-driver）：goal active+armed+预算内
@@ -3005,22 +3034,41 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 next_user = PROMPT_ERROR_RETRY.format(rendered=render_error_result(result))
             else:
                 self.session["tools"] += 1
-                # OpenClaw 式工具卡片：三态标记 + 参数摘要 + 输出折叠
+                # OpenClaw 式工具卡片：三态标记 + 参数摘要 + 输出折叠 + 改动 diff
                 _st = result["status"]
                 _elapsed = result.get("elapsed")
                 _elapsed_f = float(_elapsed) if isinstance(_elapsed, (int, float)) else 0.0
                 _out = ""
+                _diff = ""
+                _exit_code: Optional[int] = None
                 if _st == "SUCCESS":
                     _d = result.get("data") or {}
                     if isinstance(_d, dict):
                         _raw = str(_d.get("stdout") or _d.get("content") or "")
                         _out = _raw[:4000]
                         _capped = len(_raw) > 4000
+                        # 命令类工具：把退出码摆出来（"跑完"≠"成功"，由人判断）
+                        _rc = _d.get("returncode")
+                        if isinstance(_rc, bool) or not isinstance(_rc, int):
+                            _rc = None
+                        _exit_code = _rc
+                        # 写入类工具：把改动 diff 摆出来（改错一行比跑错一条命令更难发现）
+                        _raw_diff = str(_d.get("diff") or "")
+                        if _raw_diff and ace_diff.looks_like_diff(_raw_diff):
+                            _diff = _raw_diff
+                            # diff 单独渲染，正文只留一行摘要 —— 否则同一份 diff
+                            # 会先在"输出"里刷一遍、再在 diff 段里刷一遍
+                            _out = str(_d.get("summary") or "")[:4000]
+                            _capped = False
                 _mark, _color = status_mark(_st)
+                # 命令成功执行但返回非零：不改状态（工具确实跑完了），但标题别用成功的绿
+                if _exit_code not in (None, 0):
+                    _color = "yellow"
                 _card = tool_card(
                     result.get("tool", ""), _st,
                     message=result.get("message", ""),
                     output=_out, elapsed=_elapsed_f,
+                    exit_code=_exit_code, diff=_diff,
                     collapsed=True, max_lines=8)
                 # 卡片折叠了输出就把原文记下来：卡片上写着"/expand 看完整"，
                 # 得有东西给它展开（此前这句承诺在代码里没有对应实现）。
@@ -3029,13 +3077,28 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         "tool": result.get("tool", ""), "status": _st,
                         "output": _out, "lines": len(_out.splitlines()),
                         "capped": _capped}
-                # 上色：标题行按状态色，其余 dim
+                elif _diff and len([x for x in _diff.splitlines() if x.strip()]) > 8:
+                    # diff 也会被折叠：同样记下来，否则 /expand 对它无能为力
+                    _dl = [x for x in _diff.splitlines() if x.strip()]
+                    self._last_folded = {
+                        "tool": result.get("tool", ""), "status": _st,
+                        "output": _diff, "lines": len(_dl), "capped": False}
+                # 上色：标题按状态色；diff 行按 +/- 上色；其余 dim
+                # 判据用"这行确实是 diff 里的一行"（比对去空白后的原文），而不是
+                # 只看首字符 —— 否则 `ls` 输出里以 + 开头的行会被误染成绿色。
+                _diff_stripped = ({y.strip() for y in _diff.splitlines() if y.strip()}
+                                  if _diff else None)
                 for _i, _ln in enumerate(_card):
                     if _i == 0:
                         _ln = _ln.replace(f" {_mark} ", f" {c(_color, _mark)} ", 1)
                         print(c(_color, _ln))
+                    elif (_diff_stripped is not None and _ln.strip() in _diff_stripped
+                          and ace_diff.diff_marker(_ln.strip()) in "+-@"):
+                        print(c(ace_diff.color_name(_ln.strip()), _ln))
                     else:
                         print(c("dim", _ln))
+                self._round_tools.append(
+                    (result.get("tool", ""), _st, _elapsed_f, _exit_code))
                 if result["status"] == "SUCCESS":
                     self._print_clickables(result)
                 if result.get("memory_injected"):
@@ -3043,8 +3106,14 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                                      n=len(result["memory_injected"]))))
                 if self.client.mock and result["status"] == "SUCCESS":
                     data = result.get("data") or {}
+                    # mock 的"观察结果"优先取**人说得出的一句**（时间/摘要），
+                    # 而不是把整个 data 的 JSON 灌回去 —— 演示里那串 JSON 会原样
+                    # 出现在模型回答里，看着像个 bug。
+                    _obs = (data.get("datetime") or data.get("summary")
+                            or data.get("content") or "")
+                    _obs = " ".join(str(_obs).split())[:160]
                     self.client._mock_provider.mock_tool_result = (
-                        data.get("datetime") or json.dumps(data, ensure_ascii=False))
+                        _obs or json.dumps(data, ensure_ascii=False))
                 next_user = PROMPT_TOOL_RESULT.format(rendered=render_tool_result(result))
         print(c("yellow", t("max_rounds")))
 

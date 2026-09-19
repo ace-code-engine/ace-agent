@@ -888,6 +888,7 @@ if _want("9"):
     import io
     import contextlib
     import ai_code  # noqa: E402
+    from ui import ace_diff as ace_diff_mod  # noqa: E402  （改动可见：diff 渲染纯函数）
 
     check("CLI 自动识别 Anthropic 格式",
           ai_code.detect_api_format("https://open.bigmodel.cn/api/anthropic") == "anthropic")
@@ -1394,6 +1395,71 @@ if _want("9"):
         check("窄终端下首屏仍不超宽（宽度真的跟着窗口走）",
               all(_dw9(x) <= 60 for x in _cli_land.landing_lines(0, width=60)),
               max(_dw9(x) for x in _cli_land.landing_lines(0, width=60)))
+
+        # —— 工具调用可视化：diff 上色 + 退出码 + 本轮时间线（走真实 converse） ——
+        # 颜色由 ai_code.c() 在**调用时**读 USE_COLOR；测试进程 stdout 不是 tty，
+        # 所以这里显式打开，才能断言"上色真的发生"（否则只能断言纯文本，等于没验）。
+        from ui.ace_cards import tool_card as _tool_card9  # noqa: E402
+        ai_code.USE_COLOR = True
+        cli_vis = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
+                                    "bait": False, "base_url": "", "api_key": "",
+                                    "model": "m1"}, mock=True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_vis.converse("帮我改代码，往笔记里加一行", echo_input=False)
+        _vis = buf.getvalue()
+        _vis_lines = _vis.splitlines()
+        check("改动卡片带 +N -M 统计（一眼看出改了几行）",
+              any(re.search(r"str_replace .* \+1 -0", _plain9(x)) for x in _vis_lines),
+              [x for x in _vis_lines if "str_replace" in _plain9(x)])
+        check("diff 的 + 行上绿色",
+              any("\033[32m" in x and "+- 第三条" in x for x in _vis_lines),
+              [repr(x) for x in _vis_lines if "+- 第三条" in _plain9(x)])
+        check("diff 的 - 行上红色（不是整段一色）",
+              any("\033[31m" in x and _plain9(x).lstrip().startswith("- ")
+                  for x in _vis_lines),
+              [repr(x) for x in _vis_lines if _plain9(x).lstrip().startswith("- ")])
+        check("diff 文件头（---/+++）不上红绿（按 dim 处理）",
+              not any("\033[31m" in x and _plain9(x).lstrip().startswith("--- a/")
+                      for x in _vis_lines),
+              [repr(x) for x in _vis_lines if _plain9(x).lstrip().startswith("--- a/")])
+        check("卡片正文不重复整份 diff（摘要一行 + diff 一段）",
+              _vis.count("@@ -2,4 +2,5 @@") == 1, _vis.count("@@ -2,4 +2,5 @@"))
+        _tl = [x for x in _vis_lines if "file_write" in _plain9(x)
+               and "str_replace" in _plain9(x) and "✓" in _plain9(x)]
+        check("一轮多工具收尾给一行时间线（列出工具与状态）", len(_tl) == 1, _tl)
+        check("时间线带次数与耗时", any(re.search(r"\b2\b.*s.*file_write", _plain9(x))
+                                        for x in _tl), _tl)
+
+        # 只调一次工具时不打时间线（那张卡片本身就是全部信息）
+        cli_one = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "write",
+                                    "bait": False, "base_url": "", "api_key": "",
+                                    "model": "m1"}, mock=True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_one.converse("现在几点", echo_input=False)
+        check("只调一次工具时没有时间线行（不制造噪音）",
+              not any("1 " in _plain9(x) and "次工具调用" in _plain9(x)
+                      for x in buf.getvalue().splitlines()),
+              [x for x in buf.getvalue().splitlines() if "工具调用" in _plain9(x)])
+
+        # /expand 要能展开被折叠的 diff（同一套机制，不是只对 stdout 有效）
+        _vis_many = ("--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,30 @@\n"
+                     + "\n".join(f"+第 {i} 行" for i in range(30)))
+        cli_vis._last_folded = None
+        _card_diff = _tool_card9("file_write", "SUCCESS", diff=_vis_many,
+                                 collapsed=True, max_lines=8)
+        check("卡片折叠长 diff 时给折叠提示",
+              any("已折叠" in x for x in _card_diff), _card_diff[-1])
+        cli_vis._last_folded = {"tool": "file_write", "status": "SUCCESS",
+                                "output": _vis_many, "lines": 33, "capped": False}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_vis.run_command("/expand")
+        check("/expand 能展开被折叠的 diff（首行与最后一行都在）",
+              "+第 0 行" in buf.getvalue() and "+第 29 行" in buf.getvalue(),
+              buf.getvalue()[-120:])
+        ai_code.USE_COLOR = False      # 还原：后面的断言按纯文本比对
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 
@@ -2304,6 +2370,33 @@ if _want("10"):
     r = run_agent(el_edit, "str_replace", path=str(Path.home() / ".bashrc"),
                   old_string="x", new_string="y")
     check("str_replace 拒绝改敏感目标（~/.bashrc）", r["status"] == "403", r.get("message"))
+
+    # —— file_write 的 diff（改动可见）+ 三条不该给 diff 的边界 ——
+    # "能写文件"和"看得见改了哪几行"是两件事：改错一行比跑错一条命令更难发现。
+    _wf = _edit_root / "notes.md"
+    r = run_agent(el_edit, "file_write", path="notes.md", content="# 一\n- a\n")
+    check("新文件不给 diff（全是 + 行没有信息量）",
+          r["status"] == "SUCCESS" and "diff" not in (r["data"] or {})
+          and r["data"]["bytes_written"] > 0, r["data"])
+    r = run_agent(el_edit, "file_write", path="notes.md", content="# 一\n- a\n- b\n")
+    check("覆盖已有文件时返回 diff（含新增行）",
+          r["status"] == "SUCCESS" and "\n- b" not in r["data"]["diff"]
+          and "+- b" in r["data"]["diff"] and r["data"]["summary"].startswith("已写入"),
+          r["data"].get("diff"))
+    check("覆盖写入的 diff 是合法 unified diff（可直接上色）",
+          ace_diff_mod.looks_like_diff(r["data"]["diff"])
+          and ace_diff_mod.stat_text(r["data"]["diff"]) == "+1 -0",
+          (r["data"]["diff"], ace_diff_mod.stat_text(r["data"]["diff"])))
+    r = run_agent(el_edit, "file_write", path="notes.md", content="# 一\n- a\n- b\n")
+    check("内容没变时不给 diff（不制造一串空改动）", "diff" not in (r["data"] or {}), r["data"])
+    (_edit_root / ".env").write_text("TOKEN=old\n", encoding="utf-8")
+    r = run_agent(el_edit, "file_write", path=".env", content="TOKEN=new\n")
+    check("敏感目标（.env）即便写入成功也不给 diff（旧内容不进卡片/不进模型上下文）",
+          "diff" not in (r["data"] or {}) or not r["data"].get("diff"), r["data"])
+    (_edit_root / "big.txt").write_text("x" * 300_000, encoding="utf-8")
+    r = run_agent(el_edit, "file_write", path="big.txt", content="y" * 300_000)
+    check("超大文件不给 diff（为渲染几行去读 10MB 不值）",
+          "diff" not in (r["data"] or {}), (r["data"] or {}).get("bytes_written"))
 
 
 
@@ -5398,6 +5491,42 @@ if _want("33"):
           _pn.format_when(_now - 2 * 86400, _now).count("-") == 1,
           _pn.format_when(_now - 2 * 86400, _now))
     check("format_when：坏输入不抛异常", _pn.format_when(None, _now) == "?", "")
+
+    # —— ui/ace_diff：改动可见（纯函数，颜色名与统计都在这里定） ——
+    from ui import ace_diff as _df  # noqa: E402
+
+    _d_sample = ("--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,4 @@\n def f():\n"
+                 "-    return 1\n+    return 2\n+# 新行\n")
+    check("looks_like_diff：认 @@ 或 ---/+++ 成对",
+          _df.looks_like_diff(_d_sample)
+          and _df.looks_like_diff("--- a\n+++ b\n@@\n")
+          and not _df.looks_like_diff("+ 这是列表\n- 这是减号\n")
+          and not _df.looks_like_diff("") and not _df.looks_like_diff(None), "")
+    check("summarize_diff：文件头不计入增删（否则每次 diff 都凭空多两行）",
+          _df.summarize_diff(_d_sample)["added"] == 2
+          and _df.summarize_diff(_d_sample)["removed"] == 1,
+          _df.summarize_diff(_d_sample))
+    check("summarize_diff：列出涉及的文件",
+          _df.summarize_diff(_d_sample)["files"] == ["a/x.py", "b/x.py"],
+          _df.summarize_diff(_d_sample)["files"])
+    check("stat_text：+N -M；无改动返回空串",
+          _df.stat_text(_d_sample) == "+2 -1"
+          and _df.stat_text("--- a\n+++ b\n") == "", _df.stat_text(_d_sample))
+    check("color_name：加绿 / 减红 / 区块头青 / 文件头 dim（不当成增删行）",
+          _df.color_name("+x") == "green" and _df.color_name("-x") == "red"
+          and _df.color_name("@@ -1 +1 @@") == "cyan"
+          and _df.color_name("--- a/x") == "dim" and _df.color_name("+++ b/x") == "dim",
+          [_df.color_name(x) for x in ("+x", "-x", "@@", "--- a/x", "+++ b/x")])
+    check("colorize_diff：按列截断（中文行不超宽）",
+          all(_dw(x) <= 12 for x in _df.colorize_diff("+中文很长的行" * 3, width=12)), "")
+    check("colorize_diff：超过上限就截断并说明（不冒充完整）",
+          len(_df.colorize_diff("\n".join(f"+{i}" for i in range(50)), max_lines=10)) == 11
+          and "40" in _df.colorize_diff("\n".join(f"+{i}" for i in range(50)),
+                                        max_lines=10)[-1], "")
+    check("colorize_diff：空输入返回空列表", _df.colorize_diff("") == [], "")
+    check("split_for_display：(行, 颜色) 一步到位",
+          _df.split_for_display("+a\n-b\n") == [("+a", "green"), ("-b", "red")],
+          _df.split_for_display("+a\n-b\n"))
 
     # ============================================================
 

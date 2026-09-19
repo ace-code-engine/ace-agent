@@ -51,6 +51,19 @@ def _is_sensitive_file(path: Path) -> bool:
     return False
 
 
+def is_credential_file(path) -> bool:
+    """这是明文凭据文件吗（SEC-04 名单）？
+
+    公开入口，供**同一判断的第二处**复用：快照不留它的副本，那么"为了显示 diff
+    而把旧内容读出来"同样不该做 —— 那份内容会进终端卡片，也会顺着工具结果进模型
+    上下文。两处各维护一份名单，迟早会漂。
+    """
+    try:
+        return _is_sensitive_file(Path(path))
+    except (TypeError, ValueError):
+        return False
+
+
 class SnapshotError(Exception):
     pass
 

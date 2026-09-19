@@ -351,18 +351,33 @@ class ModelProvider:
         self.history: List[Dict[str, str]] = []
         self.mock_step = 0
         self.mock_tool_result: Optional[str] = None
+        self.mock_script: Optional[str] = None
 
     # ---------- 脚本化假模型（离线演示完整循环） ----------
 
-    def generate_mock(self, prompt: str) -> str:
-        """脚本化假模型：默认走"查时间"的干净闭环；命中关键词则演一遍**被拦下**的路径。
+    # 剧本关键词。**只在第一轮判定**：后续轮次的 prompt 是工具结果回喂，里面已经
+    # 没有用户原话（拦截剧本当年是靠结果里恰好带着 `id_rsa` 才蒙对的），
+    # 一旦某套剧本的结果文本里不含关键词，它就会中途掉回默认剧本 —— 这类
+    # "演示时好时坏"的毛病不值得留着。
+    MOCK_BLOCKED_KEYS = ("私钥", "id_rsa", "越界", "删掉", "改坏", "偷偷")
+    MOCK_DIFF_KEYS = ("改代码", "改一行", "加一行", "diff", "改动")
 
-        为什么要两种剧本：演示"全流程跑通"和演示"执行层真的拦得住"是两件事。
-        后者最有说服力——它不靠讲解，直接把一次越界读取打到 403 给你看（见 demo/）。
-        关键词命中才走拦截剧本，所以既有的 mock 断言与默认演示完全不受影响。
+    def generate_mock(self, prompt: str) -> str:
+        """脚本化假模型：三套剧本 —— 查时间（默认）/ 被拦下 / 改动可见。
+
+        为什么要有后两套：演示"全流程跑通"和演示"执行层真的拦得住"是两件事；
+        而"能改文件"和"改了哪一行看得见"又是两件事。关键词只在第一轮判定，
+        之后按 `mock_script` 走完，不靠每轮重新嗅探。
         """
         self.mock_step += 1
-        if any(k in prompt for k in ("私钥", "id_rsa", "越界", "删掉", "改坏", "偷偷")):
+        if self.mock_step == 1:
+            if any(k in prompt for k in self.MOCK_BLOCKED_KEYS):
+                self.mock_script = "blocked"
+            elif any(k in prompt for k in self.MOCK_DIFF_KEYS):
+                self.mock_script = "diff"
+            else:
+                self.mock_script = "time"
+        if self.mock_script == "blocked":
             if self.mock_step == 1:
                 return (
                     "<INTERNAL>\n[INTERNAL_THINKING]\n"
@@ -380,6 +395,38 @@ class ModelProvider:
                 "[REASON] 这是安全边界，不是权限问题；如实报告用户\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
                 f"<EXTERNAL>\nanswer.\n读取被执行层拦下了{detail}——"
                 "敏感目标/越界由执行层硬拦，与模型是否被说服无关。\n</EXTERNAL>"
+            )
+        if self.mock_script == "diff":
+            # 第三套剧本：**改动可见**。先建一个文件，再改它一行 —— 第二次调用带 diff，
+            # 终端会把 +/- 逐行上色，收尾还会给一行"本轮 N 次工具调用"的汇总。
+            # 演示"能改"和演示"改了哪一行"是两件事，后者才是用户每天要核对的东西。
+            if self.mock_step == 1:
+                return (
+                    "<INTERNAL>\n[INTERNAL_THINKING]\n"
+                    "[PLAN] 演示：先建一个笔记文件\n"
+                    "[REASON] 要改动先得有文件\n[ACT] 调用 file_write\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                    "<EXTERNAL>\nanswer.\n"
+                    '{"tool":"file_write","path":"demo_notes.md",'
+                    '"content":"# 演示笔记\\n\\n- 第一条\\n- 第二条\\n"}\n</EXTERNAL>'
+                )
+            if self.mock_step == 2:
+                return (
+                    "<INTERNAL>\n[INTERNAL_THINKING]\n"
+                    "[PLAN] 演示：在笔记里加一行\n"
+                    "[REASON] str_replace 只动一行，diff 会告诉用户改了哪里\n"
+                    "[ACT] 调用 str_replace\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                    "<EXTERNAL>\nanswer.\n"
+                    '{"tool":"str_replace","path":"demo_notes.md",'
+                    '"old_string":"- 第二条\\n","new_string":"- 第二条\\n- 第三条（新加的）\\n"}\n</EXTERNAL>'
+                )
+            result_text = self.mock_tool_result or ""
+            detail = f"\n{result_text}" if result_text and result_text != "(未知)" else ""
+            return (
+                "<INTERNAL>\n[INTERNAL_THINKING]\n"
+                "[OBSERVE] 改动已落地，diff 与汇总都已展示\n"
+                "[REASON] 信息已足够，输出最终回复\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                "<EXTERNAL>\nanswer.\n"
+                f"改好了：只加了一行，卡片里的 + 行就是新增内容。{detail}\n</EXTERNAL>"
             )
         if self.mock_step == 1:
             # 第一轮：输出工具调用

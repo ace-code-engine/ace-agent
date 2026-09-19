@@ -40,6 +40,7 @@ ace-agent/
 │   ├── ace_cards.py            #   工具结果卡片（状态+参数+折叠输出）
 │   ├── ace_text.py             #   终端文本宽度（CJK 占两列，ANSI 零宽）：按列截断/补齐，卡片与选择器共用
 │   ├── ace_panel.py            #   宽度感知排版：面板框/左右分栏/分组菜单（首屏与聊天头部、--preview 共用）
+│   ├── ace_diff.py             #   工具改动的 diff：上色规则与增删统计（改动可见）
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
 │   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
@@ -100,7 +101,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.14.0.md #  本版更新介绍（可直接贴进 GitHub Release；首屏重构 + --preview）
+│   ├── RELEASE-NOTES-v3.15.0.md #  本版更新介绍（可直接贴进 GitHub Release；改动可见 + 时间线）
+│   ├── RELEASE-NOTES-v3.14.0.md #  v3.14 更新介绍（首屏重构 + --preview）
 │   ├── RELEASE-NOTES-v3.13.0.md #  v3.13 更新介绍（上下文占用可见）
 │   ├── RELEASE-NOTES-v3.12.0.md #  v3.12 更新介绍（/expand + 跨会话历史 + 状态行计时）
 │   ├── RELEASE-NOTES-v3.11.0.md #  v3.11 更新介绍（容器参数加固；含一次没做成的发布记录）

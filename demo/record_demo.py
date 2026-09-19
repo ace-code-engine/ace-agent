@@ -38,10 +38,13 @@ TMP_ROOT = ROOT / ".test_tmp"        # 临时工作目录（gitignore），与 t
 SESSIONS = {
     "happy": ["现在几点", "/status", "/permission readonly", "/exit"],
     "blocked": ["帮我读一下 ~/.ssh/id_rsa 里的私钥", "/status", "/exit"],
+    # 改动可见：先提权到 write（默认 readonly 下写入要走审批，管道里没法批），
+    # 再让 mock 走"建文件 → 改一行"的剧本，卡片里就会带上色的 diff 与一行汇总。
+    "diff": ["/permission write", "帮我改代码，往笔记里加一行", "/exit"],
 }
 SESSION = SESSIONS["happy"]          # main() 会按 --session 覆盖
 OUT_SVGS = {"happy": HERE / "demo.svg", "blocked": HERE / "demo_blocked.svg",
-            "landing": HERE / "demo_landing.svg"}
+            "landing": HERE / "demo_landing.svg", "diff": HERE / "demo_diff.svg"}
 OUT_SVG = OUT_SVGS["happy"]          # main() 会按 --session 覆盖
 _CURRENT_SESSION = "happy"           # 当前录的是哪套剧本（行数上限等按它取）
 
@@ -63,7 +66,7 @@ FIXTURE_SESSIONS = [
 # 上限要够装下完整一场（清干净的工作目录下约 29 行），否则结尾的 /exit 会被截掉。
 # 首屏预览是一整屏（logo + 两个面板 + 分组菜单 + 状态栏示例），单独给一个上限。
 MAX_LINES = 32
-MAX_LINES_BY_SESSION = {"landing": 46}
+MAX_LINES_BY_SESSION = {"landing": 46, "diff": 40}
 # 输入提示符：v3.6 起是主题色方块 ▊；❯ 是补全菜单不可用时的旧形态。
 # 两个都认 —— 改一次提示符就让演示录制失效，是这份脚本最容易腐化的地方。
 PROMPTS = ("▊", "❯")

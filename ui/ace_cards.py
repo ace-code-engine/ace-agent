@@ -53,7 +53,7 @@ TOOL_EMOJI: Dict[str, str] = {
     "notify_send": "🔔", "parse_document": "📄", "open_file": "🔗",
     "edit_file": "✏", "grep": "🔎", "glob": "📂", "math_calc": "🧮",
     "datetime_now": "🕐", "plan_propose": "📋", "request_permission": "🔑",
-    "str_replace": "🔄",
+    "str_replace": "🔄", "todo_write": "☑",
     # 补齐 registry 里其余工具（browser_screenshot / browser_open / 高危占位）
     "browser_screenshot": "📸", "browser_open": "🌐",
     "terminal_dangerous": "☠", "db_drop": "💥",
@@ -83,7 +83,7 @@ TOOL_GLYPH: Dict[str, str] = {
     "grep": "?", "glob": "*",
     "math_calc": "=", "datetime_now": "t",
     "plan_propose": "#", "request_permission": "!",
-    "str_replace": "%",
+    "str_replace": "%", "todo_write": "c",
     "terminal_dangerous": "!", "db_drop": "x",
 }
 GLYPH_FALLBACK: str = "*"  # 未知工具的回退符号

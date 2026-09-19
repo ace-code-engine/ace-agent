@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45"]
+             "43", "44", "45", "46"]
 _SEEN_SECTIONS: list = []
 
 
@@ -6973,6 +6973,193 @@ if _want("45"):
           not any(e["type"] == "tool_result" and e.get("status") == "SUCCESS"
                   and e.get("tool") == "file_write" for e in _evs45b),
           [e for e in _evs45b if e["type"] == "tool_result"])
+
+    # ============================================================
+
+# ============================================================
+if _want("46"):
+    # ── [46] ────
+    print("[46] 会话管理（/sessions /resume /fork /rewind）+ 逐项待办（todo_write / /todo）")
+    # ============================================================
+    import io as _io46  # noqa: E402
+    import contextlib as _cl46  # noqa: E402
+    import ai_code as _ai46  # noqa: E402
+    from core import ace_todos as _td46  # noqa: E402
+    from cli import ace_sessions as _se46  # noqa: E402
+    from cli.ace_sessionlog import SessionLog as _SL46  # noqa: E402
+
+    # —— 纯逻辑：待办清单 ——
+    _t46, _i46 = _td46.add([], "跑全量测试")
+    check("add：编号从 1 递增，状态默认 pending",
+          _i46.id == 1 and _i46.status == "pending" and len(_t46) == 1, _i46)
+    _t46, _i46b = _td46.add(_t46, "写更新介绍")
+    _t46, _hit46 = _td46.update(_t46, 1, "done")
+    check("update：按编号改状态（文本不变）",
+          _hit46.status == "done" and _hit46.text == "跑全量测试", _hit46)
+    check("summary：进度口径统一（done/total/pending）",
+          _td46.summary(_t46) == {"done": 1, "total": 2, "in_progress": 0, "pending": 1},
+          _td46.summary(_t46))
+    check("update：非法状态被拒（不改数据）",
+          _td46.update(_t46, 2, "取消了")[1] is None, "")
+    check("update：不存在的编号返回 None",
+          _td46.update(_t46, 99, "done")[1] is None, "")
+    check("render：三态符号可读且不含 emoji（旧 conhost 会画成方框）",
+          _td46.render(_t46)[0].startswith("[x] 1.")
+          and _td46.render(_t46)[1].startswith("[ ] 2."), _td46.render(_t46))
+    check("add：空文本被拒", _td46.add(_t46, "   ")[1] is None, "")
+    check("add：超过 50 条上限被拒（清单不是垃圾场）",
+          _td46.add([_td46.TodoItem(id=i, text="x") for i in range(1, 51)], "y")[1] is None, "")
+    check("add：超长文本截断到 200", len(_td46.add([], "长" * 500)[1].text) == _td46.MAX_TEXT, "")
+    check("remove / clear_done 语义",
+          len(_td46.remove(_t46, 1)[0]) == 1 and _td46.clear_done(_t46) == [_t46[1]], "")
+
+    # —— 纯逻辑：事件重放（事实源在会话日志里）——
+    _evs46 = [{"kind": "todo/add", "text": "A"}, {"kind": "todo/add", "text": "B"},
+              {"kind": "todo/update", "id": 1, "status": "done"},
+              {"kind": "todo/remove", "id": 2}]
+    check("replay：从 todo/* 事件重建清单",
+          [x.text for x in _td46.replay(_evs46)] == ["A"]
+          and _td46.replay(_evs46)[0].status == "done", _td46.replay(_evs46))
+    check("replay：未知动作忽略（旧日志里的新动作不该读失败）",
+          [x.text for x in _td46.replay(_evs46 + [{"kind": "todo/未知"}])] == ["A"], "")
+
+    # —— 纯逻辑：会话摘要与 rewind ——
+    _sess46 = [{"kind": "user/message", "content": "第一问"},
+               {"kind": "assistant/message", "content": "第一答"},
+               {"kind": "tool/result", "tool": "file_read", "status": "SUCCESS"},
+               {"kind": "user/message", "content": "第二问"},
+               {"kind": "assistant/message", "content": "第二答"},
+               {"kind": "compaction/event", "before": 100, "after": 50},
+               {"kind": "user/message", "content": "第三问"},
+               {"kind": "assistant/message", "content": "第三答"}]
+    _sum46 = _se46.summarize(_sess46)
+    check("summarize：轮数/工具数/压缩次数/首句/末句",
+          _sum46["turns"] == 3 and _sum46["tools"] == 1 and _sum46["compactions"] == 1
+          and _sum46["first_user"] == "第一问" and _sum46["last_assistant"] == "第三答",
+          _sum46)
+    check("label：取首句，超长截断",
+          _se46.label(_sess46) == "第一问"
+          and _se46.label([{"kind": "user/message", "content": "字" * 60}]).endswith("…"),
+          _se46.label(_sess46))
+    check("messages_at_turn：切到第 2 轮（含该轮回复）",
+          [m["content"] for m in _se46.messages_at_turn(_sess46, 2)]
+          == ["第一问", "第一答", "第二问", "第二答"],
+          _se46.messages_at_turn(_sess46, 2))
+    check("messages_at_turn：0 轮 = 空（回到会话开始前）",
+          _se46.messages_at_turn(_sess46, 0) == [], "")
+    check("messages_at_turn：超过实际轮数 = 全量（不报错）",
+          len(_se46.messages_at_turn(_sess46, 99)) == 6, "")
+    check("messages_at_turn：不带该轮回复（用于'重问一遍'）",
+          [m["content"] for m in _se46.messages_at_turn(_sess46, 1,
+                                                        include_assistant_after=False)]
+          == ["第一问"], "")
+    check("head_for_resume：只带最近 N 条（旧会话不把上下文一次吃满）",
+          len(_se46.head_for_resume(_sess46, limit=2)) == 2, "")
+    check("pick_by_index：1 起编号，越界/非数字 → None",
+          _se46.pick_by_index([{"a": 1}], "1") == {"a": 1}
+          and _se46.pick_by_index([{"a": 1}], "2") is None
+          and _se46.pick_by_index([{"a": 1}], "x") is None, "")
+
+    # —— 真文件 + CLI：会话列表 / 续聊 / 分叉 / rewind ——
+    _root46 = mktemp()
+    _sdir46 = _root46 / ".ace_sessions"
+    _sdir46.mkdir(parents=True)
+    _old46 = _sdir46 / "1111111111111.jsonl"
+    _log46 = _SL46(str(_old46))
+    for kind, payload in (("user/message", {"content": "上次问的第一件事"}),
+                          ("assistant/message", {"content": "上次答的第一件事"}),
+                          ("user/message", {"content": "上次问的第二件事"}),
+                          ("assistant/message", {"content": "上次答的第二件事"})):
+        _log46.append(kind, payload)
+    _cli46 = _ai46.AgentCLI({"project_root": str(_root46), "permission": "readonly",
+                             "bait": False, "base_url": "", "api_key": "", "model": "m1"},
+                            mock=True)
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.run_command("/sessions")
+    _out46 = _buf46.getvalue()
+    check("/sessions 列出旧会话（时间 / 轮数 / 首句）",
+          "2 轮" in _out46 and "上次问的第一件事" in _out46, _out46[:300])
+
+    _cur_log46 = str(_cli46.cfg["session_log"])
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.run_command("/resume 1")
+    check("/resume 1：消息历史按该会话重建",
+          [m["content"] for m in _cli46.messages]
+          == ["上次问的第一件事", "上次答的第一件事", "上次问的第二件事", "上次答的第二件事"],
+          _cli46.messages)
+    check("/resume：会话日志切到那个文件（之后写进同一份）",
+          _cli46.cfg["session_log"] == str(_old46) and _cli46.session_log.path == _old46
+          and _cur_log46 != str(_old46), (_cli46.cfg["session_log"], _cur_log46))
+    check("/resume：执行层也换到同一份日志（权限/工具事件不写错地方）",
+          _cli46.el.session_log.path == _old46, _cli46.el.session_log.path)
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.converse("续聊一句", echo_input=False)
+    _kinds46 = [e.get("kind") for e in _SL46(str(_old46)).events()]
+    check("续聊后新消息真的写进被续聊的那份日志",
+          "user/message" in _kinds46 and "session/resume" in _kinds46, _kinds46[-6:])
+
+    # rewind：只动对话，文件不动
+    _probe46 = _root46 / "别动我.txt"
+    _probe46.write_text("原始内容", encoding="utf-8")
+    _before46 = _probe46.read_text(encoding="utf-8")
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.run_command("/rewind 1")
+    check("/rewind 1：对话退到第 1 轮（消息变少）",
+          len(_cli46.messages) <= 2 and "退回" in _buf46.getvalue(), _buf46.getvalue()[:200])
+    check("/rewind：**不动文件**（提示里指向 /rollback）",
+          _probe46.read_text(encoding="utf-8") == _before46
+          and "/rollback" in _buf46.getvalue(), _buf46.getvalue()[-200:])
+
+    # fork：新文件 + 带上历史消息
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.run_command("/fork")
+    _new46 = _cli46.session_log.path
+    check("/fork：开了新会话文件（不是原来那份）",
+          _new46 != _old46 and _new46.exists(), (_new46, _old46))
+    _fork_evs46 = list(_SL46(str(_new46)).events())
+    check("/fork：把历史消息复制进新会话",
+          sum(1 for e in _fork_evs46 if e.get("kind") == "user/message") >= 1
+          and any(e.get("kind") == "session/fork" for e in _fork_evs46),
+          [e.get("kind") for e in _fork_evs46])
+    check("/fork：当前消息历史就是带过来的那段",
+          [m["content"] for m in _cli46.messages][:1] == ["上次问的第一件事"],
+          _cli46.messages[:2])
+
+    # —— 待办：CLI 命令 + 工具 + 底栏 + 日志重放 ——
+    _buf46 = _io46.StringIO()
+    with _cl46.redirect_stdout(_buf46):
+        _cli46.run_command("/todo add 跑全量测试")
+        _cli46.run_command("/todo add 写更新介绍")
+        _cli46.run_command("/todo start 1")
+    check("/todo add/start 生效，底栏出现进度",
+          _cli46.el.todos.summary() == {"done": 0, "total": 2, "in_progress": 1,
+                                        "pending": 1}
+          and any("待办" in p[1] for p in _cli46._footer()),
+          (_cli46.el.todos.summary(), _cli46._footer()))
+    _r46 = run_agent(_cli46.el, "todo_write", action="done", id=1)
+    check("todo_write 工具：标记完成并把清单回给模型",
+          _r46["status"] == "SUCCESS"
+          and "1/2" in str((_r46.get("data") or {}).get("content", "")), _r46)
+    from execution_layer import READ_TOOLS as _RT46, WRITE_TOOLS as _WT46  # noqa: E402
+    check("todo_write 属只读权限组（列个清单不该要授权）",
+          "todo_write" in _RT46 and "todo_write" not in _WT46, "")
+    _r46 = run_agent(_cli46.el, "todo_write", action="done", id=99)
+    check("todo_write：不存在的编号报 404（不是静默成功）",
+          str(_r46.get("status") or _r46.get("error_code")) == "404", _r46)
+    _r46 = run_agent(_cli46.el, "todo_write", action="乱写")
+    check("todo_write：非法 action 报 400 并列出可选值",
+          str(_r46.get("status") or _r46.get("error_code")) == "400"
+          and "add" in str(_r46.get("message")), _r46)
+    _replayed46 = _td46.TodoStore.from_log(_cli46.session_log).items
+    check("待办从会话日志重放出来（换会话/重启后还在）",
+          len(_replayed46) == 2 and _replayed46[0].status == "done",
+          [t.as_dict() for t in _replayed46])
+    _cli46.close()
 
     # ============================================================
 

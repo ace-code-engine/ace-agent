@@ -70,6 +70,8 @@ UNTRUSTED_SOURCES: Dict[str, str] = {
     "search_read": "网络（网页正文）",
     # 技能库：SKILL.md 是技能作者的指令文本，等同外部内容，定界注入
     "skill_list": "技能目录", "skill_load": "技能内容",
+    # 待办清单：回显的是清单文本（模型自己写的 + 用户用 /todo 加的），没有外部正文
+    "todo_write": "执行层状态",
 }
 # 未知工具按"外部（未分类）"处理：新增工具时忘记登记，应该落在更保守的一侧。
 UNTRUSTED_DEFAULT = "外部（未分类）"

@@ -47,7 +47,8 @@ ace-agent/
 │   ├── __init__.py             #   包入口
 │   ├── ace_doctor.py           #   环境自检（python -m cli.ace_doctor）
 │   ├── ace_context.py          #   上下文压缩判定：保住任务锚点，中间段折成摘要
-│   └── ace_sessionlog.py       #   会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
+│   ├── ace_sessionlog.py       #   会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
+│   └── ace_sessions.py         #   会话派生视图：摘要 / 切到第 n 轮 / rewind（纯函数）
 ├── core/                       # 引擎支撑：策略 / 网络 / 执行器客户端 / 记忆与快照
 │   ├── __init__.py             #   包入口
 │   ├── ace_execpolicy.py       #   命令三值判定（allow / prompt / forbidden），纯函数、可单测
@@ -65,6 +66,7 @@ ace-agent/
 │   ├── ace_hooks.py            #   事件钩子：session_start / user_prompt / pre_tool / post_tool / session_end（JSON 进出）
 │   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
+│   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
@@ -105,7 +107,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.19.0.md #  本版更新介绍（可直接贴进 GitHub Release；headless 事件流）
+│   ├── RELEASE-NOTES-v3.20.0.md #  本版更新介绍（可直接贴进 GitHub Release；会话管理 + 待办清单）
+│   ├── RELEASE-NOTES-v3.19.0.md #  v3.19 更新介绍（headless 事件流）
 │   ├── RELEASE-NOTES-v3.18.0.md #  v3.18 更新介绍（钩子 + 自定义命令 + 插件）
 │   ├── RELEASE-NOTES-v3.17.0.md #  v3.17 更新介绍（MCP 客户端）
 │   ├── RELEASE-NOTES-v3.16.0.md #  v3.16 更新介绍（多行输入 + /history + 分组）

@@ -11,7 +11,7 @@
 
 | 分类 | 命令 |
 |---|---|
-| 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/expand` `/mcp` `/exit` |
+| 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
 | 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
@@ -61,6 +61,20 @@
 - `.ace/plugins/<名>/` → 插件：`commands/*.md` + `hooks.json`（命令带插件名前缀 `/名:cmd`）
 - `hooks`（`~/.ai_code.json` 或 `.ace/hooks.json`）→ 四个事件的用户检查；**默认出错即拦截**（fail-close），要宽松显式写 `on_error: warn`
 - `/hooks` 看装了哪些钩子与上次结果，`/plugins` 看插件加载情况
+
+**会话管理**（事实源是 `.ace_sessions/*.jsonl` 事件日志）：
+
+- `/sessions [编号]` — 列最近会话（时间 / 轮数 / 首句 / 是否被压过），交互终端里可选中续聊；带编号直接续聊
+- `/resume <编号|文件名>` — 续聊一个已有会话：消息历史按它重建，**之后的事件也写进那份日志**（不是复制）
+- `/fork [编号]` — 以某会话为起点开**一段新会话**（新文件 + 带上最近 10 轮消息）
+- `/rewind [轮次]` — 把**对话**退回到第 n 轮之后（默认退掉最后一轮）。**只动对话**：文件要靠 `/rollback`（快照），提示里会写明这一点
+
+**逐项待办**（与 `todo_write` 工具共用同一份清单，人和模型看到的是同一个）：
+
+- `/todo` 列出 · `/todo add <内容>` · `/todo start|done|remove <编号>` · `/todo clear [all]`
+- 模型侧用 `todo_write`（`action` = add/start/done/remove/clear）。多步任务先列清单再动手
+- 清单非空时**底栏显示 `待办 1/3`**；全部完成时变绿
+- 清单存进会话事件日志（`todo/*`），`/resume` 或重启后按日志重放 —— 不会因为换会话丢
 
 **MCP（外部进程工具）**：在 `~/.ai_code.json` 写 `mcp_servers`（或项目内 `.ace/mcp.json`），启动时按 stdio JSON-RPC 2.0 握手并把对面的工具注册成 `mcp__<server>__<工具名>`——模型可以直接调用它们，权限/审批/审计照旧。`/mcp` 看 server 状态与工具清单（`/mcp notools` 只看状态）。**MCP server 不在 ACE 的沙箱里**：它是你配置的子进程，只写你信得过的。
 

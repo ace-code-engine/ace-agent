@@ -1304,7 +1304,8 @@ class _SlashCommands:
     # 落到"其他"，不会影响分发。
     COMMAND_GROUPS = [
         ("group_session", ["/help", "/clear", "/status", "/stats", "/expand",
-                           "/history", "/audit", "/exit"]),
+                           "/history", "/sessions", "/resume", "/fork",
+                           "/rewind", "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
@@ -1371,6 +1372,11 @@ class _SlashCommands:
         "/thinking": "cmd_thinking",
         "/history": "cmd_history",
         "/mcp": "cmd_mcp",
+        "/todo": "cmd_todo",
+        "/sessions": "cmd_sessions",
+        "/resume": "cmd_resume",
+        "/fork": "cmd_fork",
+        "/rewind": "cmd_rewind",
         "/hooks": "cmd_hooks",
         "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
@@ -1406,6 +1412,11 @@ class _SlashCommands:
         "/thinking": ("_cmd_thinking", True),
         "/history": ("_cmd_history", True),
         "/mcp": ("_cmd_mcp", True),
+        "/todo": ("_cmd_todo", True),
+        "/sessions": ("_cmd_sessions", True),
+        "/resume": ("_cmd_resume", True),
+        "/fork": ("_cmd_fork", True),
+        "/rewind": ("_cmd_rewind", True),
         "/hooks": ("_cmd_hooks", True),
         "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
@@ -2046,6 +2057,18 @@ class _SlashCommands:
                 parts.append(("class:footer-dim", " 目标:done "))
         parts.append(("class:footer-dim",
                       f" 轮{self.session['rounds']} 工具{self.session['tools']} "))
+        # 待办进度：只有非空时才占位置（空清单不该在底栏占一格）
+        try:
+            _todo_store = getattr(getattr(self, "el", None), "todos", None)
+            _ts = _todo_store.summary() if _todo_store is not None else {"done": 0,
+                                                                        "total": 0}
+            if _ts["total"]:
+                _cls = ("class:footer-goal" if _ts["done"] == _ts["total"]
+                        else "class:footer-w")
+                parts.append((_cls, t("footer_todos", done=_ts["done"],
+                                      total=_ts["total"])))
+        except Exception:  # noqa: BLE001 —— 底栏不该因为清单读不出来就崩
+            pass
         # 上下文占用：把"还有多久会开始丢历史"摆到用户眼前。压缩发生时才提示就晚了，
         # 用户看到的只是"模型突然忘事"。
         _bdg_text, _bdg_cls = context_badge(self.context_usage(self.messages))
@@ -2817,6 +2840,255 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if cmd is None:
             return None
         return cmd.expand(parts[1] if len(parts) > 1 else "")
+
+    def _cmd_todo(self, parts: List[str]) -> bool:
+        """`/todo [add <文本>|start <id>|done <id>|remove <id>|clear [all]]`。
+
+        与 `todo_write` 工具共用同一份 store（同一个会话事件日志）—— 人和模型看到的是
+        同一个清单，不会出现"模型说做完了、界面上还挂着"。
+        """
+        store = getattr(getattr(self, "el", None), "todos", None)
+        if store is None:
+            print(c("dim", t("todo_none")))
+            return True
+        args = [x for x in parts[1:] if x]
+        action = (args[0].lower() if args else "list")
+        rest = args[1:]
+        note = ""
+        if action == "list" or (action not in ("add", "start", "done", "remove", "clear")):
+            if action not in ("list",) and args:
+                print(c("yellow", t("todo_usage")))
+        if action == "add":
+            item = store.add(" ".join(rest))
+            note = t("todo_added", id=item.id) if item else t("todo_add_failed")
+        elif action in ("start", "done"):
+            try:
+                item_id = int(rest[0]) if rest else 0
+            except (TypeError, ValueError):
+                item_id = 0
+            hit = store.update(item_id, "in_progress" if action == "start" else "done")
+            note = (t("todo_marked", id=hit.id, status=hit.status) if hit
+                    else t("todo_no_such", id=item_id))
+        elif action == "remove":
+            try:
+                item_id = int(rest[0]) if rest else 0
+            except (TypeError, ValueError):
+                item_id = 0
+            note = (t("todo_removed", id=item_id) if store.remove(item_id)
+                    else t("todo_no_such", id=item_id))
+        elif action == "clear":
+            removed = store.clear(all_items=bool(rest and rest[0].lower() == "all"))
+            note = t("todo_cleared", n=removed)
+        items = store.items
+        s = store.summary()
+        print(c("bold", t("todo_title", done=s["done"], total=s["total"])))
+        if not items:
+            print(c("dim", t("todo_empty")))
+        for line in store.render(self._panel_width()):
+            mark = "✓" if line.startswith("[x]") else ("→" if line.startswith("[~]") else "·")
+            print(f"  {c('green' if mark == '✓' else 'dim', mark)} {line[4:]}")
+        if note:
+            print(c("green", "  " + note))
+        return True
+
+    def _session_files(self) -> List[Path]:
+        """最近的会话日志（不含当前这个），按修改时间倒序。"""
+        try:
+            sess_dir = Path(self.cfg.get("project_root", ".")) / ".ace_sessions"
+            cur = Path(str(self.cfg.get("session_log") or ""))
+            return [p for p in sorted(sess_dir.glob("*.jsonl"),
+                                      key=lambda p: p.stat().st_mtime, reverse=True)
+                    if p != cur][:10]
+        except OSError:
+            return []
+
+    def _load_session_events(self, path: Path) -> List[Dict]:
+        from cli.ace_sessionlog import SessionLog as _SL
+        try:
+            return list(_SL(str(path)).events())
+        except Exception:  # noqa: BLE001 —— 坏日志就当空会话，不崩
+            return []
+
+    def _cmd_sessions(self, parts: List[str]) -> bool:
+        """`/sessions [n]`：列出最近会话（时间 / 轮数 / 首句 / 是否被压过），可选中续聊。"""
+        from cli import ace_sessions as _sess
+        files = self._session_files()
+        if not files:
+            print(c("dim", t("sessions_none")))
+            return True
+        rows: List[Dict] = []
+        for p in files:
+            evs = self._load_session_events(p)
+            info = _sess.summarize(evs)
+            rows.append({"path": p, "info": info, "label": _sess.label(evs, p.stem),
+                         "when": ace_panel.format_when(p.stat().st_mtime, time.time())
+                         if p.exists() else "?"})
+        print(c("bold", t("sessions_title", n=len(rows))))
+        for i, r in enumerate(rows, 1):
+            extra = []
+            if r["info"]["compactions"]:
+                extra.append(t("sessions_compacted", n=r["info"]["compactions"]))
+            if r["info"]["tools"]:
+                extra.append(t("sessions_tools", n=r["info"]["tools"]))
+            print(f"  {i:>2}. {r['when']}  {t('sessions_turns', n=r['info']['turns'])}  "
+                  f"{c('dim', r['label'])}" + (c("dim", "  " + " · ".join(extra))
+                                               if extra else ""))
+        # 带参数 = 直接续聊那一条；不带参数在交互终端里给选择器
+        pick = None
+        if len(parts) > 1:
+            pick = _sess.pick_by_index(rows, parts[1])
+            if pick is None:
+                print(c("yellow", t("sessions_bad_index", raw=parts[1])))
+                return True
+        elif run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
+            idx = run_selector(t("sessions_pick"),
+                               [f"{i}. {r['when']} {r['label']}" for i, r in enumerate(rows, 1)])
+            if idx is not None and 0 <= idx < len(rows):
+                pick = rows[idx]
+        print(c("dim", t("sessions_hint")))
+        if pick is not None:
+            return self._switch_session(pick["path"], pick["info"])
+        return True
+
+    def _rebind_todo_store(self) -> None:
+        """换会话（resume/fork）后把待办存储重新绑到**新的**会话日志上。
+
+        为什么必须重建：TodoStore 持有的是构造时那个 SessionLog 对象。换了日志文件却
+        沿用旧 store，之后所有 `todo/*` 事件都会写进**上一个会话**的文件里 ——
+        测试 [46] 就是这么抓到的（重放新日志得到空清单）。
+        """
+        try:
+            from core.ace_todos import TodoStore
+            store = TodoStore.from_log(self.session_log)
+            self.el.todos = store
+            self.el.executor.todos = store
+        except Exception:  # noqa: BLE001 —— 清单重建失败不该挡住换会话
+            pass
+
+    def _switch_session(self, path: Path, info: Optional[Dict] = None) -> bool:
+        """把当前会话切到 `path`：消息历史按该会话重建，之后的事件也写进那个文件。"""
+        from cli import ace_sessions as _sess
+        from cli.ace_sessionlog import SessionLog as _SL
+        evs = self._load_session_events(path)
+        info = info or _sess.summarize(evs)
+        self.messages = _sess.head_for_resume(evs)
+        self.session_log = _SL(str(path))
+        try:
+            self.el.session_log = self.session_log
+        except Exception:  # noqa: BLE001
+            pass
+        self._rebind_todo_store()
+        self.cfg["session_log"] = str(path)
+        # 续聊标记：写进该会话日志，之后回头能看出"这里接过一次"
+        try:
+            self.session_log.append("session/resume", {"from": path.name})
+        except Exception:  # noqa: BLE001
+            pass
+        print(c("green", t("sessions_resumed", n=info["turns"],
+                           label=_sess.label(evs, path.stem))))
+        return True
+
+    def _cmd_resume(self, parts: List[str]) -> bool:
+        """`/resume <编号|文件名>`：续聊一个已有会话。"""
+        from cli import ace_sessions as _sess
+        files = self._session_files()
+        if not files:
+            print(c("dim", t("sessions_none")))
+            return True
+        raw = parts[1] if len(parts) > 1 else ""
+        if not raw:
+            print(c("yellow", t("sessions_usage")))
+            return True
+        rows = [{"path": p, "info": _sess.summarize(self._load_session_events(p))}
+                for p in files]
+        pick = _sess.pick_by_index(rows, raw)
+        if pick is None:
+            named = [r for r in rows if r["path"].name == raw or r["path"].stem == raw]
+            pick = named[0] if named else None
+        if pick is None:
+            print(c("yellow", t("sessions_bad_index", raw=raw)))
+            return True
+        return self._switch_session(pick["path"], pick["info"])
+
+    def _cmd_fork(self, parts: List[str]) -> bool:
+        """`/fork [编号]`：以某会话（默认当前）为起点开一段新会话。
+
+        分叉 = 新文件 + 复制最近消息。为什么不做"共享历史"：两条线各自往后走，
+        共享历史就得处理分叉点之后的合并 —— 那是版本控制的问题，不是聊天界面的。
+        """
+        from cli import ace_sessions as _sess
+        from cli.ace_sessionlog import SessionLog as _SL
+        if len(parts) > 1:
+            files = self._session_files()
+            rows = [{"path": p, "info": _sess.summarize(self._load_session_events(p))}
+                    for p in files]
+            pick = _sess.pick_by_index(rows, parts[1])
+            if pick is None:
+                print(c("yellow", t("sessions_bad_index", raw=parts[1])))
+                return True
+            src_events = self._load_session_events(pick["path"])
+            src_note = pick["path"].name
+        else:
+            src_events = list(self.session_log.events()) if self.session_log else []
+            src_note = Path(str(self.cfg.get("session_log") or "")).name
+        msgs = _sess.head_for_resume(src_events)
+        new_path = Path(self.cfg.get("project_root", ".")) / ".ace_sessions" / \
+            f"{int(time.time() * 1000)}.jsonl"
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        self.session_log = _SL(str(new_path))
+        self.cfg["session_log"] = str(new_path)
+        try:
+            self.el.session_log = self.session_log
+        except Exception:  # noqa: BLE001
+            pass
+        self._rebind_todo_store()
+        for m in msgs:
+            try:
+                self.session_log.append("user/message" if m["role"] == "user"
+                                        else "assistant/message", {"content": m["content"]})
+            except Exception:  # noqa: BLE001
+                pass
+        self.messages = msgs
+        try:
+            self.session_log.append("session/fork", {"from": src_note,
+                                                     "messages": len(msgs)})
+        except Exception:  # noqa: BLE001
+            pass
+        print(c("green", t("sessions_forked", n=len(msgs), file=new_path.name)))
+        return True
+
+    def _cmd_rewind(self, parts: List[str]) -> bool:
+        """`/rewind [轮次]`：把**对话**退回到第 n 轮之后（默认退掉最后一轮）。
+
+        明确只管对话：文件回退是 `/rollback`（快照）的事。两件事绑在一起会让人以为
+        "rewind 一下文件也回来了" —— 那是危险的误会。
+        """
+        from cli import ace_sessions as _sess
+        evs = list(self.session_log.events()) if self.session_log else []
+        turns = _sess.turn_count(iter(evs))
+        if turns == 0:
+            print(c("dim", t("rewind_none")))
+            return True
+        if len(parts) > 1:
+            try:
+                target = int(parts[1])
+            except (TypeError, ValueError):
+                print(c("yellow", t("rewind_usage", turns=turns)))
+                return True
+        else:
+            target = turns - 1
+        target = max(0, min(target, turns))
+        before = len(self.messages)
+        self.messages = _sess.messages_at_turn(evs, target)
+        try:
+            self.session_log.append("session/rewind", {"turns_before": turns,
+                                                       "turns_after": target})
+        except Exception:  # noqa: BLE001
+            pass
+        print(c("green", t("rewind_done", before=turns, after=target,
+                           msgs=len(self.messages), dropped=before - len(self.messages))))
+        print(c("dim", t("rewind_files_hint")))
+        return True
 
     def _cmd_hooks(self, parts: List[str]) -> bool:
         """`/hooks`：看装了哪些钩子、各自上次的结果。"""

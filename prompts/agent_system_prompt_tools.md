@@ -18,7 +18,7 @@
 只读：terminal_view, file_read, grep, glob, api_get, db_query, search, search_read,
       browser_navigate, browser_open, math_calc, datetime_now, parse_document, open_file,
       edit_file, plan_propose, request_permission, goal_create, goal_update, goal_status,
-      kb_search, kb_list, skill_list, skill_load
+      kb_search, kb_list, skill_list, skill_load, todo_write
 写入：browser_screenshot, terminal_exec, str_replace, file_write, file_delete, file_move,
       api_post, code_execute, browser_click, browser_type, db_write, notify_send,
       image_generate, subagent, kb_add

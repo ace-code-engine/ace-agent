@@ -95,6 +95,9 @@ answer.
 22. edit_file        {"tool":"edit_file","path":"main.py"}         仅打开编辑器给人看，不改内容；改内容用 file_write
 23. plan_propose     {"tool":"plan_propose","title":"...","steps":["步骤1","步骤2"]}  提议任务计划，等用户批准
 24. request_permission {"tool":"request_permission","target":"terminal_exec","reason":"..."}  申请临时授权
+25. todo_write       {"tool":"todo_write","action":"add","text":"跑全量测试"}   维护逐项待办清单
+    - action: add（新增，需 text）/ start（进行中）/ done（完成）/ remove / clear（清掉已完成的），除 add 外都要 id
+    - 多步任务**先列清单再动手**，做完一项标一项：清单会显示在底栏，人和你看到的是同一份
 25. goal_create      {"tool":"goal_create","objective":"实现登录模块并跑通测试","max_rounds":10}
     创建持久化目标：长任务自动逐轮续跑，直到完成/暂停/阻塞或轮次预算耗尽。objective 写清最终交付物
 26. goal_update      {"tool":"goal_update","id":"...","revision":3,"phase":"blocked",

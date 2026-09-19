@@ -382,6 +382,69 @@ class ToolExecutorBase:
                         result.metadata["security_denied"] = True
         return result
 
+    # ---------- 控制面：待办清单 ----------
+
+    def _exec_todo_write(self, params: Dict[str, Any]) -> ExecutionResult:
+        """`todo_write`：维护逐项待办（add / start / done / remove / clear）。
+
+        为什么是只读权限组：它只动会话状态（写进会话事件日志），不碰文件、不联网。
+        把它归到写组会让 readonly 会话下"列个清单"都要授权一次 —— 那不是安全，
+        是噪音。真正的写操作（改文件、跑命令）权限照旧。
+
+        返回里**带上渲染好的清单**：模型下一步就知道现在第几项、还剩几项，
+        不用再调一次读工具。
+        """
+        store = getattr(self, "todos", None)
+        if store is None:
+            return ExecutionResult(status="error", error_code="503",
+                                   message="本次会话没有待办存储（内部错误）")
+        action = str(params.get("action") or "").strip().lower()
+        text = str(params.get("text") or "")
+        raw_id = params.get("id")
+        try:
+            item_id = int(raw_id) if raw_id is not None and str(raw_id).strip() != "" else 0
+        except (TypeError, ValueError):
+            return ExecutionResult(status="error", error_code="400",
+                                   message=f"id 必须是整数，收到: {raw_id!r}")
+        note = ""
+        if action == "add":
+            item = store.add(text)
+            if item is None:
+                return ExecutionResult(status="error", error_code="400",
+                                       message="add 需要非空 text，且清单最多 50 条")
+            note = f"已加入 #{item.id}"
+        elif action == "start":
+            hit = store.update(item_id, "in_progress")
+            if hit is None:
+                return ExecutionResult(status="error", error_code="404",
+                                       message=f"没有编号 {item_id} 的待办")
+            note = f"#{hit.id} 进行中"
+        elif action == "done":
+            hit = store.update(item_id, "done")
+            if hit is None:
+                return ExecutionResult(status="error", error_code="404",
+                                       message=f"没有编号 {item_id} 的待办")
+            note = f"#{hit.id} 已完成"
+        elif action == "remove":
+            if not store.remove(item_id):
+                return ExecutionResult(status="error", error_code="404",
+                                       message=f"没有编号 {item_id} 的待办")
+            note = f"已删除 #{item_id}"
+        elif action == "clear":
+            removed = store.clear(all_items=False)
+            note = f"清掉 {removed} 条已完成"
+        else:
+            return ExecutionResult(
+                status="error", error_code="400",
+                message=f"action 只能是 add/start/done/remove/clear，收到: {action!r}")
+        s = store.summary()
+        body = "\n".join(store.render()) or "（清单为空）"
+        return ExecutionResult(status="success", data={
+            "content": f"{note}\n进度 {s['done']}/{s['total']}\n{body}",
+            "todos": [t.as_dict() for t in store.items],
+            "summary": s,
+        })
+
     # ---------- MCP（外部进程工具） ----------
 
     def _exec_mcp_tool(self, tool_name: str, params: Dict[str, Any]) -> ExecutionResult:

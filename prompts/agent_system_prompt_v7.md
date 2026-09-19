@@ -334,6 +334,12 @@ answer.
     {"tool":"skill_load","name":"write-swift"}
     载入指定技能的完整 instructions，之后按其中规则完成任务
 
+35. todo_write
+    {"tool":"todo_write","action":"add","text":"跑全量测试"}
+    维护逐项待办清单：action = add（新增，需 text）/ start（进行中）/ done（完成）/
+    remove / clear（清掉已完成的），除 add 外都要 id。
+    多步任务**先列清单再动手**，做完一项标一项 —— 清单会显示在底栏，人和你看的是同一份。
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【正确 vs 错误示例】
 

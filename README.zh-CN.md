@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.19.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.20.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -250,6 +250,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.20.0** (2026-09-19)：会话能列、能续、能分叉、能退回——`/sessions`（时间/轮数/首句/**是否被压过**）、`/resume`（历史按它重建，**之后的事件也写进那份日志**）、`/fork`（以某会话为起点开新会话，不共享历史）、`/rewind` **只动对话**（文件是 `/rollback` 的事，提示里每次写明）。外加逐项**待办清单**：`todo_write` 工具（只读组——列个清单不该要授权）、`/todo`、底栏 `待办 1/3`、日志为唯一事实源所以 `/resume` 后不丢。守卫 `[46]` 走真文件 + 真 CLI：`/resume` 后新消息真的写进被续聊的日志、`/rewind` 后磁盘上的文件一字未动
 - **v3.19.0** (2026-09-19)：`ace --json` 给出**机器可读的事件流**——一行一个 JSON 对象（`session_start` / `user_message` / `model_request` / `tool_call` / `tool_result` / `permission_request` / `notice` / `final` / `session_end`），契约表 `core/ace_events.EVENT_REQUIRED` 是文档、运行时校验与断言的唯一来源。人话不丢：`--json` 下 stdout 被 `NoticeProxy` 接管，几百处 print 一律变成 `notice` 事件——一处生效，且自动剥色、丢掉 `\r` 重绘与进度条噪音。刻意**不发 `model_delta`**。守卫真的跑子进程逐行解析 stdout
 - **v3.18.0** (2026-09-19)：把"你自己的规矩"接进来。**事件钩子**（`pre_tool` / `post_tool` / `user_prompt` / `session_start` / `session_end`）从 stdin 读 JSON、从 stdout 回 `{"decision":"block","reason":…}`，退出码 2 = 拦截；**默认 fail-close**——钩子崩了或超时**不算**"检查通过"。`pre_tool` 拦下是 `HOOK_BLOCKED`（**不计入安全违规**），而且工具**真的没执行**。**自定义斜杠命令**来自 `.ace/commands/*.md`（文件名即命令，`$ARGUMENTS`/`$1` 代入，不引 YAML 依赖，内置命令优先）。**插件**放 `.ace/plugins/<名>/`，贡献命令（自动加前缀）与钩子，**刻意不能带工具**。钩子与 MCP 同一条边界：本地命令、不在沙箱里 → [`docs/EXTENDING.md`](docs/EXTENDING.md)
 - **v3.17.0** (2026-09-19)：ACE 会说 **MCP** 了（stdio JSON-RPC 2.0：`initialize` → `tools/list` → `tools/call`）。把 `mcp_servers` 指向一个 server，它的工具就以 `mcp__<server>__<工具名>` 出现、schema 原样透传；权限/审批/审计照旧。`/mcp` 看状态、失败原因与工具清单。权限默认从严（对面声明 `readOnlyHint` 才算只读）。失败分开报：`503` 不可用 / `504` 超时 / `500` 协议错或对面 `isError`；子进程显式收掉。**只支持 stdio**，HTTP/SSE 未实现

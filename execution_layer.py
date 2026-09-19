@@ -685,6 +685,15 @@ class ExecutionLayer:
                 self.gateway = None
                 print(f"警告: V2 网关初始化失败，L4 守门已禁用: {e}", file=sys.stderr)
 
+        # 待办清单（步骤级）：事实源同样是会话事件日志，这里重建视图并挂到执行器上，
+        # 让 `todo_write` 工具与 CLI 的 /todo、底栏进度共用同一份状态。
+        try:
+            from core.ace_todos import TodoStore
+            self.todos = TodoStore.from_log(self.session_log)
+            self.executor.todos = self.todos
+        except Exception:  # noqa: BLE001 —— 清单坏了不该让会话起不来
+            self.todos = None
+
         # V1 模块
         self.bait_factory = BaitFactory() if V1_WORK_AVAILABLE else None
         self.ast_detector = ASTDetector() if V1_WORK_AVAILABLE else None

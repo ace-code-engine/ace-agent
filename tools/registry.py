@@ -370,10 +370,25 @@ TOOL_SPECS: List[ToolSpec] = [
         example='{"tool":"skill_load","name":"write-swift"}',
     ),
 
+    # —— 控制面：待办清单（只动会话状态，不碰文件，所以是只读组） ——
+    ToolSpec(
+        name="todo_write", permission=PERM_READ, handler="_exec_todo_write",
+        description="维护本次任务的逐项待办清单（add / start / done / remove / clear）。"
+                    "多步任务请先列清单再动手，做完一项就标一项 —— 清单会显示在底栏",
+        parameters=_obj({
+            "action": {"type": "string",
+                       "enum": ["add", "start", "done", "remove", "clear"],
+                       "description": "add=新增；start=标记进行中；done=标记完成；"
+                                      "remove=删除一条；clear=清掉已完成的"},
+            "text": {"type": "string", "description": "add 时的待办内容"},
+            "id": {"type": "integer", "description": "start/done/remove 时的条目编号"},
+        }, ["action"]),
+        example='{"tool":"todo_write","action":"add","text":"跑全量测试"}',
+    ),
+
     # —— 高危：已登记但未实现，需 full 权限（占位，防止名字被误当未知工具而静默通过分级）——
     ToolSpec(name="terminal_dangerous", permission=PERM_HIGH_RISK,
-             description="高危终端操作（未实现，需 full 权限）", expose=False),
-    ToolSpec(name="db_drop", permission=PERM_HIGH_RISK,
+             description="高危终端操作（未实现，需 full 权限）", expose=False),    ToolSpec(name="db_drop", permission=PERM_HIGH_RISK,
              description="删除数据库表/库（未实现，需 full 权限）", expose=False),
 ]
 

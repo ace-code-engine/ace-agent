@@ -71,39 +71,35 @@ docker compose -f docker/docker-compose.yml up vlm-server ace-lite
 
 和上面三档镜像是两回事：这个镜像里**没有 ACE 的代码**，它只是一个干净的执行环境。ACE 跑在宿主，每次 `terminal_exec` / `code_execute` 都 `docker run` 一个它的容器、跑完即销毁。实现见 [`tools/docker_sandbox.py`](../tools/docker_sandbox.py)。
 
-### 最省事的用法（Linux / macOS 都不必自己 build）
+### 用法：先 build 一次（一条命令）
 
 ```bash
+# 仓库根目录执行
+docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
 python ai_code.py --sandbox docker
 ```
 
-镜像本地没有时会**自动拉官方预编译镜像**并打上本地名 `ace-sandbox:latest`：
+没构建时，那一层不会让 `docker run` 去 registry 撞一个网络超时，而是直接把上面这条 build 命令给你。
 
-| 镜像 | 架构 | 标签 |
-|---|---|---|
-| `ghcr.io/ace-code-engine/ace-sandbox` | `linux/amd64` + `linux/arm64` | `<版本>`、`latest` |
-| `ghcr.io/ace-code-engine/ace-agent` | `linux/amd64` + `linux/arm64` | `<版本>`、`lite`（整体镜像 lite 档） |
-
-多架构的实际意义：Apple Silicon 上跑的是原生 arm64，不是 QEMU 模拟。拉取只发生一次，之后离线可用；`docker images` 里能看见本地那份来自哪里。
-
-想固定供应链（推荐生产环境这么做）：
+**可选**：镜像如果放在 registry 里（自己的私有 GHCR、内网 registry 都算），先 `docker login`，再设 `ACE_SANDBOX_PULL=1`，缺失时会自动拉：
 
 ```bash
-# 摘要从 CI 的 job summary、或 docker buildx imagetools inspect 拿
-python ai_code.py --sandbox docker \
-  --sandbox-image ghcr.io/ace-code-engine/ace-sandbox@sha256:<digest>
+docker login ghcr.io
+ACE_SANDBOX_PULL=1 python ai_code.py --sandbox docker \
+  --sandbox-image ghcr.io/<你的命名空间>/ace-sandbox:latest
 ```
 
-工具结果里会带 `sandbox.image_digest`，即"这次到底跑在哪一份镜像上"，取证时有据可查。
+本地已有的镜像**永远优先**，只有缺失才会去拉。拉下来的镜像会把摘要记进工具结果（`sandbox.image_digest`），"这次到底跑在哪一份上"可追溯；要固定供应链就把镜像写成 `<ref>@sha256:<digest>`。
 
-不想让 ACE 联网拉镜像（离线环境、或"边界镜像只认自己的构建"）：
+> **为什么不提供官方预编译镜像**：2026-09-19 试过 —— workflow 写好了、镜像也真的推进了 GHCR，但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization administrators），匿名拉不动。一个"默认去拉但拉不到"的默认行为只会让每个新用户多等一次超时再看到权限错误，所以默认回到本地构建；机制保留，包能公开或用你自己的 registry 时，一个环境变量即可启用。
+
+构建卡在 `load metadata for docker.io/library/python` 是拉不到 Docker Hub，不是 Dockerfile 的问题。
+用任一可达的镜像源先取基础镜像、再打成 Dockerfile 里写的名字，构建命令本身不用改：
 
 ```bash
-ACE_SANDBOX_NO_PULL=1 python ai_code.py --sandbox docker     # 缺失就直接报错，不拉
-docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .   # 自己构建那份
+docker pull <镜像源>/library/python:3.12-slim-bookworm
+docker tag  <镜像源>/library/python:3.12-slim-bookworm python:3.12-slim-bookworm
 ```
-
-本地已经 build 过的镜像**永远优先** —— 只有缺失才会去拉。所以老用户的手工构建流程完全不受影响，命令一字没变。
 
 ### 容器参数（每一条都对应一类具体威胁，改之前想清楚）
 
@@ -121,31 +117,21 @@ docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .   # 自己构�
 
 镜像刻意保持最小：**装了什么，agent 在沙箱里就能用什么**。需要 gcc / node / git 就自己加一层，不要为了"可能用得上"预装一堆东西。
 
-### 自己构建（仍然完全支持）
+### 这套参数不是"读代码觉得没问题"
+
+`docker/smoke_sandbox.py` 用**客户端自己的参数构造**把镜像真跑一遍，并断言边界成立（网络不通、根文件系统写不进、`sandbox_denied` 识别正确）：
 
 ```bash
-# 仓库根目录执行
-docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
+python3 docker/smoke_sandbox.py          # 验本地构建的 ace-sandbox:latest
 ```
 
-构建卡在 `load metadata for docker.io/library/python` 是拉不到 Docker Hub，不是 Dockerfile 的问题。
-用任一可达的镜像源先取基础镜像、再打成 Dockerfile 里写的名字，构建命令本身不用改：
-
-```bash
-docker pull <镜像源>/library/python:3.12-slim-bookworm
-docker tag  <镜像源>/library/python:3.12-slim-bookworm python:3.12-slim-bookworm
-```
+CI 里也有这个 job（`ci.yml` 的 `sandbox-smoke`：先 build 再跑这个脚本），所以"加固参数被真实 daemon 接受"这件事每次提交都有人验。
 
 ### 两个必须知道的边界
 
 1. 容器共享内核。容器逃逸漏洞仍然是逃逸，要更强的边界得上虚拟机。
 2. **开了沙箱但 Docker 不可用时会直接报 503，不会静默回退宿主执行。** 回退比没有沙箱更危险——你以为命令跑在容器里，实际跑在自己机器上，而且没有任何提示。
 
-### 关于"镜像从哪来"的取舍（2026-09-19 变更）
-
-以前这里写的是"镜像必须自己 build，它不会发布到任何 registry"。现在默认改成自动拉官方预编译镜像，理由是：这个镜像里没有 ACE 的代码，它只是个干净执行环境，而让每个 Linux/macOS 用户先本地构建一次（还得先连得上 Docker Hub）挡掉的人远多于它保护的人。
-
-代价是**信任锚从"你自己构建的那一份"变成"官方 CI 构建并分发的那一份"**。所以上面那三个把手（`image_digest` 可追溯、`@sha256` 可固定、`ACE_SANDBOX_NO_PULL=1` 可关掉）不是装饰。镜像由 [`.github/workflows/release-images.yml`](../.github/workflows/release-images.yml) 构建，附 provenance 与 SBOM；构建脚本就是仓库里的 `docker/Dockerfile.sandbox`，任何人都能自己复现一份来对比。
 
 
 ## VLM 工具使用

@@ -23,20 +23,25 @@ cwd 固定在项目根 —— 但 `shell=True` 下 `cd /` 或写绝对路径随�
 
 容器不提供的：内核共享。容器逃逸漏洞仍然是逃逸。要更强的边界得上虚拟机。
 
-## 镜像从哪来（2026-09-19 变更）
+## 镜像从哪来
 
-以前这里是"镜像故意不发布，部署方自己 build"。现在改成：**本地没有就先拉官方预编译镜像**
-（`ghcr.io/ace-code-engine/ace-sandbox`），拉不到再告诉你 build 命令；本地已经 build 过的
-镜像永远优先（只有缺失才会去拉）。
+**默认是"你自己 build 一份"**（一条命令，见下）。本地没有镜像时，这里会把 build 命令
+直接给你，而不是让 `docker run` 去 registry 撞一个网络超时、再回一句 "pull access denied"
+让你以为是要登录。
 
-改的理由是纯粹的门槛：这个镜像里没有 ACE 的代码，它只是个干净执行环境
-（`python:3.12-slim` + 非 root 用户），让每个 Linux/macOS 用户先本地 build 一次 ——
-而且 build 还得先能连上 Docker Hub 拉基础镜像 —— 挡掉的人远多于它保护的人。
+```bash
+docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
+```
 
-代价必须说清：信任锚从"你自己构建的那份"变成"官方 CI 构建 + registry 分发的那一份"。
-所以这一层做三件事：把实际用到的镜像摘要记进工具结果（`sandbox.image_digest`）、
-支持 `--sandbox-image ghcr.io/...@sha256:<digest>` 固定、以及 `ACE_SANDBOX_NO_PULL=1`
-直接关掉自动拉取（离线/受控环境用本地 build 那份）。
+**可选**：如果你把镜像放到了某个 registry（自己的私有 GHCR、内网 registry 都算），
+可以打开自动拉取：`ACE_SANDBOX_PULL=1`（需要先 `docker login`）。
+本地已经有的镜像**永远优先**，只有缺失才会去拉。
+
+为什么默认关掉：这个项目一度打算发布官方预编译镜像，写好了工作流、也把镜像推上了 GHCR，
+但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization
+administrators），匿名拉不动 —— 一个"自动拉但拉不到"的默认行为，只会让新用户多等一次
+网络超时、再看到一个权限错误。所以官方镜像这条路暂时搁置，默认回到本地构建；
+机制保留，将来包能公开、或者你用自己的 registry 时，一个环境变量就能启用。
 
 ## 一个刻意的设计：不做静默回退
 
@@ -176,30 +181,29 @@ class DockerSandbox:
         镜像缺失单独判一次，而不是让 `docker run` 自己去撞，原因是撞出来的错不对：
         本地找不到 `ace-sandbox:latest` 时 docker 会先当它是远端镜像去 registry 拉，
         于是用户等一个网络超时，然后拿到一句 "pull access denied / not found" ——
-        听起来像是仓库配错了或者要登录。
+        听起来像是仓库配错了或者要登录，而真正要做的只是本地 build 一次。
+        **默认路径就是这条**：把 build 命令直接给出来。
 
-        缺失时的正确动作是**去把官方预编译镜像拉下来**（见 _try_acquire）；只有当拉取
-        本身失败时，才把 build 命令作为退路一并给出来。本地已经 build 过的镜像永远优先：
-        只有 image_present() 为假才会走到拉取这一步。
+        镜像放在 registry 里的部署可以开 `ACE_SANDBOX_PULL=1` 让它自动拉
+        （见 auto_pull_enabled）。本地已经有的镜像永远优先，只有缺失才会走到拉取。
         """
         if not self.probe():
             raise DockerUnavailable(self._detail)
         if self.image_present():
-            # 已经在本地（上次拉过、或自己 build 的）也把摘要记一下：重复使用时
-            # "这次到底跑在哪一份上"同样要答得出来。取不到就是空串，绝不影响执行。
+            # 已经在本地（自己 build 的、或上次拉下来的）也把摘要记一下：
+            # 重复使用时"这次到底跑在哪一份上"同样要答得出来。取不到就是空串。
             if not self._digest:
                 self._digest = self._image_digest()
             return
         if self.auto_pull and self._try_acquire():
             return
         _why = f"\n    拉取失败: {self._pull_error}" if self._pull_error else ""
-        _off = ("" if self.auto_pull
-                else "\n    自动拉取已关闭（ACE_SANDBOX_NO_PULL=1）。")
         raise DockerUnavailable(
-            f"本地没有沙箱镜像 {self.image}，自动拉取也没成功。{_why}{_off}\n"
-            f"    自己构建: docker build -t {self.image} -f docker/Dockerfile.sandbox .\n"
-            f"    或指定官方镜像: --sandbox-image {OFFICIAL_IMAGE}\n"
-            "    要固定供应链就把镜像写成 <ref>@sha256:<digest>；不想要容器边界就用 --sandbox off。")
+            f"本地没有沙箱镜像 {self.image}。{_why}\n"
+            f"    构建它: docker build -t {self.image} -f docker/Dockerfile.sandbox .\n"
+            "    镜像放在 registry 里？先 docker login，再设 ACE_SANDBOX_PULL=1 让它自动拉\n"
+            "    已有别处的镜像可以 --sandbox-image 指定（含 <ref>@sha256:<digest> 固定）；"
+            "不想要容器边界就用 --sandbox off。")
 
     # ---------- 镜像获取 ----------
 
@@ -272,13 +276,17 @@ class DockerSandbox:
         return (r.stdout or "").strip() if r.returncode == 0 else ""
 
     def _try_acquire(self) -> bool:
-        """镜像不在本地时把它弄到手。成功返回 True 并置 _image_ok。
+        """镜像不在本地时把它弄到手（仅在 ACE_SANDBOX_PULL=1 时才会被调用）。
 
         两种情形：
           - 配置的是 registry 引用（`ghcr.io/...`、`myreg:5000/...`）→ 直接拉它；
-          - 配置的是本地名（默认 `ace-sandbox:latest`）→ 拉官方预编译镜像，再打上这个名字。
+          - 配置的是本地名（默认 `ace-sandbox:latest`）→ 拉 OFFICIAL_IMAGE，再打上这个名字。
             打名字而不是改 self.image，是为了让状态在 `docker images` 里看得见、
             且后续运行不再需要网络。
+
+        注意 OFFICIAL_IMAGE 目前是**拉不到的**（组织包策略不允许它公开，见模块
+        docstring）—— 所以默认关着；这个分支主要服务于"镜像放在自己的 registry 里"
+        的部署。
         """
         target = self.image
         ref = target if self.is_registry_ref(target) else OFFICIAL_IMAGE
@@ -396,12 +404,15 @@ class DockerSandbox:
 
 
 def auto_pull_enabled() -> bool:
-    """镜像缺失时是否自动去拉官方预编译镜像。默认开。
+    """镜像缺失时是否自动去 registry 拉。**默认关**。
 
-    `ACE_SANDBOX_NO_PULL=1` 关掉 —— 离线环境、或者"只用我自己构建的那份镜像"
-    的受控部署该关掉它。关掉后镜像缺失会直接报错并给出 build 命令。
+    `ACE_SANDBOX_PULL=1` 打开 —— 适用于"镜像放在 registry 里"的部署
+    （自己的私有 GHCR、内网 registry）。打开前先 `docker login`。
+
+    默认关的理由见模块 docstring「镜像从哪来」：官方预编译镜像因为组织包策略
+    无法设为公开，匿名拉不到；默认去拉只会让新用户多等一次超时再看到权限错误。
     """
-    return os.environ.get("ACE_SANDBOX_NO_PULL", "").strip().lower() not in (
+    return os.environ.get("ACE_SANDBOX_PULL", "").strip().lower() in (
         "1", "true", "yes", "on")
 
 
@@ -411,8 +422,9 @@ def build_sandbox(config: Optional[Dict], workspace: str) -> Optional[DockerSand
     config 形如 {"mode": "docker", "image": ..., "timeout": ..., "auto_pull": ..., "seccomp": ...}。
     mode 不是 "docker" 就当没启用——保持默认关闭，不给现有用户变行为。
 
-    未显式给出的两项看环境变量：`ACE_SANDBOX_NO_PULL=1` 关自动拉取，
-    `ACE_SANDBOX_IMAGE` / `ACE_SANDBOX_SECCOMP` 指定镜像与 seccomp profile。
+    未显式给出的两项看环境变量：`ACE_SANDBOX_PULL=1` 打开自动拉取（默认关，
+    见 auto_pull_enabled），`ACE_SANDBOX_IMAGE` / `ACE_SANDBOX_SECCOMP`
+    指定镜像与 seccomp profile。
     """
     cfg = config or {}
     if str(cfg.get("mode", "off")).lower() != "docker":

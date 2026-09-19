@@ -7,7 +7,7 @@
 
 **版本目录**
 
-- [v3.11.0 · 2026-09-19 · 预编译容器镜像 + 自动拉取 + 容器参数加固（Linux/macOS）](#v3110-2026-09-19)
+- [v3.11.0 · 2026-09-19 · 容器参数加固（Linux/macOS）+ 可选镜像拉取 + CI 容器 smoke](#v3110-2026-09-19)
 - [v3.10.1 · 2026-09-19 · 协议纠错死锁 · 执行器 Tier-1 降级 · 启动器 CRLF](#v3101-2026-09-19)
 - [v3.10.0 · 2026-09-18 · 根目录瘦身（`ui/` `cli/` `core/`）· README 英文为主 · "被拦下"演示](#v3100-2026-09-18)
 - [v3.9.0 · 2026-09-18 · 守卫 · 审计对账 · 场景示例 · 结构重构（当天 6 个 tag 合并）](#v390-2026-09-18)
@@ -28,22 +28,9 @@
 
 ## [v3.11.0] · 2026-09-19
 
-> 面向 Linux / macOS 的容器路径：把"镜像必须自己 build"换成**发布预编译镜像 + 缺失时自动拉取**，
-> 并把容器运行参数按"每条对应一类威胁"重新过一遍。**这是一次行为变更**——默认会联网拉镜像；
-> 要保留旧行为用 `ACE_SANDBOX_NO_PULL=1`，本地构建的镜像依然优先。
-
-### ✨ 发布预编译容器镜像（GHCR）
-
-- ✨ 新增 `.github/workflows/release-images.yml`：多架构（`linux/amd64` + `linux/arm64`）构建并推送 `ghcr.io/ace-code-engine/ace-sandbox`（一次性执行容器）与 `ghcr.io/ace-code-engine/ace-agent`（整体镜像 lite 档），附 provenance 与 SBOM。standard / full 不发布——带内置模型 2~3GB，按需本地构建更合理
-- ✨ 多架构的实际意义：Apple Silicon 上跑的是原生 arm64，不是 QEMU 模拟
-- ⚙️ 该 workflow 带一个**真跑一遍镜像**的 smoke job：拉发布出来的镜像、用**客户端自己的参数构造**跑命令，并断言 `--network none` 真的没网、`--read-only` 真的写不进 `/etc`。本机没有 docker daemon 时这一步跑不了，所以它必须在 CI 里 —— 否则"加固参数被真实 daemon 接受"这件事一直没人验
-- ⚙️ GHCR 的包默认 private，私有包拉不动等于没发：workflow 末尾尽力改 visibility，改不动只告警并在 summary 里给出手动路径（不让一次权限问题把已推成功的镜像标成失败）
-
-### ✨ 镜像缺失时自动拉取（取代"必须自己 build"）
-
-- ✨ `_ensure_ready()`：本地没有配置的镜像时，拉官方预编译镜像并打上本地名；**本地已 build 的镜像永远优先**（只有缺失才触发拉取）。拉取失败才把 `docker build` 当退路给出，报错里同时含失败原因、build 命令与摘要固定方式
-- ✨ 供应链三个把手：工具结果带 `sandbox.image_digest`（这次到底跑在哪一份镜像上，可追溯）、`--sandbox-image <ref>@sha256:<digest>`（可固定）、`ACE_SANDBOX_NO_PULL=1`（可关掉）。镜像默认从 registry 来，信任锚变了，所以这三个不是装饰
-- 📋 这是一次**设计口径反转**：`tools/docker_sandbox.py` 与 `docs/SECURITY-MODEL.md` 原先都明确写着"镜像故意不发布，内容得由部署方掌握"。改的理由（这个镜像里没有 ACE 代码，它只是干净执行环境；让每个 Linux/macOS 用户先本地构建一次、还得先连上 Docker Hub，挡掉的人远多于保护的人）与代价（信任锚转移）都写进了 SECURITY-MODEL 的「镜像从哪来」一节
+> 面向 Linux / macOS 的容器路径：把运行参数按"每条对应一类威胁"过了一遍，并第一次在**真实
+> docker daemon** 上验证它们（此前从来没有人验过）；同时把"发布官方预编译镜像"这条路
+> 试了一遍 —— 结果**不成立**，如实记录在下面。默认行为不变：镜像自己 build 一次。
 
 ### 🛡️ 容器运行参数加固（Linux / macOS）
 
@@ -53,14 +40,18 @@
 - 🐛 **SELinux Enforcing 的宿主机上给挂载点自动加 `,z`**（Fedora / RHEL 默认 Enforcing）：不加时容器写不进工作目录，报错只有一句笼统的 `Permission denied`，看起来像沙箱坏了。只在实测 Enforcing 时才加 —— macOS / Windows 上 `getenforce` 不存在，不受影响
 - ⚙️ `--label ace.sandbox=1`：超时残留的容器可一条命令收干净（`docker container prune --filter label=ace.sandbox=1`）
 - ⚙️ `ACE_SANDBOX_SECCOMP=<profile.json>` 可挂自定义 seccomp 配置；默认仍用 docker 内置 profile（本就挡掉约 44 个系统调用）。刻意**不**随缘自带一份：改 seccomp 很容易连带封掉 `clone3` 这类正常路径，这种取舍该由部署方做
-- 📚 文档同步：`docs/SECURITY-MODEL.md`（容器隔离 + 新增「镜像从哪来」）、`docs/GETTING-STARTED.md` 第 10 个坑、`docs/COMMANDS.md`、两份 README、`docker/README-Docker.md`（Linux/macOS 路径、摘要固定、清理命令、取舍说明）
+- 🛡️ **第一次真机验证**：`docker/smoke_sandbox.py` 用客户端自己的参数构造把镜像跑一遍，实测这套参数被 daemon 接受、`--network none` 确实没网、`--read-only` 确实写不进 `/etc`、拒绝被正确识别成 `sandbox_denied`
 
-### 🛡️ 守卫：[16] 新增 20 条断言
+### ⚙️ 可选镜像拉取（默认关）+ 一次不成立的发布尝试
 
-- 🛡️ 运行参数逐条钉死（新增 `--init` / `--ulimit` / `HOME=/tmp` / `--label` 四项）
-- 🛡️ registry 引用判定（`ghcr.io/...` 是、`ace-sandbox:latest` 不是）、缺失→拉官方→打本地名、registry 引用直接拉自己、拉取失败报错含"原因 + build 退路 + 摘要方式"、`ACE_SANDBOX_NO_PULL=1` 时一次网络都不发
-- 🛡️ SELinux 判定与拉取路径全部用桩控制，测试永不联网；seccomp 默认不传、指定才传
-- 🛡️ 负向注入验证：拿掉 `--init` 后 [16] 当场变红并点名该条
+- ⚙️ `ACE_SANDBOX_PULL=1`：镜像放在 registry 里（自己的私有 GHCR、内网 registry）时，缺失会自动拉；本地已有的镜像永远优先。拉下来的镜像把摘要记进工具结果（`sandbox.image_digest`），可用 `<ref>@sha256:<digest>` 固定
+- 📋 **官方预编译镜像这条路暂时搁置**：写了 `release-images.yml`（多架构构建 + provenance/SBOM + 真跑一遍镜像的 smoke），镜像也真的推上了 GHCR —— 但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization administrators），匿名拉不动。一个"默认去拉但拉不到"的行为只会让新用户多等一次超时再看到权限错误，所以 workflow 撤掉、默认回到本地构建，拉取机制保留给自建 registry。这一版把这段经过写进 `docs/SECURITY-MODEL.md` 与 `docker/README-Docker.md`，而不是把它藏起来
+
+### 🛡️ CI 新增容器 smoke（把"读代码觉得没问题"换成"真跑过"）
+
+- 🛡️ `.github/workflows/ci.yml` 新增 `sandbox-smoke` job：本地构建沙箱镜像 → 用客户端参数构造跑 `docker/smoke_sandbox.py` → 断言边界成立
+- 🛡️ 新增 `docker/smoke_sandbox.py`。它本身踩过两个坑，都修在文件里并留了注释：① 工作流里用 heredoc 写 Python 会把 YAML 缩进带进代码（IndentationError）—— 所以脚本放仓库里而不是塞在 `run:` 块；② GBK 控制台下打印 ✅/❌ 会 `UnicodeEncodeError`（仓库几个入口脚本早有 stdio 兜底，照抄）
+- 🛡️ `[16]` 断言扩到覆盖新参数、registry 引用判定、拉取路径（含失败报错的"原因 + build 退路 + 摘要方式"三要素）、默认不拉取、SELinux 判定、seccomp 开关；全部用桩控制，测试永不联网。负向注入验证：拿掉 `--init` 后 `[16]` 当场变红并点名该条
 
 ## [v3.10.1] · 2026-09-19
 

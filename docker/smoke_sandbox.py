@@ -8,8 +8,12 @@
     放进文件既躲开这个坑，也能本地跑、能被 review。
 
 用法：
-    ACE_SMOKE_IMAGE=ghcr.io/ace-code-engine/ace-sandbox:3.11.0 python3 docker/smoke_sandbox.py
-    ACE_SMOKE_IMAGE=ace-sandbox:latest python3 docker/smoke_sandbox.py     # 本地构建的那份
+    python3 docker/smoke_sandbox.py                      # 验本地构建的 ace-sandbox:latest
+    ACE_SMOKE_IMAGE=ghcr.io/you/ace-sandbox:1 python3 docker/smoke_sandbox.py
+
+CI 上也跑（`.github/workflows/ci.yml` 的 sandbox-smoke job）：先本地构建镜像，
+再用这个脚本把它真跑一遍 —— 这样"加固参数被真实 daemon 接受""网络与根文件系统
+边界成立"这两件事每次都有人验，而不是只在我本机验过一次。
 """
 import os
 import sys
@@ -25,7 +29,8 @@ for _s in (sys.stdout, sys.stderr):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from tools.docker_sandbox import DockerSandbox, DockerUnavailable  # noqa: E402
+from tools.docker_sandbox import (DockerSandbox, DockerUnavailable,  # noqa: E402
+                                  auto_pull_enabled)
 
 FAILED = []
 UNAVAILABLE = False   # 沙箱拿不到时，后面那些断言没有意义：直接失败退出，不刷一屏级联 ❌
@@ -56,11 +61,11 @@ def run(sb: DockerSandbox, command: str) -> dict:
 
 
 def main() -> int:
-    image = os.environ.get("ACE_SMOKE_IMAGE", "ghcr.io/ace-code-engine/ace-sandbox:latest")
+    image = os.environ.get("ACE_SMOKE_IMAGE", "ace-sandbox:latest")
     workspace = os.environ.get("ACE_SMOKE_WORKSPACE") or os.getcwd()
     print("image: %s\nworkspace: %s" % (image, workspace))
 
-    sb = DockerSandbox(workspace, image=image, auto_pull=True)
+    sb = DockerSandbox(workspace, image=image, auto_pull=auto_pull_enabled())
     check("docker daemon 可达", sb.probe(), sb.detail)
 
     # 这一步会走"本地没有 → 拉官方预编译镜像"这条真实路径（CI runner 上是全新的）

@@ -46,6 +46,23 @@ jobs:
         if: matrix.python-version == '3.12'
         run: python demo/record_demo.py --check
 
+  # 容器那套加固参数（--init / --ulimit nofile / HOME=/tmp / --read-only / cap-drop ALL …）
+  # 是不是真被 daemon 接受、--network none 与 --read-only 边界是不是真成立，
+  # 光读代码答不出来 —— 2026-09-19 之前这件事从来没人验过。脚本用的是客户端自己的
+  # 参数构造，先本地构建镜像再跑一遍就有结论。
+  sandbox-smoke:
+    name: Sandbox smoke (build image + run through DockerSandbox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the sandbox image locally
+        run: docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
+
+      - name: Run through DockerSandbox
+        run: python3 docker/smoke_sandbox.py
+
   go-test:
     name: Go executor (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -1044,6 +1044,66 @@ def spinner_line(label: str, dots: str, secs: int) -> str:
     return f"◈ {label}{dots} {secs}s"
 
 
+# 距压缩触发点还剩这么多比例时开始提醒（0.8 = 用掉触发点的 80%）
+CTX_NEAR_RATIO = 0.8
+
+
+def _compaction_policy(context_window: int,
+                       fixed_overhead: int = 0) -> "ace_context.CompactionPolicy":
+    """压缩策略的唯一构造点。
+
+    显示给用户的"还有多少余量"与实际压缩决策必须同一套阈值 —— 各写一份的话，
+    底栏说 40% 而实际已经压缩了，只会让人不再相信这个数。
+    """
+    return ace_context.CompactionPolicy(context_window=int(context_window or 0),
+                                        fixed_overhead=max(0, int(fixed_overhead or 0)))
+
+
+def context_usage(messages: List[Dict], context_window: int,
+                  fixed_overhead: int = 0) -> Dict[str, Any]:
+    """估算上下文占用，以及距离"开始压缩"还有多远（纯函数，便于单测）。
+
+    口径与真正的压缩决策共用 `cli.ace_context`（同一个 `estimate_tokens`、
+    同一个 `_compaction_policy`）—— 否则会出现"底栏显示 40%"而实际已经压缩了的
+    自相矛盾。**数字是估算，不是服务端读数**，所以对外文案一律带"约"。
+
+    state 三档：ok / near（用掉触发点的 80%）/ over（已达触发点，下一轮会压）；
+    窗口未知（<=0）时返回 unknown，调用方据此不显示数字，而不是拿 0 当分母。
+    """
+    window = int(context_window or 0)
+    if window <= 0:
+        return {"tokens": 0, "window": 0, "budget": 0, "trigger": 0,
+                "pct": 0, "trigger_pct": 0, "state": "unknown"}
+    policy = _compaction_policy(window, fixed_overhead)
+    tokens = ace_context.measure(messages or [])
+    trigger = policy.trigger_at()
+    pct = int(round(tokens * 100 / window))
+    if trigger <= 0 or tokens >= trigger:
+        state = "over"
+    elif tokens >= trigger * CTX_NEAR_RATIO:
+        state = "near"
+    else:
+        state = "ok"
+    trigger_pct = int(round(tokens * 100 / trigger)) if trigger > 0 else 100
+    return {"tokens": tokens, "window": window, "budget": policy.budget(),
+            "trigger": trigger, "pct": pct, "trigger_pct": trigger_pct,
+            "state": state}
+
+
+def context_badge(usage: Dict[str, Any]) -> Tuple[str, str]:
+    """底栏那一段：返回 (文本, prompt_toolkit 样式类名)。
+
+    颜色即语义：灰=还有余量、黄=接近触发点、红=下一轮就会压缩。窗口未知时返回
+    空串，底栏就不显示 —— 不猜、也不显示一个假的 0%。
+    """
+    state = str(usage.get("state") or "unknown")
+    if state == "unknown":
+        return "", ""
+    cls = {"ok": "class:footer-dim", "near": "class:footer-w",
+           "over": "class:footer-f"}.get(state, "class:footer-dim")
+    return t("footer_ctx", pct=usage.get("pct", 0)), cls
+
+
 class _Spinner:
     """状态行动画线程：◈ 思考中... 12s / ◈ 正在调用工具... 3s（每 0.12s 重绘）
 
@@ -1355,6 +1415,8 @@ class _SlashCommands:
         self.context_refs = []
         self._init_execution_layer()
         self.session.update(rounds=0, tools=0, violations=0, start=time.time())
+        # 历史清空 → 水位归零：新会话里该提醒的时候还要能提醒
+        self._ctx_warn_band = 0
         print(c("green", t("clear_done")))
         return True
 
@@ -1782,7 +1844,20 @@ class _SlashCommands:
                 parts.append(("class:footer-dim", " 目标:done "))
         parts.append(("class:footer-dim",
                       f" 轮{self.session['rounds']} 工具{self.session['tools']} "))
+        # 上下文占用：把"还有多久会开始丢历史"摆到用户眼前。压缩发生时才提示就晚了，
+        # 用户看到的只是"模型突然忘事"。
+        _bdg_text, _bdg_cls = context_badge(self.context_usage(self.messages))
+        if _bdg_text:
+            parts.append((_bdg_cls, _bdg_text))
         return parts
+
+    def context_usage(self, messages: Optional[List[Dict]] = None,
+                      system: str = "") -> Dict[str, Any]:
+        """当前上下文占用（估算）。系统提示词每轮都在窗口里，所以一并计入。"""
+        return context_usage(
+            self.messages if messages is None else messages,
+            self.context_window,
+            fixed_overhead=ace_context.estimate_tokens(system) if system else 0)
 
     # ---------- 会话审计（/audit：从事件日志展示全链路） ----------
 
@@ -2280,6 +2355,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 最近一次被折叠的工具输出（/expand 用）。卡片一直写着"已折叠 N 行（展开看完整）"，
         # 但此前全仓没有任何展开机制 —— 那是 UI 里的一句空话，这里把它兑现。
         self._last_folded: Optional[Dict] = None
+        # 上下文提醒的水位（按触发点的 10% 分档）：0 = 还没提醒过。同一档只提醒一次，
+        # 否则每轮都刷一行警告，用户会学会无视它。
+        self._ctx_warn_band = 0
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
         # 工具往返（执行层）+ 模型请求/输出（CLI）都进同一份 append-only 事实源。
         self.cfg["session_log"] = str(Path(self.cfg.get("project_root", "."))
@@ -2389,10 +2467,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """
         if not self.compact_enabled or not self.messages:
             return
-        policy = ace_context.CompactionPolicy(
-            context_window=self.context_window,
+        policy = _compaction_policy(
+            self.context_window,
             # 系统提示词每轮都在，算进固定开销里，否则阈值会算得偏松
-            fixed_overhead=ace_context.estimate_tokens(system),
+            ace_context.estimate_tokens(system),
         )
         try:
             outcome = ace_context.maybe_compact(
@@ -2581,16 +2659,37 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
         return {"state": st, "on_delta": on_delta}
 
+    def _warn_context_if_near(self, msgs: List[Dict], system: str) -> None:
+        """上下文估算逼近压缩触发点时提前提醒（每 10% 一档最多一次）。
+
+        为什么要有它：压缩真的发生时才提示，用户看到的只是"模型突然忘事"。提前说
+        一句，用户还有机会 /clear 或换个话题。数字是估算（口径见 cli/ace_context），
+        文案里写明"约"，不冒充服务端读数。
+        """
+        usage = self.context_usage(msgs, system)
+        if usage["state"] not in ("near", "over"):
+            return
+        band = int(usage["trigger_pct"]) // 10
+        if band <= self._ctx_warn_band:
+            return
+        self._ctx_warn_band = band
+        key = "ctx_warn_over" if usage["state"] == "over" else "ctx_warn_near"
+        print(c("yellow", t(key, pct=usage["pct"], tokens=usage["tokens"],
+                            trigger=usage["trigger"])))
+
     def _model_turn(self, msgs: List[Dict]) -> Tuple[Optional[str], str, Dict]:
         """跑一轮"模型调用 + 流式显示"。返回 (输出, 系统提示词, 显示状态)；输出 None = 本轮中止。
 
         中止的两种情况（用户中断 / 模型调用失败）都在这里提示完，调用方直接 return。
         抽出来的理由：这一段以前埋在 converse 的循环体里，占了 45 行，而它只做一件事。
         """
+        # 顺序有讲究：先建系统提示词（占用估算要把它算进去）、再提醒，最后才起
+        # spinner —— 否则提醒文字会和 spinner 的 \r 重绘叠在同一行上。
+        system = self._build_system_prompt()
+        self._warn_context_if_near(msgs, system)
         spinner = _Spinner(t("thinking"))
         disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner)
         spinner.start()
-        system = self._build_system_prompt()
         try:
             # 会话事件日志：记录每次模型请求的 envelope 与完整系统提示词
             # （可重建"模型看到了什么"——含 AGENTS.md/记忆注入/目标）
@@ -2876,6 +2975,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(t("status_snapshots", n=len(snaps), limit=limit))
         print(t("status_modules", v2=stats["v2_gateway"],
                 v1=stats["v1_modules"], parser=stats["parser"]))
+        _cu = self.context_usage()
+        if _cu["state"] != "unknown":
+            _ctx_line = t("status_context", tokens=_cu["tokens"], window=_cu["window"],
+                          pct=_cu["pct"], trigger=_cu["trigger"])
+            if not self.compact_enabled:
+                _ctx_line += t("status_context_nocompact")
+            print(c("yellow" if _cu["state"] == "over" else "dim", _ctx_line))
 
     def _show_memory(self) -> None:
         if not self.el.archive:

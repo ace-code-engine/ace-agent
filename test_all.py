@@ -1214,6 +1214,90 @@ if _want("9"):
               and '".ace_history"' in _src_ai)
         check("历史可显式关掉（历史文件里可能留下粘贴过的密钥）",
               "ACE_NO_HISTORY" in _src_ai and "InMemoryHistory()" in _src_ai)
+
+        # —— 上下文占用可视化（估算）：让"还有多久开始丢历史"变成看得见的数 ——
+        # 压缩真的发生时才提示就晚了 —— 用户看到的只是"模型突然忘事"。
+        from cli import ace_context as _ctx9  # noqa: E402
+
+        check("空历史占用 0 且状态 ok", ai_code.context_usage([], 32768)["tokens"] == 0
+              and ai_code.context_usage([], 32768)["state"] == "ok")
+        _cu_none = ai_code.context_usage([{"role": "user", "content": "字"}], 0)
+        check("窗口未知时状态 unknown（不拿 0 当分母）", _cu_none["state"] == "unknown", _cu_none)
+        check("窗口未知时底栏不显示占比（不显示假的 0%）",
+              ai_code.context_badge(_cu_none) == ("", ""), _cu_none)
+
+        # 触发点口径 = (窗口 − 预留输出 − 固定开销) × trigger_ratio，且必须与压缩决策
+        # **同一个构造点**（各写一份就会出现"显示 40% 却已经压缩了"）。默认预留输出
+        # 2048：4096 − 2048 = 2048，× 0.75 = 1536。中文 1 字 ≈ 1 token，好构造。
+        _pol9 = ai_code._compaction_policy(4096)
+        check("显示口径与压缩决策同源（4096 窗口 → 触发点 1536）",
+              _pol9.trigger_at() == 1536 and _pol9 == _ctx9.CompactionPolicy(
+                  context_window=4096), _pol9.trigger_at())
+
+        def _cu_of(chars: int) -> dict:
+            return ai_code.context_usage([{"role": "user", "content": "字" * chars}], 4096)
+
+        check("远未达标 → ok", _cu_of(100)["state"] == "ok", _cu_of(100))
+        _cu_near = _cu_of(1296)          # ≈1300 tokens：触发点的 85%
+        check("用掉触发点 80% 以上 → near（提前提醒，而不是压缩后才说）",
+              _cu_near["state"] == "near", _cu_near)
+        _cu_over = _cu_of(1600)
+        check("达到触发点 → over（下一轮就会压缩）", _cu_over["state"] == "over", _cu_over)
+        check("over 的 tokens 确实 ≥ 触发点",
+              _cu_over["tokens"] >= _pol9.trigger_at(), (_cu_over["tokens"], _pol9.trigger_at()))
+        check("pct 相对整个窗口、trigger_pct 相对触发点（口径不能混）",
+              _cu_near["pct"] == 32 and _cu_near["trigger_pct"] == 85, _cu_near)
+        check("三档对应三种颜色（灰/黄/红）",
+              ai_code.context_badge(_cu_of(100))[1] == "class:footer-dim"
+              and ai_code.context_badge(_cu_near)[1] == "class:footer-w"
+              and ai_code.context_badge(_cu_over)[1] == "class:footer-f",
+              [ai_code.context_badge(_cu_of(100)), ai_code.context_badge(_cu_near),
+               ai_code.context_badge(_cu_over)])
+
+        # 底栏与 /status 都要真的显示出来（函数对了但没接上 = 用户还是看不到）
+        # 这个 CLI 实例的窗口是默认 32768：预算 30720、触发点 23040。
+        cli_toggle.messages = [{"role": "user", "content": "字" * 19000}]
+        _ftr = cli_toggle._footer()
+        _expect_badge = ai_code.t(
+            "footer_ctx", pct=cli_toggle.context_usage(cli_toggle.messages)["pct"])
+        check("底栏含上下文占比", any(_p == _expect_badge for _c, _p in _ftr),
+              [(_c, _p) for _c, _p in _ftr])
+        check("接近压缩时底栏变黄（颜色即语义）",
+              any(_c == "class:footer-w" for _c, _p in _ftr), _ftr)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle.run_command("/status")
+        _status_out = buf.getvalue()
+        check("/status 打出上下文占用（tokens + 窗口 + 触发点）",
+              "tokens" in _status_out and "32768" in _status_out, _status_out[-300:])
+
+        # 提醒的节流：同一档只提醒一次，否则每轮刷一行等于没提醒
+        cli_toggle.messages = []
+        cli_toggle._ctx_warn_band = 0
+        _warn_msgs = [{"role": "user", "content": "字" * 19000}]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle._warn_context_if_near(_warn_msgs, "")
+            _first_warn = buf.getvalue()
+            cli_toggle._warn_context_if_near(_warn_msgs, "")
+            _second_warn = buf.getvalue()
+        check("逼近阈值时提醒一次", _first_warn.strip() != "", _first_warn)
+        check("同一档不重复提醒（第二次数出不变）", _second_warn == _first_warn,
+              _second_warn[-200:])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle._warn_context_if_near([{"role": "user", "content": "字" * 23500}], "")
+        check("跨到更高一档会再提醒一次（升级为 over）", buf.getvalue().strip() != "",
+              buf.getvalue())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle._warn_context_if_near([{"role": "user", "content": "字" * 10}], "")
+        check("掉回安全区不提醒（不制造噪音）", buf.getvalue().strip() == "", buf.getvalue()[:120])
+        cli_toggle._ctx_warn_band = 7
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli_toggle.run_command("/clear")
+        check("/clear 后提醒水位归零（新会话该提醒还提醒）",
+              cli_toggle._ctx_warn_band == 0 and cli_toggle.messages == [])
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 

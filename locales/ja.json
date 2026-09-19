@@ -194,5 +194,10 @@
   "cmd_expand": "最後に折り畳まれたツール出力を展開（カードの「展開して全体を見る」に対応）",
   "expand_none": "  展開できる出力がありません —— 折り畳まれたツール出力のみ展開できます（カードに「N 行を折り畳み」と表示されます）。",
   "expand_header": "—— 完全な出力（{tool}、全 {lines} 行）——",
-  "expand_capped": "（4000 文字の上限で切り詰め済み）"
+  "expand_capped": "（4000 文字の上限で切り詰め済み）",
+  "footer_ctx": " コンテキスト{pct}% ",
+  "status_context": "  コンテキスト: 約 {tokens} tokens / ウィンドウ {window}（{pct}%、圧縮の発動点は約 {trigger}；推定値でありサーバーの計測値ではありません）",
+  "status_context_nocompact": "\n  ↳ --no-compact が有効: ウィンドウを超えると履歴を直接切り捨てます（古いやり取りは失われます）",
+  "ctx_warn_near": "  ⚠ コンテキストは推定 {pct}%（≈{tokens} tokens、発動点 {trigger}）—— 残りわずかです。話題を続けるならそのまま、変えるなら /clear を。",
+  "ctx_warn_over": "  ⚠ コンテキストは推定 {pct}%（≈{tokens} tokens、発動点 {trigger}）—— 次のラウンドで中間部を要約に畳みます: 直近数ターンは原文、中間は圧縮（原文はセッションログに残ります）。"
 }

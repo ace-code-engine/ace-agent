@@ -194,5 +194,10 @@
   "cmd_expand": "Expand the last folded tool output (what the card's \"expand to see it all\" refers to)",
   "expand_none": "  Nothing to expand — only tool output that was folded can be expanded (the card says \"N lines folded\").",
   "expand_header": "—— full output ({tool}, {lines} lines) ——",
-  "expand_capped": " (truncated at the 4000-character cap)"
+  "expand_capped": " (truncated at the 4000-character cap)",
+  "footer_ctx": " ctx {pct}% ",
+  "status_context": "  Context: ~{tokens} tokens / window {window} ({pct}%, compaction triggers near {trigger}; an estimate, not a server reading)",
+  "status_context_nocompact": "\n  ↳ --no-compact is on: past the window, history is hard-truncated (early turns are simply dropped)",
+  "ctx_warn_near": "  ⚠ Context is an estimated {pct}% full (~{tokens} tokens, trigger {trigger}) — getting close. Stay on the topic if you want it, or /clear for a fresh one.",
+  "ctx_warn_over": "  ⚠ Context is an estimated {pct}% full (~{tokens} tokens, trigger {trigger}) — the next round folds the middle into a summary: recent turns stay verbatim, the middle is compacted (the originals stay in the session log)."
 }

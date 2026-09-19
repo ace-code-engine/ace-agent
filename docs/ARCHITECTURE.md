@@ -99,7 +99,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.12.0.md #  本版更新介绍（可直接贴进 GitHub Release；/expand + 跨会话历史 + 状态行计时）
+│   ├── RELEASE-NOTES-v3.13.0.md #  本版更新介绍（可直接贴进 GitHub Release；上下文占用可见）
+│   ├── RELEASE-NOTES-v3.12.0.md #  v3.12 更新介绍（/expand + 跨会话历史 + 状态行计时）
 │   ├── RELEASE-NOTES-v3.11.0.md #  v3.11 更新介绍（容器参数加固；含一次没做成的发布记录）
 │   ├── ARCHITECTURE.md         #   本文档：分层职责 + 权威目录树 + ADR 索引
 │   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读

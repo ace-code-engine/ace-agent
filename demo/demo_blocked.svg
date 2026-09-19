@@ -1,66 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="698" viewBox="0 0 1160 698" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="722" viewBox="0 0 1160 722" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
 <style>
 text{white-space:pre;dominant-baseline:middle}
-@keyframes s0{0%,5.046%{opacity:0}5.047%,100%{opacity:1}}
-.r0{animation:s0 11.89s steps(1,end) infinite}
-@keyframes s1{0%,7.401%{opacity:0}7.402%,100%{opacity:1}}
-.r1{animation:s1 11.89s steps(1,end) infinite}
-@keyframes s2{0%,9.756%{opacity:0}9.757%,100%{opacity:1}}
-.r2{animation:s2 11.89s steps(1,end) infinite}
-@keyframes s3{0%,12.111%{opacity:0}12.112%,100%{opacity:1}}
-.r3{animation:s3 11.89s steps(1,end) infinite}
-@keyframes s4{0%,14.466%{opacity:0}14.467%,100%{opacity:1}}
-.r4{animation:s4 11.89s steps(1,end) infinite}
-@keyframes s5{0%,16.821%{opacity:0}16.822%,100%{opacity:1}}
-.r5{animation:s5 11.89s steps(1,end) infinite}
-@keyframes s6{0%,19.176%{opacity:0}19.177%,100%{opacity:1}}
-.r6{animation:s6 11.89s steps(1,end) infinite}
-@keyframes s7{0%,21.531%{opacity:0}21.532%,100%{opacity:1}}
-.r7{animation:s7 11.89s steps(1,end) infinite}
-@keyframes s8{0%,23.886%{opacity:0}23.887%,100%{opacity:1}}
-.r8{animation:s8 11.89s steps(1,end) infinite}
-@keyframes s9{0%,30.193%{opacity:0}30.194%,100%{opacity:1}}
-.r9{animation:s9 11.89s steps(1,end) infinite}
-@keyframes s10{0%,32.548%{opacity:0}32.549%,100%{opacity:1}}
-.r10{animation:s10 11.89s steps(1,end) infinite}
-@keyframes s11{0%,34.903%{opacity:0}34.904%,100%{opacity:1}}
-.r11{animation:s11 11.89s steps(1,end) infinite}
-@keyframes s12{0%,37.258%{opacity:0}37.259%,100%{opacity:1}}
-.r12{animation:s12 11.89s steps(1,end) infinite}
-@keyframes s13{0%,39.613%{opacity:0}39.614%,100%{opacity:1}}
-.r13{animation:s13 11.89s steps(1,end) infinite}
-@keyframes s14{0%,41.968%{opacity:0}41.969%,100%{opacity:1}}
-.r14{animation:s14 11.89s steps(1,end) infinite}
-@keyframes s15{0%,44.323%{opacity:0}44.324%,100%{opacity:1}}
-.r15{animation:s15 11.89s steps(1,end) infinite}
-@keyframes s16{0%,46.678%{opacity:0}46.679%,100%{opacity:1}}
-.r16{animation:s16 11.89s steps(1,end) infinite}
-@keyframes s17{0%,49.033%{opacity:0}49.034%,100%{opacity:1}}
-.r17{animation:s17 11.89s steps(1,end) infinite}
-@keyframes s18{0%,51.388%{opacity:0}51.389%,100%{opacity:1}}
-.r18{animation:s18 11.89s steps(1,end) infinite}
-@keyframes s19{0%,57.696%{opacity:0}57.697%,100%{opacity:1}}
-.r19{animation:s19 11.89s steps(1,end) infinite}
-@keyframes s20{0%,60.050%{opacity:0}60.051%,100%{opacity:1}}
-.r20{animation:s20 11.89s steps(1,end) infinite}
-@keyframes s21{0%,62.405%{opacity:0}62.406%,100%{opacity:1}}
-.r21{animation:s21 11.89s steps(1,end) infinite}
-@keyframes s22{0%,64.760%{opacity:0}64.761%,100%{opacity:1}}
-.r22{animation:s22 11.89s steps(1,end) infinite}
-@keyframes s23{0%,67.115%{opacity:0}67.116%,100%{opacity:1}}
-.r23{animation:s23 11.89s steps(1,end) infinite}
-@keyframes s24{0%,69.470%{opacity:0}69.471%,100%{opacity:1}}
-.r24{animation:s24 11.89s steps(1,end) infinite}
-@keyframes s25{0%,75.778%{opacity:0}75.779%,100%{opacity:1}}
-.r25{animation:s25 11.89s steps(1,end) infinite}
+@keyframes s0{0%,4.930%{opacity:0}4.931%,100%{opacity:1}}
+.r0{animation:s0 12.17s steps(1,end) infinite}
+@keyframes s1{0%,7.231%{opacity:0}7.232%,100%{opacity:1}}
+.r1{animation:s1 12.17s steps(1,end) infinite}
+@keyframes s2{0%,9.532%{opacity:0}9.533%,100%{opacity:1}}
+.r2{animation:s2 12.17s steps(1,end) infinite}
+@keyframes s3{0%,11.832%{opacity:0}11.833%,100%{opacity:1}}
+.r3{animation:s3 12.17s steps(1,end) infinite}
+@keyframes s4{0%,14.133%{opacity:0}14.134%,100%{opacity:1}}
+.r4{animation:s4 12.17s steps(1,end) infinite}
+@keyframes s5{0%,16.434%{opacity:0}16.435%,100%{opacity:1}}
+.r5{animation:s5 12.17s steps(1,end) infinite}
+@keyframes s6{0%,18.735%{opacity:0}18.736%,100%{opacity:1}}
+.r6{animation:s6 12.17s steps(1,end) infinite}
+@keyframes s7{0%,21.035%{opacity:0}21.036%,100%{opacity:1}}
+.r7{animation:s7 12.17s steps(1,end) infinite}
+@keyframes s8{0%,23.336%{opacity:0}23.337%,100%{opacity:1}}
+.r8{animation:s8 12.17s steps(1,end) infinite}
+@keyframes s9{0%,29.499%{opacity:0}29.500%,100%{opacity:1}}
+.r9{animation:s9 12.17s steps(1,end) infinite}
+@keyframes s10{0%,31.800%{opacity:0}31.801%,100%{opacity:1}}
+.r10{animation:s10 12.17s steps(1,end) infinite}
+@keyframes s11{0%,34.100%{opacity:0}34.101%,100%{opacity:1}}
+.r11{animation:s11 12.17s steps(1,end) infinite}
+@keyframes s12{0%,36.401%{opacity:0}36.402%,100%{opacity:1}}
+.r12{animation:s12 12.17s steps(1,end) infinite}
+@keyframes s13{0%,38.702%{opacity:0}38.703%,100%{opacity:1}}
+.r13{animation:s13 12.17s steps(1,end) infinite}
+@keyframes s14{0%,41.002%{opacity:0}41.003%,100%{opacity:1}}
+.r14{animation:s14 12.17s steps(1,end) infinite}
+@keyframes s15{0%,43.303%{opacity:0}43.304%,100%{opacity:1}}
+.r15{animation:s15 12.17s steps(1,end) infinite}
+@keyframes s16{0%,45.604%{opacity:0}45.605%,100%{opacity:1}}
+.r16{animation:s16 12.17s steps(1,end) infinite}
+@keyframes s17{0%,47.905%{opacity:0}47.906%,100%{opacity:1}}
+.r17{animation:s17 12.17s steps(1,end) infinite}
+@keyframes s18{0%,50.205%{opacity:0}50.206%,100%{opacity:1}}
+.r18{animation:s18 12.17s steps(1,end) infinite}
+@keyframes s19{0%,56.368%{opacity:0}56.369%,100%{opacity:1}}
+.r19{animation:s19 12.17s steps(1,end) infinite}
+@keyframes s20{0%,58.669%{opacity:0}58.670%,100%{opacity:1}}
+.r20{animation:s20 12.17s steps(1,end) infinite}
+@keyframes s21{0%,60.970%{opacity:0}60.971%,100%{opacity:1}}
+.r21{animation:s21 12.17s steps(1,end) infinite}
+@keyframes s22{0%,63.270%{opacity:0}63.271%,100%{opacity:1}}
+.r22{animation:s22 12.17s steps(1,end) infinite}
+@keyframes s23{0%,65.571%{opacity:0}65.572%,100%{opacity:1}}
+.r23{animation:s23 12.17s steps(1,end) infinite}
+@keyframes s24{0%,67.872%{opacity:0}67.873%,100%{opacity:1}}
+.r24{animation:s24 12.17s steps(1,end) infinite}
+@keyframes s25{0%,70.173%{opacity:0}70.174%,100%{opacity:1}}
+.r25{animation:s25 12.17s steps(1,end) infinite}
+@keyframes s26{0%,76.335%{opacity:0}76.336%,100%{opacity:1}}
+.r26{animation:s26 12.17s steps(1,end) infinite}
 .cur{animation:blink 1.05s steps(1,end) infinite}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 </style>
-<rect width="1160" height="698" rx="10" fill="#1b1f29"/>
-<rect y="40" width="1160" height="658" fill="#11141b"/>
+<rect width="1160" height="722" rx="10" fill="#1b1f29"/>
+<rect y="40" width="1160" height="682" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="580.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.12.0 · AI Code Engine</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.13.0 · AI Code Engine</tspan></text>
 <text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#d7dce5">  模型: mock（离线演示）</tspan></text>
 <text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 目录: .</tspan></text>
 <text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">沙箱: off（Python 层策略校验，无内核边界）</tspan></text>
@@ -84,6 +86,7 @@ text{white-space:pre;dominant-baseline:middle}
 <text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
 <text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
 <text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
-<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
+<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 387 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
+<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
 </svg>

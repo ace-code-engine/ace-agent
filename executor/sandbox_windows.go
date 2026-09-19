@@ -16,6 +16,7 @@ package main
 // 想要文件系统边界得上 Tier-2（容器），这一点在 ADR-002 里写明了，不要指望这里。
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -187,10 +188,90 @@ type jobConfinement struct {
 	degraded bool
 	reason   string
 
+	// suspended 记录**本次**启动是否用了挂起态（prepare 时置位）。
+	// noSuspend 是"以后都不要挂起"——由 relaxAfterAttachFailure 在宿主令牌
+	// 不允许 PROCESS_SUSPEND_RESUME 时置位。
+	suspended bool
+	noSuspend bool
+
 	// 受限令牌。创建失败时 token 为 0、tokenReason 说明原因，执行照常进行 ——
 	// 少一层身份边界不等于不能跑，但必须如实上报，别让宿主以为有。
 	token       syscall.Token
 	tokenReason string
+}
+
+// attachError 是一次"附加到 Job"的失败，并区分它是不是**访问被拒**。
+//
+// 只有访问被拒才值得放弃挂起启动重试一次 —— 那说明是这台机器的令牌不给这个访问位
+// （受限令牌宿主、AppContainer 一类启动器），而不是我们的参数用错了。其它失败重试
+// 只会把同一个错误再演一遍，还白花一次进程创建。
+type attachError struct {
+	msg     string
+	denied  bool
+	missing []string
+}
+
+func (e *attachError) Error() string {
+	if len(e.missing) > 0 {
+		return e.msg + "（被拒的访问位: " + strings.Join(e.missing, ", ") + "）"
+	}
+	return e.msg
+}
+
+// missingProcessRights 逐个试出被拒的访问位。
+//
+// 一次 OpenProcess 里的多个位是**与**语义：Windows 只在全部位都授予时才返回句柄，
+// 所以失败信息里看不出是哪一个位被拒 —— 那恰恰是宿主最需要知道的一条。
+// 2026-09-19 实测：受限令牌宿主下 TERMINATE / SET_QUOTA / QUERY_LIMITED 都授予，
+// 只有 PROCESS_SUSPEND_RESUME 被拒，于是整条 Tier-1 挂掉、错误却只说
+// "Access is denied"，读起来像"Job Object 不可用"，把排查引向完全错误的方向。
+func missingProcessRights(pid int, access uintptr) []string {
+	rights := []struct {
+		name string
+		bit  uintptr
+	}{
+		{"PROCESS_TERMINATE", _PROCESS_TERMINATE},
+		{"PROCESS_SET_QUOTA", _PROCESS_SET_QUOTA},
+		{"PROCESS_SUSPEND_RESUME", _PROCESS_SUSPEND_RESUME},
+		{"PROCESS_QUERY_LIMITED_INFORMATION", _PROCESS_QUERY_LIMITED},
+	}
+	var missing []string
+	for _, r := range rights {
+		if access&r.bit == 0 {
+			continue
+		}
+		h, _, _ := procOpenProcess.Call(r.bit, 0, uintptr(pid))
+		if h == 0 {
+			missing = append(missing, r.name)
+			continue
+		}
+		_ = syscall.CloseHandle(syscall.Handle(h))
+	}
+	return missing
+}
+
+// canAssignWithoutSuspend 判断"去掉 SUSPEND_RESUME 之后"这次附加还有没有可能成功。
+//
+// 只被拒了 SUSPEND_RESUME 才值得重试：AssignProcessToJobObject 需要的是
+// TERMINATE | SET_QUOTA，那两个也被拒时重试只是把同一个失败再演一遍。
+func canAssignWithoutSuspend(ae *attachError) bool {
+	for _, m := range ae.missing {
+		if m != "PROCESS_SUSPEND_RESUME" {
+			return false
+		}
+	}
+	return len(ae.missing) > 0
+}
+
+// addDegraded 累积降级理由。多个降级可能同时发生（限额设不上 + 放弃挂起启动），
+// 后一个不能把前一个的理由覆盖掉 —— 宿主需要看到全部。
+func (j *jobConfinement) addDegraded(reason string) {
+	j.degraded = true
+	if j.reason == "" {
+		j.reason = reason
+	} else {
+		j.reason += "；" + reason
+	}
 }
 
 // newRestrictedToken 从当前进程令牌派生一个去特权、降完整性的主令牌。
@@ -259,8 +340,7 @@ func newJobConfinement(lim execLimits) (confinement, string) {
 	)
 	if r == 0 {
 		// 限额设不上的 Job 只剩"整树回收"这一项能力，配额形同虚设，必须如实标记降级。
-		jc.degraded = true
-		jc.reason = fmt.Sprintf("SetInformationJobObject failed: %v; only kill-on-close is in effect", e)
+		jc.addDegraded(fmt.Sprintf("SetInformationJobObject failed: %v; only kill-on-close is in effect", e))
 	}
 	return jc, ""
 }
@@ -270,11 +350,19 @@ func newJobConfinement(lim execLimits) (confinement, string) {
 // 这是消除竞态的关键：如果让子进程正常启动再 AssignProcessToJobObject，
 // 从 CreateProcess 返回到 Assign 生效之间存在一个窗口，子进程完全有时间 fork 出
 // 孙进程，而那些孙进程不在 Job 里，杀不掉也限不住。挂起态启动把窗口压成零。
+//
+// 宿主令牌不允许 PROCESS_SUSPEND_RESUME 时（受限令牌宿主、AppContainer 一类启动器），
+// 这条路走不通；那时由 relaxAfterAttachFailure 置 noSuspend，退回普通启动 ——
+// 窗口会重新出现，而 applied().degraded 会如实说明。
 func (j *jobConfinement) prepare(cmd *exec.Cmd) error {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.CreationFlags |= _CREATE_SUSPENDED | _CREATE_NEW_PROCESS_GROUP
+	cmd.SysProcAttr.CreationFlags |= _CREATE_NEW_PROCESS_GROUP
+	j.suspended = !j.noSuspend
+	if j.suspended {
+		cmd.SysProcAttr.CreationFlags |= _CREATE_SUSPENDED
+	}
 	if j.token != 0 {
 		// os/exec 看到 Token 非 0 会改用 CreateProcessAsUser。这是唯一不改标准库
 		// 就能让子进程带上受限令牌的路子。
@@ -287,13 +375,22 @@ func (j *jobConfinement) afterStart(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return fmt.Errorf("process not started")
 	}
-	access := uintptr(_PROCESS_TERMINATE | _PROCESS_SET_QUOTA | _PROCESS_SUSPEND_RESUME | _PROCESS_QUERY_LIMITED)
+	access := uintptr(_PROCESS_TERMINATE | _PROCESS_SET_QUOTA | _PROCESS_QUERY_LIMITED)
+	if j.suspended {
+		// 只有挂起态启动才需要 SUSPEND_RESUME（NtResumeProcess 靠它恢复进程）。
+		// 不挂起时不要这个位：多要一个位只是多一次被拒的机会。
+		access |= _PROCESS_SUSPEND_RESUME
+	}
 	ph, _, e := procOpenProcess.Call(access, 0, uintptr(cmd.Process.Pid))
 	if ph == 0 {
 		// 拿不到句柄就无法纳入 Job，也无法恢复运行。进程正挂着，必须杀掉，
 		// 否则会留下一个永久挂起的僵尸进程占着 pid 和内存。
 		_ = cmd.Process.Kill()
-		return fmt.Errorf("OpenProcess failed: %v", e)
+		return &attachError{
+			msg:     fmt.Sprintf("OpenProcess failed: %v", e),
+			denied:  errors.Is(e, syscall.ERROR_ACCESS_DENIED),
+			missing: missingProcessRights(cmd.Process.Pid, access),
+		}
 	}
 	defer syscall.CloseHandle(syscall.Handle(ph))
 
@@ -301,12 +398,39 @@ func (j *jobConfinement) afterStart(cmd *exec.Cmd) error {
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("AssignProcessToJobObject failed: %v", e)
 	}
+	if !j.suspended {
+		// 普通启动：进程本来就在跑，没有可恢复的东西。
+		return nil
+	}
 	// 先纳入 Job 再恢复。顺序颠倒就等于没做挂起。
 	if r, _, e := procNtResumeProcess.Call(ph); r != 0 {
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("NtResumeProcess failed: NTSTATUS=0x%x (%v)", r, e)
 	}
 	return nil
+}
+
+// relaxAfterAttachFailure 在"挂起态附加"因访问被拒而失败时，放弃挂起启动重试一次。
+//
+// 只对访问被拒生效，且只在本次确实用了挂起态、且被拒的位**只有** SUSPEND_RESUME 时
+// 生效（TERMINATE / SET_QUOTA 被拒时 Assign 也做不成，重试没有意义）。
+//
+// 放弃的是**零竞态窗口**（CreateProcess 返回到 Assign 生效之间，子进程理论上可以
+// fork 出 Job 之外的孙进程）；保住的是 Job 的进程树与资源边界 —— 那才是 Tier-1
+// 的主体。取态与 newJobConfinement 的降级一致：能跑但如实告知隔离更弱，好过直接
+// 拒绝执行；差别写进 applied().degraded / degraded_reason，不做静默降级。
+func (j *jobConfinement) relaxAfterAttachFailure(err error) bool {
+	if !j.suspended || j.noSuspend {
+		return false
+	}
+	var ae *attachError
+	if !errors.As(err, &ae) || !ae.denied || !canAssignWithoutSuspend(ae) {
+		return false
+	}
+	j.noSuspend = true
+	j.addDegraded("宿主进程令牌不允许 PROCESS_SUSPEND_RESUME：已放弃挂起态启动的零竞态窗口，" +
+		"改为普通启动后立即纳入 Job（进程树与资源边界仍然生效）")
+	return true
 }
 
 // relaxAfterSpawnFailure 在进程因受限令牌起不来时放弃令牌，让 run.go 重试一次。

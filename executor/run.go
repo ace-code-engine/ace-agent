@@ -369,8 +369,31 @@ func runExec(
 	if err := conf.afterStart(cmd); err != nil {
 		// afterStart 失败时进程已被它自己杀掉，这里只需要把 Wait 收尾以免留下 zombie。
 		_ = cmd.Wait()
-		return nil, newError(ErrSpawnFailed, "sandbox attach: "+err.Error(),
-			map[string]any{"tier": p.Sandbox.Tier})
+		// 挂起态附加失败，且原因是宿主令牌不给 PROCESS_SUSPEND_RESUME 时（受限令牌
+		// 宿主、AppContainer 一类启动器 —— 2026-09-19 实测环境），不直接失败：放弃
+		// 零竞态窗口、用普通启动重试一次。Job 的进程树与资源边界仍然生效，丢掉的那
+		// 一项由 applied().degraded / degraded_reason 如实带回宿主。
+		// 只重试一次，且只在约束器确认"真的放松了"时才走这条路。
+		if r, ok := conf.(attachRelaxer); ok && r.relaxAfterAttachFailure(err) {
+			_, _ = stdout.Close(), stderr.Close()
+			cmd, stdout, stderr, rerr = buildCmd()
+			if rerr != nil {
+				return nil, rerr
+			}
+			started = time.Now()
+			if err2 := cmd.Start(); err2 != nil {
+				return nil, newError(ErrSpawnFailed, err2.Error(),
+					map[string]any{"argv0": argv[0]})
+			}
+			if err2 := conf.afterStart(cmd); err2 != nil {
+				_ = cmd.Wait()
+				return nil, newError(ErrSpawnFailed, "sandbox attach: "+err2.Error(),
+					map[string]any{"tier": p.Sandbox.Tier})
+			}
+		} else {
+			return nil, newError(ErrSpawnFailed, "sandbox attach: "+err.Error(),
+				map[string]any{"tier": p.Sandbox.Tier})
+		}
 	}
 
 	applied := conf.applied()

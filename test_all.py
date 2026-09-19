@@ -2495,6 +2495,35 @@ if _want("17"):
     check("render_result 不带隔离标记（给人看的通道）",
           _iso.UNTRUSTED_BEGIN not in _rr(_r_search))
 
+    # —— 错误回喂**不套**隔离块（2026-09-19 真机冒烟实测的协议死锁） ——
+    # 执行层自己的报错不是外部内容。套上隔离块 = 告诉模型"这一段别当指令"，
+    # 而同一句里又写着"请修正后继续"：模型会照约定拒绝纠错，直到 Stall 断路器
+    # 把它当成"模型死循环"中止（实测 6 轮，报错正文一字未变、只有随机 id 在换）。
+    from agent_runner import (render_error_result as _rer,  # noqa: E402
+                              PROMPT_ERROR_RETRY as _per)
+    _err = {"status": "FORMAT_ERROR", "message": "格式错误: 缺少 <EXTERNAL> 标签",
+            "instruction": "请严格按照 <INTERNAL>/<EXTERNAL> 格式输出"}
+    _err_prompt = _per.format(rendered=_rer(_err))
+    check("错误回喂不带外部内容定界块",
+          _iso.UNTRUSTED_BEGIN not in _err_prompt, _err_prompt[:120])
+    check("错误回喂仍把 status/message/instruction 交给模型",
+          "FORMAT_ERROR" in _err_prompt and "缺少 <EXTERNAL> 标签" in _err_prompt
+          and "instruction" in _err_prompt)
+    check("工具结果仍然隔离（SEC-011 没被顺手削弱）",
+          _iso.UNTRUSTED_BEGIN in _per.format(rendered=_rtr(_r_search)))
+
+    # —— 格式纠正指令必须附上"执行层实际收到了什么" ——
+    # 只给格式模板时模型只能猜：真机冒烟里它连猜 3 轮，第 4 轮起断言"报错与事实
+    # 不符"，并在回复里三次要求"把执行层实际收到的原始输出贴出来"。
+    import execution_layer as _elmod  # noqa: E402
+    _ins = _elmod.format_error_instruction("answer. 今天\n<EXTERNAL>")
+    check("格式纠正指令附上实际收到的开头",
+          "answer." in _ins and "[LF]" in _ins, _ins[:200])
+    check("控制字符用可见标记（不做会被 json.dumps 二次转义的反斜杠转义）",
+          _elmod._visualize_controls("a\tb\r\nc") == "a[TAB]b[CR][LF]c")
+    check("超长输出只给开头并标注总长",
+          "共 500 字符" in _elmod.format_error_instruction("x" * 500))
+
     # —— 工具结果确定性裁剪（DSH B8：超大输出头尾保留+中间标记） ——
     from agent_runner import truncate_tool_output as _tto  # noqa: E402
     _short = "短输出" * 100   # 300 字符
@@ -3104,13 +3133,44 @@ if _want("20"):
               "ok" in ((_r.data or {}).get("stdout") or ""), _r.data)
 
         if os.name == "nt":
-            _r = _PolTE(_GO_ROOT, sandbox={"mode": "job"}).execute(
-                {"tool": "terminal_exec", "command": "echo ok"})
-            check("job 档命令跑在 Job Object 里", _r.status == "success", _r.message)
-            _sb = (_r.data or {}).get("sandbox") or {}
+            # 能力探测：这台机器的令牌是否允许 Tier-1 需要的 PROCESS_SUSPEND_RESUME。
+            # 受限令牌宿主（AppContainer 一类启动器、部分沙箱/CI 宿主）不给这个访问位，
+            # 执行器于是降级成"普通启动后立即纳入 Job"（零竞态窗口没了，进程树与资源
+            # 边界仍在），而宿主按纪律拒绝部分生效（503，见 tools/terminal_exec.py）。
+            # 这不是代码缺陷，是这台机器给不出该边界 —— 如实跳过，不假红也不假绿。
+            _cap_denied = ""
+            try:
+                _probe = _ax.ExecutorClient()
+                _probe.start()
+                try:
+                    _po = _probe.exec_command(
+                        ["cmd", "/c", "echo ok"], cwd=_GO_ROOT,
+                        tier=_ax.TIER_JOB_OBJECT, allow_weaker_tier=False, timeout_ms=15000)
+                    _psa = _po.sandbox_applied or {}
+                    if _psa.get("degraded") and "PROCESS_SUSPEND_RESUME" in str(
+                            _psa.get("degraded_reason", "")):
+                        _cap_denied = str(_psa.get("degraded_reason"))
+                finally:
+                    _probe.close()
+            except Exception:
+                # 探测本身失败就当"没有这个限制"，照常跑断言 —— 方向朝失败，别朝假绿。
+                _cap_denied = ""
 
-            check("job 档实际生效的是 tier1", _sb.get("tier") == _ax.TIER_JOB_OBJECT, _sb)
-            check("job 档没有降级", _sb.get("degraded") is False, _sb)
+            _job_checks = ("job 档命令跑在 Job Object 里",
+                           "job 档实际生效的是 tier1",
+                           "job 档没有降级")
+            if _cap_denied:
+                for _n in _job_checks:
+                    skip(_n, "宿主进程令牌不允许 PROCESS_SUSPEND_RESUME，Tier-1 只能降级生效，"
+                             "宿主按纪律拒绝部分生效。原因: " + _cap_denied)
+            else:
+                _r = _PolTE(_GO_ROOT, sandbox={"mode": "job"}).execute(
+                    {"tool": "terminal_exec", "command": "echo ok"})
+                check("job 档命令跑在 Job Object 里", _r.status == "success", _r.message)
+                _sb = (_r.data or {}).get("sandbox") or {}
+
+                check("job 档实际生效的是 tier1", _sb.get("tier") == _ax.TIER_JOB_OBJECT, _sb)
+                check("job 档没有降级", _sb.get("degraded") is False, _sb)
     else:
         print("  (跳过真实二进制段：executor/ 未编译)")
 
@@ -5184,7 +5244,9 @@ if _want("38"):
                    "[38] 仓库根级条目已登记", "[38] 已展开目录的直接子项已登记",
                    "[38] ci.yml compileall 覆盖根级 .py",
                    "[38] ci.yml compileall 覆盖全部 .py(含包目录)",
-                   "[38] ci.yml compileall 列出的路径都存在"):
+                   "[38] ci.yml compileall 列出的路径都存在",
+                   "[38] 批处理在工作树里是 CRLF(防 cmd.exe 错位重读)",
+                   "[38] .gitattributes 钉死批处理行尾(-text,让对象库就是 CRLF)"):
             skip(_n, _GIT_WHY)
     else:
         _TREE = _arch_tree_paths()
@@ -5237,6 +5299,24 @@ if _want("38"):
         _missing = sorted(x for x in _ci_listed if not (FOLDER / x).exists())
         check("[38] ci.yml compileall 列出的路径都存在", bool(_ci_m) and not _missing,
               f"不存在: {_missing[:8]}")
+
+        # R6(2026-09-19 真机冒烟追加):批处理必须是 CRLF,且行尾策略要钉在 .gitattributes
+        #   cmd.exe 在 LF-only 的 .cmd/.bat 上会**错位重读**,把行片段当命令执行:
+        #   实测 ace.cmd 在 LF 工作树下启动吐 4 行 "not recognized ...",同一内容换成
+        #   CRLF 副本则是 0 行。只查工作树还不够 —— .gitattributes 若写成
+        #   `text eol=crlf`,对象库里仍是 LF,Download ZIP / autocrlf=false 的检出
+        #   又会拿到坏启动器;所以"工作树是 CRLF"与"-text 钉死对象库"两条都查。
+        _lf_bat = []
+        for _f in sorted(f for f in _TRACKED if f.endswith((".cmd", ".bat"))):
+            _raw = (FOLDER / _f).read_bytes()
+            if _raw.count(b"\n") != _raw.count(b"\r\n"):
+                _lf_bat.append(_f)
+        check("[38] 批处理在工作树里是 CRLF(防 cmd.exe 错位重读)", not _lf_bat,
+              f"LF 行尾: {_lf_bat}")
+        _ga_path = FOLDER / ".gitattributes"
+        _ga = _ga_path.read_text(encoding="utf-8") if _ga_path.exists() else ""
+        check("[38] .gitattributes 钉死批处理行尾(-text,让对象库就是 CRLF)",
+              "*.cmd" in _ga and "*.bat" in _ga and "-text" in _ga, _ga[:120])
 
 
     # ============================================================

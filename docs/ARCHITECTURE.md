@@ -134,6 +134,7 @@ ace-agent/
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
 ├── docker-compose.yml          # 整体镜像一键起停编排
 ├── .gitignore                  # 忽略规则：生成物 / 缓存 / 密钥
+├── .gitattributes              # 行尾策略：*.cmd / *.bat 固定 CRLF（-text，防 cmd.exe 错位重读）
 ├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
 └── .github/                    # 仓库协作配置

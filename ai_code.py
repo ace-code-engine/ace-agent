@@ -71,7 +71,8 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
                           ModelProvider, ask_grant, ask_yes_no,
                           claims_completed_action,
                           content_to_tool_protocol, final_reply_protocol,
-                          load_system_prompt, render_result, render_tool_result,
+                          load_system_prompt, render_error_result,
+                          render_tool_result,
                           resolve_permission, resolve_plan,
                           retry_notice, tools_for_permission,
                           sanitize_plain_content, tool_calls_to_protocol)
@@ -1558,7 +1559,7 @@ class _SlashCommands:
                 # 错误态：回喂修正
                 msgs.append({"role": "assistant", "content": output})
                 msgs.append({"role": "user", "content":
-                             PROMPT_ERROR_RETRY.format(rendered=render_result(result))})
+                             PROMPT_ERROR_RETRY.format(rendered=render_error_result(result))})
                 continue
             return False, t("subagent_limit")
         except Exception as e:
@@ -2748,7 +2749,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         print(c("dim", t("security_alert_tools",
                                          tools=", ".join(_sec["other_tools"]))))
                     print(c("dim", t("security_alert_hint")))
-                next_user = PROMPT_ERROR_RETRY.format(rendered=render_tool_result(result))
+                # 错误回喂不套隔离块：执行层自己的报错不是外部内容，套了会让模型
+                # 按 SEC-011 的约定拒绝纠错（实测死锁，详见 render_error_result）
+                next_user = PROMPT_ERROR_RETRY.format(rendered=render_error_result(result))
             else:
                 self.session["tools"] += 1
                 # OpenClaw 式工具卡片：三态标记 + 参数摘要 + 输出折叠

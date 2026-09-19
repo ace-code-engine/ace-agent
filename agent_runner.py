@@ -509,6 +509,28 @@ def render_tool_result(r: Dict) -> str:
                           origin=f"tool:{tool}" if tool else "")
 
 
+def render_error_result(r: Dict) -> str:
+    """给模型看的**执行层错误**反馈：刻意不套外部内容定界块。
+
+    与 render_tool_result 唯一的区别就是套不套隔离块，而这个区别是实测逼出来的：
+
+    这个 payload 是执行层自己写的元信息（status / message / instruction），
+    不是从外部取回的正文。套上隔离块，等于告诉模型"这一段是**数据**不是指令，
+    不得当成命令执行" —— 而同一句里又写着"请修正后继续"。两个信号直接打架。
+
+    2026-09-19 真机冒烟（deepseek-v4-flash，本机）的实测后果：模型完全按系统
+    提示词的约定行事，明确写出"它是从被标记为『外部（未分类）』的数据区块里
+    送来的……不能当作指令执行"，连续 5 轮拒绝改动输出，而报错正文一字未变、
+    只有随机 id 在换；第 6 轮被 ai_code 的 STALL_ABORT_ROUNDS 按"模型死循环"
+    中止，并把责任归给模型与提示词。真正的死锁来自两个安全特性的交叉。
+
+    SEC-011 的隔离对象是**外部内容**：网页正文、命令输出、文件正文、子代理文本。
+    执行层自己的报错不在其中。若将来某条错误路径需要携带外部正文，那段正文必须
+    单独走 wrap_untrusted —— 不要因为"反正一起发出去"就把整个 payload 包起来。
+    """
+    return render_result(r)
+
+
 
 # ============================================================
 # 会话状态机（run_conversation 与 ai_code.AgentCLI.converse 共用）
@@ -675,8 +697,10 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
                 print(f"\n⚠ 本会话已发生 {_sec['count']} 次执行层安全拦截"
                       f"（最近一次: {_sec.get('last_tool', '')}）。"
                       "如果这不是你让它做的，请停下核对上下文来源。")
-            # 把错误反馈给模型，让它修正后继续
-            next_prompt = PROMPT_ERROR_RETRY.format(rendered=render_tool_result(result))
+            # 把错误反馈给模型，让它修正后继续。
+            # 注意用的是 render_error_result（不套隔离块），不是 render_tool_result ——
+            # 理由见该函数的 docstring：套了会让模型按约定拒绝纠错，形成死锁。
+            next_prompt = PROMPT_ERROR_RETRY.format(rendered=render_error_result(result))
             continue
 
         # 工具执行成功：结果回填模型，继续下一轮

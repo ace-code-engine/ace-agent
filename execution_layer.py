@@ -396,6 +396,44 @@ class AgentOutputParser:
 
 
 # ============================================================
+# 格式纠正指令（带"实际收到了什么"）
+# ============================================================
+
+# 模板里刻意带上实际原文：只给格式模板时，模型无从判断自己是标签没写、
+# 标签写进了思考块，还是空白/全角字符的差别 —— 它只能一轮轮猜。
+FORMAT_ERROR_HINT = (
+    "请严格按照 <INTERNAL>...</INTERNAL><EXTERNAL>answer...</EXTERNAL> 格式输出。\n"
+    "执行层**实际收到**的开头如下（换行显示为 [LF]、回车 [CR]、制表 [TAB]，"
+    "请对照它自查标签、换行与空白）：\n{preview}"
+)
+
+
+def _visualize_controls(text: str) -> str:
+    """把回车/换行/制表显示成可见标记。
+
+    刻意**不用** `\\n` 这类反斜杠转义：这段文字随后会被 json.dumps 再转义一次，
+    模型看到的是 `\\\\n`，还得自己反解两层才能确定原文。可见标记没有这个问题 ——
+    而"模型看不清自己到底写了什么空白"正是这条指令要修的那个毛病。
+    """
+    return (text.replace("\r", "[CR]").replace("\n", "[LF]")
+                .replace("\t", "[TAB]"))
+
+
+def format_error_instruction(agent_output: str, limit: int = 120) -> str:
+    """给模型的格式纠正指令：附上执行层实际收到的开头。
+
+    2026-09-19 真机冒烟（deepseek-v4-flash）实测：不附原文时，模型连续 3 轮在
+    "answer. 后面到底能不能有空格"这类问题上试探，第 4 轮起改口断言"报错与事实
+    不符"，最后被 Stall 断路器按"模型死循环"中止。模型在回复里三次要求
+    "把执行层实际收到的原始输出贴出来，我逐字符核对" —— 这条指令就是那个请求的
+    答案：给它实际字节，一轮就能自查自纠。
+    """
+    head = agent_output[:limit]
+    tail = "" if len(agent_output) <= limit else f"…（本轮共 {len(agent_output)} 字符）"
+    return FORMAT_ERROR_HINT.format(preview=_visualize_controls(head) + tail)
+
+
+# ============================================================
 # 权限管理器
 # ============================================================
 
@@ -808,7 +846,7 @@ class ExecutionLayer:
         return None, {
             "status": "FORMAT_ERROR",
             "message": f"格式错误: {parsed['error']}",
-            "instruction": "请严格按照 <INTERNAL>...</INTERNAL><EXTERNAL>answer...</EXTERNAL> 格式输出"
+            "instruction": format_error_instruction(agent_output)
         }
 
     def _stage_memory(self, user_input: str) -> List[Dict]:

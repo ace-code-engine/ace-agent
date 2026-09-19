@@ -52,11 +52,26 @@ type spawnRelaxer interface {
 	relaxAfterSpawnFailure(err error) bool
 }
 
+// attachRelaxer 是可选能力：约束器可以在"附加到 Job"因宿主令牌权限不足而失败时，
+// 放弃自己的一项强化（这里是零竞态窗口），让 run.go 重试一次。
+//
+// 与 spawnRelaxer 分开而不是合并：两者放弃的东西不同（一个是身份边界、一个是竞态
+// 窗口），触发时机也不同（Start 之前 vs Start 之后）。合并成一个布尔会让"到底放松了
+// 哪一层"变得说不清 —— 而 applied() 必须如实回答这个问题。
+//
+// 实现方必须保证：返回 true 时约束已经**真的**放松了，并且 applied() 会带上 degraded
+// 与原因；返回 false 时调用方按原错误失败。
+type attachRelaxer interface {
+	relaxAfterAttachFailure(err error) bool
+}
+
 // confinement 是"给一个子进程套上约束"的抽象。
 //
 // 生命周期严格是：prepare → cmd.Start() → afterStart → (运行) → release。
 // afterStart 的实现**必须**保证进程处于可运行状态：Windows 实现会以挂起态启动
 // 以消除"子进程在被纳入 Job 之前就 fork 出孙进程"的竞态，因此恢复运行的责任在它身上。
+// 宿主令牌不允许那一步所需的权限时，实现可以通过 attachRelaxer 退回普通启动 ——
+// 但那必须体现在 applied() 里，不能是一次静默的功能削减。
 type confinement interface {
 	prepare(cmd *exec.Cmd) error
 	afterStart(cmd *exec.Cmd) error

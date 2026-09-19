@@ -1324,6 +1324,76 @@ if _want("9"):
         check("同一段历史连续两轮只提醒一次（节流在真实路径上生效）",
               _one_round == 1 and buf.getvalue().count("⚠") == 1,
               (_one_round, buf.getvalue().count("⚠")))
+
+        # —— 首屏排版：面板 / 分组菜单 / 一行不超宽 ——
+        # 首屏是"改没改一眼就知道"的地方，所以这里盯的是**装出来的样子**：
+        # 行宽必须等于面板宽（中文错位、右边框被顶出去都是旧版的老毛病）。
+        from ui.ace_text import (display_width as _dw9,
+                                 strip_ansi as _plain9)  # noqa: E402
+        _lw = 88
+        _lines = cli_real.landing_lines(0, width=_lw)
+        check("首屏有「当前会话」面板与标题", any("当前会话" in x for x in _lines), _lines[:6])
+        check("首屏面板里写着模型/目录/历史三项",
+              all(any(k in x for x in _lines) for k in ("模型", "目录", "历史")),
+              [x for x in _lines if "│" in x][:4])
+        _boxlines = [x for x in _lines if x[:1] in ("╭", "│", "╰")]
+        check("首屏面板每行等宽（框不会歪）",
+              {_dw9(x) for x in _boxlines} == {_lw}, sorted({_dw9(x) for x in _boxlines}))
+        check("首屏整屏不超宽（ANSI 不计入列宽）",
+              all(_dw9(x) <= _lw for x in _lines),
+              [(x[:40], _dw9(x)) for x in _lines if _dw9(x) > _lw][:3])
+        _menu_n = len(ai_code.AgentCLI.LANDING_ITEMS)
+        _plain_lines = [_plain9(x) for x in _lines]
+        check(f"首屏菜单编号 1..{_menu_n} 一个不少",
+              all(any(re.match(rf"^\s*[❯ ]\s?{i}\.\s", x) for x in _plain_lines)
+                  for i in range(1, _menu_n + 1)),
+              [x for x in _plain_lines if re.match(r"^\s*[❯ ]\s?\d+\.", x)])
+        check("首屏菜单有分组标题（不是一坨平铺）",
+              sum(1 for g in ("会话", "模型", "其他")
+                  if any(x.startswith("── " + g) for x in _plain_lines)) == 3,
+              [x[:30] for x in _plain_lines if x.startswith("── ")])
+
+        # —— --preview：界面能被"非终端"看见（演示录制与评审都靠它） ——
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ai_code._print_preview(cli_real, width=_lw)
+        _pv = buf.getvalue()
+        check("--preview 打出首屏 + 状态栏示例 + 提示",
+              "当前会话" in _pv and "状态栏" in _pv
+              and ai_code.t("preview_hint")[:8] in _pv, _pv[-200:])
+        check("--preview 的状态栏示例里带上下文占比（底栏内容可评审）",
+              "%" in _pv.split("状态栏")[-1], _pv[-160:])
+        check("--preview 最后一行是提示（画完就结束，不进对话）",
+              _pv.strip().splitlines()[-1].endswith(ai_code.t("preview_hint")[-8:]),
+              _pv.strip().splitlines()[-1][:80])
+
+        # —— 最近会话（首屏用它告诉用户"模型现在记得哪一次"） ——
+        from cli.ace_sessionlog import list_sessions as _ls9  # noqa: E402
+        _sd = mktemp() / ".ace_sessions"
+        _sd.mkdir()
+        for _i, _txt in enumerate(("第一句问题", "第二句问题")):
+            (_sd / f"17{_i}.jsonl").write_text(
+                json.dumps({"seq": 1, "kind": "user/message", "ts": "x",
+                            "content": _txt}, ensure_ascii=False) + "\n",
+                encoding="utf-8")
+        _sess = _ls9(str(_sd), limit=2)
+        check("list_sessions 读出条数与首句",
+              len(_sess) == 2 and {s["preview"] for s in _sess} == {"第一句问题", "第二句问题"},
+              _sess)
+        check("list_sessions 对不存在的目录返回空（首屏不崩）",
+              _ls9(str(mktemp() / "nope")) == [], "")
+        (_sd / "broken.jsonl").write_text("{不是 JSON\n", encoding="utf-8")
+        check("list_sessions 容忍半截日志（不抛异常）",
+              len(_ls9(str(_sd), limit=5)) == 3, len(_ls9(str(_sd), limit=5)))
+
+        _cli_land = ai_code.AgentCLI({"project_root": str(mktemp()), "permission": "readonly",
+                                      "bait": False, "base_url": "", "api_key": "",
+                                      "model": "m1"}, mock=True)
+        check("没有历史时首屏不画「最近会话」面板（不留空框）",
+              not any("最近会话" in x for x in _cli_land.landing_lines(0, width=_lw)), "")
+        check("窄终端下首屏仍不超宽（宽度真的跟着窗口走）",
+              all(_dw9(x) <= 60 for x in _cli_land.landing_lines(0, width=60)),
+              max(_dw9(x) for x in _cli_land.landing_lines(0, width=60)))
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 
@@ -5228,7 +5298,8 @@ if _want("33"):
     # —— 宽度口径（ui/ace_text）——
     # 中文占两列：卡片以前按 len() 截断，"截到 60 字"的中文实际占 120 列，尾巴顶出终端。
     from ui.ace_text import (display_width as _dw, truncate_width as _tw,
-                             pad_width as _pw, char_width as _cw)  # noqa: E402
+                             pad_width as _pw, char_width as _cw,
+                             strip_ansi as _tsa)  # noqa: E402
     check("display_width：汉字 2 列、ASCII 1 列", _dw("中文ab") == 6, _dw("中文ab"))
     check("char_width：组合符与零宽字符不占列",
           _cw("\u0301") == 0 and _cw("\u200b") == 0, (_cw("\u0301"), _cw("\u200b")))
@@ -5275,6 +5346,58 @@ if _want("33"):
     check("mktemp 真实文件 → 卡片：标题含耗时、输出折叠到 12 行",
           any("  r file_read ✓ [SUCCESS] · 1.25s" == ln for ln in _card_real)
           and any("已折叠 18 行" in ln for ln in _card_real), _card_real)
+
+    # —— ace_text 的 ANSI 感知（给一行上色不应该让宽度凭空变多） ——
+    # 面板要在框里上色，而颜色码在终端里占 0 列：不处理就会被当成十几个字符，
+    # 于是"加个颜色，边框就错位"——这类 bug 只在真终端里看得见，必须在这里钉住。
+    _RED, _RST = "\033[31m", "\033[0m"
+    check("display_width 忽略 ANSI 色码",
+          _dw(_RED + "中文abc" + _RST) == _dw("中文abc"), _dw(_RED + "中文" + _RST))
+    check("strip_ansi 只去 SGR、不动正文",
+          _tsa(_RED + "abc" + _RST) == "abc", repr(_tsa(_RED + "abc" + _RST)))
+    _at = _tw(_RED + "中文中文中文" + _RST, 6)
+    check("truncate_width 对带色文本仍按可见宽度截断",
+          _dw(_at) <= 6 and "中文" in _at, (repr(_at), _dw(_at)))
+    check("truncate_width 截断后补复位码（颜色不漏到下一行）",
+          _at.endswith(_RST), repr(_at))
+    check("pad_width 按可见宽度补空格",
+          _dw(_pw(_RED + "ab" + _RST, 6)) == 6, repr(_pw(_RED + "ab" + _RST, 6)))
+
+    # —— ace_panel：面板 / 分栏 / 菜单的宽度口径 ——
+    from ui import ace_panel as _pn  # noqa: E402
+
+    check("fit_width：夹在 [48,96]（太窄挤成一团、太宽眼睛找不着）",
+          _pn.fit_width(200) == 96 and _pn.fit_width(40) == 48
+          and _pn.fit_width(0) == 48, (_pn.fit_width(200), _pn.fit_width(40)))
+    _box = _pn.box("标题", ["一", "中文很长的值" * 10], 60, title_right="v1.2.3")
+    check("box：每行宽度严格等于面板宽（含中文行）",
+          all(_dw(ln) == 60 for ln in _box), [_dw(ln) for ln in _box])
+    check("box：首尾是圆角框线，标题嵌在上边框",
+          _box[0].startswith("╭─ 标题") and _box[-1].startswith("╰")
+          and "v1.2.3" in _box[0], _box[0])
+    check("box：超宽内容按列截断而不是顶破右边框",
+          all(ln.endswith("│") for ln in _box[1:-1]), _box[1:-1])
+    _sb = _pn.side_by_side(["AB", "ABCD"], ["x", "y", "z"], gap=2, width=20)
+    check("side_by_side：右栏按左栏最宽行对齐",
+          _sb[0] == "AB    x" and _sb[1] == "ABCD  y" and _sb[2].endswith("z"), _sb)
+    _mr = _pn.menu_rows([("进入聊天", "直接开聊"), ("配置", "选厂商填 key")], 40, selected=1)
+    check("menu_rows：说明列按**显示列**对齐（中文两列，不能拿字符下标比）",
+          _dw(_mr[0][:_mr[0].index("直")]) == _dw(_mr[1][:_mr[1].index("选")]), _mr)
+    check("menu_rows：选中行用 ❯ 标记且只标一行",
+          _mr[1].startswith("❯ 2.") and _mr[0].startswith(" "), _mr)
+    check("menu_rows：说明超宽按列截断",
+          all(_dw(ln) <= 40 for ln in _pn.menu_rows([("a", "长" * 100)], 40)), "")
+    check("section：分组标题补满整行",
+          _dw(_pn.section("会话", 30)) == 30, _dw(_pn.section("会话", 30)))
+    # format_when：相对时间只在"今天/昨天"用，再往前必须是绝对日期
+    # （demo 的 --check 依赖这一点：相对时间会随录制时刻变化而误报）
+    _now = 1789790000.0
+    check("format_when：今天显示时间", _pn.format_when(_now - 3600, _now).startswith("今天"),
+          _pn.format_when(_now - 3600, _now))
+    check("format_when：两天前显示绝对日期（不随'今天是哪天'漂）",
+          _pn.format_when(_now - 2 * 86400, _now).count("-") == 1,
+          _pn.format_when(_now - 2 * 86400, _now))
+    check("format_when：坏输入不抛异常", _pn.format_when(None, _now) == "?", "")
 
     # ============================================================
 

@@ -195,9 +195,53 @@ class SessionLog:
         """
         msgs: List[Dict[str, str]] = []
         for ev in self.events():
-            kind = ev.get("kind")
-            if kind == K_USER_MESSAGE:
+            if ev.get("kind") == K_USER_MESSAGE:
                 msgs.append({"role": "user", "content": ev.get("content", "")})
-            elif kind == K_ASSISTANT_MESSAGE:
+            elif ev.get("kind") == K_ASSISTANT_MESSAGE:
                 msgs.append({"role": "assistant", "content": ev.get("content", "")})
         return msgs
+
+
+def list_sessions(sessions_dir: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """最近会话摘要（首屏用）：文件名、修改时间、消息条数、首条用户输入。
+
+    只读、**任何异常都退化成空列表** —— 首屏不该因为一个半截日志文件就崩掉，
+    "看不到历史"远比"界面上抛出 traceback"可接受。
+    每份日志只读到找到首条用户输入为止，不整体解析（旧会话可能很大）。
+    """
+    out: List[Dict[str, Any]] = []
+    try:
+        d = Path(sessions_dir)
+        if not d.is_dir():
+            return out
+        files = sorted((p for p in d.glob("*.jsonl") if p.is_file()),
+                       key=lambda p: p.stat().st_mtime, reverse=True)[:max(0, int(limit))]
+    except OSError:
+        return out
+    for p in files:
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        msgs = 0
+        first = ""
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if ev.get("kind") == K_USER_MESSAGE:
+                        msgs += 1
+                        if not first:
+                            first = str(ev.get("content", ""))
+                        elif msgs >= 200:
+                            break
+        except OSError:
+            pass
+        out.append({"name": p.name, "mtime": mtime, "messages": msgs, "preview": first})
+    return out

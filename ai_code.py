@@ -60,6 +60,7 @@ sys.path.insert(0, str(FOLDER))
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ui.ace_cards import status_mark, tool_card  # noqa: E402
+from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：框、分栏、菜单）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -1813,7 +1814,9 @@ class _SlashCommands:
         """模型 | 权限(着色) | 沙箱 | 联网 | 目标(带动作提示) | 统计。
         状态永远附带下一步动作（如 目标:paused(/goal resume)）。"""
         parts: List[Tuple[str, str]] = []
-        model = self.client.model.split("/")[-1] if self.client.model else "?"
+        # mock 模式下 client.model 还是配置里的默认值，写出来等于谎报"在用某个模型"
+        model = "mock" if self.client.mock else (
+            self.client.model.split("/")[-1] if self.client.model else "?")
         parts.append(("class:footer", f" {model} "))
         perm = str(self.cfg.get("permission", "readonly"))
         perm_cls = {"readonly": "class:footer-ro",
@@ -2138,13 +2141,13 @@ class _LandingUI:
     # ---------- 登录页 / 首页（参考 AI-CLI 启动平台主菜单） ----------
 
     LANDING_ITEMS = [
-        ("landing_enter", "landing_enter_desc", "chat"),
-        ("landing_config", "landing_config_desc", "wizard"),
-        ("landing_provider", "landing_provider_desc", "provider"),
-        ("landing_mock", "landing_mock_desc", "mock"),
-        ("landing_status", "landing_status_desc", "status"),
-        ("landing_help", "landing_help_desc", "help"),
-        ("landing_exit", "landing_exit_desc", "exit"),
+        ("landing_enter", "landing_enter_desc", "chat", "menu_group_session"),
+        ("landing_config", "landing_config_desc", "wizard", "menu_group_model"),
+        ("landing_provider", "landing_provider_desc", "provider", "menu_group_model"),
+        ("landing_mock", "landing_mock_desc", "mock", "menu_group_model"),
+        ("landing_status", "landing_status_desc", "status", "menu_group_more"),
+        ("landing_help", "landing_help_desc", "help", "menu_group_more"),
+        ("landing_exit", "landing_exit_desc", "exit", "menu_group_more"),
     ]
 
     @staticmethod
@@ -2217,52 +2220,162 @@ class _LandingUI:
         self._read_key()
 
     def _banner_extras(self) -> List[str]:
-        """启动信息行：沙箱档位 / 知识库 / 会话日志（一眼看清当前运行环境）。
-        刻意不用 emoji：Windows 旧终端（conhost）会渲染成方框。"""
+        """启动信息行：知识库路径 / 会话日志 —— 面板里没有的两项。
+
+        边界（权限/沙箱/联网/审批）已经进了「当前会话」面板，这里不再重复一行
+        同样的话；刻意不用 emoji（Windows 旧终端 conhost 会渲染成方框）。
+        """
         lines = []
-        sandbox = str(self.cfg.get("sandbox", "off") or "off")
-        if sandbox == "job":
-            lines.append(c("dim", t("banner_sandbox_job")))
-        elif sandbox == "docker":
-            lines.append(c("dim", t("banner_sandbox_docker")))
-        else:
-            lines.append(c("dim", t("banner_sandbox_off")))
         kb = self.cfg.get("kb_root")
         kb_path = kb or (os.path.abspath(self.cfg['project_root']) + os.sep + '.ace_kb')
         lines.append(c("dim", t("banner_kb", path=kb_path,
                                 ext=t("banner_kb_ext") if kb else "")))
         lines.append(c("dim", t("banner_sesslog")))
-        net = "on" if self.el.executor.network_enabled else "off"
-        lines.append(c("dim", t("banner_net", state=t("net_on") if net == "on"
-                                else t("net_off"))))
         return lines
 
     def _draw_landing(self, sel: int) -> None:
         self._clear_screen()
-        for line in ACE_LOGO.split("\n"):
-            print(c("cyan", " " + line))
-        print(c("bold", t("banner_title", ver=version.__version__)))
-        print()
-        print(t("banner_model", desc=self.client.describe()))
-        print(t("banner_permission",
-                perm=self.cfg.get("permission", "readonly"),
-                root=self.cfg.get("project_root", ".")))
-        for line in self._banner_extras():
+        for line in self.landing_lines(sel):
             print(line)
-        if not self.cfg.get("api_key") and not self.client.mock:
-            print(c("yellow", t("banner_missing_key")))
-        print()
-        for i, (label_key, desc_key, action) in enumerate(self.LANDING_ITEMS, 1):
-            label = t(label_key)
-            desc = t(desc_key)
-            if action == "mock":
-                # 根据当前模式动态显示：可来回切换
-                if self.client.mock:
-                    label, desc = t("landing_back_real"), t("landing_back_real_desc")
-            mark = c("magenta", "❯") if i - 1 == sel else " "
-            print(f"  {mark} {i}. {label}   {c('dim', desc)}")
-        print()
-        print(c("dim", t("banner_nav")))
+
+    # ---------- 首屏排版（宽度感知；纯拼装，便于 --preview 与演示录制复用） ----------
+
+    def _panel_width(self) -> int:
+        """当前终端下的面板宽度（拿不到尺寸就用 100 列当默认）。"""
+        try:
+            cols = shutil.get_terminal_size((100, 24)).columns
+        except OSError:
+            cols = 100
+        return ace_panel.fit_width(cols)
+
+    @staticmethod
+    def _paint_box(line: str) -> str:
+        """把框线染成暗色、内容保持原样。
+
+        为什么按首尾字符切而不是整行上色：整行上色会把内容也变灰，面板里的当前值
+        就分不出主次了。
+        """
+        if line[:1] in ("╭", "╰"):
+            return c("dim", line)
+        if line[:1] == "│" and line[-1:] == "│":
+            return c("dim", "│") + line[1:-1] + c("dim", "│")
+        return line
+
+    def _model_brief(self) -> str:
+        """模型一行摘要：`deepseek-v4-flash · api.deepseek.com`（mock 时直说 mock）。"""
+        if self.client.mock:
+            return t("banner_mock_brief")
+        host = ""
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(self.client.base_url or "").netloc
+        except Exception:  # noqa: BLE001 —— 只影响这一行的展示
+            host = ""
+        return f"{self.client.model or '?'}" + (f" · {host}" if host else "")
+
+    def _session_panel(self, width: int) -> List[str]:
+        """「当前会话」面板：模型 / 三维度 / 目录 / 历史 —— 一眼看清现在的运行环境。"""
+        perm = str(self.cfg.get("permission", "readonly"))
+        sb = str(self.cfg.get("sandbox", "off") or "off")
+        net = t("net_on") if getattr(self.el.executor, "network_enabled", True) else t("net_off")
+        appr = str(self.cfg.get("approval_policy") or "on_request")
+        axes = " · ".join([
+            f"{t('panel_k_perm')} {perm}", f"{t('panel_k_sandbox')} {sb}",
+            f"{t('panel_k_net')} {net}", f"{t('panel_k_approval')} {appr}"])
+        # 目录用绝对路径再缩成 ~：配置里写的是 "."，直接显示一个点等于没说
+        root = os.path.abspath(str(self.cfg.get("project_root") or "."))
+        home = str(Path.home())
+        if root.lower().startswith(home.lower()):
+            root = "~" + root[len(home):]
+        model = self._model_brief()
+        if not self.client.mock and not self.cfg.get("api_key"):
+            model = model + "   " + c("yellow", t("panel_key_missing"))
+        if getattr(self, "_resumed_from", None):
+            hist = t("panel_history_resumed", when=self._resumed_when(),
+                     n=len(self.messages))
+        else:
+            hist = t("panel_history_none")
+        rows = [
+            ace_panel.row(t("panel_k_model"), model, width),
+            ace_panel.row(t("panel_k_axes"), axes, width),
+            ace_panel.row(t("panel_k_cwd"), root, width),
+            ace_panel.row(t("panel_k_history"), hist, width),
+        ]
+        return ace_panel.box(t("panel_session_title"), rows, width,
+                             title_right=f"v{version.__version__}")
+
+    def _resumed_when(self) -> str:
+        """上次会话的时间（从日志文件 mtime 推）。取不到就说"上次"。"""
+        try:
+            p = Path(self.cfg.get("project_root", ".")) / ".ace_sessions" / str(self._resumed_from)
+            return ace_panel.format_when(p.stat().st_mtime, time.time())
+        except Exception:  # noqa: BLE001 —— 展示用，取不到不影响任何逻辑
+            return t("panel_when_unknown")
+
+    def _recent_panel(self, width: int) -> List[str]:
+        """「最近会话」面板：最近 3 次会话（时间 / 条数 / 首句）。
+
+        首屏显示它是有实际用处的：启动时会自动续聊最近一次会话，用户至少该看见
+        "模型现在记得的是哪一次"。
+        """
+        rows: List[str] = []
+        try:
+            from cli.ace_sessionlog import list_sessions as _ls
+            sess_dir = Path(self.cfg.get("project_root", ".")) / ".ace_sessions"
+            cur = str(self.cfg.get("session_log") or "")
+            for s in _ls(str(sess_dir), limit=4):
+                if cur and str(sess_dir / str(s["name"])) == cur:
+                    continue          # 本次会话不列进"最近"
+                preview = " ".join(str(s.get("preview") or "").split())[:48]
+                rows.append("  ".join([
+                    ace_panel.format_when(s["mtime"], time.time()),
+                    t("panel_turns", n=s["messages"]),
+                    preview or t("panel_no_preview")]))
+                if len(rows) >= 3:
+                    break
+        except Exception:  # noqa: BLE001 —— 首屏不该因为历史读不出来就崩
+            rows = []
+        if not rows:
+            return []
+        return ace_panel.box(t("panel_recent_title"), rows, width)
+
+    def landing_lines(self, sel: int, width: Optional[int] = None,
+                      with_logo: bool = True) -> List[str]:
+        """首屏每一行的内容（含 ANSI 颜色）。`--preview` 与演示录制直接复用这个函数。"""
+        w = int(width or self._panel_width())
+        out: List[str] = []
+        if with_logo:
+            logo = [c("cyan", " " + ln) for ln in ACE_LOGO.split("\n")]
+            right = [c("bold", f"ACE · AI Code Engine  v{version.__version__}"),
+                     c("dim", t("banner_tagline")), ""]
+            out += ace_panel.side_by_side(logo, right, width=w)
+            out.append("")
+        out += [self._paint_box(ln) for ln in self._session_panel(w)]
+        recent = self._recent_panel(w)
+        if recent:
+            out.append("")
+            out += [self._paint_box(ln) for ln in recent]
+        out.append("")
+        entries = []
+        for label_key, desc_key, action, _group in self.LANDING_ITEMS:
+            label, desc = t(label_key), t(desc_key)
+            if action == "mock" and self.client.mock:
+                label, desc = t("landing_back_real"), t("landing_back_real_desc")
+            entries.append((label, desc))
+        rows = ace_panel.menu_rows(entries, w, selected=sel)
+        group_prev = None
+        for (item, line) in zip(self.LANDING_ITEMS, rows):
+            group = item[3]
+            if group != group_prev:
+                out.append(c("dim", ace_panel.section(t(group), w)))
+                group_prev = group
+            if line.startswith("❯"):
+                out.append(f" {c('magenta', '❯')} {line[2:]}")
+            else:
+                out.append(" " + line)
+        out.append("")
+        out.append(c("dim", t("banner_nav")))
+        return out
 
     def _toggle_mock(self) -> None:
         """切换离线演示 / 真实模型模式（可来回切换）"""
@@ -3001,12 +3114,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """聊天 REPL；return_to_landing=True 时退出聊天回到主界面，否则结束程序"""
         # 进入聊天前清屏，避免登录页的 logo/菜单残留在屏幕上造成双头部
         self._clear_screen()
+        # 头部用与首屏同一套面板：模型/边界/目录/历史四行，字段一多也不会错位
         print(c("bold", "ACE") + c("dim", t("banner_sub", ver=version.__version__)))
-        print(t("banner_model", desc=self.client.describe()))
-        print(t("banner_permission",
-                perm=self.cfg["permission"], root=self.cfg["project_root"]))
-        for line in self._banner_extras():
-            print(line)
+        _hw = self._panel_width()
+        for _ln in [self._paint_box(x) for x in self._session_panel(_hw)]:
+            print(_ln)
+        for _ln in self._banner_extras():
+            print(_ln)
         if self.cfg["permission"] != "readonly":
             print(c("yellow", t("banner_warn_write")))
         print(t("banner_hint",
@@ -3182,6 +3296,26 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
               else c("dim", t("bye")))
 
 
+def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
+    """`--preview`：画一遍首屏 + 一行状态栏示例，然后退出。
+
+    为什么要它：终端界面没法截图评审，改动只能靠"你自己跑一次看看"。有了这个开关，
+    界面就能被**录制**（demo/record_demo.py 用它出 SVG）、被 CI 断言，也能让你在
+    不开交互终端时先看一眼长什么样 —— 预览只画界面，不读按键、不进对话。
+    """
+    w = int(width) if int(width or 0) > 0 else cli._panel_width()
+    for line in cli.landing_lines(0, width=w):
+        print(line)
+    print()
+    # 状态栏示例：底栏是 prompt_toolkit 的画布，这里按同一份数据渲染成一行，
+    # 免得"预览里看不到状态栏"。
+    ftr = cli._footer()
+    print(ace_panel.section(t("preview_footer_title"), w, fill="·"))
+    print("".join(seg for _cls, seg in ftr).strip())
+    print()
+    print(c("dim", t("preview_hint")))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Code —— AI Agent 命令行终端")
     parser.add_argument("--mock", action="store_true", help="离线演示（脚本化假模型）")
@@ -3223,6 +3357,10 @@ def main() -> None:
                         help="关闭上下文压缩，退回纯硬截断（会丢早期对话，"
                              "包括第一条用户消息里的任务说明）")
     parser.add_argument("--input", help="单次对话（非交互）")
+    parser.add_argument("--preview", action="store_true",
+                        help="只画一遍首屏（含状态栏示例）然后退出：不开终端也能看界面")
+    parser.add_argument("--preview-width", type=int, default=0,
+                        help="配合 --preview：按指定列宽渲染（默认按当前终端，取不到用 100）")
     parser.add_argument("--save-config", action="store_true", help="把当前参数保存到 ~/.ai_code.json")
     parser.add_argument("--install-ui", action="store_true",
                         help="一键安装实时补全依赖（prompt_toolkit，Claude Code 同款 / 弹窗菜单）")
@@ -3266,6 +3404,8 @@ def main() -> None:
         save_cli_config(cfg)
 
     cli = AgentCLI(cfg, mock=args.mock)
+    if args.preview:
+        return _print_preview(cli, width=args.preview_width)
     if args.input:
         cli.converse(args.input)
         return

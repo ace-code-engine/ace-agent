@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.13.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.14.0%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |
@@ -57,6 +57,15 @@ On Windows the repo ships `ace.cmd` — add it to `PATH` and just type `ace`.
 Prefer to read before running? [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) has the 5-minute path, the three-axis matrix (`permission` / `sandbox` / `approval_policy`) and the ten classic traps. Three hands-on scenarios live in [`examples/`](examples/README.md).
 
 ## See it run
+
+<p align="center">
+  <img src="demo/demo_landing.svg" alt="ACE landing screen: session panel (model / permission / sandbox / network / approval / directory / history), recent sessions, grouped menu, and the status bar" width="820">
+</p>
+
+<p align="center">
+  <sub><b>The screen you actually start on.</b> One panel states the boundaries in force (permission · sandbox · network · approval), the directory it will edit, and which past session was resumed —
+  then a grouped menu, then the status bar. Rendered by <code>ace --preview</code> at 88 columns; the panel width follows your terminal.</sub>
+</p>
 
 <p align="center">
   <img src="demo/demo.svg" alt="ACE terminal session: ask → tool call → answer → status → drop permission" width="820">
@@ -190,6 +199,7 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
+- **v3.14.0** (2026-09-19): the landing screen was rebuilt — a **session panel** (model, the four boundary axes, directory, and which past session was resumed), a **recent-sessions panel**, and a grouped menu, all laid out by a new width-aware `ui/ace_panel.py` that guarantees every line matches the panel width (CJK counted as two columns). The previous session has been auto-resumed since v3.9, but nothing on screen ever said *which* one; now it does. New `ace --preview` draws that screen and exits — no interactive terminal needed, which is how the README hero image and its CI check work. `ui/ace_text` now ignores ANSI colour codes when measuring width, so colouring a line no longer shifts the border
 - **v3.13.0** (2026-09-19): context headroom is now visible instead of announced only after the fact. The footer ends with a usage figure (`ctx 38%`) whose colour is the semantics — grey with room, yellow at 80% of the compaction trigger, red once compaction is due — and `/status` prints the detail (`~12k tokens / window 32768 (38%, trigger ~23k; an estimate, not a server reading)`). Before a request, a one-time warning fires as the trigger approaches (throttled per 10% band, so it stays worth reading). The display figures and the actual compaction decision share one policy constructor — two copies would eventually disagree, and a number that contradicts reality stops being trusted. Guards: +20 assertions in `[9]`, including a same-source invariant on the trigger point and two integration assertions that drive a real (mock) `converse` — helper-only tests would pass even if nothing called the helper
 - **v3.12.0** (2026-09-19): the fold hint became a real feature. Tool cards have said "N lines folded (use /expand for the rest)" since early versions, but no such command existed — an empty promise in the one place the user needs it. `/expand` reprints the last folded output, says so honestly when nothing was folded, and marks output cut at the 4000-character cap. Completions now persist across sessions in `~/.ace_history` (↑/↓ and Ctrl+R; `ACE_NO_HISTORY=1` keeps them in-process, since the file can retain pasted keys), and the spinner shows elapsed seconds so a long think is distinguishable from a hang. Guards: +12 assertions in `[9]`, including a generic "the table's parts flag matches the handler's real signature" invariant (it caught `/expand`'s own mismatch on first run), and `[11]` now enforces that zh/en/ja have identical key sets, identical `{placeholders}` per key, and no empty translations
 - **v3.11.1** (2026-09-19): the picker matches **subsequences**, not substrings — `glm4` finds `glm-4.6` (0 → 10 hits on `/model`), `dsk` finds `deepseek`; scoring and highlighting share one matcher, so a fuzzy hit is highlighted exactly where it matched. New `ui/ace_text.py` makes text handling **column-aware** (CJK is two columns wide): tool cards used to truncate by character count, so a line truncated to "60 characters" of Chinese occupied 120 columns and pushed the card border off-screen

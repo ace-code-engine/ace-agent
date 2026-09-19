@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.13.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.14.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -94,6 +94,15 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 </details>
 
 ## 看它跑起来
+
+<p align="center">
+  <img src="demo/demo_landing.svg" alt="ACE 首屏：会话面板（模型 / 权限 / 沙箱 / 联网 / 审批 / 目录 / 历史）+ 最近会话 + 分组菜单 + 状态栏" width="820">
+</p>
+
+<p align="center">
+  <sub><b>真正会看到的第一屏。</b>一个面板把当前生效的边界（权限 · 沙箱 · 联网 · 审批）、将要编辑的目录、以及"恢复了哪一次会话"一并摆出来，
+  下面是分组菜单与状态栏。由 <code>ace --preview</code> 按 88 列渲染；面板宽度跟着你的终端走。</sub>
+</p>
 
 <p align="center">
   <img src="demo/demo.svg" alt="ACE 终端会话演示：提问 → 调用工具 → 作答 → 查状态 → 降权限" width="820">
@@ -231,6 +240,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.14.0** (2026-09-19)：首屏重做——**「当前会话」面板**（模型 / 边界四轴 / 目录 / "恢复了哪一次会话"）、**「最近会话」面板**、**分组菜单**，全部由新增的宽度感知排版层 `ui/ace_panel.py` 画，硬保证是"每行宽度严格等于面板宽"（中文按两列算）。自动续聊从 v3.9 就有，但界面上从没说过**恢复的是哪一次**，现在说出来了。新增 `ace --preview`：只画一遍首屏就退出，不开交互终端也能看见界面——README 首图与 CI 校验都靠它。`ui/ace_text` 补上 ANSI 感知：颜色码在终端里占 0 列，此前会被当成十几个字符，于是"上个色边框就歪"
 - **v3.13.0** (2026-09-19)：上下文余量从"压缩之后才知道"变成常驻可见。底栏末尾多一段占比（`上下文38%`），颜色即语义——灰=有余量、黄=用掉触发点的 80%、红=下一轮就会压缩；`/status` 打出明细（`约 12k tokens / 窗口 32768（38%，压缩触发点约 23k；估算值，不是服务端读数）`）。逼近阈值时在请求发出前提醒一次（按触发点 10% 一档节流，所以这行字一直值得看）。显示口径与实际压缩决策共用同一个策略构造点——各写一份迟早会对不上，而对不上的数没人会再信。守卫：`[9]` +20 条，含一条盯"触发点同源"的不变量，以及两条走真实（mock）`converse` 的集成断言——只测纯函数的话，函数对但没人调用也照样绿
 - **v3.12.0** (2026-09-19)：把一句空话补成真功能。工具卡片从早先版本起就写着"已折叠 N 行（用 /expand 看完整）"，而全仓根本没有这条命令——恰恰在用户最需要出口的地方挂着一句空承诺。现在 `/expand` 重印上一次被折叠的完整输出，没折叠过就如实说没有，被 4000 字符上限截断时在标题里标出来。输入历史改为跨会话保存在 `~/.ace_history`（↑/↓ 与 Ctrl+R 能翻到昨天的输入；`ACE_NO_HISTORY=1` 退回进程内，因为历史文件里可能留着粘贴过的密钥），状态行加上已用秒数，长思考与卡死从此看得出区别。守卫：`[9]` 新增 12 条，其中一条通用不变量盯"命令表里的 parts 标志必须与处理函数真实签名一致"（它第一次运行就抓住了 `/expand` 自己的签名不符）；`[11]` 现在强制三语键集完全一致、同名键的 `{占位符}` 一致、且没有空译文
 - **v3.11.1** (2026-09-19)：选择器改成**子序列（模糊）匹配**——`glm4` 能命中 `glm-4.6`（`/model` 里从 0 项变 10 项）、`dsk` 能命中 `deepseek`；评分与高亮共用一个匹配器，模糊命中标的正是真正命中的字符。新增 `ui/ace_text.py` 让文本按**列**算宽度（中文占两列）：卡片此前按字数截断，"60 字"的中文实际占 120 列，会把卡片边框顶出屏幕

@@ -17,6 +17,7 @@ mock 模式本身就是脚本化的离线假模型，输出稳定可复现 —�
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -39,12 +40,30 @@ SESSIONS = {
     "blocked": ["帮我读一下 ~/.ssh/id_rsa 里的私钥", "/status", "/exit"],
 }
 SESSION = SESSIONS["happy"]          # main() 会按 --session 覆盖
-OUT_SVGS = {"happy": HERE / "demo.svg", "blocked": HERE / "demo_blocked.svg"}
+OUT_SVGS = {"happy": HERE / "demo.svg", "blocked": HERE / "demo_blocked.svg",
+            "landing": HERE / "demo_landing.svg"}
 OUT_SVG = OUT_SVGS["happy"]          # main() 会按 --session 覆盖
+_CURRENT_SESSION = "happy"           # 当前录的是哪套剧本（行数上限等按它取）
+
+# 首屏预览剧本：不走 stdin 打字，而是 `--preview` 只画一遍界面就退出。
+# 为什么要单独录一张：首屏是"改没改一眼就知道"的地方，而它只能在真实终端里交互
+# 才看得到 —— 有了 --preview，评审不用开终端也能对比。
+PREVIEW_ARGV = {"landing": ["--mock", "--preview", "--preview-width", "88"]}
+
+# 「最近会话」面板的固定素材：时间戳**写死**，而且刻意挑**两天前**的日期。
+# 为什么不是"现在往前推两小时"、也不是"昨天"：format_when 对"今天/昨天"是相对判断，
+# 图里一旦出现"昨天 20:27"，隔一天（或 CI 在别的时区跑）复核就变成"09-18 20:27"，
+# --check 立刻误报。两天前一定落到日期分支，永久稳定。
+FIXTURE_SESSIONS = [
+    ("1789657652000.jsonl", 1789657652, "帮我看看 tools/registry.py 里一共注册了多少个工具"),
+    ("1789563720000.jsonl", 1789563720, "把这个月的销售数据导出成一张表"),
+]
 
 # 只保留演示需要的行数：/help 那张大表会把画面撑爆，不进脚本。
 # 上限要够装下完整一场（清干净的工作目录下约 29 行），否则结尾的 /exit 会被截掉。
+# 首屏预览是一整屏（logo + 两个面板 + 分组菜单 + 状态栏示例），单独给一个上限。
 MAX_LINES = 32
+MAX_LINES_BY_SESSION = {"landing": 46}
 # 输入提示符：v3.6 起是主题色方块 ▊；❯ 是补全菜单不可用时的旧形态。
 # 两个都认 —— 改一次提示符就让演示录制失效，是这份脚本最容易腐化的地方。
 PROMPTS = ("▊", "❯")
@@ -93,7 +112,27 @@ def _load_display_width():
 display_width = _load_display_width()
 
 
-def capture_session() -> str:
+def _seed_sessions(work: Path) -> None:
+    """给首屏预览铺两份固定的会话日志（时间戳写死，见 FIXTURE_SESSIONS）。
+
+    只写 user/assistant 事件就够了：`list_sessions()` 数的是 user 事件，首句取第一条。
+    """
+    sess = work / ".ace_sessions"
+    sess.mkdir(parents=True, exist_ok=True)
+    for name, mtime, first in FIXTURE_SESSIONS:
+        p = sess / name
+        events = [
+            {"seq": 1, "kind": "user/message", "ts": "2026-09-18 20:27:32",
+             "content": first},
+            {"seq": 2, "kind": "assistant/message", "ts": "2026-09-18 20:27:40",
+             "content": "（演示用固定素材）"},
+        ]
+        p.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events),
+                     encoding="utf-8")
+        os.utime(p, (mtime, mtime))
+
+
+def capture_session(name: str = "happy") -> str:
     """真的把 CLI 跑起来，拿它打印的原始字节（含 ANSI）。
 
     跑在**临时工作目录 + 临时 HOME** 里，让录制与录制者的机器状态无关：
@@ -119,9 +158,12 @@ def capture_session() -> str:
         env["HOME"] = env["USERPROFILE"] = str(home)   # 不读录制者的 ~/.ai_code.json
         env.pop("HOMEDRIVE", None)
         env.pop("HOMEPATH", None)
+        argv = PREVIEW_ARGV.get(name)
+        if argv is not None:
+            _seed_sessions(work)          # 让「最近会话」面板有确定的素材
         proc = subprocess.run(
-            [sys.executable, str(ROOT / "ai_code.py"), "--mock"],
-            input="\n".join(SESSION) + "\n",
+            [sys.executable, str(ROOT / "ai_code.py")] + (argv or ["--mock"]),
+            input=("" if argv is not None else "\n".join(SESSION) + "\n"),
             cwd=str(work), env=env, text=True, encoding="utf-8",
             capture_output=True, timeout=120,
         )
@@ -181,7 +223,7 @@ def to_transcript(raw: str) -> list[tuple[str, bool]]:
 
     while out and out[-1][0] == "":
         out.pop()
-    return out[:MAX_LINES]
+    return out[:MAX_LINES_BY_SESSION.get(_CURRENT_SESSION, MAX_LINES)]
 
 
 
@@ -278,22 +320,25 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="录制 ace-agent 演示动画（SVG）")
     ap.add_argument("--check", action="store_true",
                     help="校验现有 SVG 能否原样重现（不带 --session 时逐个校验全部）")
-    ap.add_argument("--session", choices=sorted(SESSIONS), default=None,
-                    help="剧本：happy（默认，完整闭环）/ blocked（越界读取被执行层拦下）")
+    ap.add_argument("--session", choices=sorted(set(SESSIONS) | set(PREVIEW_ARGV)),
+                    default=None,
+                    help="剧本：happy（默认，完整闭环）/ blocked（越界读取被执行层拦下）"
+                         "/ landing（首屏预览，--preview 画的静态界面）")
     args = ap.parse_args()
 
-    global SESSION, OUT_SVG
+    global SESSION, OUT_SVG, _CURRENT_SESSION
     if args.session:
         targets = [args.session]
     elif args.check:
-        targets = sorted(SESSIONS)      # CI 走的这条：两套剧本都校验
+        targets = sorted(set(SESSIONS) | set(PREVIEW_ARGV))   # CI 走的这条：三套全校验
     else:
-        targets = ["happy"]             # 录制默认只重录主剧本，另一张用 --session 指定
+        targets = ["happy"]             # 录制默认只重录主剧本，其余用 --session 指定
 
     for name in targets:
-        SESSION = SESSIONS[name]
+        _CURRENT_SESSION = name
+        SESSION = SESSIONS.get(name, [])
         OUT_SVG = OUT_SVGS[name]
-        transcript = to_transcript(capture_session())
+        transcript = to_transcript(capture_session(name))
         if not transcript:
             raise SystemExit(f"录制到的会话是空的（{name}），脚本或 CLI 输出可能变了")
         svg = build_svg(transcript)
@@ -307,7 +352,10 @@ def main() -> None:
                 raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制")
             # 骨架比对把数字都归一化了，版本号会因此**静默过期**（改版本后这张图看着还"一致"）。
             # 单列一条：图里印的版本必须等于 core/version.py。
-            shown = re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", old_svg)
+            # 首屏图里版本号出现在两处（右侧标题栏 + 面板右上角），格式是 `vX.Y.Z`；
+            # 聊天图里是横幅 `X.Y.Z · AI Code Engine`。两种都认。
+            shown = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", old_svg)
+                     or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", old_svg))
             if not shown:
                 raise SystemExit(f"{OUT_SVG.name} 里找不到版本号横幅，录制格式可能变了")
             if shown.group(1) != project_version():

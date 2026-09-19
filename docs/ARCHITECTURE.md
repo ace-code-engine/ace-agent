@@ -38,7 +38,8 @@ ace-agent/
 │   ├── ace_theme.py            #   语义调色板（dark/light 自动检测）
 │   ├── ace_selector.py         #   搜索式选择器（/model /provider 输入即过滤）
 │   ├── ace_cards.py            #   工具结果卡片（状态+参数+折叠输出）
-│   ├── ace_text.py             #   终端文本宽度（CJK 占两列）：按列截断/补齐，卡片与选择器共用
+│   ├── ace_text.py             #   终端文本宽度（CJK 占两列，ANSI 零宽）：按列截断/补齐，卡片与选择器共用
+│   ├── ace_panel.py            #   宽度感知排版：面板框/左右分栏/分组菜单（首屏与聊天头部、--preview 共用）
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
 │   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
@@ -89,7 +90,7 @@ ace-agent/
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
 ├── e2e/                        # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
-├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话）
+├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
 │   ├── 01_security_lab/        #   权限裁决 + 写前快照 + /undo 回滚 + terminal_exec 逐次确认
@@ -99,7 +100,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.13.0.md #  本版更新介绍（可直接贴进 GitHub Release；上下文占用可见）
+│   ├── RELEASE-NOTES-v3.14.0.md #  本版更新介绍（可直接贴进 GitHub Release；首屏重构 + --preview）
+│   ├── RELEASE-NOTES-v3.13.0.md #  v3.13 更新介绍（上下文占用可见）
 │   ├── RELEASE-NOTES-v3.12.0.md #  v3.12 更新介绍（/expand + 跨会话历史 + 状态行计时）
 │   ├── RELEASE-NOTES-v3.11.0.md #  v3.11 更新介绍（容器参数加固；含一次没做成的发布记录）
 │   ├── ARCHITECTURE.md         #   本文档：分层职责 + 权威目录树 + ADR 索引

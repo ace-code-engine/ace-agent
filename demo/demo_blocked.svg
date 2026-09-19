@@ -1,92 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="722" viewBox="0 0 1160 722" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="770" viewBox="0 0 1160 770" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
 <style>
 text{white-space:pre;dominant-baseline:middle}
-@keyframes s0{0%,4.930%{opacity:0}4.931%,100%{opacity:1}}
-.r0{animation:s0 12.17s steps(1,end) infinite}
-@keyframes s1{0%,7.231%{opacity:0}7.232%,100%{opacity:1}}
-.r1{animation:s1 12.17s steps(1,end) infinite}
-@keyframes s2{0%,9.532%{opacity:0}9.533%,100%{opacity:1}}
-.r2{animation:s2 12.17s steps(1,end) infinite}
-@keyframes s3{0%,11.832%{opacity:0}11.833%,100%{opacity:1}}
-.r3{animation:s3 12.17s steps(1,end) infinite}
-@keyframes s4{0%,14.133%{opacity:0}14.134%,100%{opacity:1}}
-.r4{animation:s4 12.17s steps(1,end) infinite}
-@keyframes s5{0%,16.434%{opacity:0}16.435%,100%{opacity:1}}
-.r5{animation:s5 12.17s steps(1,end) infinite}
-@keyframes s6{0%,18.735%{opacity:0}18.736%,100%{opacity:1}}
-.r6{animation:s6 12.17s steps(1,end) infinite}
-@keyframes s7{0%,21.035%{opacity:0}21.036%,100%{opacity:1}}
-.r7{animation:s7 12.17s steps(1,end) infinite}
-@keyframes s8{0%,23.336%{opacity:0}23.337%,100%{opacity:1}}
-.r8{animation:s8 12.17s steps(1,end) infinite}
-@keyframes s9{0%,29.499%{opacity:0}29.500%,100%{opacity:1}}
-.r9{animation:s9 12.17s steps(1,end) infinite}
-@keyframes s10{0%,31.800%{opacity:0}31.801%,100%{opacity:1}}
-.r10{animation:s10 12.17s steps(1,end) infinite}
-@keyframes s11{0%,34.100%{opacity:0}34.101%,100%{opacity:1}}
-.r11{animation:s11 12.17s steps(1,end) infinite}
-@keyframes s12{0%,36.401%{opacity:0}36.402%,100%{opacity:1}}
-.r12{animation:s12 12.17s steps(1,end) infinite}
-@keyframes s13{0%,38.702%{opacity:0}38.703%,100%{opacity:1}}
-.r13{animation:s13 12.17s steps(1,end) infinite}
-@keyframes s14{0%,41.002%{opacity:0}41.003%,100%{opacity:1}}
-.r14{animation:s14 12.17s steps(1,end) infinite}
-@keyframes s15{0%,43.303%{opacity:0}43.304%,100%{opacity:1}}
-.r15{animation:s15 12.17s steps(1,end) infinite}
-@keyframes s16{0%,45.604%{opacity:0}45.605%,100%{opacity:1}}
-.r16{animation:s16 12.17s steps(1,end) infinite}
-@keyframes s17{0%,47.905%{opacity:0}47.906%,100%{opacity:1}}
-.r17{animation:s17 12.17s steps(1,end) infinite}
-@keyframes s18{0%,50.205%{opacity:0}50.206%,100%{opacity:1}}
-.r18{animation:s18 12.17s steps(1,end) infinite}
-@keyframes s19{0%,56.368%{opacity:0}56.369%,100%{opacity:1}}
-.r19{animation:s19 12.17s steps(1,end) infinite}
-@keyframes s20{0%,58.669%{opacity:0}58.670%,100%{opacity:1}}
-.r20{animation:s20 12.17s steps(1,end) infinite}
-@keyframes s21{0%,60.970%{opacity:0}60.971%,100%{opacity:1}}
-.r21{animation:s21 12.17s steps(1,end) infinite}
-@keyframes s22{0%,63.270%{opacity:0}63.271%,100%{opacity:1}}
-.r22{animation:s22 12.17s steps(1,end) infinite}
-@keyframes s23{0%,65.571%{opacity:0}65.572%,100%{opacity:1}}
-.r23{animation:s23 12.17s steps(1,end) infinite}
-@keyframes s24{0%,67.872%{opacity:0}67.873%,100%{opacity:1}}
-.r24{animation:s24 12.17s steps(1,end) infinite}
-@keyframes s25{0%,70.173%{opacity:0}70.174%,100%{opacity:1}}
-.r25{animation:s25 12.17s steps(1,end) infinite}
-@keyframes s26{0%,76.335%{opacity:0}76.336%,100%{opacity:1}}
-.r26{animation:s26 12.17s steps(1,end) infinite}
+@keyframes s0{0%,4.713%{opacity:0}4.714%,100%{opacity:1}}
+.r0{animation:s0 12.73s steps(1,end) infinite}
+@keyframes s1{0%,6.913%{opacity:0}6.914%,100%{opacity:1}}
+.r1{animation:s1 12.73s steps(1,end) infinite}
+@keyframes s2{0%,9.112%{opacity:0}9.113%,100%{opacity:1}}
+.r2{animation:s2 12.73s steps(1,end) infinite}
+@keyframes s3{0%,11.312%{opacity:0}11.313%,100%{opacity:1}}
+.r3{animation:s3 12.73s steps(1,end) infinite}
+@keyframes s4{0%,13.511%{opacity:0}13.512%,100%{opacity:1}}
+.r4{animation:s4 12.73s steps(1,end) infinite}
+@keyframes s5{0%,15.711%{opacity:0}15.712%,100%{opacity:1}}
+.r5{animation:s5 12.73s steps(1,end) infinite}
+@keyframes s6{0%,17.910%{opacity:0}17.911%,100%{opacity:1}}
+.r6{animation:s6 12.73s steps(1,end) infinite}
+@keyframes s7{0%,20.110%{opacity:0}20.111%,100%{opacity:1}}
+.r7{animation:s7 12.73s steps(1,end) infinite}
+@keyframes s8{0%,22.310%{opacity:0}22.311%,100%{opacity:1}}
+.r8{animation:s8 12.73s steps(1,end) infinite}
+@keyframes s9{0%,24.509%{opacity:0}24.510%,100%{opacity:1}}
+.r9{animation:s9 12.73s steps(1,end) infinite}
+@keyframes s10{0%,26.709%{opacity:0}26.710%,100%{opacity:1}}
+.r10{animation:s10 12.73s steps(1,end) infinite}
+@keyframes s11{0%,32.600%{opacity:0}32.601%,100%{opacity:1}}
+.r11{animation:s11 12.73s steps(1,end) infinite}
+@keyframes s12{0%,34.800%{opacity:0}34.801%,100%{opacity:1}}
+.r12{animation:s12 12.73s steps(1,end) infinite}
+@keyframes s13{0%,36.999%{opacity:0}37.000%,100%{opacity:1}}
+.r13{animation:s13 12.73s steps(1,end) infinite}
+@keyframes s14{0%,39.199%{opacity:0}39.200%,100%{opacity:1}}
+.r14{animation:s14 12.73s steps(1,end) infinite}
+@keyframes s15{0%,41.398%{opacity:0}41.399%,100%{opacity:1}}
+.r15{animation:s15 12.73s steps(1,end) infinite}
+@keyframes s16{0%,43.598%{opacity:0}43.599%,100%{opacity:1}}
+.r16{animation:s16 12.73s steps(1,end) infinite}
+@keyframes s17{0%,45.797%{opacity:0}45.798%,100%{opacity:1}}
+.r17{animation:s17 12.73s steps(1,end) infinite}
+@keyframes s18{0%,47.997%{opacity:0}47.998%,100%{opacity:1}}
+.r18{animation:s18 12.73s steps(1,end) infinite}
+@keyframes s19{0%,50.196%{opacity:0}50.197%,100%{opacity:1}}
+.r19{animation:s19 12.73s steps(1,end) infinite}
+@keyframes s20{0%,52.396%{opacity:0}52.397%,100%{opacity:1}}
+.r20{animation:s20 12.73s steps(1,end) infinite}
+@keyframes s21{0%,58.288%{opacity:0}58.289%,100%{opacity:1}}
+.r21{animation:s21 12.73s steps(1,end) infinite}
+@keyframes s22{0%,60.487%{opacity:0}60.488%,100%{opacity:1}}
+.r22{animation:s22 12.73s steps(1,end) infinite}
+@keyframes s23{0%,62.687%{opacity:0}62.688%,100%{opacity:1}}
+.r23{animation:s23 12.73s steps(1,end) infinite}
+@keyframes s24{0%,64.886%{opacity:0}64.887%,100%{opacity:1}}
+.r24{animation:s24 12.73s steps(1,end) infinite}
+@keyframes s25{0%,67.086%{opacity:0}67.087%,100%{opacity:1}}
+.r25{animation:s25 12.73s steps(1,end) infinite}
+@keyframes s26{0%,69.285%{opacity:0}69.286%,100%{opacity:1}}
+.r26{animation:s26 12.73s steps(1,end) infinite}
+@keyframes s27{0%,71.485%{opacity:0}71.486%,100%{opacity:1}}
+.r27{animation:s27 12.73s steps(1,end) infinite}
+@keyframes s28{0%,77.376%{opacity:0}77.377%,100%{opacity:1}}
+.r28{animation:s28 12.73s steps(1,end) infinite}
 .cur{animation:blink 1.05s steps(1,end) infinite}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 </style>
-<rect width="1160" height="722" rx="10" fill="#1b1f29"/>
-<rect y="40" width="1160" height="682" fill="#11141b"/>
+<rect width="1160" height="770" rx="10" fill="#1b1f29"/>
+<rect y="40" width="1160" height="730" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="580.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.13.0 · AI Code Engine</tspan></text>
-<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#d7dce5">  模型: mock（离线演示）</tspan></text>
-<text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 目录: .</tspan></text>
-<text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">沙箱: off（Python 层策略校验，无内核边界）</tspan></text>
-<text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">知识库: …/.ace_kb</tspan></text>
-<text class="r5" x="22" y="172" xml:space="preserve"><tspan fill="#7d879c">会话日志: .ace_sessions/（/audit 查看全链路）</tspan></text>
-<text class="r6" x="22" y="196" xml:space="preserve"><tspan fill="#7d879c">联网: 开（/net 切换）</tspan></text>
-<text class="r7" x="22" y="220" xml:space="preserve"><tspan fill="#d7dce5">  输入 </tspan><tspan fill="#c39ac9">/help</tspan><tspan fill="#d7dce5"> 查看命令，</tspan><tspan fill="#c39ac9">@</tspan><tspan fill="#d7dce5"> 打开快捷方式，</tspan><tspan fill="#c39ac9">/exit</tspan><tspan fill="#d7dce5"> 退出</tspan></text>
-<text class="r8" x="22" y="244" xml:space="preserve"><tspan fill="#d7dce5">▊ 帮我读一下 ~/.ssh/id_rsa 里的私钥</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r9" x="22" y="268" xml:space="preserve">&#160;</text>
-<text class="r10" x="22" y="292" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.14.0 · AI Code Engine</tspan></text>
+<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.14.0 ─╮</tspan></text>
+<text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 模型    mock（离线演示，无需密钥）                                                           </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 边界    权限 readonly · 沙箱 off · 联网 开 · 审批 on_request                                 </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 目录    …                </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r5" x="22" y="172" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 历史    新会话（暂无历史）                                                                   </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r6" x="22" y="196" xml:space="preserve"><tspan fill="#7d879c">╰──────────────────────────────────────────────────────────────────────────────────────────────╯</tspan></text>
+<text class="r7" x="22" y="220" xml:space="preserve"><tspan fill="#7d879c">知识库: …/.ace_kb</tspan></text>
+<text class="r8" x="22" y="244" xml:space="preserve"><tspan fill="#7d879c">会话日志: .ace_sessions/（/audit 查看全链路）</tspan></text>
+<text class="r9" x="22" y="268" xml:space="preserve"><tspan fill="#d7dce5">  输入 </tspan><tspan fill="#c39ac9">/help</tspan><tspan fill="#d7dce5"> 查看命令，</tspan><tspan fill="#c39ac9">@</tspan><tspan fill="#d7dce5"> 打开快捷方式，</tspan><tspan fill="#c39ac9">/exit</tspan><tspan fill="#d7dce5"> 退出</tspan></text>
+<text class="r10" x="22" y="292" xml:space="preserve"><tspan fill="#d7dce5">▊ 帮我读一下 ~/.ssh/id_rsa 里的私钥</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
 <text class="r11" x="22" y="316" xml:space="preserve">&#160;</text>
-<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具 0s</tspan></text>
-<text class="r13" x="22" y="364" xml:space="preserve"><tspan fill="#f2777a">  ✗ 403: 路径越界：相对路径仅允许在项目目录内；写文件（file_write/file_delete/str_replace）可传绝对路径（如 C:\Users\&lt;用户名</tspan></text>
-<text class="r14" x="22" y="388" xml:space="preserve">&#160;</text>
-<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   读取被执行层拦下了——敏感目标/越界由执行层硬拦，与模型是否被说服无关。</tspan></text>
+<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s</tspan></text>
+<text class="r13" x="22" y="364" xml:space="preserve">&#160;</text>
+<text class="r14" x="22" y="388" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具 0s</tspan></text>
+<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#f2777a">  ✗ 403: 路径越界：相对路径仅允许在项目目录内；写文件（file_write/file_delete/str_replace）可传绝对路径（如 C:\Users\&lt;用户名</tspan></text>
 <text class="r16" x="22" y="436" xml:space="preserve">&#160;</text>
-<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
-<text class="r18" x="22" y="484" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 0 次 | 违规 1 次 | 已运行 0s</tspan></text>
-<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
-<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
-<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
-<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
-<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 387 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
-<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
+<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   读取被执行层拦下了——敏感目标/越界由执行层硬拦，与模型是否被说服无关。</tspan></text>
+<text class="r18" x="22" y="484" xml:space="preserve">&#160;</text>
+<text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
+<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 0 次 | 违规 1 次 | 已运行 0s</tspan></text>
+<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
+<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
+<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
+<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
+<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 387 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
+<text class="r27" x="22" y="700" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r28" x="22" y="724" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
 </svg>

@@ -1,98 +1,104 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="890" height="770" viewBox="0 0 890 770" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
+<svg xmlns="http://www.w3.org/2000/svg" width="908" height="818" viewBox="0 0 908 818" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Noto Sans Mono CJK SC',monospace" font-size="15">
 <style>
 text{white-space:pre;dominant-baseline:middle}
-@keyframes s0{0%,4.545%{opacity:0}4.546%,100%{opacity:1}}
-.r0{animation:s0 13.20s steps(1,end) infinite}
-@keyframes s1{0%,6.667%{opacity:0}6.668%,100%{opacity:1}}
-.r1{animation:s1 13.20s steps(1,end) infinite}
-@keyframes s2{0%,8.788%{opacity:0}8.789%,100%{opacity:1}}
-.r2{animation:s2 13.20s steps(1,end) infinite}
-@keyframes s3{0%,10.909%{opacity:0}10.910%,100%{opacity:1}}
-.r3{animation:s3 13.20s steps(1,end) infinite}
-@keyframes s4{0%,13.030%{opacity:0}13.031%,100%{opacity:1}}
-.r4{animation:s4 13.20s steps(1,end) infinite}
-@keyframes s5{0%,15.152%{opacity:0}15.153%,100%{opacity:1}}
-.r5{animation:s5 13.20s steps(1,end) infinite}
-@keyframes s6{0%,17.273%{opacity:0}17.274%,100%{opacity:1}}
-.r6{animation:s6 13.20s steps(1,end) infinite}
-@keyframes s7{0%,19.394%{opacity:0}19.395%,100%{opacity:1}}
-.r7{animation:s7 13.20s steps(1,end) infinite}
-@keyframes s8{0%,21.515%{opacity:0}21.516%,100%{opacity:1}}
-.r8{animation:s8 13.20s steps(1,end) infinite}
-@keyframes s9{0%,27.197%{opacity:0}27.198%,100%{opacity:1}}
-.r9{animation:s9 13.20s steps(1,end) infinite}
-@keyframes s10{0%,29.318%{opacity:0}29.319%,100%{opacity:1}}
-.r10{animation:s10 13.20s steps(1,end) infinite}
-@keyframes s11{0%,31.439%{opacity:0}31.440%,100%{opacity:1}}
-.r11{animation:s11 13.20s steps(1,end) infinite}
-@keyframes s12{0%,33.561%{opacity:0}33.562%,100%{opacity:1}}
-.r12{animation:s12 13.20s steps(1,end) infinite}
-@keyframes s13{0%,35.682%{opacity:0}35.683%,100%{opacity:1}}
-.r13{animation:s13 13.20s steps(1,end) infinite}
-@keyframes s14{0%,37.803%{opacity:0}37.804%,100%{opacity:1}}
-.r14{animation:s14 13.20s steps(1,end) infinite}
-@keyframes s15{0%,39.924%{opacity:0}39.925%,100%{opacity:1}}
-.r15{animation:s15 13.20s steps(1,end) infinite}
-@keyframes s16{0%,42.045%{opacity:0}42.046%,100%{opacity:1}}
-.r16{animation:s16 13.20s steps(1,end) infinite}
-@keyframes s17{0%,44.167%{opacity:0}44.168%,100%{opacity:1}}
-.r17{animation:s17 13.20s steps(1,end) infinite}
-@keyframes s18{0%,46.288%{opacity:0}46.289%,100%{opacity:1}}
-.r18{animation:s18 13.20s steps(1,end) infinite}
-@keyframes s19{0%,51.970%{opacity:0}51.971%,100%{opacity:1}}
-.r19{animation:s19 13.20s steps(1,end) infinite}
-@keyframes s20{0%,54.091%{opacity:0}54.092%,100%{opacity:1}}
-.r20{animation:s20 13.20s steps(1,end) infinite}
-@keyframes s21{0%,56.212%{opacity:0}56.213%,100%{opacity:1}}
-.r21{animation:s21 13.20s steps(1,end) infinite}
-@keyframes s22{0%,58.333%{opacity:0}58.334%,100%{opacity:1}}
-.r22{animation:s22 13.20s steps(1,end) infinite}
-@keyframes s23{0%,60.455%{opacity:0}60.456%,100%{opacity:1}}
-.r23{animation:s23 13.20s steps(1,end) infinite}
-@keyframes s24{0%,62.576%{opacity:0}62.577%,100%{opacity:1}}
-.r24{animation:s24 13.20s steps(1,end) infinite}
-@keyframes s25{0%,64.697%{opacity:0}64.698%,100%{opacity:1}}
-.r25{animation:s25 13.20s steps(1,end) infinite}
-@keyframes s26{0%,70.379%{opacity:0}70.380%,100%{opacity:1}}
-.r26{animation:s26 13.20s steps(1,end) infinite}
-@keyframes s27{0%,72.500%{opacity:0}72.501%,100%{opacity:1}}
-.r27{animation:s27 13.20s steps(1,end) infinite}
-@keyframes s28{0%,78.182%{opacity:0}78.183%,100%{opacity:1}}
-.r28{animation:s28 13.20s steps(1,end) infinite}
+@keyframes s0{0%,4.360%{opacity:0}4.361%,100%{opacity:1}}
+.r0{animation:s0 13.76s steps(1,end) infinite}
+@keyframes s1{0%,6.395%{opacity:0}6.396%,100%{opacity:1}}
+.r1{animation:s1 13.76s steps(1,end) infinite}
+@keyframes s2{0%,8.430%{opacity:0}8.431%,100%{opacity:1}}
+.r2{animation:s2 13.76s steps(1,end) infinite}
+@keyframes s3{0%,10.465%{opacity:0}10.466%,100%{opacity:1}}
+.r3{animation:s3 13.76s steps(1,end) infinite}
+@keyframes s4{0%,12.500%{opacity:0}12.501%,100%{opacity:1}}
+.r4{animation:s4 13.76s steps(1,end) infinite}
+@keyframes s5{0%,14.535%{opacity:0}14.536%,100%{opacity:1}}
+.r5{animation:s5 13.76s steps(1,end) infinite}
+@keyframes s6{0%,16.570%{opacity:0}16.571%,100%{opacity:1}}
+.r6{animation:s6 13.76s steps(1,end) infinite}
+@keyframes s7{0%,18.605%{opacity:0}18.606%,100%{opacity:1}}
+.r7{animation:s7 13.76s steps(1,end) infinite}
+@keyframes s8{0%,20.640%{opacity:0}20.641%,100%{opacity:1}}
+.r8{animation:s8 13.76s steps(1,end) infinite}
+@keyframes s9{0%,22.674%{opacity:0}22.675%,100%{opacity:1}}
+.r9{animation:s9 13.76s steps(1,end) infinite}
+@keyframes s10{0%,24.709%{opacity:0}24.710%,100%{opacity:1}}
+.r10{animation:s10 13.76s steps(1,end) infinite}
+@keyframes s11{0%,30.160%{opacity:0}30.161%,100%{opacity:1}}
+.r11{animation:s11 13.76s steps(1,end) infinite}
+@keyframes s12{0%,32.195%{opacity:0}32.196%,100%{opacity:1}}
+.r12{animation:s12 13.76s steps(1,end) infinite}
+@keyframes s13{0%,34.230%{opacity:0}34.231%,100%{opacity:1}}
+.r13{animation:s13 13.76s steps(1,end) infinite}
+@keyframes s14{0%,36.265%{opacity:0}36.266%,100%{opacity:1}}
+.r14{animation:s14 13.76s steps(1,end) infinite}
+@keyframes s15{0%,38.299%{opacity:0}38.300%,100%{opacity:1}}
+.r15{animation:s15 13.76s steps(1,end) infinite}
+@keyframes s16{0%,40.334%{opacity:0}40.335%,100%{opacity:1}}
+.r16{animation:s16 13.76s steps(1,end) infinite}
+@keyframes s17{0%,42.369%{opacity:0}42.370%,100%{opacity:1}}
+.r17{animation:s17 13.76s steps(1,end) infinite}
+@keyframes s18{0%,44.404%{opacity:0}44.405%,100%{opacity:1}}
+.r18{animation:s18 13.76s steps(1,end) infinite}
+@keyframes s19{0%,46.439%{opacity:0}46.440%,100%{opacity:1}}
+.r19{animation:s19 13.76s steps(1,end) infinite}
+@keyframes s20{0%,48.474%{opacity:0}48.475%,100%{opacity:1}}
+.r20{animation:s20 13.76s steps(1,end) infinite}
+@keyframes s21{0%,53.924%{opacity:0}53.925%,100%{opacity:1}}
+.r21{animation:s21 13.76s steps(1,end) infinite}
+@keyframes s22{0%,55.959%{opacity:0}55.960%,100%{opacity:1}}
+.r22{animation:s22 13.76s steps(1,end) infinite}
+@keyframes s23{0%,57.994%{opacity:0}57.995%,100%{opacity:1}}
+.r23{animation:s23 13.76s steps(1,end) infinite}
+@keyframes s24{0%,60.029%{opacity:0}60.030%,100%{opacity:1}}
+.r24{animation:s24 13.76s steps(1,end) infinite}
+@keyframes s25{0%,62.064%{opacity:0}62.065%,100%{opacity:1}}
+.r25{animation:s25 13.76s steps(1,end) infinite}
+@keyframes s26{0%,64.099%{opacity:0}64.100%,100%{opacity:1}}
+.r26{animation:s26 13.76s steps(1,end) infinite}
+@keyframes s27{0%,66.134%{opacity:0}66.135%,100%{opacity:1}}
+.r27{animation:s27 13.76s steps(1,end) infinite}
+@keyframes s28{0%,71.584%{opacity:0}71.585%,100%{opacity:1}}
+.r28{animation:s28 13.76s steps(1,end) infinite}
+@keyframes s29{0%,73.619%{opacity:0}73.620%,100%{opacity:1}}
+.r29{animation:s29 13.76s steps(1,end) infinite}
+@keyframes s30{0%,79.070%{opacity:0}79.071%,100%{opacity:1}}
+.r30{animation:s30 13.76s steps(1,end) infinite}
 .cur{animation:blink 1.05s steps(1,end) infinite}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 </style>
-<rect width="890" height="770" rx="10" fill="#1b1f29"/>
-<rect y="40" width="890" height="730" fill="#11141b"/>
+<rect width="908" height="818" rx="10" fill="#1b1f29"/>
+<rect y="40" width="908" height="778" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
-<text x="445.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.13.0 · AI Code Engine</tspan></text>
-<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#d7dce5">  模型: mock（离线演示）</tspan></text>
-<text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 目录: .</tspan></text>
-<text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">沙箱: off（Python 层策略校验，无内核边界）</tspan></text>
-<text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">知识库: …/.ace_kb</tspan></text>
-<text class="r5" x="22" y="172" xml:space="preserve"><tspan fill="#7d879c">会话日志: .ace_sessions/（/audit 查看全链路）</tspan></text>
-<text class="r6" x="22" y="196" xml:space="preserve"><tspan fill="#7d879c">联网: 开（/net 切换）</tspan></text>
-<text class="r7" x="22" y="220" xml:space="preserve"><tspan fill="#d7dce5">  输入 </tspan><tspan fill="#c39ac9">/help</tspan><tspan fill="#d7dce5"> 查看命令，</tspan><tspan fill="#c39ac9">@</tspan><tspan fill="#d7dce5"> 打开快捷方式，</tspan><tspan fill="#c39ac9">/exit</tspan><tspan fill="#d7dce5"> 退出</tspan></text>
-<text class="r8" x="22" y="244" xml:space="preserve"><tspan fill="#d7dce5">▊ 现在几点</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r9" x="22" y="268" xml:space="preserve">&#160;</text>
-<text class="r10" x="22" y="292" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s</tspan></text>
+<text x="454.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.14.0 · AI Code Engine</tspan></text>
+<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.14.0 ─╮</tspan></text>
+<text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 模型    mock（离线演示，无需密钥）                                                           </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 边界    权限 readonly · 沙箱 off · 联网 开 · 审批 on_request                                 </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 目录    …                </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r5" x="22" y="172" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 历史    新会话（暂无历史）                                                                   </tspan><tspan fill="#7d879c">│</tspan></text>
+<text class="r6" x="22" y="196" xml:space="preserve"><tspan fill="#7d879c">╰──────────────────────────────────────────────────────────────────────────────────────────────╯</tspan></text>
+<text class="r7" x="22" y="220" xml:space="preserve"><tspan fill="#7d879c">知识库: …/.ace_kb</tspan></text>
+<text class="r8" x="22" y="244" xml:space="preserve"><tspan fill="#7d879c">会话日志: .ace_sessions/（/audit 查看全链路）</tspan></text>
+<text class="r9" x="22" y="268" xml:space="preserve"><tspan fill="#d7dce5">  输入 </tspan><tspan fill="#c39ac9">/help</tspan><tspan fill="#d7dce5"> 查看命令，</tspan><tspan fill="#c39ac9">@</tspan><tspan fill="#d7dce5"> 打开快捷方式，</tspan><tspan fill="#c39ac9">/exit</tspan><tspan fill="#d7dce5"> 退出</tspan></text>
+<text class="r10" x="22" y="292" xml:space="preserve"><tspan fill="#d7dce5">▊ 现在几点</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
 <text class="r11" x="22" y="316" xml:space="preserve">&#160;</text>
-<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具 0s</tspan></text>
-<text class="r13" x="22" y="364" xml:space="preserve"><tspan fill="#5fd68a">  t datetime_now </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.00s</tspan></text>
-<text class="r14" x="22" y="388" xml:space="preserve">&#160;</text>
-<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   当前时间是 2026-09-19 18:30:49</tspan></text>
+<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s</tspan></text>
+<text class="r13" x="22" y="364" xml:space="preserve">&#160;</text>
+<text class="r14" x="22" y="388" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具 0s</tspan></text>
+<text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#5fd68a">  t datetime_now </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.00s</tspan></text>
 <text class="r16" x="22" y="436" xml:space="preserve">&#160;</text>
-<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
-<text class="r18" x="22" y="484" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 1 次 | 违规 0 次 | 已运行 0s</tspan></text>
-<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
-<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
-<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
-<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
-<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 338 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
-<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">▊ /permission readonly</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#5fd68a">权限已切换为 readonly</tspan></text>
-<text class="r27" x="22" y="700" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r28" x="22" y="724" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
+<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   当前时间是 2026-09-19 18:45:33</tspan></text>
+<text class="r18" x="22" y="484" xml:space="preserve">&#160;</text>
+<text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
+<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 1 次 | 违规 0 次 | 已运行 0s</tspan></text>
+<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
+<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
+<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
+<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
+<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 338 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
+<text class="r27" x="22" y="700" xml:space="preserve"><tspan fill="#d7dce5">▊ /permission readonly</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r28" x="22" y="724" xml:space="preserve"><tspan fill="#5fd68a">权限已切换为 readonly</tspan></text>
+<text class="r29" x="22" y="748" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r30" x="22" y="772" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
 </svg>

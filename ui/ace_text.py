@@ -20,14 +20,37 @@ Unicode 全表，`east_asian_width` 的 W/F 两类 + 组合符/零宽字符已�
 - 变体选择符（U+FE0F）按零宽处理；某些终端会把 "❤️" 画成 2 列。
 
 纯函数、无副作用，可直接单测。
+
+**ANSI 感知**：`display_width` / `truncate_width` / `pad_width` 都忽略 SGR 转义序列
+（`\x1b[...m`）—— 否则给一行加上颜色之后，宽度就会凭空多出十几个"列"，边框当场
+错位。`truncate_width` 会保留序列本身，并在真的截断时补一个复位码，避免颜色漏到
+后面的行上。
 """
 
+import re
 from typing import List
 
 __all__ = ["char_width", "display_width", "truncate_width", "pad_width",
-           "ELLIPSIS", "SEPARATORS"]
+           "strip_ansi", "ELLIPSIS", "SEPARATORS"]
 
 ELLIPSIS = "…"
+
+# SGR（颜色/样式）序列：终端里不占列，但 `len()` 会数进去。
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+_ANSI_SPLIT = re.compile(r"(\x1b\[[0-9;]*m)")
+_ANSI_RESET = "\x1b[0m"
+
+
+def _tokenize(text: str):
+    """把字符串拆成 ("ansi", 序列) / ("ch", 单字符) 两种 token（ANSI 零宽）。"""
+    for part in _ANSI_SPLIT.split(text):
+        if not part:
+            continue
+        if _ANSI_SGR.fullmatch(part):
+            yield "ansi", part
+        else:
+            for ch in part:
+                yield "ch", ch
 
 # 词边界：搜索评分用（`-v4` 里的 v 比词中的 v 值钱）。
 SEPARATORS = " \t-_/.:,()[]{}<>|"
@@ -49,9 +72,14 @@ def char_width(ch: str) -> int:
     return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
 
 
+def strip_ansi(text: str) -> str:
+    """去掉 SGR 颜色/样式序列（只处理 `ESC[...m` 这一类）。"""
+    return _ANSI_SGR.sub("", text)
+
+
 def display_width(text: str) -> int:
-    """整串的显示宽度（列数）。"""
-    return sum(char_width(ch) for ch in text)
+    """整串的**可见**显示宽度（列数）；ANSI 颜色码不计入。"""
+    return sum(char_width(ch) for ch in strip_ansi(text))
 
 
 def truncate_width(text: str, limit: int, ellipsis: str = ELLIPSIS) -> str:
@@ -61,6 +89,7 @@ def truncate_width(text: str, limit: int, ellipsis: str = ELLIPSIS) -> str:
     - limit <= 0 → 空串
     - 放得下省略号才加省略号；放不下就硬切（宁短不超）
     - 绝不把双宽字符劈成一半：累计到放不下就停
+    - ANSI 序列零宽且原样保留；截断处补复位码，避免颜色漏到下一行
 
     >>> truncate_width("中文中文", 6)
     '中文中…'
@@ -77,17 +106,23 @@ def truncate_width(text: str, limit: int, ellipsis: str = ELLIPSIS) -> str:
     budget = limit - ell_w if use_ellipsis else limit
     out: List[str] = []
     used = 0
-    for ch in text:
-        w = char_width(ch)
+    colored = False
+    for kind, val in _tokenize(text):
+        if kind == "ansi":
+            out.append(val)              # 零宽，原样保留
+            colored = True
+            continue
+        w = char_width(val)
         if used + w > budget:
             break
-        out.append(ch)
+        out.append(val)
         used += w
-    return "".join(out) + (ellipsis if use_ellipsis else "")
+    return ("".join(out) + (ellipsis if use_ellipsis else "")
+            + (_ANSI_RESET if colored else ""))
 
 
 def pad_width(text: str, width: int, fill: str = " ") -> str:
-    """右侧补空格到 width 列。
+    """右侧补空格到 width 列（按**可见**宽度算，ANSI 不计入）。
 
     已经够宽时**原样返回**，不截断 —— 截断是调用方的决定（想两者都要就用
     `pad_width(truncate_width(t, w), w)`）。`fill` 只取第一个字符，避免误传多字符

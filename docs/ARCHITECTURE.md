@@ -138,7 +138,7 @@ ace-agent/
 ├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
 └── .github/                    # 仓库协作配置
-    ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e）+ release-executor.yml（预编译产物发布）
+    ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e）+ release-executor.yml（预编译执行器产物）+ release-images.yml（GHCR 容器镜像：ace-sandbox / ace-agent lite）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
     └── pull_request_template.md#   PR 模板
 ```

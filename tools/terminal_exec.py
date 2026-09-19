@@ -248,6 +248,9 @@ class TerminalExec:
                 "sandbox": {"kind": "docker", "image": self.docker_sandbox.image,
                             "network": self.docker_sandbox.network,
                             "mount": "/work",
+                            # 实际用的镜像是哪一份摘要 —— 镜像现在默认从 registry 拉，
+                            # 不给摘要的话"我到底跑在什么上面"就答不上来（取证也要它）。
+                            "image_digest": self.docker_sandbox.image_digest or None,
                             "denied_hint": ("沙箱策略拒绝（只读根文件系统/权限），"
                                             "不是命令失败——请改用不触碰该边界的方式"
                                             if denied else None)},

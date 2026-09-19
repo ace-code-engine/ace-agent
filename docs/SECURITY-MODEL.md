@@ -95,18 +95,27 @@
 
 **容器隔离（`--sandbox docker`）**
 
-上面所有校验都是进程内的 Python 逻辑。`terminal_exec` 是 `shell=True`，cwd 固定在项目根挡不住 `cd /`；`code_execute` 的 AST 黑名单也不可能枚举完。真正的边界要靠内核：
+上面所有校验都是进程内的 Python 逻辑。`terminal_exec` 是 `shell=True`，cwd 固定在项目根挡不住 `cd /`；`code_execute` 的 AST 黑名单也不可能枚举完。真正的边界要靠内核 —— Linux 与 macOS（Docker Desktop）上一条命令就够：
 
 ```bash
-docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
-python ai_code.py --sandbox docker
+python ai_code.py --sandbox docker           # 镜像缺失时自动拉官方预编译镜像
 ```
 
-开启后 `terminal_exec` / `code_execute` 的每次调用都是一个一次性容器：`--network none`（凭据出不去、也下载不了第二阶段载荷）、`--read-only` + `--tmpfs /tmp`、`--cap-drop ALL` + `no-new-privileges`、内存与 `--pids-limit` 上限（fork bomb 变成容器自己的事）、只挂工作目录到 `/work`、`--rm` 跑完即销毁。其余工具仍在宿主，所以"在桌面建个文件"这类请求照常能做。
+开启后 `terminal_exec` / `code_execute` 的每次调用都是一个一次性容器：`--network none`（凭据出不去、也下载不了第二阶段载荷）、`--read-only` + `--tmpfs /tmp`、`--cap-drop ALL` + `no-new-privileges`、`--init`（回收僵尸，否则僵尸一直占着 pids 名额）、`--ulimit nofile`（封住句柄耗尽）、内存与 `--pids-limit` 上限（fork bomb 变成容器自己的事）、只挂工作目录到 `/work`、`--rm` 跑完即销毁。SELinux Enforcing 的宿主机（Fedora / RHEL）上挂载点自动带 `,z` —— 不带的话容器写不进工作目录，报错只有一句笼统的 `Permission denied`。其余工具仍在宿主，所以"在桌面建个文件"这类请求照常能做。
 
 两点要知道：容器共享内核，容器逃逸漏洞仍然是逃逸，更强的边界得上虚拟机；**开了沙箱但 Docker 不可用时直接返回 503，不会静默回退宿主执行**——回退会让你以为命令跑在容器里而实际跑在自己机器上。
 
-镜像必须自己 build，它不会发布到任何 registry：它就是执行边界，里面装了什么得由部署方掌握。所以"镜像没构建"是单独判、单独报的一档 503，直接把上面那条 `docker build` 给你——而不是让 `docker run` 去 registry 找 `ace-sandbox`，先等一个网络超时、再回一句 `pull access denied` 让你以为是要登录。
+**镜像从哪来（2026-09-19 起）**：以前的口径是"必须自己 build"。现在改为：本地没有就**自动拉官方预编译镜像** `ghcr.io/ace-code-engine/ace-sandbox`（多架构 `linux/amd64` + `linux/arm64`，Apple Silicon 上是原生而非模拟）；只有拉取本身失败时，才把 `docker build` 作为退路一并告诉你。本地已经 build 过的镜像**永远优先** —— 只有缺失才会触发拉取。
+
+改这个的理由是门槛：这个镜像里没有 ACE 的代码，它只是一个干净执行环境（`python:3.12-slim` + 非 root 用户），而让每个 Linux/macOS 用户先本地构建一次（还得先连得上 Docker Hub 拉基础镜像）挡掉的人远多于它保护的人。
+
+代价是**信任锚变了**：从"你自己构建的那一份"变成"官方 CI 构建并分发的那一份"。所以这一层给三个把手，用不用由你：
+
+- 工具结果里带 `sandbox.image_digest` —— 实际跑的是哪一份镜像，可追溯、可取证的
+- `--sandbox-image ghcr.io/ace-code-engine/ace-sandbox@sha256:<digest>` —— 固定到具体摘要，registry 被换掉也拦得住
+- `ACE_SANDBOX_NO_PULL=1` —— 关掉自动拉取，只用你本地 build 的那份（离线、或"边界镜像只认自己的构建"的受控部署）
+
+镜像由 CI 构建并附 provenance 与 SBOM（[`.github/workflows/release-images.yml`](../.github/workflows/release-images.yml)），构建脚本就是仓库里的 [`docker/Dockerfile.sandbox`](../docker/Dockerfile.sandbox)，任何人都能自己复现一份对比。想更严还可以 `ACE_SANDBOX_SECCOMP=<profile.json>` 挂自己的 seccomp 配置 —— 默认用 docker 内置 profile（本就挡掉约 44 个系统调用），项目不随缘自带一份：改 seccomp 很容易连带封掉 `clone3` 这类正常路径，这种取舍该由部署方做。
 
 **Job Object 隔离（`--sandbox job`，Windows）**
 

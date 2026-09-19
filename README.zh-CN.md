@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.10.1%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -86,7 +86,7 @@ Windows 上项目目录已带 `ace.cmd`，加入 PATH 后可在任意目录直�
 ace --tools                    # 原生工具调用（function calling，不支持时自动降级）
 ace --install-executor         # 官方预编译执行器（--sandbox job 前置，无需本机 Go）
 ace --sandbox job              # Windows Job Object：进程树/内存上限
-ace --sandbox docker           # 容器隔离：真实内核边界（需 Docker + 构建 ace-sandbox 镜像）
+ace --sandbox docker           # 容器隔离：真实内核边界（需 Docker；镜像缺失自动拉官方预编译镜像）
 ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会话持久）
 # 更多启动参数：Ollama 本地模型 / 上下文压缩 / --install-ui / 容器编排等 → docs/COMMANDS.md「启动参数」
 ```
@@ -230,6 +230,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.11.0** (2026-09-19)：容器档改成**预编译优先**（面向 Linux / macOS）——`ghcr.io/ace-code-engine/ace-sandbox` 以多架构发布（Apple Silicon 上原生 arm64）并附 provenance 与 SBOM，镜像缺失时自动拉取而不是让你自己 build；本地构建的镜像依然优先。供应链三个把手：每个结果里带 `sandbox.image_digest`、`--sandbox-image <ref>@sha256:<digest>` 固定、`ACE_SANDBOX_NO_PULL=1` 离线。运行参数加固：`--init`、`--ulimit nofile`、`HOME=/tmp`、SELinux Enforcing 宿主自动加 `,z`、`--label` 便于清理。**行为变更**：镜像缺失这条路现在会联网，除非你关掉它
 - **v3.10.1** (2026-09-19)：三处由真机冒烟与实际运行逼出来的修复。格式纠错不再把执行层的报错包进 SEC-011 的外部内容块（模型照约定拒绝纠错、一路耗到 Stall 断路器介入），纠正指令改为附上执行层实际收到的原文；Go 执行器只在真需要时才索取 `PROCESS_SUSPEND_RESUME`，附加失败时点名被拒的访问位，并可在受限令牌宿主下退回普通启动（如实标 `degraded`）保住 Tier-1；`ace.cmd` 改 CRLF 并由 `.gitattributes` 钉死。**这一版要重发预编译执行器** —— 重发之前 `ace --install-executor` 拿到的仍是修复前的二进制
 - **v3.10.0** (2026-09-18)：根目录瘦身——20 个模块下沉 `ui/`（终端表现）/ `cli/`（自检·上下文·会话日志）/ `core/`（策略·网络·执行器客户端·记忆与快照），根级只留 4 个 `.py`；README 改为英文为主（中文在本文件）；演示补上"被拦下"那条路径
 - **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `core/ace_model.py`

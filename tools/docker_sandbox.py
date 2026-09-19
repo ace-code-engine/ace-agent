@@ -13,12 +13,30 @@ cwd 固定在项目根 —— 但 `shell=True` 下 `cd /` 或写绝对路径随�
 容器提供的是 Python 层拿不到的东西：
 
 - `--network none`：没有网卡，凭据无法外传，也下载不了第二阶段载荷
-- `--memory` / `--pids-limit`：fork bomb 和内存耗尽变成容器自己的事
+- `--memory` / `--memory-swap` / `--pids-limit` / `--ulimit nofile`：fork bomb、内存耗尽、
+  句柄耗尽都变成容器自己的事
 - `--read-only` + `--tmpfs /tmp`：根文件系统不可写，只有挂进来的工作目录可写
 - `--cap-drop ALL` + `--security-opt no-new-privileges`：拿不到额外权能
+- `--init`：容器里那个 PID 1 是真 init，命令 fork 出来的僵尸由它回收 —— 否则僵尸会
+  一直占着 `--pids-limit` 的名额，表现为"跑到一半突然起不了新进程"
 - `--rm`：进程树、临时文件、残留状态随容器一起消失
 
 容器不提供的：内核共享。容器逃逸漏洞仍然是逃逸。要更强的边界得上虚拟机。
+
+## 镜像从哪来（2026-09-19 变更）
+
+以前这里是"镜像故意不发布，部署方自己 build"。现在改成：**本地没有就先拉官方预编译镜像**
+（`ghcr.io/ace-code-engine/ace-sandbox`），拉不到再告诉你 build 命令；本地已经 build 过的
+镜像永远优先（只有缺失才会去拉）。
+
+改的理由是纯粹的门槛：这个镜像里没有 ACE 的代码，它只是个干净执行环境
+（`python:3.12-slim` + 非 root 用户），让每个 Linux/macOS 用户先本地 build 一次 ——
+而且 build 还得先能连上 Docker Hub 拉基础镜像 —— 挡掉的人远多于它保护的人。
+
+代价必须说清：信任锚从"你自己构建的那份"变成"官方 CI 构建 + registry 分发的那一份"。
+所以这一层做三件事：把实际用到的镜像摘要记进工具结果（`sandbox.image_digest`）、
+支持 `--sandbox-image ghcr.io/...@sha256:<digest>` 固定、以及 `ACE_SANDBOX_NO_PULL=1`
+直接关掉自动拉取（离线/受控环境用本地 build 那份）。
 
 ## 一个刻意的设计：不做静默回退
 
@@ -34,16 +52,26 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 DEFAULT_IMAGE = "ace-sandbox:latest"
+
+# 官方预编译沙箱镜像。本地那份（DEFAULT_IMAGE）缺失时拉它、再打上本地名 ——
+# 这样老用户的本地 build 仍然优先，新用户不必自己构建。
+OFFICIAL_IMAGE = "ghcr.io/ace-code-engine/ace-sandbox:latest"
+
 DEFAULT_TIMEOUT = 30
 DEFAULT_MEMORY = "512m"
 DEFAULT_CPUS = "1.0"
 DEFAULT_PIDS = 128
 DEFAULT_TMPFS_SIZE = "64m"
+# 句柄上限：给足正常构建用，封住"打开十万个 fd"这一类。
+DEFAULT_NOFILE = "4096:4096"
+# 拉镜像可以慢（首次几 MB～几十 MB），但必须有界：它挡在一条工具调用前面。
+PULL_TIMEOUT = 300
 
 # 沙箱策略拒绝的 stderr 方言（借鉴 DSH sandbox-local DENIAL_SIGNATURES / Codex violation.rs）。
 # 语义必须与"命令自身失败"分开：前者是限制在按预期生效（模型应换做法），
@@ -77,7 +105,8 @@ class DockerSandbox:
     def __init__(self, workspace: str, image: str = DEFAULT_IMAGE,
                  timeout: int = DEFAULT_TIMEOUT, memory: str = DEFAULT_MEMORY,
                  cpus: str = DEFAULT_CPUS, pids_limit: int = DEFAULT_PIDS,
-                 network: str = "none") -> None:
+                 network: str = "none", auto_pull: bool = True,
+                 seccomp: str = "") -> None:
         self.workspace = Path(workspace).resolve()
         self.image = image
         self.timeout = int(timeout)
@@ -85,9 +114,17 @@ class DockerSandbox:
         self.cpus = cpus
         self.pids_limit = int(pids_limit)
         self.network = network
+        self.auto_pull = bool(auto_pull)
+        # 自定义 seccomp 配置路径。默认空 = 用 docker 的内置默认 profile
+        # （它本来就挡掉约 44 个系统调用）。这里不随缘自带一份：改 seccomp 很容易
+        # 连带封掉 clone3/新 glibc 这类正常路径，而"沙箱能用"和"沙箱更严"之间
+        # 不该由一份没人能验证的 profile 决定 —— 想更严的人自己指定。
+        self.seccomp = str(seccomp or "")
         self._available: Optional[bool] = None   # 探测结果缓存
         self._image_ok: Optional[bool] = None    # 镜像存在性缓存（与探测同理，挡在每条命令前）
         self._detail = ""
+        self._pull_error = ""                    # 最近一次拉取失败的原因（进 503 文案）
+        self._digest = ""                        # 实际使用的镜像摘要（best-effort）
 
 
     # ---------- 可用性 ----------
@@ -139,38 +176,167 @@ class DockerSandbox:
         镜像缺失单独判一次，而不是让 `docker run` 自己去撞，原因是撞出来的错不对：
         本地找不到 `ace-sandbox:latest` 时 docker 会先当它是远端镜像去 registry 拉，
         于是用户等一个网络超时，然后拿到一句 "pull access denied / not found" ——
-        听起来像是仓库配错了或者要登录，而真正要做的只是本地 build 一次。
+        听起来像是仓库配错了或者要登录。
 
-        这个镜像是故意不发布到 registry 的：它是执行边界，内容得由部署方自己掌握。
-        所以"拉不到"不是故障，是**本来就要你构建**。
+        缺失时的正确动作是**去把官方预编译镜像拉下来**（见 _try_acquire）；只有当拉取
+        本身失败时，才把 build 命令作为退路一并给出来。本地已经 build 过的镜像永远优先：
+        只有 image_present() 为假才会走到拉取这一步。
         """
         if not self.probe():
             raise DockerUnavailable(self._detail)
-        if not self.image_present():
-            raise DockerUnavailable(
-                f"本地没有沙箱镜像 {self.image}（它不发布到 registry，需要自己构建）：\n"
-                f"    docker build -t {self.image} -f docker/Dockerfile.sandbox .\n"
-                "已有镜像可用 --sandbox-image 指定；不想要容器边界就用 --sandbox off。")
+        if self.image_present():
+            return
+        if self.auto_pull and self._try_acquire():
+            return
+        _why = f"\n    拉取失败: {self._pull_error}" if self._pull_error else ""
+        _off = ("" if self.auto_pull
+                else "\n    自动拉取已关闭（ACE_SANDBOX_NO_PULL=1）。")
+        raise DockerUnavailable(
+            f"本地没有沙箱镜像 {self.image}，自动拉取也没成功。{_why}{_off}\n"
+            f"    自己构建: docker build -t {self.image} -f docker/Dockerfile.sandbox .\n"
+            f"    或指定官方镜像: --sandbox-image {OFFICIAL_IMAGE}\n"
+            "    要固定供应链就把镜像写成 <ref>@sha256:<digest>；不想要容器边界就用 --sandbox off。")
+
+    # ---------- 镜像获取 ----------
+
+    @staticmethod
+    def is_registry_ref(image: str) -> bool:
+        """判断镜像名是否指向 registry（即可 pull 的远端引用）。
+
+        规则照 docker 自己的来：名字的第一段含 `.` 或 `:`，或等于 `localhost`，
+        才被当 registry 主机。`ace-sandbox:latest` 的第一段是 `ace-sandbox`，
+        没有点也没有冒号 —— 那在 docker 眼里是 Docker Hub 的 library 镜像名，
+        不是我们要拉的东西，所以这里必须判成"本地名"。
+        """
+        first = image.split("/", 1)[0] if "/" in image else ""
+        if not first:
+            return False
+        return "." in first or ":" in first or first == "localhost"
+
+    @staticmethod
+    def selinux_enforcing() -> bool:
+        """宿主机 SELinux 是否处于 Enforcing。
+
+        为什么要问：Fedora / RHEL / CentOS 默认 Enforcing，此时**容器写不进挂载进来的
+        工作目录**（`docker run -v $PWD:/work` 会被 SELinux 拒），报错是 "Permission denied"，
+        看起来像沙箱坏了。docker 的标准解法是给挂载点加 `,z`（共享标签）。
+        只在 Linux 且 `getenforce` 存在且输出 Enforcing 时才为真 ——
+        macOS / Windows 上 getenforce 不存在，永远走不到这条分支。
+        """
+        if not sys.platform.startswith("linux"):
+            return False
+        if not shutil.which("getenforce"):
+            return False
+        try:
+            r = subprocess.run(["getenforce"], capture_output=True, text=True,
+                               timeout=PROBE_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        return r.stdout.strip().lower() == "enforcing"
+
+    def _docker_pull(self, ref: str) -> Tuple[bool, str]:
+        try:
+            r = subprocess.run(["docker", "pull", ref], capture_output=True, text=True,
+                               timeout=PULL_TIMEOUT, stdin=subprocess.DEVNULL,
+                               encoding="utf-8", errors="replace")
+        except (subprocess.TimeoutExpired, OSError) as e:
+            return False, f"{type(e).__name__}: {e}"
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout or "").strip()[:300] or "docker pull 返回非零"
+        return True, ""
+
+    def _docker_tag(self, src: str, dst: str) -> Tuple[bool, str]:
+        try:
+            r = subprocess.run(["docker", "tag", src, dst], capture_output=True, text=True,
+                               timeout=PROBE_TIMEOUT, stdin=subprocess.DEVNULL,
+                               encoding="utf-8", errors="replace")
+        except (subprocess.TimeoutExpired, OSError) as e:
+            return False, f"{type(e).__name__}: {e}"
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout or "").strip()[:300] or "docker tag 返回非零"
+        return True, ""
+
+    def _image_digest(self) -> str:
+        """取本地镜像的摘要（best-effort）。取不到就空串，绝不因此让执行失败。"""
+        try:
+            r = subprocess.run(
+                ["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", self.image],
+                capture_output=True, text=True, timeout=PROBE_TIMEOUT,
+                stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace")
+        except (subprocess.TimeoutExpired, OSError):
+            return ""
+        return (r.stdout or "").strip() if r.returncode == 0 else ""
+
+    def _try_acquire(self) -> bool:
+        """镜像不在本地时把它弄到手。成功返回 True 并置 _image_ok。
+
+        两种情形：
+          - 配置的是 registry 引用（`ghcr.io/...`、`myreg:5000/...`）→ 直接拉它；
+          - 配置的是本地名（默认 `ace-sandbox:latest`）→ 拉官方预编译镜像，再打上这个名字。
+            打名字而不是改 self.image，是为了让状态在 `docker images` 里看得见、
+            且后续运行不再需要网络。
+        """
+        target = self.image
+        ref = target if self.is_registry_ref(target) else OFFICIAL_IMAGE
+        ok, err = self._docker_pull(ref)
+        if not ok:
+            self._pull_error = f"{ref}: {err}"
+            return False
+        if ref != target:
+            ok, err = self._docker_tag(ref, target)
+            if not ok:
+                self._pull_error = f"docker tag {ref} -> {target}: {err}"
+                return False
+        self._image_ok = True
+        self._digest = self._image_digest()
+        return True
+
+    @property
+    def image_digest(self) -> str:
+        """实际使用的镜像摘要（形如 `ghcr.io/x/y@sha256:...`）；未知时为空串。"""
+        return self._digest
 
     # ---------- 执行 ----------
+
+    def _bind_suffix(self) -> str:
+        """挂载点的额外选项：SELinux Enforcing 的宿主机上必须带 `,z`。
+
+        不加时，Fedora / RHEL 这类默认 Enforcing 的机器上容器**写不进**挂进来的工作目录，
+        报错是一句笼统的 "Permission denied"，看起来像沙箱坏了。`,z` 是 docker 的标准解法
+        （给内容打共享标签）。只在实测 Enforcing 时才加 —— macOS / Windows 上
+        `getenforce` 根本不存在，不受影响。
+        """
+        return ",z" if self.selinux_enforcing() else ""
 
     def _base_args(self, name: str) -> List[str]:
         args = [
             "docker", "run", "--rm", "-i",
             "--name", name,
+            # 标签让超时残留的容器能被一条命令收干净：
+            #   docker container prune --filter label=ace.sandbox=1
+            "--label", "ace.sandbox=1",
+            # 真 init 回收僵尸进程。没有它时，命令 fork 出来的僵尸会一直占着
+            # --pids-limit 的名额，表现为"跑到一半突然起不了新进程"。
+            "--init",
             f"--network={self.network}",
             f"--memory={self.memory}",
             # memory-swap 等于 memory 才算真的封住内存：否则超额部分会换到 swap
             f"--memory-swap={self.memory}",
             f"--cpus={self.cpus}",
             f"--pids-limit={self.pids_limit}",
+            "--ulimit", f"nofile={DEFAULT_NOFILE}",
             "--read-only",
             f"--tmpfs=/tmp:rw,nosuid,nodev,size={DEFAULT_TMPFS_SIZE}",
+            # 根文件系统只读，$HOME 落在只读层上会让 pip 之类写缓存的工具直接失败，
+            # 而 /tmp 已经是可写 tmpfs。沙箱里没有"用户家目录"这个概念，指过去即可。
+            "-e", "HOME=/tmp",
             "--security-opt", "no-new-privileges",
             "--cap-drop", "ALL",
-            "-v", f"{self.workspace}:/work:rw",
+            "-v", f"{self.workspace}:/work:rw{self._bind_suffix()}",
             "-w", "/work",
         ]
+        if self.seccomp:
+            args += ["--security-opt", f"seccomp={self.seccomp}"]
         # POSIX 上用调用者的 uid/gid，容器写出来的文件在宿主侧归属正确，
         # 不会留下一堆 root 拥有的产物。Windows 上没有 uid 概念，
         # 交给镜像里的 USER（见 docker/Dockerfile.sandbox）。
@@ -225,21 +391,37 @@ class DockerSandbox:
         return self._run(args, name, stdin_data=code)
 
 
+def auto_pull_enabled() -> bool:
+    """镜像缺失时是否自动去拉官方预编译镜像。默认开。
+
+    `ACE_SANDBOX_NO_PULL=1` 关掉 —— 离线环境、或者"只用我自己构建的那份镜像"
+    的受控部署该关掉它。关掉后镜像缺失会直接报错并给出 build 命令。
+    """
+    return os.environ.get("ACE_SANDBOX_NO_PULL", "").strip().lower() not in (
+        "1", "true", "yes", "on")
+
+
 def build_sandbox(config: Optional[Dict], workspace: str) -> Optional[DockerSandbox]:
     """按配置造沙箱；未启用返回 None。
 
-    config 形如 {"mode": "docker", "image": ..., "timeout": ..., ...}。
+    config 形如 {"mode": "docker", "image": ..., "timeout": ..., "auto_pull": ..., "seccomp": ...}。
     mode 不是 "docker" 就当没启用——保持默认关闭，不给现有用户变行为。
+
+    未显式给出的两项看环境变量：`ACE_SANDBOX_NO_PULL=1` 关自动拉取，
+    `ACE_SANDBOX_IMAGE` / `ACE_SANDBOX_SECCOMP` 指定镜像与 seccomp profile。
     """
     cfg = config or {}
     if str(cfg.get("mode", "off")).lower() != "docker":
         return None
+    _pull = cfg.get("auto_pull")
     return DockerSandbox(
         workspace=workspace,
-        image=cfg.get("image") or DEFAULT_IMAGE,
+        image=cfg.get("image") or os.environ.get("ACE_SANDBOX_IMAGE") or DEFAULT_IMAGE,
         timeout=int(cfg.get("timeout") or DEFAULT_TIMEOUT),
         memory=cfg.get("memory") or DEFAULT_MEMORY,
         cpus=str(cfg.get("cpus") or DEFAULT_CPUS),
         pids_limit=int(cfg.get("pids_limit") or DEFAULT_PIDS),
         network=cfg.get("network") or "none",
+        auto_pull=auto_pull_enabled() if _pull is None else bool(_pull),
+        seccomp=cfg.get("seccomp") or os.environ.get("ACE_SANDBOX_SECCOMP", ""),
     )

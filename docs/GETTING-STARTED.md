@@ -65,7 +65,7 @@ ACE 的所有配置混乱几乎都来自把这三件事混成一件事：
 7. **凭据类文件读不了也写不了** —— `.pem` / `.key` / `~/.ssh` / `~/.ai_code.json` 即便在项目内也拦。
 8. **`/provider` 显示的是"9 家厂商 · 10 入口"** —— 智谱占两个入口（Anthropic / OpenAI 兼容各一），所以入口数比家数多。
 9. **配置要写进 `~/.ai_code.json` 才持久** —— 优先级：命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量。所有键都会透传进执行层（v3.8.x 之前有 7 个键写了不生效，已修并有断言）。
-10. **沙箱镜像要自己 build** —— `ace-sandbox` 不会发布到任何 registry：它本身就是边界，里面装什么得部署方说了算。
+10. **Linux/macOS 想要真边界就用 `--sandbox docker`** —— 沙箱镜像本地没有时会**自动拉官方预编译镜像**（多架构，Apple Silicon 也是原生）。要固定供应链就 `--sandbox-image ghcr.io/ace-code-engine/ace-sandbox@sha256:<digest>`；不想让它联网就 `ACE_SANDBOX_NO_PULL=1`，并先本地 `docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`。
 
 ## 5 · 接下来去哪
 

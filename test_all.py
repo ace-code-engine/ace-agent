@@ -2345,7 +2345,9 @@ if _want("16"):
     # ── [16] ────
     print("[16] docker 沙箱 —— 容器执行层的开关、参数与失败语义")
     # ============================================================
-    from tools.docker_sandbox import DockerSandbox, build_sandbox  # noqa: E402
+    from tools.docker_sandbox import (DockerSandbox, build_sandbox,  # noqa: E402
+                                      DockerUnavailable)
+    from tools import docker_sandbox as _ds_mod  # noqa: E402
 
     check("sandbox mode=off 不构造沙箱（默认行为不变）",
           build_sandbox({"mode": "off"}, ".") is None
@@ -2358,10 +2360,12 @@ if _want("16"):
     # 容器参数是这一层唯一的安全价值来源，逐条钉死。少了任何一条，"隔离"就只是个说法：
     # 没有 --network=none 就能外传凭据；没有 --read-only 就能改镜像里的东西；
     # 没有 --cap-drop ALL / no-new-privileges 就能拿额外权能；没有 pids/memory 上限
-    # 一个 fork bomb 就把宿主拖死。
+    # 一个 fork bomb 就把宿主拖死。--init 与 --ulimit 是 2026-09-19 补的：
+    # 前者回收僵尸（否则僵尸占着 pids 名额），后者封住句柄耗尽。
     _args = " ".join(_sb._base_args("probe-name"))
     for _flag in ("--network=none", "--read-only", "--memory=", "--memory-swap=",
-                  "--pids-limit=", "no-new-privileges", "--cap-drop", "--rm"):
+                  "--pids-limit=", "no-new-privileges", "--cap-drop", "--rm",
+                  "--init", "--ulimit", "nofile=", "HOME=/tmp", "--label"):
         check(f"容器参数含 {_flag}", _flag in _args, _args)
     check("只挂工作目录、cwd 指向挂载点",
           f"{_sb_root.resolve()}:/work:rw" in _args and " -w /work" in _args, _args)
@@ -2386,14 +2390,16 @@ if _want("16"):
 
     # 镜像缺失是另一种失败，必须自己判、自己报。让 docker run 去撞的话，本地找不到
     # ace-sandbox 时 docker 会当它是远端镜像去 registry 拉，用户先等一个网络超时，
-    # 再拿到 "pull access denied" —— 听起来像仓库配错了或要登录，而真正要做的
-    # 只是本地 build 一次。这个镜像故意不发布：它是执行边界，内容得由部署方掌握。
+    # 再拿到 "pull access denied" —— 听起来像仓库配错了或要登录。
+    # 2026-09-19 起缺失时的正确动作是"去拉官方预编译镜像"（下面单独用桩覆盖），
+    # 这里把 auto_pull 关掉，让测试保持不联网、且只验证"拉不到时的报错质量"。
     el_img = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
                             config={"bait": {"enabled": False},
                                     "sandbox_base": str(TEST_TMP),
                                     "sandbox": {"mode": "docker"}})
     el_img.executor.docker_sandbox._available = True     # daemon 正常
-    el_img.executor.docker_sandbox._image_ok = False     # 但镜像没构建
+    el_img.executor.docker_sandbox._image_ok = False     # 但镜像不在本地
+    el_img.executor.docker_sandbox.auto_pull = False     # 且不自动拉（测试不联网）
     _img_file = Path(el_img.project_root) / "image_missing_probe.txt"
     r = run_confirmed(el_img, "terminal_exec", command=f"echo hi > {_img_file.name}")
     check("镜像缺失时 terminal_exec 返回 503", r["status"] == "503", r.get("message"))
@@ -2410,6 +2416,92 @@ if _want("16"):
           _sbx_src.count("self._ensure_ready()") == 2
           and _sbx_src.count("def run_shell") == 1
           and _sbx_src.count("def run_python") == 1, _sbx_src.count("self._ensure_ready()"))
+
+    # —— 镜像从哪来（2026-09-19 起：本地缺失就拉官方预编译镜像） ——
+    # 判 registry 引用是纯判定，规则照 docker 自己的：第一段含 `.`/`:` 或等于 localhost
+    # 才算 registry。`ace-sandbox:latest` 的第一段没有点也没冒号 —— 在 docker 眼里那是
+    # Docker Hub 的 library 镜像名，不是我们要拉的东西。
+    check("ghcr.io/... 判为 registry 引用",
+          DockerSandbox.is_registry_ref("ghcr.io/ace-code-engine/ace-sandbox:latest"))
+    check("localhost:5000/... 判为 registry 引用",
+          DockerSandbox.is_registry_ref("localhost:5000/ace-sandbox"))
+    check("ace-sandbox:latest 判为本地名（不是 registry）",
+          not DockerSandbox.is_registry_ref("ace-sandbox:latest"))
+    check("裸名字同样判为本地名", not DockerSandbox.is_registry_ref("ace-sandbox"))
+
+    # 缺失 → 拉官方镜像 → 打上配置的本地名。拉取本身用桩替换，测试永不联网。
+    import unittest.mock as _mock_ds  # noqa: E402
+    _sb_pull = build_sandbox({"mode": "docker"}, str(mktemp()))
+    _sb_pull._available, _sb_pull._image_ok = True, False
+    with _mock_ds.patch.object(_sb_pull, "_docker_pull", return_value=(True, "")) as _mp, \
+         _mock_ds.patch.object(_sb_pull, "_docker_tag", return_value=(True, "")) as _mt, \
+         _mock_ds.patch.object(_sb_pull, "_image_digest", return_value="sha256:test"):
+        _sb_pull._ensure_ready()
+        check("本地名缺失时拉的是官方预编译镜像",
+              _mp.call_args[0][0] == _ds_mod.OFFICIAL_IMAGE, _mp.call_args)
+        check("拉到后打上配置的本地名（后续运行不再要网络）",
+              _mt.call_args[0] == (_ds_mod.OFFICIAL_IMAGE, "ace-sandbox:latest"), _mt.call_args)
+        check("拉取成功后放行并记下摘要",
+              _sb_pull._image_ok is True and _sb_pull.image_digest == "sha256:test")
+
+    # registry 引用则直接拉它自己，不打名字（摘要固定就走这条：<ref>@sha256:...）
+    _sb_ref = build_sandbox({"mode": "docker", "image": "ghcr.io/x/y@sha256:abc"}, str(mktemp()))
+    _sb_ref._available, _sb_ref._image_ok = True, False
+    with _mock_ds.patch.object(_sb_ref, "_docker_pull", return_value=(True, "")) as _mp2, \
+         _mock_ds.patch.object(_sb_ref, "_docker_tag", return_value=(True, "")) as _mt2, \
+         _mock_ds.patch.object(_sb_ref, "_image_digest", return_value=""):
+        _sb_ref._ensure_ready()
+        check("registry 引用直接拉它自己", _mp2.call_args[0][0] == "ghcr.io/x/y@sha256:abc")
+        check("registry 引用不需要额外打名字", _mt2.call_count == 0)
+
+    # 拉取失败 → 报错里必须有：失败原因 + build 退路 + 固定摘要的方式
+    _sb_fail = build_sandbox({"mode": "docker"}, str(mktemp()))
+    _sb_fail._available, _sb_fail._image_ok = True, False
+    with _mock_ds.patch.object(_sb_fail, "_docker_pull",
+                               return_value=(False, "no route to host")):
+        try:
+            _sb_fail._ensure_ready()
+            check("拉取失败时必须报错而不是继续", False, "居然放行了")
+        except DockerUnavailable as _e:
+            _msg = str(_e)
+            check("拉取失败的报错含失败原因", "no route to host" in _msg, _msg)
+            check("拉取失败的报错仍给 build 退路", "docker build" in _msg, _msg)
+            check("拉取失败的报错给出 sha256 固定方式", "sha256" in _msg, _msg)
+
+    # ACE_SANDBOX_NO_PULL=1 / auto_pull=False → 一次网络都不发，直接报错
+    _sb_off = build_sandbox({"mode": "docker", "auto_pull": False}, str(mktemp()))
+    _sb_off._available, _sb_off._image_ok = True, False
+    with _mock_ds.patch.object(_sb_off, "_docker_pull", return_value=(True, "")) as _mp3:
+        try:
+            _sb_off._ensure_ready()
+            check("关掉自动拉取后镜像缺失必须报错", False, "居然放行了")
+        except DockerUnavailable as _e:
+            check("关掉自动拉取时一次网络都不发", _mp3.call_count == 0)
+            check("关掉自动拉取的报错写明是哪个开关", "ACE_SANDBOX_NO_PULL" in str(_e), str(_e))
+    with _mock_ds.patch.dict("os.environ", {"ACE_SANDBOX_NO_PULL": "1"}):
+        check("环境变量 ACE_SANDBOX_NO_PULL=1 关掉自动拉取",
+              _ds_mod.auto_pull_enabled() is False)
+    with _mock_ds.patch.dict("os.environ", {"ACE_SANDBOX_NO_PULL": ""}):
+        check("默认自动拉取开着", _ds_mod.auto_pull_enabled() is True)
+
+    # SELinux Enforcing 的宿主机（Fedora/RHEL）上必须给挂载点加 `,z`，
+    # 否则容器写不进工作目录、报错是一句笼统的 Permission denied。
+    # 判定结果用桩控制，测试不依赖本机有没有 SELinux。
+    _sb_se = build_sandbox({"mode": "docker"}, str(mktemp()))
+    with _mock_ds.patch.object(DockerSandbox, "selinux_enforcing", return_value=True):
+        check("SELinux Enforcing 时挂载点带 ,z",
+              ":/work:rw,z" in " ".join(_sb_se._base_args("n")), _sb_se._base_args("n"))
+    with _mock_ds.patch.object(DockerSandbox, "selinux_enforcing", return_value=False):
+        check("非 Enforcing 时不加 ,z（macOS / Windows 不受影响）",
+              ":/work:rw" in " ".join(_sb_se._base_args("n"))
+              and ",z" not in " ".join(_sb_se._base_args("n")), _sb_se._base_args("n"))
+
+    # seccomp：默认交给 docker 内置 profile，想更严的人自己指定路径
+    _sb_sec = build_sandbox({"mode": "docker", "seccomp": "/tmp/prof.json"}, str(mktemp()))
+    check("指定 seccomp profile 时传 --security-opt",
+          "seccomp=/tmp/prof.json" in " ".join(_sb_sec._base_args("n")))
+    check("默认不传 seccomp（用 docker 内置默认 profile）",
+          "seccomp=" not in " ".join(_sb._base_args("n")))
 
     # —— 沙箱拒绝方言分类：策略拒绝 ≠ 命令失败（借鉴 DSH DENIAL_SIGNATURES / Codex violation.rs） ——
     el_den = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
@@ -2428,6 +2520,9 @@ if _want("16"):
               r["status"] == "SUCCESS" and r["data"].get("sandbox_denied") is True
               and "denied_hint" in r["data"].get("sandbox", {}),
               (r.get("status"), r.get("data", {}).get("sandbox_denied")))
+        check("docker 结果里带上镜像摘要字段（镜像默认从 registry 来，得能追到跑的是哪一份）",
+              "image_digest" in (r["data"].get("sandbox") or {}),
+              r["data"].get("sandbox"))
     with _mock_den.patch.object(el_den.executor.docker_sandbox, "run_shell",
                                 return_value=_ok_out):
         r = run_confirmed(el_den, "terminal_exec", command="echo hi")

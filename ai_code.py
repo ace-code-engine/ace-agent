@@ -3040,7 +3040,8 @@ def main() -> None:
     parser.add_argument("--skills", help="文件式专业技能目录（如 G:\\AI_skils，每个技能一个 SKILL.md）。"
                                          "skill_list 查看、skill_load 按需加载完整 instructions")
     parser.add_argument("--sandbox-image", help="沙箱镜像（默认 ace-sandbox:latest，"
-                                               "用 docker/Dockerfile.sandbox 构建）")
+                                               "缺失时自动从 ghcr.io 拉官方预编译镜像；"
+                                               "可写 <ref>@sha256:<digest> 固定供应链）")
     parser.add_argument("--tools", action="store_true",
                         help="使用原生工具调用（OpenAI 兼容 function calling，不支持时自动降级）")
     parser.add_argument("--approval-policy",

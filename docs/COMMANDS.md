@@ -11,10 +11,10 @@
 
 | 分类 | 命令 |
 |---|---|
-| 会话 | `/help` `/clear` `/status` `/stats` `/exit` |
-| 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` |
-| 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` |
-| 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/expand` |
+| 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/expand` `/exit` |
+| 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
+| 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
+| 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
 
 ```bash
 /provider                   # 列出 9 家厂商 · 10 入口（当前标 ✓）
@@ -37,7 +37,11 @@
 - 逼近阈值时会在请求发出前提醒一次（按触发点的 10% 一档节流，不会每轮刷屏）；`/status` 里有 tokens/窗口/触发点的明细
 - 用 `--no-compact` 关掉压缩后，`/status` 会额外说明"超出窗口直接硬截断"，免得以为还有压缩兜底
 
-**输入历史**：聊天里的 ↑/↓ 与 Ctrl+R 翻的是 `~/.ace_history`（跨会话保留）。历史文件里可能留下你粘贴过的密钥，`ACE_NO_HISTORY=1` 可退回进程内历史。
+**输入行**：
+
+- **多行输入**：`Alt+Enter` 或 `Ctrl+J` 在光标处换行，`Enter` 发送。`Shift+Enter` 也接，但它要终端支持扩展键协议（Windows Terminal / Kitty 支持；旧 conhost 会把 `Shift+Enter` 当成 `Enter` 送上来）——所以主推前两个键。续行用 `… ` 对齐。
+- **历史**：`↑`/`↓` 翻当前会话输入；`Ctrl+R` 反向逐条搜索（跨会话，历史写在 `~/.ace_history`）；`/history 关键词` 按**子序列**模糊检索（`dsk` 能命中 `deepseek` 那条），命中字符高亮，交互终端里选中后会填进下一次输入行——**不自动发送**。
+- **`/` 菜单**：命令按「会话 / 安全 / 模型 / 工具」分组排序，说明前标组名；`/help` 按同一分组分节。
 
 **@ 快捷方式**（输入 `@` 弹菜单）：
 

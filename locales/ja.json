@@ -223,5 +223,19 @@
   "preview_hint": "これは画面プレビューです（--preview は描画のみで対話に入りません）。実行時: ↑/↓ 選択 · 数字で直接選択 · Enter 確定 · Esc/q 終了。",
   "preview_footer_title": "ステータスバー（実行時はリアルタイム更新）",
   "panel_turns": "{n} ターン",
-  "round_tools": "  ツール呼び出し {n} 回 · {sec}s · {tools}"
+  "round_tools": "  ツール呼び出し {n} 回 · {sec}s · {tools}",
+  "group_session": "セッション",
+  "group_security": "安全",
+  "group_model": "モデル",
+  "group_tools": "ツール",
+  "group_more": "その他",
+  "cmd_history": "入力履歴のあいまい検索（略語でもヒット）",
+  "history_empty": "  履歴はまだありません（~/.ace_history に保存。ACE_NO_HISTORY=1 ならメモリ内のみ）",
+  "history_recent": "  直近 {n} 件（↑/↓ や Ctrl+R でも辿れます）:",
+  "history_match": "  「{q}」に {n} 件ヒット:",
+  "history_no_match": "  履歴に「{q}」は見つかりません。",
+  "history_pick": "過去の入力を選択（Enter で入力行に反映、送信はしません）",
+  "history_hint": "  選んだ内容は次の入力行に入ります（自動送信はしません）· Ctrl+R で逆方向検索",
+  "input_hint_multiline": "複数行: Alt+Enter または Ctrl+J で改行（Shift+Enter は端末依存）、Enter で送信",
+  "input_hint_history": "履歴検索: Ctrl+R で逆方向 · /history であいまい検索（dsk で deepseek もヒット）"
 }

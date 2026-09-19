@@ -223,5 +223,19 @@
   "preview_hint": "This is a UI preview (--preview draws the screen and exits). In a real run: ↑/↓ to move · digits to jump · Enter to confirm · Esc/q to quit.",
   "preview_footer_title": "Status bar (live in a real session)",
   "panel_turns": "{n} turns",
-  "round_tools": "  {n} tool calls · {sec}s · {tools}"
+  "round_tools": "  {n} tool calls · {sec}s · {tools}",
+  "group_session": "Session",
+  "group_security": "Security",
+  "group_model": "Model",
+  "group_tools": "Tools",
+  "group_more": "More",
+  "cmd_history": "Fuzzy-search your input history (abbreviations work)",
+  "history_empty": "  No history yet (cross-session history lives in ~/.ace_history; ACE_NO_HISTORY=1 keeps it in memory)",
+  "history_recent": "  Last {n} inputs (↑/↓ or Ctrl+R also work):",
+  "history_match": "  {n} matches for \"{q}\":",
+  "history_no_match": "  No history entry matches \"{q}\".",
+  "history_pick": "Pick a past input (Enter fills the prompt, it is not sent)",
+  "history_hint": "  Picked entries fill the next prompt (never auto-sent) · Ctrl+R searches backwards",
+  "input_hint_multiline": "Multiline: Alt+Enter or Ctrl+J inserts a newline (Shift+Enter depends on the terminal); Enter sends",
+  "input_hint_history": "History search: Ctrl+R backwards · /history fuzzy search (dsk finds deepseek)"
 }

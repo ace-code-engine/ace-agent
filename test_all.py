@@ -1460,6 +1460,77 @@ if _want("9"):
               "+第 0 行" in buf.getvalue() and "+第 29 行" in buf.getvalue(),
               buf.getvalue()[-120:])
         ai_code.USE_COLOR = False      # 还原：后面的断言按纯文本比对
+
+        # —— 输入体验：分组 /help、命令分组不重不漏、历史模糊检索 ——
+        _grp = ai_code.AgentCLI.grouped_commands()
+        _flat = [n for _g, names in _grp for n in names]
+        check("分组覆盖全部命令且不重不漏（新增命令不会掉出菜单）",
+              sorted(_flat) == sorted(ai_code.AgentCLI.COMMANDS),
+              (sorted(set(ai_code.AgentCLI.COMMANDS) ^ set(_flat)), len(_flat)))
+        check("未登记分组的命令落到「其他」而不是消失",
+              ai_code.AgentCLI.command_group("/完全没有分组的命令")
+              == ai_code.AgentCLI.GROUP_FALLBACK, "")
+        # 补全菜单的数据源（纯函数）：顺序 = 分组顺序，说明 = 「组名 · 描述」。
+        # 单独断言它而不是只测补全器：prompt_toolkit 是可选依赖，缺了整段会被跳过 ——
+        # 于是"菜单长什么样"在最需要它的环境里反而没人验。
+        _menu = ai_code.AgentCLI.menu_entries()
+        check("补全菜单项 = 全部命令，顺序按分组",
+              [n for n, _m in _menu] == [n for _g, names in _grp for n in names]
+              and len(_menu) == len(ai_code.AgentCLI.COMMANDS), _menu[:3])
+        check("补全菜单说明前带分组名（平铺 25 条命令时靠它分类）",
+              all(m.startswith(ai_code.t(ai_code.AgentCLI.command_group(n)) + " · ")
+                  for n, m in _menu),
+              _menu[:4])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _cli_land.run_command("/help")
+        _help_out = buf.getvalue()
+        check("/help 按分组分节（会话/安全/模型/工具 四个标题都在）",
+              all(f"── {ai_code.t(g)}" in _help_out
+                  for g in ("group_session", "group_security", "group_model", "group_tools")),
+              _help_out[:200])
+        check("/help 列出全部命令",
+              all(k in _help_out for k in ai_code.AgentCLI.COMMANDS),
+              [k for k in ai_code.AgentCLI.COMMANDS if k not in _help_out])
+
+        # 历史模糊检索：把 ~/.ace_history 指到工作区内的临时文件（本机家目录不可写）
+        _hist_home = mktemp()
+        (_hist_home / ".ace_history").write_text(
+            "# 2026-09-19 10:00:00\n+现在几点\n"
+            "+帮我把 deepseek 的 key 换成新的\n+写一个快速排序\n", encoding="utf-8")
+        import unittest.mock as _mk  # noqa: E402
+        with _mk.patch.object(Path, "home", staticmethod(lambda: _hist_home)):
+            cli_hist = ai_code.AgentCLI({"project_root": str(mktemp()),
+                                         "permission": "readonly", "bait": False,
+                                         "base_url": "", "api_key": "", "model": "m1"},
+                                        mock=True)
+            check("历史读取会去掉 FileHistory 的 + 前缀与注释行",
+                  cli_hist._history_entries()
+                  == ["现在几点", "帮我把 deepseek 的 key 换成新的", "写一个快速排序"],
+                  cli_hist._history_entries())
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_hist.run_command("/history")
+            _h_all = buf.getvalue()
+            check("/history 无参数列出最近输入（倒序）",
+                  "写一个快速排序" in _h_all and "现在几点" in _h_all, _h_all[:200])
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_hist.run_command("/history dsk")
+            _h_fuzzy = buf.getvalue()
+            check("历史检索支持子序列缩写（dsk 命中 deepseek 那条）",
+                  "deepseek" in _h_fuzzy and "现在几点" not in _h_fuzzy, _h_fuzzy[:200])
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_hist.run_command("/history 不存在的词zzz")
+            check("历史检索无命中时如实回答", "zzz" in buf.getvalue(), buf.getvalue()[:200])
+            _src_hist = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+            check("选中历史后填进下一次输入行（不自动发送）",
+                  "default=self._pending_input" in _src_hist
+                  and "_pending_input = \"\"" in _src_hist, "")
+            check("多行输入键位齐全（Alt+Enter / Ctrl+J / Shift+Enter）",
+                  '("escape", "enter"), ("c-j",), ("s-enter",)' in _src_hist
+                  and "prompt_continuation=" in _src_hist, "")
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 
@@ -2632,6 +2703,12 @@ if _want("11"):
         _PT_AVAILABLE = False
     if _PT_AVAILABLE:
         _comp = ai_code._build_slash_completer(ai_code.AgentCLI.COMMANDS)
+        _slash_meta = list(_comp.get_completions(_PTDoc("/"), _PTEvent()))
+        check("补全器逐项给出分组说明（与 menu_entries 同源）",
+              [c.text for c in _slash_meta] == [n for n, _m in ai_code.AgentCLI.menu_entries()]
+              and all(c.display_meta_text == m
+                      for c, (_n, m) in zip(_slash_meta, ai_code.AgentCLI.menu_entries())),
+              [(c.text, c.display_meta_text) for c in _slash_meta[:3]])
         for _probe in ("/", "/edit ", "/edit C:/", "@", "@file ", "@folder C:/"):
             try:
                 _outs = list(_comp.get_completions(_PTDoc(_probe), _PTEvent()))

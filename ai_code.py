@@ -546,12 +546,13 @@ def _build_slash_completer(commands: Dict[str, str]):
                         display_meta=comp.display_meta,
                     )
                 return
-            # 命令名前缀实时过滤
+            # 命令名前缀实时过滤：按分组排序、说明前标组名 —— 平铺 25 条命令时
+            # 用户得靠眼睛扫全表才知道有哪些类别。排序与文案都在 menu_entries()。
             prefix = text[1:]
-            for name, desc in self.commands.items():
+            for name, meta in _SlashCommands.menu_entries():
                 if name.startswith("/" + prefix):
                     yield Completion(name, start_position=-len(text),
-                                     display_meta=t(desc))
+                                     display_meta=meta)
 
     return SlashCompleter()
 
@@ -1288,6 +1289,53 @@ class _SlashCommands:
     COMMANDS 是命令名 → i18n 描述键的映射，补全器与 /help 都从它派生。
     """
 
+    # 命令分组：补全菜单按它排序并在说明前标组名，/help 按它分节。
+    # 分组是**展示层**信息，不进 COMMAND_HANDLERS —— 加一条命令忘了分组只会
+    # 落到"其他"，不会影响分发。
+    COMMAND_GROUPS = [
+        ("group_session", ["/help", "/clear", "/status", "/stats", "/expand",
+                           "/history", "/audit", "/exit"]),
+        ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
+                            "/sandbox", "/net"]),
+        ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
+        ("group_tools", ["/open", "/edit", "/search", "/memory", "/report", "/goal"]),
+    ]
+    GROUP_FALLBACK = "group_more"
+
+    @classmethod
+    def command_group(cls, name: str) -> str:
+        """命令 → 分组 i18n 键（未登记的命令落到「其他」）。"""
+        for key, names in cls.COMMAND_GROUPS:
+            if name in names:
+                return key
+        return cls.GROUP_FALLBACK
+
+    @classmethod
+    def grouped_commands(cls) -> List[Tuple[str, List[str]]]:
+        """[(分组键, [命令名...])]，顺序按 COMMAND_GROUPS；未登记命令追加在最后。"""
+        out: List[Tuple[str, List[str]]] = []
+        seen = set()
+        for key, names in cls.COMMAND_GROUPS:
+            picked = [n for n in cls.COMMANDS if n in names]
+            seen.update(picked)
+            if picked:
+                out.append((key, picked))
+        rest = [n for n in cls.COMMANDS if n not in seen]
+        if rest:
+            out.append((cls.GROUP_FALLBACK, rest))
+        return out
+
+    @classmethod
+    def menu_entries(cls) -> List[Tuple[str, str]]:
+        """补全菜单的 (命令, 说明) 列表：按分组排序，说明前标组名。
+
+        纯数据、不依赖 prompt_toolkit —— 补全器只负责把它包成 Completion，这样
+        "菜单里有哪些项、怎么排序"这件事在没有 prompt_toolkit 的环境（含 CI）里
+        也能被断言，而不是整段跳过。
+        """
+        return [(name, f"{t(group_key)} · {t(cls.COMMANDS[name])}")
+                for group_key, names in cls.grouped_commands() for name in names]
+
     # ---------- 斜杠命令 ----------
 
     COMMANDS = {
@@ -1310,6 +1358,7 @@ class _SlashCommands:
         "/net": "cmd_net",
         "/sandbox": "cmd_sandbox",
         "/thinking": "cmd_thinking",
+        "/history": "cmd_history",
         "/expand": "cmd_expand",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
@@ -1341,6 +1390,7 @@ class _SlashCommands:
         "/net": ("_toggle_net", True),
         "/sandbox": ("_handle_sandbox", True),
         "/thinking": ("_cmd_thinking", True),
+        "/history": ("_cmd_history", True),
         "/expand": ("_cmd_expand", False),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
@@ -1406,9 +1456,17 @@ class _SlashCommands:
     # ---------- 斜杠命令的具体处理（从 run_command 的 if/elif 里提出来） ----------
 
     def _cmd_help(self, parts: List[str]) -> bool:
+        """按分组列出命令。
+
+        分组不是为了好看：命令表已经 23 条，平铺之后"我要找的那条"要靠眼睛扫完
+        整张表。分组 + 分节标题让同样的信息能被扫读。
+        """
         print(c("bold", "\n" + t("help_title")))
-        for k, v in self.COMMANDS.items():
-            print(f"  {c('magenta', k):<22} {t(v)}")
+        _w = self._panel_width()
+        for group_key, names in self.grouped_commands():
+            print(c("dim", ace_panel.section(t(group_key), _w)))
+            for k in names:
+                print(f"  {c('magenta', k):<22} {t(self.COMMANDS[k])}")
         print(c("dim", t("help_hint")))
         return True
 
@@ -1433,6 +1491,81 @@ class _SlashCommands:
             _ACE_SHOW_THINKING = not _ACE_SHOW_THINKING
         print(c("cyan", "  思考过程: " + ("开 ✓（F4 或 /thinking 关闭；思考将以灰色区分）"
               if _ACE_SHOW_THINKING else "关 ✓（F4 或 /thinking 开启）")))
+        return True
+
+    def _history_entries(self) -> List[str]:
+        """读输入历史（内存 + 文件），按时间顺序返回去重后的条目。
+
+        `/history` 与 Ctrl+R 用的是同一份来源；读不到就返回空列表 —— 历史检索
+        失败不该影响任何别的功能。
+        """
+        out: List[str] = []
+        try:
+            if os.environ.get("ACE_NO_HISTORY", "").strip().lower() in (
+                    "1", "true", "yes", "on"):
+                return out
+            p = Path.home() / ".ace_history"
+            if not p.is_file():
+                return out
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    s = raw.rstrip("\n")
+                    # prompt_toolkit 的 FileHistory 会写 "+" 前缀行与时间戳注释行
+                    if not s or s.startswith("#"):
+                        continue
+                    if s.startswith("+"):
+                        s = s[1:]
+                    s = s.strip()
+                    if s and (not out or out[-1] != s):
+                        out.append(s)
+        except OSError:
+            return out
+        return out
+
+    def _cmd_history(self, parts: List[str]) -> bool:
+        """`/history [关键词]`：模糊检索输入历史（英文缩写也能命中）。
+
+        为什么要它：Ctrl+R 是逐条反向搜索，脑子里得先有确切字样；而人常常只记得
+        "那次问的是 glm4 相关的事"。这里复用选择器那套子序列评分（`dsk` 能命中
+        `deepseek`），按相关度排，并把命中的字符标出来。
+        """
+        from ui.ace_selector import filter_items, highlight_match, run_selector
+        entries = self._history_entries()
+        if not entries:
+            print(c("dim", t("history_empty")))
+            return True
+        query = " ".join(parts[1:]).strip()
+        if not query:
+            shown = entries[-20:]
+            print(c("dim", t("history_recent", n=len(shown))))
+            for i, e in enumerate(reversed(shown), 1):
+                one = " ".join(e.split())
+                print(f"  {i:>2}. {one[:100]}")
+            print(c("dim", t("history_hint")))
+            return True
+        hits = filter_items(entries, query)[:20]
+        if not hits:
+            print(c("dim", t("history_no_match", q=query)))
+            print(c("dim", t("history_hint")))
+            return True
+        print(c("dim", t("history_match", n=len(hits), q=query)))
+        # 交互终端里给一个选择器：挑中就把那条填进输入框（不自动发送 —— 历史里
+        # 的那句话是当时的上下文，直接发出去大概率不是你这次想说的）
+        if run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
+            picked = run_selector(
+                t("history_pick"),
+                [" ".join(entries[i].split())[:120] for i, _score in hits])
+            if picked is not None and 0 <= picked < len(hits):
+                self._pending_input = " ".join(entries[hits[picked][0]].split())
+            return True
+        for i, (_idx, _score) in enumerate(hits, 1):
+            one = " ".join(entries[_idx].split())
+            if query:
+                segs = highlight_match(one, query)
+                one = "".join(c("magenta", s) if tag == "sel.hl" else s
+                              for tag, s in segs)
+            print(f"  {i:>2}. {one[:100]}")
+        print(c("dim", t("history_hint")))
         return True
 
     def _cmd_expand(self) -> bool:
@@ -2472,6 +2605,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 上下文提醒的水位（按触发点的 10% 分档）：0 = 还没提醒过。同一档只提醒一次，
         # 否则每轮都刷一行警告，用户会学会无视它。
         self._ctx_warn_band = 0
+        # /history 选中后要预填到下一次输入行的内容（空 = 不预填）
+        self._pending_input = ""
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
         # 工具往返（执行层）+ 模型请求/输出（CLI）都进同一份 append-only 事实源。
         self.cfg["session_log"] = str(Path(self.cfg.get("project_root", "."))
@@ -3264,6 +3399,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 def _two_step_enter(event):
                     _handle_enter_key(event.current_buffer)
 
+                # 多行输入：Alt+Enter / Ctrl+J 在光标处插入换行，Enter 仍然发送。
+                # 为什么给两个键：Shift+Enter 需要终端支持扩展键协议（Windows Terminal、
+                # Kitty 等支持；旧 conhost 会把 Shift+Enter 直接当 Enter 送上来），
+                # 所以主推 Alt+Enter（各终端一致）与 Ctrl+J（LF，最通用）。
+                for _ml_key in (("escape", "enter"), ("c-j",), ("s-enter",)):
+                    def _insert_newline(event):
+                        event.current_buffer.insert_text("\n")
+                    kb.add(*_ml_key)(_insert_newline)
+
                 # 状态栏三项的直接切换键：F1=权限 F2=沙箱 F3=联网。
                 # 在输入框内任意时刻按下都会立即退出本行输入、弹出对应二次选择框
                 # （未提交的半截输入不保留）。实现：给 prompt() 一个魔数返回值，
@@ -3287,8 +3431,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     key_bindings=kb,
                     history=_history,
                     bottom_toolbar=self._footer,
+                    # 续行标记：多行输入时第 2 行起用"… "对齐，让人知道还在同一句里
+                    prompt_continuation=lambda width, line_number, is_soft_wrap: [
+                        ("class:continuation", "… ")],
                     style=Style.from_dict({
                         "prompt": "ansimagenta bold",
+                        "continuation": "ansibrightblack",
                         "perm": "ansicyan bold",
                         "footer": "bg:#2b2b3c #aaaaaa",
                         "footer-dim": "bg:#2b2b3c #666666",
@@ -3301,7 +3449,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         "completion-menu.completion.meta": "bg:#1e1e2e #aaaaaa",
                     }),
                 )
-                print(c("dim", "  ✓ 实时补全已启用（输入 / 或 @ 弹出菜单）"))
+                print(c("dim", "  ✓ 实时补全已启用（输入 / 或 @ 弹出菜单，按分组排序）"))
+                print(c("dim", "  " + t("input_hint_multiline")))
+                print(c("dim", "  " + t("input_hint_history")))
                 print(c("dim", "  状态栏快捷切换: F1=权限  F2=沙箱  F3=联网（直接弹框选档，"
                                "也可打 /permission /sandbox /net 回车弹框）"))
                 print(c("dim", "  二级提示: /thinking 或 F4 开/关思考过程 · 开启后思考以灰色区分"))
@@ -3321,9 +3471,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 _perm_color = {"readonly": "ansiblue", "write": "ansiyellow",
                                "full": "ansired"}.get(_perm, "ansicyan")
                 if session is not None:
-                    line = session.prompt([
-                        ("class:prompt", "▊ "),
-                    ]).strip()
+                    # /history 选中某条会把它放进 _pending_input：下一次提示符预填好，
+                    # 由人确认/编辑后再回车 —— 历史里那句话是当时的上下文，不该自动发出去
+                    line = session.prompt(
+                        [("class:prompt", "▊ ")],
+                        default=self._pending_input or "").strip()
+                    self._pending_input = ""
                 else:
                     line = input(c("magenta", "▊ ")).strip()
                 line = line.lstrip("\ufeff")  # 兼容带 UTF-8 BOM 的管道/重定向输入

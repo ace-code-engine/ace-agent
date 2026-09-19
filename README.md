@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.15.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.16.0%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |
@@ -157,9 +157,10 @@ Landing page: ↑/↓ to move, digits to jump, Enter to confirm, Esc/q to quit. 
 /undo                        # roll back to the pre-write snapshot
 ```
 
-Slash: `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <name>` `/mock` `/open <path>` `/edit <path>` `/search <term>` `/memory` `/report` `/expand`
+Slash: `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <name>` `/mock` `/open <path>` `/edit <path>` `/search <term>` `/memory` `/report` `/expand` `/history [keyword]`
 `@` shortcuts: `@lang` (zh/en/ja) · `@skill` · `@file` · `@folder` · `@refs`
-Tool output longer than 8 lines is folded into the card — `/expand` reprints the full output (up to 4000 characters per call, and it says so when truncated). ↑/↓ and Ctrl+R search `~/.ace_history` across sessions; set `ACE_NO_HISTORY=1` to keep history in-process only.
+Input: `Enter` sends, `Alt+Enter` / `Ctrl+J` inserts a newline, `Ctrl+R` walks history backwards, `/history dsk` fuzzy-finds it. The `/` menu and `/help` group commands into Session / Security / Model / Tools.
+Tool output longer than 8 lines is folded into the card — `/expand` reprints the full output (up to 4000 characters per call, and it says so when truncated). Write-tool cards show a colourised diff and an `exit N` code; ↑/↓ and Ctrl+R search `~/.ace_history` across sessions (`ACE_NO_HISTORY=1` keeps history in-process only).
 
 → Full command table, every `/provider` example and all startup flags: [`docs/COMMANDS.md`](docs/COMMANDS.md).
 
@@ -208,6 +209,7 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
+- **v3.16.0** (2026-09-19): the input line grew up. **Multiline**: `Alt+Enter` or `Ctrl+J` inserts a newline (`Shift+Enter` where the terminal reports it), `Enter` sends, and continuation lines are aligned with `… `. **`/history [keyword]`** fuzzy-searches your past inputs with the picker's subsequence scoring (`dsk` finds the `deepseek` entry), highlights the match, and fills the next prompt with the pick — never auto-sends. **25 commands are grouped** (Session / Security / Model / Tools) in the `/` menu and in `/help`, and the menu's data source is a pure function so it is asserted even where prompt_toolkit is absent
 - **v3.15.0** (2026-09-19): write-tool cards now carry a **colourised unified diff** (`+N -M` in the title, `+` green, `-` red, hunk headers cyan) — run the wrong command and you know at once, change the wrong line and you may not find out for days. `file_write` gained `data["diff"]`; `str_replace` had been returning one all along that the terminal never showed. Three boundaries: no diff for new files, **no re-read of credential files** (same SEC-04 list the snapshot refuses to copy — otherwise old contents reach the card *and* the model context), and nothing over 200 KB. Command cards show `· exit N` ("finished" ≠ "succeeded"), and a request that runs two or more tools ends with a one-line timeline. A fourth demo image joins CI
 - **v3.14.0** (2026-09-19): the landing screen was rebuilt — a **session panel** (model, the four boundary axes, directory, and which past session was resumed), a **recent-sessions panel**, and a grouped menu, all laid out by a new width-aware `ui/ace_panel.py` that guarantees every line matches the panel width (CJK counted as two columns). The previous session has been auto-resumed since v3.9, but nothing on screen ever said *which* one; now it does. New `ace --preview` draws that screen and exits — no interactive terminal needed, which is how the README hero image and its CI check work. `ui/ace_text` now ignores ANSI colour codes when measuring width, so colouring a line no longer shifts the border
 - **v3.13.0** (2026-09-19): context headroom is now visible instead of announced only after the fact. The footer ends with a usage figure (`ctx 38%`) whose colour is the semantics — grey with room, yellow at 80% of the compaction trigger, red once compaction is due — and `/status` prints the detail (`~12k tokens / window 32768 (38%, trigger ~23k; an estimate, not a server reading)`). Before a request, a one-time warning fires as the trigger approaches (throttled per 10% band, so it stays worth reading). The display figures and the actual compaction decision share one policy constructor — two copies would eventually disagree, and a number that contradicts reality stops being trusted. Guards: +20 assertions in `[9]`, including a same-source invariant on the trigger point and two integration assertions that drive a real (mock) `converse` — helper-only tests would pass even if nothing called the helper

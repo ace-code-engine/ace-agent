@@ -101,7 +101,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.15.0.md #  本版更新介绍（可直接贴进 GitHub Release；改动可见 + 时间线）
+│   ├── RELEASE-NOTES-v3.16.0.md #  本版更新介绍（可直接贴进 GitHub Release；多行输入 + /history + 分组）
+│   ├── RELEASE-NOTES-v3.15.0.md #  v3.15 更新介绍（改动可见 + 时间线）
 │   ├── RELEASE-NOTES-v3.14.0.md #  v3.14 更新介绍（首屏重构 + --preview）
 │   ├── RELEASE-NOTES-v3.13.0.md #  v3.13 更新介绍（上下文占用可见）
 │   ├── RELEASE-NOTES-v3.12.0.md #  v3.12 更新介绍（/expand + 跨会话历史 + 状态行计时）

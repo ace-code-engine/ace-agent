@@ -223,5 +223,19 @@
   "preview_hint": "以上是界面预览（--preview 只画界面、不进对话）。真正运行时：↑/↓ 选择 · 数字直选 · Enter 确认 · Esc/q 退出。",
   "preview_footer_title": "底部状态栏（真实运行时实时刷新）",
   "panel_turns": "{n} 轮",
-  "round_tools": "  {n} 次工具调用 · {sec}s · {tools}"
+  "round_tools": "  {n} 次工具调用 · {sec}s · {tools}",
+  "group_session": "会话",
+  "group_security": "安全",
+  "group_model": "模型",
+  "group_tools": "工具",
+  "group_more": "其他",
+  "cmd_history": "模糊检索输入历史（英文缩写也能命中）",
+  "history_empty": "  历史里还没有内容（跨会话历史写在 ~/.ace_history；ACE_NO_HISTORY=1 时不留）",
+  "history_recent": "  最近 {n} 条输入（↑/↓ 或 Ctrl+R 也能翻）：",
+  "history_match": "  命中 {n} 条「{q}」：",
+  "history_no_match": "  历史里没有命中「{q}」的输入。",
+  "history_pick": "选择一条历史输入（回车填入输入行，不自动发送）",
+  "history_hint": "  选中后会填进下一次输入行（不自动发送）· Ctrl+R 可反向逐条搜索",
+  "input_hint_multiline": "多行输入: Alt+Enter 或 Ctrl+J 换行（Shift+Enter 取决于终端），Enter 发送",
+  "input_hint_history": "历史检索: Ctrl+R 反向搜索 · /history 关键词模糊检索（dsk 也能命中 deepseek）"
 }

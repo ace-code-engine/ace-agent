@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.19.0 · 2026-09-19 · headless 事件流（`ace --json`）](#v3190-2026-09-19)
 - [v3.18.0 · 2026-09-19 · 扩展点：事件钩子 · 自定义命令 · 插件目录](#v3180-2026-09-19)
 - [v3.17.0 · 2026-09-19 · MCP 客户端（stdio JSON-RPC 2.0）· `/mcp`](#v3170-2026-09-19)
 - [v3.16.1 · 2026-09-19 · lint 转绿（F401）· 本地拦住同类错](#v3161-2026-09-19)
@@ -34,6 +35,35 @@
 - [v1.2 · 2026-08-21 ~ 08-24 · CLI 体验与工具体系](#v12-2026-08-21-08-24)
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
+
+## [v3.19.0] · 2026-09-19
+
+> 前两版让 ACE 能接别人的东西，这一版让**别人能接 ACE**：`--json` 给出机器可读的事件流。
+
+### ✨ `ace --json`：一行一个 JSON 事件
+
+- ✨ 新模块 `core/ace_events.py`：事件构造 + **schema 校验**（纯函数）+ 写入器 + `NoticeProxy`
+- ✨ 事件类型：`session_start` / `user_message` / `model_request` / `tool_call` / `tool_result` / `permission_request` / `notice` / `final` / `session_end`；契约表 `EVENT_REQUIRED` 是**唯一来源**（文档、校验、断言都从它派生）
+- ✨ **人话不丢**：`NoticeProxy` 替换 stdout，把几百处 `print` 一律转成 `notice` 事件 —— 一处生效，不必逐个改写；同时剥掉 ANSI 颜色码、丢掉 `\r` 重绘（转轮/进度条）
+- 📋 **不发 `model_delta`**：一次回复可能几千条增量，灌进事件流只会让消费者自己再攒一遍。要增量请在 SDK 层接 `on_delta`
+- 📋 非交互语义不变：需要审批的动作一律 fail-close 拒绝；`permission_request` 事件照样发出来（让消费者看得见"这里被拒了、原因是什么"）
+
+### 🛡️ 守卫：新增自包含段 `[45]`（可 `--only 45`）
+
+- 🛡️ 纯逻辑：`make_event` 补 `type`/`ts`、`validate_event` 四类问题（缺 type / 未知类型 / 缺必需字段 / 不能序列化）、"契约表覆盖全部事件类型"、`strip_ansi`
+- 🛡️ `NoticeProxy`：每行一个事件、转轮重绘被丢掉、颜色被剥、空行不产事件、`isatty()` 恒 False
+- 🛡️ **真子进程端到端**：跑 `ai_code.py --mock --json --input …`，把 stdout **逐行当 JSON 解析** —— 每一行都合法、每个事件都过 schema、首尾是 `session_start`/`session_end`、`user_message`/`model_request`/`tool_call`/`tool_result`/`final` 齐全、`tool_result` 带状态与耗时、整条流无 ANSI 无 `\r`、`notice` 里有"完成"这句人话
+- 🛡️ 第二个子进程验审批语义：`--permission readonly` + 写操作 → 出 `permission_request`（带工具名与理由），且**没有任何 SUCCESS 的 file_write 结果**（非交互 fail-close）
+
+### 🐛 过程中被断言抓出的两处
+
+- 🐛 `NoticeProxy` 最初把 `\r` 重绘"取最后一段"留下，结果转轮文本攒到换行时被当 notice 发出去 —— 事件流里多出一串 `◈ 思考中 0s`。改成**整条丢弃**
+- 🐛 `model_request` 的 `round` 最初用 `len(messages)//2+1` 猜，跑出来是 3/4 而不是 1/2。改成把真实轮次从 `converse` 传进 `_model_turn`
+
+### 📋 同步
+
+- 📋 `docs/INTERFACES.md` 新增「9.1 headless 事件流契约」表 + 支撑模块接口补 4 个新模块；`docs/COMMANDS.md` 补 `--json` 与 jq 用法示例
+- 📋 权威树登记 `core/ace_events.py`
 
 ## [v3.18.0] · 2026-09-19
 

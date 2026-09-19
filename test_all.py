@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44"]
+             "43", "44", "45"]
 _SEEN_SECTIONS: list = []
 
 
@@ -4164,8 +4164,11 @@ if _want("22"):
     # 改盯**语义顺序**：trim 发生在 _model_turn 里，_compact_if_needed 紧随其调用之后。
     check("压缩紧跟在 trim_messages 之后（max_history 仍是用户显式上限）",
           "self.client.trim_messages(" in _ai_src
-          and "_model_turn(msgs)" in _ai_src
-          and _ai_src.index("output, system, disp = self._model_turn(msgs)")
+          # 只匹配到 `self._model_turn(msgs` 为止：这个调用后来多了个 round_no= 关键字
+          # （--json 事件里要真实轮次）。写死整行等于让守卫替"参数不能变"，而不是
+          # 盯它真正在意的那件事 —— 语义顺序。
+          and "self._model_turn(msgs" in _ai_src
+          and _ai_src.index("self._model_turn(msgs")
           < _ai_src.index("self._compact_if_needed(system)"),
           "trim 在 _model_turn 内，压缩紧随其后")
     check("压缩异常不打断会话", "except Exception as e:\n            # 压缩是增强" in _ai_src)
@@ -6849,6 +6852,127 @@ if _want("44"):
           _cli44b.messages[:2])
     _cli44b.close()
     _cli44.close()
+
+    # ============================================================
+
+# ============================================================
+if _want("45"):
+    # ── [45] ────
+    print("[45] headless —— `ace --json` 事件契约（纯逻辑 + 真子进程解析）")
+    # ============================================================
+    # 这一段跑**真的子进程**（python ai_code.py --mock --json …）并把 stdout 逐行当
+    # JSON 解析：契约不是"读代码觉得对"，而是"消费者拿到的东西能被解析、字段齐全"。
+    import json as _json45  # noqa: E402
+    import subprocess as _sp45  # noqa: E402
+    from core import ace_events as _ev45  # noqa: E402
+
+    # —— 纯逻辑：事件构造与 schema ——
+    _e45 = _ev45.make_event("final", text="你好")
+    check("make_event 自动补 type 与 ts",
+          _e45["type"] == "final" and isinstance(_e45["ts"], float), _e45)
+    check("validate_event：合法事件零问题", _ev45.validate_event(_e45) == [],
+          _ev45.validate_event(_e45))
+    check("validate_event：缺 type / 未知类型都能指出",
+          _ev45.validate_event({"ts": 1}) and
+          "未知事件类型" in " ".join(_ev45.validate_event({"type": "没这个", "ts": 1})), "")
+    check("validate_event：缺必需字段会点名",
+          any("tool" in p for p in
+              _ev45.validate_event({"type": "tool_call", "ts": 1, "params": {}})), "")
+    check("validate_event：不能序列化的值会被指出（object() 会被 default=str 兜住，"
+          "但非字符串键不行）",
+          any("序列化" in p for p in _ev45.validate_event(
+              {"type": "final", "ts": 1, "text": {object(): 1}})), "")
+    check("validate_event：不是对象也不崩",
+          _ev45.validate_event([1, 2]) == ["事件不是对象"], "")
+    check("契约表覆盖全部事件类型（加事件忘了写必需字段会被这条盯上）",
+          set(_ev45.EVENT_REQUIRED) == set(_ev45.EVENT_TYPES),
+          set(_ev45.EVENT_TYPES) ^ set(_ev45.EVENT_REQUIRED))
+    check("strip_ansi 去掉颜色码",
+          _ev45.strip_ansi("\033[32m成功\033[0m") == "成功", "")
+
+    # —— NoticeProxy：人话 → 事件，且不留转轮噪音 ——
+    _sink45 = _io.StringIO() if False else None  # noqa: F841 —— 占位，避免名字歧义
+    import io as _io45  # noqa: E402
+    _buf45 = _io45.StringIO()
+    _em45 = _ev45.EventEmitter(_buf45, enabled=True)
+    _proxy45 = _ev45.NoticeProxy(_em45, real=_io45.StringIO())
+    _proxy45.write("普通一行\n")
+    _proxy45.write("\r◈ 思考中 0s   ")
+    _proxy45.write("\r◈ 思考中. 1s   ")
+    _proxy45.write("\n")
+    _proxy45.write("\033[32m带色\033[0m\n")
+    _proxy45.write("\n")
+    _proxy45.write("没有换行的尾巴")
+    _proxy45.flush()
+    _lines45 = [x for x in _buf45.getvalue().splitlines() if x.strip()]
+    _parsed45 = [_json45.loads(x) for x in _lines45]
+    check("NoticeProxy：每行一个人话事件，转轮重绘被丢掉",
+          [p["text"] for p in _parsed45] == ["普通一行", "带色", "没有换行的尾巴"],
+          [p.get("text") for p in _parsed45])
+    check("NoticeProxy：颜色码被剥掉（消费者不是终端）",
+          all("\033" not in p["text"] for p in _parsed45), _parsed45)
+    check("NoticeProxy：空行不产生事件", len(_parsed45) == 3, len(_parsed45))
+    check("NoticeProxy：isatty 恒 False（别让人以为在跟终端说话）",
+          _proxy45.isatty() is False, "")
+
+    # —— 真子进程：完整会话的事件流 ——
+    def _run_json45(args45, timeout=180):
+        proc = _sp45.run([sys.executable, str(FOLDER / "ai_code.py")] + args45,
+                         cwd=str(FOLDER), capture_output=True, text=True,
+                         encoding="utf-8", errors="replace", timeout=timeout)
+        lines = [x for x in (proc.stdout or "").splitlines() if x.strip()]
+        events, bad = [], []
+        for ln in lines:
+            try:
+                events.append(_json45.loads(ln))
+            except _json45.JSONDecodeError:
+                bad.append(ln[:120])
+        return proc, events, bad
+
+    _proc45, _evs45, _bad45 = _run_json45(["--mock", "--json", "--input", "现在几点"])
+    check("--json：stdout 每一行都是合法 JSON（没有夹带人话）",
+          not _bad45 and len(_evs45) >= 6, (_bad45[:3], len(_evs45)))
+    check("--json：每个事件都过 schema 校验",
+          all(not _ev45.validate_event(e) for e in _evs45),
+          [(_ev45.validate_event(e), e.get("type")) for e in _evs45
+           if _ev45.validate_event(e)][:3])
+    _types45 = [e["type"] for e in _evs45]
+    check("--json：首尾是 session_start / session_end",
+          _types45[0] == "session_start" and _types45[-1] == "session_end", _types45)
+    check("--json：用户输入、模型请求、工具往返、最终回复都在",
+          {"user_message", "model_request", "tool_call", "tool_result", "final"}
+          <= set(_types45), sorted(set(_types45)))
+    _fr45 = next(e for e in _evs45 if e["type"] == "final")
+    check("--json：final 带正文与轮次", bool(_fr45["text"]) and _fr45.get("round", 0) >= 1,
+          _fr45)
+    _tr45 = next(e for e in _evs45 if e["type"] == "tool_result")
+    check("--json：tool_result 带状态/耗时/结果数据",
+          _tr45["status"] == "SUCCESS" and "elapsed" in _tr45
+          and isinstance(_tr45.get("data"), dict), _tr45)
+    _raw45 = _proc45.stdout or ""
+    check("--json：整条流里没有 ANSI、没有 \\r 重绘",
+          all("\033" not in ln and "\r" not in ln
+              for ln in _raw45.splitlines()), "")
+    check("--json：notice 事件承载了人看的输出（人话没丢）",
+          any(e["type"] == "notice" and "完成" in str(e.get("text"))
+              for e in _evs45), [e.get("text") for e in _evs45][:3])
+    check("--json：mock 会话不提权也不写文件（事件流不改变行为）",
+          _proc45.returncode == 0, _proc45.stderr[-300:])
+
+    # 非交互 + readonly：写类调用应产生 permission_request（随后 fail-close 拒绝）
+    _proc45b, _evs45b, _bad45b = _run_json45(
+        ["--mock", "--json", "--permission", "readonly",
+         "--input", "帮我改代码，往笔记里加一行"])
+    _types45b = [e["type"] for e in _evs45b]
+    check("--json：readonly 下的写操作产生 permission_request 事件",
+          "permission_request" in _types45b, sorted(set(_types45b)))
+    _pr45 = next((e for e in _evs45b if e["type"] == "permission_request"), None)
+    check("--json：permission_request 带工具名与理由字段",
+          _pr45 is not None and "tool" in _pr45 and "reason" in _pr45, _pr45)
+    check("--json：非交互下审批 fail-close（没有工具被真的执行）",
+          not any(e["type"] == "tool_result" and e.get("status") == "SUCCESS"
+                  and e.get("tool") == "file_write" for e in _evs45b),
+          [e for e in _evs45b if e["type"] == "tool_result"])
 
     # ============================================================
 

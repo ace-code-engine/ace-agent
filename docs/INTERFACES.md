@@ -134,6 +134,33 @@ class ToolSpec:
 | `core/archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
 | `core/nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
 | `core/universal_document_parser.py` | `parse_document(path) -> ParseResult(success, method, text, truncated, metadata, error)` |
+| `core/ace_mcp.py` | `McpManager(configs).start()/load_tools()/register_into(executor, registry)/call_tool(name,args)/status()/close()`、`McpStdioClient.request/notify/initialize/list_tools/call_tool` |
+| `core/ace_hooks.py` | `load_hooks(cfg, project_file)`、`HookRunner(hooks, cwd).run(event, payload)/status()`、`parse_hook_output(code,out,err,on_error)`（纯） |
+| `core/ace_commands.py` | `load_commands_dir(dir)`、`parse_command_file(text,name)`（纯）、`load_plugins(root)`、`merge_plugin_hooks(...)` |
+| `core/ace_events.py` | `make_event(type,**fields)`、`validate_event(ev)`（纯）、`EventEmitter(stream).emit(...)`、`NoticeProxy(emitter)` |
+
+## 9.1 headless 事件流契约（`ace --json`）
+
+**给脚本/CI/其它前端用**：stdout 一行一个 JSON 对象，**没有 ANSI、没有 `\r` 重绘、没有进度条**；
+终端里的一切"人话"被 `NoticeProxy` 转成 `notice` 事件，所以人看到的与机器收到的来自同一份输出。
+
+| type | 必有字段 | 说明 |
+|---|---|---|
+| `session_start` | `version` `permission` `sandbox` `project_root` | 会话建立（第一个事件） |
+| `user_message` | `text` | 用户这一轮说了什么 |
+| `model_request` | `round` `messages_count` `system_len` | 每次模型请求的 envelope |
+| `tool_call` | `tool` `params` | 模型要调工具 |
+| `tool_result` | `tool` `status` `elapsed` | 工具结果（`data` 仅在成功时给） |
+| `permission_request` | `tool` `reason` | 需要审批；**非交互下随后 fail-close 拒绝** |
+| `notice` | `text` | 人看的输出（已剥色、已去重绘） |
+| `final` | `text` | 模型最终回复 |
+| `session_end` | `rounds` `tools` `elapsed` | 会话结束（最后一个事件） |
+
+- 契约的唯一来源是 `core/ace_events.EVENT_REQUIRED`；test_all `[45]` 断言"表覆盖全部类型"，
+  并**真的跑一个子进程**把 stdout 逐行解析、校验每个事件。
+- **不发 `model_delta`**：一次回复可能几千条增量，灌进事件流只会让消费者自己再攒一遍。
+  要增量请在 SDK 层接 `on_delta`。
+- 非交互语义不变：需要审批的动作一律拒绝（不是"没人看着所以危险"，是"没人在就拒绝"）。
 
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)
 

@@ -78,6 +78,7 @@
 完整清单以 `python ai_code.py --help` 为准；常用：
 
 - `--preview [--preview-width N]` — 只画一遍首屏（面板 + 分组菜单 + 状态栏示例）然后退出。不开交互终端也能看界面长什么样，`demo/record_demo.py --session landing` 就是用它出的图
+- `--json` — **机器可读事件流**：stdout 一行一个 JSON 对象（`session_start` / `user_message` / `model_request` / `tool_call` / `tool_result` / `permission_request` / `notice` / `final` / `session_end`），无 ANSI、无进度条；人看的输出会变成 `notice` 事件。契约见 [INTERFACES.md](INTERFACES.md#91-headless-事件流契约ace---json)。例：`ace --json --input "现在几点" | jq -c 'select(.type=="final")'`
 
 - `--tools` — 原生工具调用（OpenAI 兼容 function calling，不支持时自动降级到文本协议）
 - `--max-history N` — 只保留最近 N 轮，防本地小模型上下文溢出

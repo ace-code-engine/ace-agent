@@ -84,6 +84,7 @@ from cli import ace_context  # noqa: E402
 from core import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 / 错误码提示，与 agent_runner 共用）
 from ui.i18n import set_language, t  # noqa: E402
 from core import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
+from core import ace_events  # noqa: E402  （--json：一行一个事件，给脚本/CI/其它前端）
 
 CONFIG_PATH = Path.home() / ".ai_code.json"
 LEGACY_CONFIG_PATH = Path.home() / ".agent_cli.json"
@@ -2648,6 +2649,11 @@ class _LandingUI:
 class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def __init__(self, cfg: Dict, mock: bool = False) -> None:
         self.cfg = cfg
+        # --json：结构化事件流（脚本/CI/其它前端用）。终端里的一切"人话"会通过
+        # NoticeProxy 变成 notice 事件，所以两种消费者拿的是同一份事实。
+        self.json_mode = bool(cfg.get("json"))
+        self.events = cfg.get("_events") or ace_events.EventEmitter(
+            enabled=self.json_mode)
         self.client = ModelClient(cfg, mock=mock)
         self.max_history = int(cfg.get("max_history", 0) or 0)
         self.context_window = int(cfg.get("context_window", 32768) or 32768)
@@ -2686,6 +2692,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         _hk_start = self._fire_hook("session_start")
         if _hk_start is not None and _hk_start.additional_context:
             print(c("dim", _hk_start.additional_context))
+        # --json：会话建立事件（事件流的第一个对象，消费者据此确定上下文）
+        if self.json_mode:
+            self.events.emit("session_start", version=version.__version__,
+                             permission=self.cfg.get("permission", "readonly"),
+                             sandbox=self.cfg.get("sandbox", "off") or "off",
+                             project_root=str(self.cfg.get("project_root", ".")),
+                             model=self.client.model, mock=bool(self.client.mock))
         # 无人值守提示：非 tty（管道/CI）下"需要审批的动作会被直接拒绝，而不需要审批的
         # 写/执行工具照跑"——这反直觉，必须在启动时说出来，别让人以为"没人看着更安全"。
         if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
@@ -2746,6 +2759,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         el = getattr(self, "el", None)
         if el is not None:
             self._fire_hook("session_end")
+            if getattr(self, "json_mode", False):
+                self.events.emit(
+                    "session_end", rounds=self.session.get("rounds", 0),
+                    tools=self.session.get("tools", 0),
+                    violations=self.session.get("violations", 0),
+                    elapsed=round(time.time() - self.session.get("start", time.time()), 3))
             try:
                 el.close()
             except Exception:  # noqa: BLE001 —— 收尾失败不该掩盖主流程
@@ -3119,7 +3138,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         print(c("yellow", t(key, pct=usage["pct"], tokens=usage["tokens"],
                             trigger=usage["trigger"])))
 
-    def _model_turn(self, msgs: List[Dict]) -> Tuple[Optional[str], str, Dict]:
+    def _model_turn(self, msgs: List[Dict],
+                    round_no: int = 0) -> Tuple[Optional[str], str, Dict]:
         """跑一轮"模型调用 + 流式显示"。返回 (输出, 系统提示词, 显示状态)；输出 None = 本轮中止。
 
         中止的两种情况（用户中断 / 模型调用失败）都在这里提示完，调用方直接 return。
@@ -3142,6 +3162,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 system_len=len(system),
                 messages_count=len(msgs))
             self.session_log.record_system(system)
+            if self.json_mode:
+                self.events.emit("model_request", round=round_no,
+                                 messages_count=len(msgs), system_len=len(system),
+                                 model=self.client.model)
             output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"])
         except KeyboardInterrupt:
             spinner.stop(newline=True)
@@ -3226,6 +3250,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         t0 = time.time()
         # 会话事件日志：记录用户输入（可审计、可重放）
         self.session_log.record_user(user_input)
+        if self.json_mode:
+            self.events.emit("user_message", text=user_input)
         # 记忆预注入：模型生成前把相关历史记忆放进 prompt（无记忆时原样返回）
         next_user = self.el.prepare_context(user_input)
         # user_prompt 钩子：进模型**之前**的最后一道用户规矩。
@@ -3249,7 +3275,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._round_tools: List[Tuple[str, str, float, Optional[int]]] = []
         for _round in range(1, MAX_ROUNDS + 1):
             msgs = self.messages + [{"role": "user", "content": next_user}]
-            output, system, disp = self._model_turn(msgs)
+            output, system, disp = self._model_turn(msgs, round_no=_round)
             if output is None:
                 return                      # 中断/模型报错：提示已经打过了
             # 压缩放在硬截断之后：max_history 是用户显式设的上限，压缩只负责
@@ -3297,6 +3323,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
             if result["status"] == "PERMISSION_REQUEST":
                 tool_name = result.get("tool")
+                if self.json_mode:
+                    self.events.emit("permission_request", tool=tool_name,
+                                     reason=str(result.get("reason") or ""))
                 print(c("yellow", "\n" + t("perm_request_title", tool=tool_name)))
                 if result.get("reason"):
                     print(c("dim", t("perm_reason", reason=result["reason"])))
@@ -3333,6 +3362,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     print()
                     print(result["message"], end="", flush=True)
                 self._print_tool_timeline()
+                if self.json_mode:
+                    self.events.emit("final", text=str(result["message"] or ""),
+                                     round=_round, sec=round(time.time() - t0, 3))
                 print(c("green", t("done", round=_round,
                                    sec=time.time() - t0)))
                 # 目标轮次驱动（借鉴 DSH goal-round-driver）：goal active+armed+预算内
@@ -3400,6 +3432,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             _out = str(_d.get("summary") or "")[:4000]
                             _capped = False
                 _mark, _color = status_mark(_st)
+                if self.json_mode:
+                    self.events.emit("tool_call", tool=result.get("tool", ""),
+                                     params={k: v for k, v in
+                                             (result.get("params") or {}).items()}
+                                     if isinstance(result.get("params"), dict) else {})
                 # 命令成功执行但返回非零：不改状态（工具确实跑完了），但标题别用成功的绿
                 if _exit_code not in (None, 0):
                     _color = "yellow"
@@ -3438,6 +3475,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         print(c("dim", _ln))
                 self._round_tools.append(
                     (result.get("tool", ""), _st, _elapsed_f, _exit_code))
+                if self.json_mode:
+                    self.events.emit(
+                        "tool_result", tool=result.get("tool", ""), status=_st,
+                        elapsed=round(_elapsed_f, 3), exit_code=_exit_code,
+                        message=str(result.get("message") or "")[:500],
+                        data=result.get("data") if _st == "SUCCESS" else None)
                 if result["status"] == "SUCCESS":
                     self._print_clickables(result)
                 if result.get("memory_injected"):
@@ -3797,6 +3840,9 @@ def main() -> None:
                         help="关闭上下文压缩，退回纯硬截断（会丢早期对话，"
                              "包括第一条用户消息里的任务说明）")
     parser.add_argument("--input", help="单次对话（非交互）")
+    parser.add_argument("--json", action="store_true",
+                        help="机器可读事件流（一行一个 JSON 对象）：给脚本/CI/其它前端用。"
+                             "人看的输出会转成 notice 事件，不含 ANSI 与进度条")
     parser.add_argument("--preview", action="store_true",
                         help="只画一遍首屏（含状态栏示例）然后退出：不开终端也能看界面")
     parser.add_argument("--preview-width", type=int, default=0,
@@ -3829,6 +3875,13 @@ def main() -> None:
         sys.exit(0 if _install_executor() else 1)
 
     cfg = merge_config(args)
+    if getattr(args, "json", False):
+        # --json：把 stdout 换成事件代理（一处生效，几百处 print 不用逐个改），
+        # 并把颜色关掉 —— 事件流的消费者不是终端。
+        cfg["json"] = True
+        _emitter = ace_events.EventEmitter(sys.stdout, enabled=True)
+        cfg["_events"] = _emitter
+        sys.stdout = ace_events.NoticeProxy(_emitter, sys.__stdout__)
     if args.no_bait:
         cfg["bait"] = False
     # 策略组合自检：never（从不问人）+ 没有内核边界 = ADR-002 里"不存在合理用途"的

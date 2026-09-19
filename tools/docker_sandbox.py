@@ -185,6 +185,10 @@ class DockerSandbox:
         if not self.probe():
             raise DockerUnavailable(self._detail)
         if self.image_present():
+            # 已经在本地（上次拉过、或自己 build 的）也把摘要记一下：重复使用时
+            # "这次到底跑在哪一份上"同样要答得出来。取不到就是空串，绝不影响执行。
+            if not self._digest:
+                self._digest = self._image_digest()
             return
         if self.auto_pull and self._try_acquire():
             return

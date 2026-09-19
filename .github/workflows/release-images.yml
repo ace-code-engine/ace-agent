@@ -106,30 +106,10 @@ jobs:
         env:
           IMG: ${{ env.REGISTRY }}/${{ needs.resolve.outputs.owner }}/ace-sandbox:${{ needs.resolve.outputs.version }}
         run: |
-          python3 - <<'PY'
-          import os, sys
-          sys.path.insert(0, ".")
-          from tools.docker_sandbox import DockerSandbox
-
-          img = os.environ["IMG"]
-          sb = DockerSandbox(os.getcwd(), image=img, auto_pull=True)
-          assert sb.probe(), f"docker daemon 不可达: {sb.detail}"
-          out = sb.run_shell("python -c \"print('sandbox-ok')\" && echo wrote > /work/smoke.txt")
-          print("stdout:", out["stdout"])
-          print("stderr:", out["stderr"])
-          print("rc:", out["returncode"], "denied:", out["sandbox_denied"])
-          assert out["returncode"] == 0, out
-          assert "sandbox-ok" in out["stdout"], out
-          assert os.path.exists("smoke.txt"), "工作目录挂载没生效"
-
-          # 边界断言：没有网络、根文件系统只读
-          net = sb.run_shell("python -c \"import socket;socket.create_connection(('1.1.1.1',53),2)\"")
-          assert net["returncode"] != 0, f"网络居然通: {net}"
-          ro = sb.run_shell("touch /etc/should-fail")
-          assert ro["returncode"] != 0, f"根文件系统可写: {ro}"
-          print("digest:", sb.image_digest or "(未取到)")
-          print("OK: 镜像可用，加固参数被接受，网络与根文件系统边界成立")
-          PY
+          # 脚本放在仓库里而不是写成 heredoc：YAML 块标量里的 heredoc 正文会带着
+          # 缩进进 Python，直接 IndentationError。2026-09-19 就是这么失败过一次
+          # （job 105829105690），而 YAML 校验器和本机都没有拦住它。
+          ACE_SMOKE_IMAGE="$IMG" python3 docker/smoke_sandbox.py
 
   agent-lite:
     name: Agent image (lite, linux/amd64 + linux/arm64)

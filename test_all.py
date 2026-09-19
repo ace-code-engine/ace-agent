@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -187,7 +187,8 @@ def _want(num: str) -> bool:
 # 有人加了一段却忘了写进这里，整跑时会有一条断言报出来——比默默多一段好。
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
-             "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42"]
+             "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
+             "43"]
 _SEEN_SECTIONS: list = []
 
 
@@ -6307,8 +6308,286 @@ if _want("42"):
           and "ace_model.trim_history(" in _ar42)
 
 
+# ============================================================
+if _want("43"):
+    # ── [43] ────
+    print("[43] MCP 客户端 —— stdio JSON-RPC 2.0（真协议 + 假 server 端到端）")
+    # ============================================================
+    # 这一段不碰网络：假 server 是**本机 Python 子进程**，按 MCP 的 stdio 帧格式
+    # （一行一个 JSON-RPC 消息）应答。所以握手、tools/list、tools/call、超时、
+    # 进程猝死、坏 JSON、server 反向请求这些路径都是真的走了一遍管道。
+    import json as _json43  # noqa: E402,F401
+    import importlib as _il43  # noqa: E402
+    from core import ace_mcp as _mcp43  # noqa: E402
+
+    check("flatten_content：text 块拼接",
+          _mcp43.flatten_content({"content": [{"type": "text", "text": "a"},
+                                              {"type": "text", "text": "b"}]}) == "a\nb",
+          "")
+    check("flatten_content：非文本块如实标注（不假装没内容）",
+          "[image:" in _mcp43.flatten_content({"content": [{"type": "image",
+                                                            "mimeType": "image/png"}]}), "")
+    check("flatten_content：只有 structuredContent 时也能出文本",
+          '"k"' in _mcp43.flatten_content({"structuredContent": {"k": 1}}), "")
+    check("flatten_content：超长截断并说明原始长度",
+          "已截断" in _mcp43.flatten_content({"content": [{"type": "text",
+                                                           "text": "x" * 70_000}]}), "")
+    check("is_error_result 认 isError（工具失败 ≠ 协议失败）",
+          _mcp43.is_error_result({"isError": True})
+          and not _mcp43.is_error_result({"content": []}), "")
+    check("spec_name / parse_spec_name 往返",
+          _mcp43.spec_name("fs", "read.file") == "mcp__fs__read.file"
+          and _mcp43.parse_spec_name("mcp__fs__read.file") == ("fs", "read.file")
+          and _mcp43.parse_spec_name("file_read") is None, "")
+    check("spec_name 把非法字符替成 _（名字得能被调用）",
+          _mcp43.spec_name("a b", "c/d") == "mcp__a_b__c_d", "")
+    check("权限默认从严：没写 readOnlyHint 就按写处理",
+          _mcp43.tool_permission({"name": "x"}) == "write"
+          and _mcp43.tool_permission({"annotations": {"readOnlyHint": True}}) == "read"
+          and _mcp43.tool_permission({"annotations": {"readOnlyHint": False}}) == "write", "")
+    _cfg43 = _mcp43.load_server_configs(
+        {"ok": {"command": "python", "args": ["-u", "s.py"], "enabled": True},
+         "bad": {"args": ["x"]},                      # 缺 command → 丢弃
+         "off": {"command": "python", "enabled": False}},
+        project_file=None)
+    check("配置校验：缺 command 的条目被丢弃、enabled=False 保留状态",
+          set(_cfg43) == {"ok", "off"} and _cfg43["off"]["enabled"] is False, _cfg43)
+
+    _fake_dir = mktemp()
+    _fake_srv = _fake_dir / "fake_mcp_server.py"
+    _fake_srv.write_text('''# -*- coding: utf-8 -*-
+import json, os, sys, time
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    mid, method = msg.get("id"), msg.get("method")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+            "serverInfo": {"name": "fake", "version": "1.0"}}})
+    elif method == "notifications/initialized":
+        continue
+    elif method == "tools/list":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [
+            {"name": "echo", "description": "回显文本",
+             "inputSchema": {"type": "object",
+                             "properties": {"text": {"type": "string"}},
+                             "required": ["text"]},
+             "annotations": {"readOnlyHint": True}},
+            {"name": "fail", "description": "总是失败",
+             "inputSchema": {"type": "object", "properties": {}}},
+            # 下面几个是"行为探测"工具：边界用例要真的把管道走一遍，
+            # 所以它们也必须在 tools/list 里 —— 否则连调用都到不了 server，
+            # 会先被权限门当成未知工具拦下（第一次跑就是这样，实测）。
+            {"name": "ask", "description": "反向请求探测",
+             "inputSchema": {"type": "object", "properties": {}},
+             "annotations": {"readOnlyHint": True}},
+            {"name": "noisy", "description": "往 stdout 打非 JSON",
+             "inputSchema": {"type": "object", "properties": {}},
+             "annotations": {"readOnlyHint": True}},
+            {"name": "slow", "description": "故意慢",
+             "inputSchema": {"type": "object", "properties": {}},
+             "annotations": {"readOnlyHint": True}},
+            {"name": "crash", "description": "调用时猝死",
+             "inputSchema": {"type": "object", "properties": {}},
+             "annotations": {"readOnlyHint": True}},
+        ]}})
+    elif method == "tools/call":
+        args = (msg.get("params") or {}).get("arguments") or {}
+        name = (msg.get("params") or {}).get("name")
+        if name == "echo":
+            send({"jsonrpc": "2.0", "id": mid, "result": {
+                "content": [{"type": "text", "text": "echo:" + str(args.get("text"))}],
+                "isError": False}})
+        elif name == "fail":
+            send({"jsonrpc": "2.0", "id": mid, "result": {
+                "content": [{"type": "text", "text": "boom"}], "isError": True}})
+        elif name == "slow":
+            time.sleep(30)
+            send({"jsonrpc": "2.0", "id": mid, "result": {"content": []}})
+        elif name == "crash":
+            os._exit(3)
+        elif name == "ask":
+            send({"jsonrpc": "2.0", "id": 900, "method": "sampling/createMessage",
+                  "params": {}})
+            reply = json.loads(sys.stdin.readline())
+            send({"jsonrpc": "2.0", "id": mid, "result": {"content": [
+                {"type": "text",
+                 "text": "client said: " + str((reply.get("error") or {}).get("code"))}]}})
+        elif name == "noisy":
+            sys.stdout.write("这不是 JSON\\n")
+            sys.stdout.flush()
+            send({"jsonrpc": "2.0", "id": mid, "result": {"content": []}})
+        else:
+            send({"jsonrpc": "2.0", "id": mid,
+                  "error": {"code": -32602, "message": "unknown tool"}})
+    elif mid is not None:
+        send({"jsonrpc": "2.0", "id": mid,
+              "error": {"code": -32601, "message": "method not found"}})
+''', encoding="utf-8")
+
+    _srv_cfg = {"command": sys.executable, "args": ["-u", str(_fake_srv)],
+                "timeout": 20.0, "call_timeout": 4.0}
+    _mgr43 = _mcp43.McpManager({"fake": dict(_srv_cfg)}, str(_fake_dir))
+    _mgr43.start()
+    _st43 = _mgr43.status()
+    check("真子进程握手成功（initialize → 就绪，记录 serverInfo）",
+          bool(_st43) and _st43[0]["status"] == "就绪"
+          and _st43[0]["instructions"] == "fake", _st43)
+    _client43 = _mgr43.clients.get("fake")
+    _tools43 = _client43.list_tools() if _client43 else []
+    check("tools/list 拿到工具清单",
+          {t["name"] for t in _tools43} == {"echo", "fail", "ask", "noisy", "slow",
+                                            "crash"}, _tools43)
+    _specs43 = _mgr43.load_tools()
+    _echo_spec = next(s for s in _specs43 if s["tool"] == "echo")
+    check("工具声明：名字带 mcp__ 前缀、readOnlyHint 映射成只读、schema 透传",
+          _echo_spec["name"] == "mcp__fake__echo"
+          and _echo_spec["permission"] == "read"
+          and _echo_spec["parameters"]["required"] == ["text"], _echo_spec)
+    check("没写 readOnlyHint 的工具按写处理",
+          next(s for s in _specs43 if s["tool"] == "fail")["permission"] == "write", "")
+
+    _el43 = ExecutionLayer(project_root=str(_fake_dir), permission_level="write",
+                           config={"bait": {"enabled": False},
+                                   "mcp_servers": {"fake": dict(_srv_cfg)}})
+    check("执行层按配置启动 MCP 并注册工具",
+          _el43.mcp is not None and "mcp__fake__echo" in _el43.mcp_registered,
+          getattr(_el43, "mcp_registered", None))
+    check("注册后工具进了注册表与权限集合（否则会落进'未知工具'的缝）",
+          "mcp__fake__echo" in _SPECS
+          and "mcp__fake__echo" in _il43.import_module("execution_layer").READ_TOOLS, "")
+    _r43 = run_agent(_el43, "mcp__fake__echo", text="你好")
+    check("tools/call 端到端：结果进 data.content",
+          _r43["status"] == "SUCCESS"
+          and "echo:你好" in (_r43["data"] or {}).get("content", ""), _r43)
+    check("MCP 结果带 server/tool 元信息（可审计）",
+          (_r43["data"] or {}).get("mcp", {}).get("server") == "fake"
+          and (_r43["data"] or {}).get("mcp", {}).get("tool") == "echo", _r43["data"])
+    _r43 = run_agent(_el43, "mcp__fake__fail")
+    _raw43 = _el43.executor.execute({"tool": "mcp__fake__fail"})
+    check("对面 isError → 不算成功，但正文照旧回传（模型需要看到它说了什么）",
+          _r43["status"] != "SUCCESS"
+          and "boom" in str(getattr(_raw43, "data", None) or ""), (_r43, _raw43.data))
+    _r43 = run_agent(_el43, "mcp__fake__ask")
+    check("server 反向请求被明确拒绝（不让对面干等）",
+          "-32601" in str((_r43.get("data") or {}).get("content", "")), _r43.get("data"))
+    _r43 = run_agent(_el43, "mcp__fake__noisy")
+    check("对面往 stdout 打非 JSON → 报协议错，而不是猜",
+          _r43["status"] != "SUCCESS" and "非 JSON" in str(_r43.get("message", "")), _r43)
+    check("server 没声明的工具 → 503 说清原因，而不是'要不要临时授权'",
+          str(run_agent(_el43, "mcp__fake__never_declared").get("status")) == "503", "")
+
+    # 破坏性用例各起一个**新进程**：假 server 是单线程的，上一条卡住的调用
+    # 会把后面所有调用一起堵死 —— 第一次跑就是这样（slow 还在睡，crash 根本没轮到
+    # 执行，超时把真实原因盖住了）。所以这两条必须分开验。
+    def _fresh_el43() -> object:
+        return ExecutionLayer(project_root=str(_fake_dir), permission_level="write",
+                              config={"bait": {"enabled": False},
+                                      "mcp_servers": {"fake": dict(_srv_cfg)}})
+
+    _el43s = _fresh_el43()
+    _r43 = run_agent(_el43s, "mcp__fake__slow")
+    check("调用超时 → 报超时（与'对面死了'分开报）",
+          "超时" in str(_r43.get("message", "")), _r43)
+    check("只是慢、进程还活着时，状态仍标就绪（不误判死亡）",
+          _el43s.mcp.status()[0]["status"] == "就绪", _el43s.mcp.status())
+    _el43s.close()
+
+    _el43x = _fresh_el43()
+    _r43 = run_agent(_el43x, "mcp__fake__crash")
+    check("server 猝死 → 明确报进程退出，不静默重试",
+          "退出" in str(_r43.get("message", "")), _r43)
+    check("猝死后 /mcp 状态如实标失败（不假装还活着）",
+          any(s["status"] == "失败" for s in _el43x.mcp.status()), _el43x.mcp.status())
+    _el43x.close()
+
+    _el43r = ExecutionLayer(project_root=str(_fake_dir), permission_level="readonly",
+                            config={"bait": {"enabled": False},
+                                    "mcp_servers": {"fake": dict(_srv_cfg)}})
+    _r43 = run_agent(_el43r, "mcp__fake__fail")
+    check("readonly 下写类 MCP 工具被权限门拦成授权请求",
+          _r43["status"] == "PERMISSION_REQUEST", _r43)
+    _r43 = run_agent(_el43r, "mcp__fake__echo", text="x")
+    check("readonly 下 readOnlyHint 的 MCP 工具直接可用",
+          _r43["status"] == "SUCCESS", _r43)
+
+    _el43b = ExecutionLayer(project_root=str(_fake_dir), permission_level="write",
+                            config={"bait": {"enabled": False},
+                                    "mcp_servers": {"nope": {
+                                        "command": str(_fake_dir / "不存在的可执行文件"),
+                                        "timeout": 3.0}}})
+    check("server 起不来：会话照样建起来，状态标失败并带原因",
+          _el43b.mcp is not None
+          and _el43b.mcp.status()[0]["status"] == "失败"
+          and bool(_el43b.mcp.status()[0]["error"]), _el43b.mcp.status())
+    _r43 = run_agent(_el43b, "mcp__nope__whatever")
+    check("不可用的 server 上的工具报 503（先去看 /mcp）",
+          str(_r43.get("status") or _r43.get("error_code")) == "503"
+          and "未注册" in str(_r43.get("message", "")), _r43)
+    _el43c = ExecutionLayer(project_root=str(_fake_dir), permission_level="write",
+                            config={"bait": {"enabled": False}})
+    _r43 = run_agent(_el43c, "mcp__fake__echo", text="x")
+    check("未启用 MCP 时调用外部工具名 → 不成功、不崩",
+          _r43["status"] != "SUCCESS", _r43)
+
+    # 收尾：子进程必须被显式关掉（Windows 上父进程退出不会带走它们）
+    _pids43 = [c.proc.pid for c in _el43.mcp.clients.values() if c.proc]
+    _el43.close()
+    _el43r.close()
+    _el43b.close()
+    _mgr43.close()
+    import time as _t43  # noqa: E402
+    _t43.sleep(0.4)
+    _alive43 = []
+    for _pid in _pids43:
+        try:
+            os.kill(_pid, 0)
+            _alive43.append(_pid)
+        except OSError:
+            pass
+    check("close() 真的收掉了 MCP 子进程（不留孤儿进程）", not _alive43, _alive43)
+    check("close() 幂等且不抛异常", (_mgr43.close() or True), "")
+
+    # —— CLI 层：配置能一路走到执行层，/mcp 如实展示 ——
+    import ai_code  # noqa: E402
+    import io as _io43  # noqa: E402
+    import contextlib as _cl43  # noqa: E402
+    cli43 = ai_code.AgentCLI({"project_root": str(_fake_dir), "permission": "write",
+                              "bait": False, "base_url": "", "api_key": "",
+                              "model": "m1", "mcp_servers": {"fake": dict(_srv_cfg)}},
+                             mock=True)
+    _buf43 = _io43.StringIO()
+    with _cl43.redirect_stdout(_buf43):
+        cli43.run_command("/mcp")
+    _out43 = _buf43.getvalue()
+    check("CLI 配置里的 mcp_servers 真的传到了执行层（/mcp 显示就绪）",
+          "就绪" in _out43 and "fake" in _out43, _out43[:200])
+    check("/mcp 列出工具清单（能看到拿到了什么工具）",
+          "echo" in _out43 and "crash" in _out43, _out43[:400])
+    _cli43_pids = [c.proc.pid for c in cli43.el.mcp.clients.values() if c.proc]
+    cli43.close()
+    _t43.sleep(0.4)
+    _alive_cli43 = []
+    for _pid in _cli43_pids:
+        try:
+            os.kill(_pid, 0)
+            _alive_cli43.append(_pid)
+        except OSError:
+            pass
+    check("CLI close()（atexit 注册的那个）也收掉子进程", not _alive_cli43, _alive_cli43)
+
+    # ============================================================
+
 if _LIST:
-    print("段号    依赖（空 = 自包含可单跑；* = 跑到它为止的全部前置段；未列 = 默认整跑）")
+
     for _n in _SECTIONS:
         _d = _SECTION_DEPS.get(_n)
         _shown = "自包含" if _d == [] else ("*（全部前置）" if _d else "（未声明 → 跑前置）")

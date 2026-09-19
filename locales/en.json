@@ -237,5 +237,13 @@
   "history_pick": "Pick a past input (Enter fills the prompt, it is not sent)",
   "history_hint": "  Picked entries fill the next prompt (never auto-sent) · Ctrl+R searches backwards",
   "input_hint_multiline": "Multiline: Alt+Enter or Ctrl+J inserts a newline (Shift+Enter depends on the terminal); Enter sends",
-  "input_hint_history": "History search: Ctrl+R backwards · /history fuzzy search (dsk finds deepseek)"
+  "input_hint_history": "History search: Ctrl+R backwards · /history fuzzy search (dsk finds deepseek)",
+  "cmd_mcp": "MCP server status and tool list (external process tools)",
+  "mcp_title": "  MCP servers ({n}):",
+  "mcp_none": "  No MCP server configured.",
+  "mcp_config_hint": "  Configure with \"mcp_servers\": {\"name\": {\"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]}} in ~/.ai_code.json, or a project-level .ace/mcp.json (project wins on name clashes).",
+  "mcp_tools_count": "{n} tools",
+  "mcp_tools_of": "    Tools ({name}):",
+  "mcp_tools_more": "    …{n} more",
+  "mcp_footer": "  Note: an MCP server is a child process you configured and is **not inside ACE's sandbox** — only add servers you trust. /mcp notools shows status only."
 }

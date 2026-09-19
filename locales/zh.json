@@ -237,5 +237,13 @@
   "history_pick": "选择一条历史输入（回车填入输入行，不自动发送）",
   "history_hint": "  选中后会填进下一次输入行（不自动发送）· Ctrl+R 可反向逐条搜索",
   "input_hint_multiline": "多行输入: Alt+Enter 或 Ctrl+J 换行（Shift+Enter 取决于终端），Enter 发送",
-  "input_hint_history": "历史检索: Ctrl+R 反向搜索 · /history 关键词模糊检索（dsk 也能命中 deepseek）"
+  "input_hint_history": "历史检索: Ctrl+R 反向搜索 · /history 关键词模糊检索（dsk 也能命中 deepseek）",
+  "cmd_mcp": "MCP server 状态与工具清单（外部进程工具）",
+  "mcp_title": "  MCP server（{n} 个）：",
+  "mcp_none": "  没有配置 MCP server。",
+  "mcp_config_hint": "  配置方式：在 ~/.ai_code.json 里加 \"mcp_servers\": {\"名字\": {\"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]}}，或项目内 .ace/mcp.json（同名时项目级覆盖）。",
+  "mcp_tools_count": "{n} 个工具",
+  "mcp_tools_of": "    工具清单（{name}）：",
+  "mcp_tools_more": "    …还有 {n} 个",
+  "mcp_footer": "  提示：MCP server 是你配置的子进程，**不在 ACE 的沙箱里** —— 只有信得过的 server 才该写进配置。/mcp notools 只看状态。"
 }

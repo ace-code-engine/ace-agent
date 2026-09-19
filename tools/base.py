@@ -158,6 +158,9 @@ class ToolExecutorBase:
                 and os.environ.get("ACE_USE_GO_EXECUTOR", "1").lower()
                 not in ("0", "false", "no", "off")))
         self.execution_log: List[Dict] = []
+        # MCP 管理器（core.ace_mcp.McpManager）：由执行层在注册完外部工具后挂上来。
+        # None = 本次会话没有 MCP server；_exec_mcp_tool 会据此报 503 而不是崩。
+        self.mcp = None
 
         # —— 审批 / 沙箱双闸门（见 ace_execpolicy）——
         # 两者正交，不是同一件事的两种说法：
@@ -378,4 +381,40 @@ class ToolExecutorBase:
                     if any(m in (result.message or "") for m in _403_SECURITY_MARKERS):
                         result.metadata["security_denied"] = True
         return result
+
+    # ---------- MCP（外部进程工具） ----------
+
+    def _exec_mcp_tool(self, tool_name: str, params: Dict[str, Any]) -> ExecutionResult:
+        """所有 MCP 工具共用的 handler（spec.pass_tool_name=True）。
+
+        一个 handler 服务全部外部工具：工具名里已经带着 `mcp__<server>__<tool>`，
+        再给每个工具生成一个方法既没必要，也没法在运行时注册（Python 的方法表不是
+        注册表）。真正的分派在 `McpManager.call_tool`。
+
+        错误码语义（与 tools/status.py 的目录对齐）：
+        - 503 server 不可用/进程退出 —— 重试前得先看 `/mcp`
+        - 504 调用超时 —— 这一条与上面分开，是因为"对面卡住"和"对面死了"处理不同
+        - 500 协议层错误 / 对面 `isError`
+        """
+        mgr = getattr(self, "mcp", None)
+        if mgr is None:
+            return ExecutionResult(status="error", error_code="503",
+                                   message="本次会话没有启用 MCP（配置里加 mcp_servers 后重启）")
+        r = mgr.call_tool(tool_name, params or {})
+        if not r.get("ok"):
+            if r.get("is_error"):
+                # 对面自己说失败：正文照旧给出去，模型需要看到它说了什么
+                return ExecutionResult(
+                    status="error", error_code=r.get("error_code") or "500",
+                    message=r.get("message") or "MCP 工具执行失败",
+                    data={"content": r.get("text") or "",
+                          "mcp": {"server": r.get("server"), "tool": r.get("tool")}})
+            return ExecutionResult(status="error",
+                                   error_code=r.get("error_code") or "500",
+                                   message=r.get("message") or "MCP 调用失败")
+        return ExecutionResult(status="success", data={
+            "content": r.get("text") or "",
+            "mcp": {"server": r.get("server"), "tool": r.get("tool"),
+                    "elapsed": round(float(r.get("elapsed") or 0.0), 3)},
+        })
 

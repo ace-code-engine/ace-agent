@@ -21,8 +21,23 @@ config = {
     "egress_allowlist": ["api.github.com", ".openai.com"],  # 出站目的地白名单（缺省 = 闸门关闭）
     "approval_policy": "on_request",       # 审批策略：on_request（默认）/ on_failure / never / untrusted
     "sandbox_policy": "workspace_write",   # 判定用沙箱策略：read_only / workspace_write / danger_full_access
+    "mcp_servers": {                        # MCP server（外部进程工具，v3.17.0 起）
+        "fs": {"command": "npx",
+               "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+               "enabled": True,             # 可选：false = 只登记不启动
+               "timeout": 20,               # 可选：握手/列工具超时（秒）
+               "call_timeout": 120},        # 可选：单次工具调用超时（秒）
+    },
 }
 ```
+
+### MCP server（`mcp_servers`）
+
+- **协议**：stdio 上的 JSON-RPC 2.0（一行一个消息），实现 `initialize` 握手、`tools/list`、`tools/call`。HTTP/SSE 传输**没有实现**。
+- **工具怎么进来**：每个外部工具注册成 `mcp__<server>__<工具名>`，schema 原样透传；模型看到的工具列表里就能直接调用它们。
+- **权限怎么算**：对面声明 `annotations.readOnlyHint: true` 才算只读，**其余一律按写**（readonly 会话下需要授权）。默认从严：对面说只读是它自己声明的，说错话的代价不该由用户承担。
+- **项目级配置**：项目根下 `.ace/mcp.json`（`{"mcpServers": {...}}` 或直接 `{名字: {...}}`），同名时**项目级覆盖用户级**。
+- **起不来怎么办**：单个 server 启动失败不影响会话，状态与失败原因在 `/mcp` 里如实展示；调用它的工具会得到 `503` + "未注册" 说明（**不会**变成"要不要临时授权"——那会让人以为点一下就能用）。
 
 ### 审批策略与沙箱策略（两个正交维度）
 

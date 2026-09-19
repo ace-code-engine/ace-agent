@@ -23,7 +23,7 @@
 |---|---|
 | **Local** | pure-stdlib core, runs on your machine, no cloud in the loop; the offline demo needs no API key |
 | **Model-agnostic** | 9 vendors · 10 endpoints behind one `/provider` switch (Zhipu, DeepSeek, Moonshot, OpenAI, Anthropic, Qwen, SiliconFlow, OpenRouter, Ollama), OpenAI *and* Anthropic wire formats |
-| **Pluggable** | every tool is declared once in [`tools/registry.py`](tools/registry.py); skills are plain `SKILL.md` files; MCP is just `register()`-ing a `ToolSpec` |
+| **Pluggable** | every tool is declared once in [`tools/registry.py`](tools/registry.py); **MCP servers connect over stdio** (`mcp_servers` in config → their tools appear as `mcp__<server>__<tool>`, permission/approval/audit unchanged — see [SECURITY-MODEL](docs/SECURITY-MODEL.md), *an MCP server runs outside ACE's sandbox*); skills are plain `SKILL.md` files |
 
 ## Why ACE?
 

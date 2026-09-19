@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.17.0 · 2026-09-19 · MCP 客户端（stdio JSON-RPC 2.0）· `/mcp`](#v3170-2026-09-19)
 - [v3.16.1 · 2026-09-19 · lint 转绿（F401）· 本地拦住同类错](#v3161-2026-09-19)
 - [v3.16.0 · 2026-09-19 · 输入体验（多行输入 · `/history` 模糊检索 · 分组菜单与 /help）](#v3160-2026-09-19)
 - [v3.15.0 · 2026-09-19 · 工具调用可视化（上色 diff · 退出码 · 本轮时间线）](#v3150-2026-09-19)
@@ -32,6 +33,36 @@
 - [v1.2 · 2026-08-21 ~ 08-24 · CLI 体验与工具体系](#v12-2026-08-21-08-24)
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
+
+## [v3.17.0] · 2026-09-19
+
+> 前面三版改的是呈现与输入，这一版第一次动**能力面**：ACE 现在能接 MCP。
+>
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.17.0.md`](docs/RELEASE-NOTES-v3.17.0.md)
+
+### ✨ MCP 客户端（stdio JSON-RPC 2.0）
+
+- ✨ 新增 `core/ace_mcp.py`：真的说 MCP 协议 —— `initialize` 握手（protocolVersion 2025-06-18、clientInfo 带版本）→ `notifications/initialized` → `tools/list` → `tools/call`，stdio 上一行一个 JSON-RPC 2.0 消息。**不是**"把 MCP 工具手写成 Python 函数"那种假接入
+- ✨ 配置即用：`~/.ai_code.json` 的 `mcp_servers`，或项目根 `.ace/mcp.json`（同名时项目级覆盖）。每个外部工具注册成 `mcp__<server>__<工具名>`，**schema 原样透传**（MCP 用的就是 JSON Schema，转一道只会丢信息），模型在工具列表里直接看到它们
+- ✨ `/mcp` 命令：server 状态（就绪 / 失败 / 已禁用）、**失败原因**、启动命令、工具清单；`/mcp notools` 只看状态
+- 🛡️ 权限默认从严：对面声明 `annotations.readOnlyHint: true` 才算只读，**其余一律按写**（readonly 会话下走授权流程）。执行层管"要不要调用它"，审计/权限/审批照旧；**它内部干什么管不了** —— 这条写进了 SECURITY-MODEL，因为 MCP server 跑在沙箱之外
+- ⚙️ 失败分开报：`503` 不可用（进程退出 / 对面没声明该工具）、`504` 超时、`500` 协议错或对面 `isError`；"对面卡住"与"对面死了"处置不同，混成一句"工具失败"就没法排查
+- ⚙️ `mcp__x__y` 形态但没注册的工具，报 **503 + "未注册：server 没启动或没声明它"**，而不是落进"权限不足 → 要不要临时授权"——后者会让人以为点一下授权就能用（测试第一次跑就是这个错，实测抓出来的）
+- 🛡️ 子进程生命周期：`atexit` + `/clear` 重建执行层时显式关闭。Windows 上父进程退出**不会**带走子进程，不关就是一批孤儿 `npx`/`python`
+- 📋 边界写在明面上：**只支持 stdio 传输**（HTTP/SSE 没实现，也不假装支持）；server 发起的反向请求（sampling 等）一律回 `-32601`，不让对面干等
+
+### 🛡️ 守卫：新增 `[43]`（自包含段，可 `--only 43`）
+
+- 🛡️ 纯逻辑：内容块展平（text / image / resource / structuredContent，非文本块**如实标注**而不是丢掉）、`isError` 与协议错误分开、`mcp__` 命名往返与非法字符替换、权限映射三态、配置校验（缺 `command` 丢弃、`enabled: false` 保留状态）
+- 🛡️ **端到端跑真子进程**：假 server 是本机 Python 进程，按 MCP 帧格式应答。握手 → 就绪（记录 serverInfo）、`tools/list`、`tools/call` 结果进 `data.content`、结果带 server/tool 元信息
+- 🛡️ 边界全验：对面 `isError`、server 反向请求被拒、对面往 stdout 打非 JSON、调用超时（504）、进程猝死（报退出码）、猝死后 `/mcp` 如实标失败、**只是慢但活着时状态仍标就绪**（不误判死亡）
+- 🛡️ 权限链：readonly 下写类 MCP 工具被拦成授权请求、`readOnlyHint` 的只读工具直接可用、注册后工具确实进了 `READ_TOOLS`/`WRITE_TOOLS`（否则会落进"未知工具"的缝）
+- 🛡️ 生命周期：`close()` 收掉子进程且幂等（`os.kill(pid, 0)` 验活）、CLI 层 `close()` 同样收干净、server 起不来时会话照样建得起来
+
+### 📋 同步
+
+- 📋 `locales/{zh,en,ja}.json` 各 +8 键（`/mcp` 文案），247 键 × 3 对齐
+- 📋 文档：`docs/CONFIGURATION.md` 的 `mcp_servers` 全项与四条语义；`docs/SECURITY-MODEL.md` 新增「MCP 边界说清楚」；`docs/COMMANDS.md` 补 `/mcp` 与配置方式；权威树登记 `core/ace_mcp.py`；README 能力表补一行
 
 ## [v3.16.1] · 2026-09-19
 

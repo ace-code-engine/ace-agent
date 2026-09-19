@@ -61,6 +61,7 @@ ace-agent/
 │   ├── archive.py              #   SimHash 记忆引擎
 │   ├── nuwa.py                 #   POC 报告（HTML + JSON）
 │   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
+│   ├── ace_mcp.py              #   MCP 客户端：stdio JSON-RPC 2.0（握手 / tools-list / tools-call + 子进程生命周期）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
@@ -101,7 +102,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.16.0.md #  本版更新介绍（可直接贴进 GitHub Release；多行输入 + /history + 分组）
+│   ├── RELEASE-NOTES-v3.17.0.md #  本版更新介绍（可直接贴进 GitHub Release；MCP 客户端）
+│   ├── RELEASE-NOTES-v3.16.0.md #  v3.16 更新介绍（多行输入 + /history + 分组）
 │   ├── RELEASE-NOTES-v3.15.0.md #  v3.15 更新介绍（改动可见 + 时间线）
 │   ├── RELEASE-NOTES-v3.14.0.md #  v3.14 更新介绍（首屏重构 + --preview）
 │   ├── RELEASE-NOTES-v3.13.0.md #  v3.13 更新介绍（上下文占用可见）

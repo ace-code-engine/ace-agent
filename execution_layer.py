@@ -151,6 +151,26 @@ EGRESS_TOOLS: set = set()
 TOOL_EXAMPLES = {}
 
 
+def _unregistered_mcp_tool(tool_name: str) -> Optional[tuple]:
+    """`mcp__x__y` 形态但没在注册表里的工具名 → (server, tool)；否则 None。
+
+    单独抽出来是为了让"名字像 MCP 但没注册"这条判据可单测，也避免在热路径上
+    为普通工具名付一次 import 成本。
+    """
+    try:
+        from core.ace_mcp import parse_spec_name
+    except Exception:  # noqa: BLE001 —— MCP 模块不可用时退化成"不是 MCP 名字"
+        return None
+    parsed = parse_spec_name(tool_name)
+    if not parsed:
+        return None
+    try:
+        from tools.registry import SPEC_BY_NAME
+    except Exception:  # noqa: BLE001
+        return None
+    return None if tool_name in SPEC_BY_NAME else parsed
+
+
 def refresh_tool_sets() -> None:
     """从 tools/registry.py 的 TOOL_SPECS 重建权限集合与参数示例。
 
@@ -608,6 +628,28 @@ class ExecutionLayer:
         # 已获会话级批准的项目外路径（按路径而不是按工具，见 _outside_destructive_reason）
         self.approved_outside: Set[str] = set()
 
+        # MCP（外部进程工具）：只在配置里真的写了 mcp_servers 时才启动子进程。
+        # **起不来不影响会话** —— 状态记在 self.mcp 里，由 /mcp 如实展示（用户在配置里
+        # 写错一个路径是常事，不该让整个会话跟着失败）。
+        self.mcp = None
+        self.mcp_registered: List[str] = []
+        self.mcp_error = ""
+        _mcp_cfg = (config or {}).get("mcp_servers")
+        if _mcp_cfg or (config or {}).get("mcp_project_file"):
+            try:
+                from core import ace_mcp as _mcp
+                from tools import registry as registry_mod
+                _cfgs = _mcp.load_server_configs(
+                    _mcp_cfg, (config or {}).get("mcp_project_file"))
+                if _cfgs:
+                    self.mcp = _mcp.McpManager(_cfgs, str(self.project_root))
+                    self.mcp.start()
+                    _registered = self.mcp.register_into(self.executor, registry_mod)
+                    self.mcp_registered = _registered
+            except Exception as e:  # noqa: BLE001 —— MCP 是增强，坏了也不能拖垮会话
+                self.mcp = None
+                self.mcp_error = f"{type(e).__name__}: {e}"
+
 
         self.parser = AgentOutputParser()
 
@@ -1031,6 +1073,26 @@ class ExecutionLayer:
         """
         ctx.confirmed = (tool_name in self.permission.temp_grants
                          or tool_name in self.permission.session_grants)
+        # MCP 名兜底：`mcp__<server>__<tool>` 但不在注册表里 = 那个 server 没起来、
+        # 或者它没声明这个工具。必须在这里说清原因，**不能**让它落进下面
+        # "权限不足 → 要不要临时授权"的流程 —— 那个提示会让人以为点一下授权就能用，
+        # 而实际上对面根本没有这个工具（用户会一路授权到怀疑人生）。
+        _mcp_unknown = _unregistered_mcp_tool(tool_name)
+        if _mcp_unknown:
+            _server, _tool = _mcp_unknown
+            if self.session_log:
+                self.session_log.record_permission(
+                    tool_name, "denied_unregistered_mcp", self.permission.level,
+                    f"{_server}/{_tool}")
+            return {
+                "status": "503",
+                "tool": tool_name,
+                "message": (f"MCP 工具 {tool_name} 未注册：server「{_server}」"
+                            f"没启动或没声明「{_tool}」"),
+                "instruction": ("不要重试同一个工具名。请让用户用 /mcp 看 server 状态与"
+                                "工具清单；确认 server 已配置且能启动后再试。"),
+                **route_meta,
+            }
         # 外发闸门（SEC-013）：目的地不在白名单内就问人一次。放在权限等级判定之前——
         # 已授权（temp_grants）的那次调用不该被重复问，而权限不足的调用本来就会走
         # 下面的授权流程，不必叠两遍提示。
@@ -1575,6 +1637,19 @@ class ExecutionLayer:
         if temp_tools:
             for tool in temp_tools:
                 self.permission.grant_temp(tool)
+
+    def close(self) -> None:
+        """收尾：关掉 MCP 子进程。
+
+        为什么必须显式关：Windows 上父进程退出**不会**带走子进程。不关就会留下一堆
+        孤儿 `npx`/`python` 进程，用户下次启动还会再起一批 —— 这类泄漏没人会去查，
+        只会觉得"这工具吃内存"。
+        """
+        if self.mcp is not None:
+            try:
+                self.mcp.close()
+            except Exception:  # noqa: BLE001 —— 收尾失败不该掩盖主流程
+                pass
 
     def get_stats(self) -> Dict[str, Any]:
         """获取执行层统计"""

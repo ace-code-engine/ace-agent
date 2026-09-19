@@ -237,5 +237,13 @@
   "history_pick": "過去の入力を選択（Enter で入力行に反映、送信はしません）",
   "history_hint": "  選んだ内容は次の入力行に入ります（自動送信はしません）· Ctrl+R で逆方向検索",
   "input_hint_multiline": "複数行: Alt+Enter または Ctrl+J で改行（Shift+Enter は端末依存）、Enter で送信",
-  "input_hint_history": "履歴検索: Ctrl+R で逆方向 · /history であいまい検索（dsk で deepseek もヒット）"
+  "input_hint_history": "履歴検索: Ctrl+R で逆方向 · /history であいまい検索（dsk で deepseek もヒット）",
+  "cmd_mcp": "MCP サーバーの状態とツール一覧（外部プロセスのツール）",
+  "mcp_title": "  MCP サーバー（{n} 件）:",
+  "mcp_none": "  MCP サーバーが設定されていません。",
+  "mcp_config_hint": "  設定方法: ~/.ai_code.json に \"mcp_servers\": {\"名前\": {\"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]}}、またはプロジェクト内の .ace/mcp.json（同名はプロジェクト側が優先）。",
+  "mcp_tools_count": "ツール {n} 個",
+  "mcp_tools_of": "    ツール一覧（{name}）:",
+  "mcp_tools_more": "    …他 {n} 個",
+  "mcp_footer": "  注意: MCP サーバーはあなたが設定した子プロセスで、**ACE のサンドボックス内ではありません** —— 信頼できるサーバーだけを設定してください。/mcp notools で状態のみ表示。"
 }

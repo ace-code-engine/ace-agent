@@ -11,7 +11,7 @@
 
 | 分类 | 命令 |
 |---|---|
-| 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/expand` `/exit` |
+| 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/expand` `/mcp` `/exit` |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
@@ -54,6 +54,8 @@
 | `@refs` / `@clear` | 查看 / 清空当前引用（最多保留 3 项） | `@refs` |
 
 可选技能：`coding`（默认推荐 `code_execute` `file_write` `terminal_exec`）· `writing` · `analysis` · `fiction` · `general`。
+
+**MCP（外部进程工具）**：在 `~/.ai_code.json` 写 `mcp_servers`（或项目内 `.ace/mcp.json`），启动时按 stdio JSON-RPC 2.0 握手并把对面的工具注册成 `mcp__<server>__<工具名>`——模型可以直接调用它们，权限/审批/审计照旧。`/mcp` 看 server 状态与工具清单（`/mcp notools` 只看状态）。**MCP server 不在 ACE 的沙箱里**：它是你配置的子进程，只写你信得过的。
 
 **在对话里打开文件**——默认只给可点击链接，不抢焦点、不弹窗：
 

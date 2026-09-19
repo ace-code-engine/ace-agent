@@ -1359,6 +1359,7 @@ class _SlashCommands:
         "/sandbox": "cmd_sandbox",
         "/thinking": "cmd_thinking",
         "/history": "cmd_history",
+        "/mcp": "cmd_mcp",
         "/expand": "cmd_expand",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
@@ -1391,6 +1392,7 @@ class _SlashCommands:
         "/sandbox": ("_handle_sandbox", True),
         "/thinking": ("_cmd_thinking", True),
         "/history": ("_cmd_history", True),
+        "/mcp": ("_cmd_mcp", True),
         "/expand": ("_cmd_expand", False),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
@@ -1566,6 +1568,49 @@ class _SlashCommands:
                               for tag, s in segs)
             print(f"  {i:>2}. {one[:100]}")
         print(c("dim", t("history_hint")))
+        return True
+
+    def _cmd_mcp(self, parts: List[str]) -> bool:
+        """`/mcp [tools]`：MCP server 状态与工具清单。
+
+        为什么要有：MCP server 是外部进程，"没有工具"可能因为配置写错、命令不存在、
+        对面启动就崩、或者它压根没声明这个工具 —— 这几种原因的处置方式完全不同。
+        把状态、退出原因和工具清单摆在一条命令里，比让用户去猜强。
+        """
+        mgr = getattr(self.el, "mcp", None)
+        if mgr is None:
+            print(c("dim", t("mcp_none")))
+            print(c("dim", t("mcp_config_hint")))
+            _err = getattr(self.el, "mcp_error", "")
+            if _err:
+                print(c("red", "  " + _err[:200]))
+            return True
+        rows = mgr.status()
+        if not rows:
+            print(c("dim", t("mcp_none")))
+            return True
+        print(t("mcp_title", n=len(rows)))
+        for r in rows:
+            mark, color = ("✓", "green") if r["status"] == "就绪" else (
+                ("◌", "dim") if r["status"] == "已禁用" else ("✗", "red"))
+            print(f"  {c(color, mark)} {c('bold', r['name'])}  "
+                  f"{r['status']}  {t('mcp_tools_count', n=r['tools'])}")
+            print(c("dim", f"      $ {r['command']}"))
+            if r["error"]:
+                print(c("red", f"      {r['error'][:200]}"))
+        # 工具清单总是列出来（最多 20 个/ server）：/mcp 的用处就是"我到底拿到了什么工具"
+        skip_tools = "notools" in [p.lower() for p in parts[1:]]
+        if not skip_tools:
+            for r in rows:
+                names = list(r.get("tool_names") or [])
+                if not names:
+                    continue
+                print(c("dim", t("mcp_tools_of", name=r["name"])))
+                for tool_name in names[:20]:
+                    print(c("dim", "      " + tool_name))
+                if len(names) > 20:
+                    print(c("dim", t("mcp_tools_more", n=len(names) - 20)))
+        print(c("dim", t("mcp_footer")))
         return True
 
     def _cmd_expand(self) -> bool:
@@ -2666,7 +2711,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         except Exception:
             self._resumed_from = None
 
+    def close(self) -> None:
+        """收尾：关掉执行层持有的外部资源（MCP 子进程）。
+
+        `/clear` 会重建执行层，所以旧层也得在这里关一次 —— 否则每 `/clear` 一次就
+        多留一批 MCP 子进程。atexit 里注册的是这个方法，幂等。
+        """
+        el = getattr(self, "el", None)
+        if el is not None:
+            try:
+                el.close()
+            except Exception:  # noqa: BLE001 —— 收尾失败不该掩盖主流程
+                pass
+
     def _init_execution_layer(self) -> None:
+        # 重建前先收掉旧层：/clear 会走到这里，不收就会漏 MCP 子进程
+        self.close()
         self.el = ExecutionLayer(
             project_root=self.cfg["project_root"],
             permission_level=self.cfg["permission"],
@@ -2682,6 +2742,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 "kb_root": self.cfg.get("kb_root"),
                 # 文件式技能库目录（skill_list/skill_load 扫描的目录）
                 "skills_dir": self.cfg.get("skills_dir"),
+                # MCP server（外部进程工具）：用户在 ~/.ai_code.json 写 mcp_servers，
+                # 或项目内 .ace/mcp.json（项目级覆盖同名）。只在真的配了时才起子进程。
+                "mcp_servers": self.cfg.get("mcp_servers"),
+                "mcp_project_file": str(Path(self.cfg.get("project_root", "."))
+                                        / ".ace" / "mcp.json"),
                 # 联网开关（/net 切换；默认开）
                 "network_enabled": bool(self.cfg.get("network_enabled", True)),
                 # 第三方搜索 API（可选；search 先试 API，失败自动回退免 key 爬虫）
@@ -3626,6 +3691,10 @@ def main() -> None:
         save_cli_config(cfg)
 
     cli = AgentCLI(cfg, mock=args.mock)
+    # MCP 子进程必须在所有退出路径上收掉：Windows 上父进程退出**不会**带走子进程，
+    # 留着就是一堆孤儿 npx/python（下次启动再来一批）。
+    import atexit
+    atexit.register(cli.close)
     if args.preview:
         return _print_preview(cli, width=args.preview_width)
     if args.input:

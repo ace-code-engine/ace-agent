@@ -5014,6 +5014,28 @@ if _want("33"):
           any("原因 " in ln and ln.strip().endswith("…")
               and len(ln.strip()) <= 62 for ln in _msg_long), _msg_long)
 
+    # —— 宽度口径（ui/ace_text）——
+    # 中文占两列：卡片以前按 len() 截断，"截到 60 字"的中文实际占 120 列，尾巴顶出终端。
+    from ui.ace_text import (display_width as _dw, truncate_width as _tw,
+                             pad_width as _pw, char_width as _cw)  # noqa: E402
+    check("display_width：汉字 2 列、ASCII 1 列", _dw("中文ab") == 6, _dw("中文ab"))
+    check("char_width：组合符与零宽字符不占列",
+          _cw("\u0301") == 0 and _cw("\u200b") == 0, (_cw("\u0301"), _cw("\u200b")))
+    check("truncate_width：按列截断，不劈双宽字符",
+          _tw("中文中文", 6) == "中文…" and _dw(_tw("中文中文", 6)) <= 6,
+          (_tw("中文中文", 6), _dw(_tw("中文中文", 6))))
+    check("truncate_width：够宽原样返回", _tw("中文", 10) == "中文", "")
+    check("truncate_width：放不下省略号就硬切", _tw("abcdef", 1) == "a", _tw("abcdef", 1))
+    check("truncate_width 结果宽度永不超限",
+          all(_dw(_tw("文" * 50, n)) <= n for n in range(1, 20)), "")
+    check("pad_width：补足到指定列宽",
+          _dw(_pw("中文", 6)) == 6 and _pw("中文", 6) == "中文  ", _pw("中文", 6))
+    check("pad_width：够宽原样返回（不截断）", _pw("中文中文", 4) == "中文中文", "")
+    # 卡片走同一口径：40 个汉字必须被截到 60 列内（旧代码数 len() → 80 列，超宽）
+    from ui.ace_cards import _truncate as _tr  # noqa: E402
+    check("卡片截断按列算（40 个汉字截到 60 列内）",
+          _dw(_tr("文" * 40, 60)) <= 60, _dw(_tr("文" * 40, 60)))
+
     # —— pending 卡 / 未知工具回退 / 不折叠 / 纯文本 ——
     check("pending 卡：◌ 且无耗时",
           tool_card("subagent", "pending", params={"prompt": "x"})[0]
@@ -5110,6 +5132,33 @@ if _want("32"):
     check("highlight_match 重叠区间合并",
           ace_selector.highlight_match("abcabc", "abc abc")
           == [("sel.hl", "abcabc")], "")
+
+    # —— 模糊（子序列）匹配 ——
+    # 命令面板一类界面的常规做法（不是子串）：dsk 要能命中 deepseek、glm4 要能命中
+    # glm-4.6。子串匹配下这两个最常用的输入都是 0 命中，用户只能一个字不差地打全。
+    check("子序列匹配：dsk 命中 deepseek",
+          ace_selector.match_score("deepseek-v4-flash  DeepSeek 官方", "dsk") > 0, "")
+    check("子序列匹配：glm4 命中 glm-4.6",
+          ace_selector.match_score("glm-4.6  Zhipu 智谱", "glm4") > 0, "")
+    check("顺序不对不算命中（eds 不命中 deepseek）",
+          ace_selector.match_score("deepseek", "eds") == 0, "")
+    check("连续命中比跳字命中排得前",
+          ace_selector.match_score("deepseek", "deep")
+          > ace_selector.match_score("d-e-e-p-seek", "deep"), "")
+    check("match_positions 返回真实命中下标",
+          ace_selector.match_positions("glm-4.6", "glm4") == [0, 1, 2, 4],
+          ace_selector.match_positions("glm-4.6", "glm4"))
+    check("match_positions 不命中 → None",
+          ace_selector.match_positions("glm-4.6", "xyz") is None, "")
+    check("match_positions 空查询 → 空列表（与'不命中'区分开）",
+          ace_selector.match_positions("glm-4.6", "") == [], "")
+    _fl = ace_selector.highlight_match("glm-4.6", "glm4")
+    check("模糊命中的高亮标的正是命中的字符（与评分同源）",
+          "".join(s for _, s in _fl) == "glm-4.6"
+          and sum(1 for t, s in _fl if t == "sel.hl" and s == "glm") == 1, _fl)
+    check("子序列过滤：glm4 能把 glm-4.6 挑出来",
+          [i for i, _ in ace_selector.filter_items(_sel_items, "glm4")] == [2],
+          ace_selector.filter_items(_sel_items, "glm4"))
 
     # ============================================================
 

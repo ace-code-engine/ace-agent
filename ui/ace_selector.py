@@ -22,8 +22,13 @@ Application + Layout + Float，把面板做成居中浮层（FloatContainer 覆�
 on_text_changed 每次输入变化重绘列表窗格（invalidate），Enter 确认当前
 高亮项，Esc 分级处理，v 预览，j/k 导航。
 
-可测性：匹配 / 过滤 / 高亮抽成纯函数（match_score / filter_items /
-highlight_match），不依赖 prompt_toolkit，test_all.py 直接测试。
+可测性：匹配 / 过滤 / 高亮抽成纯函数（match_positions / match_score /
+filter_items / highlight_match），不依赖 prompt_toolkit，test_all.py 直接测试。
+
+匹配是**子序列 + 加权**，不是子串：命令面板一类界面的常规做法（fzf / VSCode 同源
+思路）。打 "dsk" 能命中 "deepseek"，打 "glm4" 能命中 "glm-4.6" —— 子串匹配下这两个
+最常用的输入都是 0 命中，用户只能一个字不差地打全。评分与高亮同源（都从
+match_positions 出来），不会出现"排上来了但没高亮"这种两套逻辑打架的情况。
 
 依赖：prompt_toolkit 为可选依赖，仅在交互路径内延迟导入；缺失或运行异常时
 run_selector 返回 None（降级不阻塞，绝不拖垮 REPL）。
@@ -34,35 +39,72 @@ from __future__ import annotations
 import sys
 from typing import Callable, List, Optional, Tuple
 
-__all__ = ["run_selector", "match_score", "filter_items", "highlight_match"]
+from ui.ace_text import SEPARATORS
+
+__all__ = ["run_selector", "match_positions", "match_score", "filter_items",
+           "highlight_match"]
 
 
 # ============================================================
 # 纯逻辑（不依赖 prompt_toolkit，可直接单测）
 # ============================================================
 
-def match_score(item: str, query: str) -> int:
-    """子串匹配评分；0 = 不匹配，分数越高越靠前。
+def match_positions(item: str, query: str) -> Optional[List[int]]:
+    """子序列匹配：返回命中字符的下标（升序、去重）；不命中返回 None。
 
-    - 空查询：全部项等权（返回 1）
-    - 多词查询按空格拆分，每词都必须是子串（AND 语义）
-    - 前缀命中比中间命中得分高；命中位置越靠前分越高
-    - 完全相等额外加权置顶
+    空查询返回 `[]`（表示"全部命中"，由上层等权处理 —— 与"不命中 None"是两件事，
+    调用方必须分开处理）。
+
+    多词查询按空格拆分，**每个词都必须命中**（AND 语义）；各词下标合并。
+    每个词内部按"逐字符向后找"匹配，因此 `dsk` 能命中 `deepseek`。
+    """
+    q = query.strip().lower()
+    if not q:
+        return []
+    text = item.lower()
+    hits: List[int] = []
+    for term in q.split():
+        start = 0
+        for ch in term:
+            idx = text.find(ch, start)
+            if idx < 0:
+                return None
+            hits.append(idx)
+            start = idx + 1
+    return sorted(set(hits))
+
+
+def match_score(item: str, query: str) -> int:
+    """匹配评分；0 = 不匹配，分数越高越靠前。
+
+    沿用原来那套排序直觉（前缀 > 中间、完全相等置顶），只是把"子串"放宽成"子序列"：
+
+    - 空查询：全部项等权（1）
+    - 完全相等：+5000（置顶）
+    - 每个命中字符基础 10 分
+    - **连续命中**每个 +8：`deep` 命中 `deepseek` 比命中 `d_e_e_p` 更该排前面
+    - **词边界命中**每个 +6（前一个字符是分隔符或串首）：`-v4` 里的 v 比词中的 v 值钱
+    - 越靠前越值钱：减去首个命中下标
+    - 越集中越值钱：减去命中跨度（末 - 首）
     """
     q = query.strip().lower()
     if not q:
         return 1
+    pos = match_positions(item, q)
+    if pos is None:
+        return 0
     text = item.lower()
-    total = 0
-    for term in q.split():
-        idx = text.find(term)
-        if idx < 0:
-            return 0
-        # 前缀命中 +1000；中间命中按位置递减（200 - idx，最低 1）
-        total += 1000 if idx == 0 else max(1, 200 - idx)
+    score = 10 * len(pos)
+    for i, idx in enumerate(pos):
+        if i and idx == pos[i - 1] + 1:
+            score += 8                       # 连续命中
+        if idx == 0 or text[idx - 1] in SEPARATORS:
+            score += 6                       # 词边界命中
+    score -= pos[0]                          # 越靠前越好
+    score -= pos[-1] - pos[0]                # 越集中越好
     if text == q:
-        total += 5000          # 完全相等置顶
-    return total
+        score += 5000                        # 完全相等置顶
+    return score
 
 
 def filter_items(items: List[str], query: str) -> List[Tuple[int, int]]:
@@ -81,41 +123,57 @@ def highlight_match(text: str, query: str) -> List[Tuple[str, str]]:
 
     - token 为 "sel.row"（普通）或 "sel.hl"（命中）；渲染端对选中行再做
       "sel.row"→"sel.row.sel" / "sel.hl"→"sel.hl.sel" 升级
-    - 多词查询的每个词的所有出现都会被标记，重叠/相邻区间合并
+    - **整词能命中就标出它的所有出现**（原有承诺，保留）：多词查询各自把出现的
+      区间标满，重叠/相邻的合并
+    - **整词命中不了才退回子序列**（与 match_score 同一套判定）：此时标出真正被
+      匹配上的那些字符，不会出现"排上来了却一个字都没高亮"
+    - 相邻命中合并成一段：`deep` 是一段 `deep`，不是四段单字符（终端里逐字符上色
+      会让颜色转义码把行长算乱）
     - 纯函数、不依赖 prompt_toolkit，可直接单测
     """
     q = query.strip().lower()
     if not q:
         return [("sel.row", text)]
-    spans: List[Tuple[int, int]] = []
     low = text.lower()
+    runs: List[List[int]] = []
     for term in q.split():
-        start = 0
+        start, as_substring = 0, False
         while True:
             idx = low.find(term, start)
             if idx < 0:
                 break
-            spans.append((idx, idx + len(term)))
+            runs.append([idx, idx + len(term)])
             start = idx + len(term)
-    if not spans:
+            as_substring = True
+        if as_substring:
+            continue
+        # 整词命中不了：逐字符向后找（match_score 判定它能命中，这里必然找得到）
+        pos, cursor = [], 0
+        for ch in term:
+            idx = low.find(ch, cursor)
+            if idx < 0:
+                return [("sel.row", text)]
+            pos.append(idx)
+            cursor = idx + 1
+        runs.extend([i, i + 1] for i in pos)
+    if not runs:
         return [("sel.row", text)]
-    # 合并重叠/相邻区间
-    spans.sort()
-    merged = [list(spans[0])]
-    for s, e in spans[1:]:
+    runs.sort()
+    merged = [runs[0]]
+    for s, e in runs[1:]:
         if s <= merged[-1][1]:
             merged[-1][1] = max(merged[-1][1], e)
         else:
             merged.append([s, e])
     segs: List[Tuple[str, str]] = []
-    pos = 0
+    cursor = 0
     for s, e in merged:
-        if s > pos:
-            segs.append(("sel.row", text[pos:s]))
+        if s > cursor:
+            segs.append(("sel.row", text[cursor:s]))
         segs.append(("sel.hl", text[s:e]))
-        pos = e
-    if pos < len(text):
-        segs.append(("sel.row", text[pos:]))
+        cursor = e
+    if cursor < len(text):
+        segs.append(("sel.row", text[cursor:]))
     return segs
 
 

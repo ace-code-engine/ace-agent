@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.1%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -229,6 +229,8 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 其中三节是**给文档与安全承诺用的守卫**（v3.8 起）：`[38]` 权威目录树 ↔ 真实文件、`[39]` 文档口径数字 ↔ `PROVIDERS`/`TOOL_SPECS`、`[40]` 安全审计里那些原始 payload。它们的作用是让"文档说要问人"这件事不会某天悄悄变成"代码里从来没问过"。
 
 ## 最近更新
+
+- **v3.11.1** (2026-09-19)：选择器改成**子序列（模糊）匹配**——`glm4` 能命中 `glm-4.6`（`/model` 里从 0 项变 10 项）、`dsk` 能命中 `deepseek`；评分与高亮共用一个匹配器，模糊命中标的正是真正命中的字符。新增 `ui/ace_text.py` 让文本按**列**算宽度（中文占两列）：卡片此前按字数截断，"60 字"的中文实际占 120 列，会把卡片边框顶出屏幕
 
 - **v3.11.0** (2026-09-19)：容器档的运行参数做了一轮加固，并且**在真实 daemon 上验过**而不是读代码觉得没问题——`--init`（回收僵尸，否则它们吃光 `--pids-limit` 名额）、`--ulimit nofile`、`HOME=/tmp`（只读根下 pip 写不了缓存）、SELinux Enforcing 宿主自动加 `,z`（Fedora/RHEL 不加就写不进挂载盘）、`--label` 便于清理、可选 `ACE_SANDBOX_SECCOMP`。CI 新增 `sandbox-smoke`：构建镜像并用客户端自己的参数构造真跑一遍，断言 `--network none` 与 `--read-only` 真的成立。**不发布官方预编译镜像**：组织的包策略不允许把 GHCR 包设为公开，所以默认仍是"本地构建一次"，`ACE_SANDBOX_PULL=1` 留给自建 registry 的场景 → [完整更新介绍](docs/RELEASE-NOTES-v3.11.0.md)
 - **v3.10.1** (2026-09-19)：三处由真机冒烟与实际运行逼出来的修复。格式纠错不再把执行层的报错包进 SEC-011 的外部内容块（模型照约定拒绝纠错、一路耗到 Stall 断路器介入），纠正指令改为附上执行层实际收到的原文；Go 执行器只在真需要时才索取 `PROCESS_SUSPEND_RESUME`，附加失败时点名被拒的访问位，并可在受限令牌宿主下退回普通启动（如实标 `degraded`）保住 Tier-1；`ace.cmd` 改 CRLF 并由 `.gitattributes` 钉死。**这一版要重发预编译执行器** —— 重发之前 `ace --install-executor` 拿到的仍是修复前的二进制

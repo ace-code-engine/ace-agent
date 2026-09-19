@@ -22,7 +22,6 @@ import re
 import shutil
 import subprocess
 import sys
-import unicodedata
 import uuid
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -74,9 +73,24 @@ _SPINNER_RE = re.compile(r"^[◈◐◑◒◓]\s")
 
 
 
-def display_width(text: str) -> int:
-    """CJK 占两列 —— 不算宽度的话中文行会溢出画布。"""
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+def _load_display_width():
+    """按文件路径加载 `ui/ace_text.display_width`。
+
+    与 project_version() 同一套做法、同一个理由：脚本以 `demo/` 为 `sys.path[0]`，
+    仓库根不在路径上；按文件路径加载既保持"宽度只有一处口径"的纪律，又不给这份
+    演示脚本引入 sys.path 手术。（此前这里自己写了一份 CJK 宽度算法，与卡片那边
+    各算各的 —— 同一件事两个口径迟早会漂。）
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_ace_text", ROOT / "ui" / "ace_text.py")
+    if spec is None or spec.loader is None:
+        raise SystemExit("读不到 ui/ace_text.py，无法计算画布宽度")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.display_width
+
+
+display_width = _load_display_width()
 
 
 def capture_session() -> str:

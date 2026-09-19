@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.1%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |
@@ -188,6 +188,8 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 → Framework, CI matrix, benchmarks and e2e details: [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Recent changes
+
+- **v3.11.1** (2026-09-19): the picker matches **subsequences**, not substrings — `glm4` finds `glm-4.6` (0 → 10 hits on `/model`), `dsk` finds `deepseek`; scoring and highlighting share one matcher, so a fuzzy hit is highlighted exactly where it matched. New `ui/ace_text.py` makes text handling **column-aware** (CJK is two columns wide): tool cards used to truncate by character count, so a line truncated to "60 characters" of Chinese occupied 120 columns and pushed the card border off-screen
 
 - **v3.11.0** (2026-09-19): the container tier's run flags were hardened and are now verified against a real daemon instead of by reading code — `--init` (reap zombies, or they eat the `--pids-limit` budget), `--ulimit nofile`, `HOME=/tmp` (pip can't write cache under a read-only root), automatic `,z` on SELinux-enforcing hosts (Fedora/RHEL can't write the mount without it), `--label` for cleanup, optional `ACE_SANDBOX_SECCOMP`. A new `sandbox-smoke` CI job builds the image and runs it through the client's own argument construction, asserting `--network none` and `--read-only` really hold. **Official prebuilt images are not published**: the org's package policy forbids making GHCR packages public, so `ACE_SANDBOX_PULL=1` remains as an opt-in for self-hosted registries and the default stays "build it once locally" → [full release notes](docs/RELEASE-NOTES-v3.11.0.md)
 - **v3.10.1** (2026-09-19): three fixes forced by a real-model smoke test and by actual runs. The correction loop no longer wraps execution-layer errors in the SEC-011 untrusted-content block — the model was correctly refusing to act on it, and deadlocked until the stall breaker fired; the format error now quotes what the layer actually received. The Go executor asks for `PROCESS_SUSPEND_RESUME` only when it needs it, names the denied access right when the attach fails, and can fall back to a non-suspended start (reported as `degraded`) so Tier-1 still works under restricted-token hosts. `ace.cmd` ships CRLF, pinned by `.gitattributes`. **This release re-publishes the executor binaries** — `ace --install-executor` still fetches the pre-fix build until it is out

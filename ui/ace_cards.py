@@ -27,6 +27,8 @@
 import json
 from typing import Dict, List, Optional, Tuple
 
+from ui.ace_text import truncate_width
+
 __all__ = [
     "TOOL_EMOJI", "TOOL_GLYPH", "GLYPH_FALLBACK", "ANSI",
     "tool_card", "status_mark", "collapse_lines", "colorize",
@@ -164,12 +166,12 @@ MESSAGE_LIMIT = 60  # 失败原因上限（与 ai_code.py 的截断一致）
 
 
 def _truncate(text: str, limit: int) -> str:
-    """截断到 limit 字符，超长尾部替换为 '…'；limit <= 3 时直接硬切。"""
-    if len(text) <= limit:
-        return text
-    if limit <= 3:
-        return text[:limit]
-    return text[:limit - 1] + "…"
+    """按**显示宽度**截断到 limit 列，超长尾部替换为 '…'。
+
+    以前这里数的是 `len()`（码点）：中文参数/失败原因只按字数算，实际占两倍列宽，
+    卡片尾巴会顶出终端宽度、把后面的对齐全部挤歪。宽度口径统一到 ui.ace_text。
+    """
+    return truncate_width(text, limit)
 
 
 def _format_params(tool: str, params: Dict) -> str:

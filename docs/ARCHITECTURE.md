@@ -38,6 +38,7 @@ ace-agent/
 │   ├── ace_theme.py            #   语义调色板（dark/light 自动检测）
 │   ├── ace_selector.py         #   搜索式选择器（/model /provider 输入即过滤）
 │   ├── ace_cards.py            #   工具结果卡片（状态+参数+折叠输出）
+│   ├── ace_text.py             #   终端文本宽度（CJK 占两列）：按列截断/补齐，卡片与选择器共用
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
 │   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志

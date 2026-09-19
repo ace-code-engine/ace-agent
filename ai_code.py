@@ -396,6 +396,7 @@ AT_HELP = (
 )
 
 AT_COMPLETE_META = {
+    "image": "at_image_help",
     "lang": "at_complete_lang",
     "skill": "at_complete_skill",
     "file": "at_complete_file",
@@ -532,7 +533,7 @@ def _build_slash_completer(commands: Dict[str, str], custom: Optional[List] = No
                             )
                     return
                 prefix = text[1:]
-                for key in ("lang", "skill", "file", "folder", "refs", "clear"):
+                for key in ("lang", "skill", "file", "folder", "image", "refs", "clear"):
                     if key.startswith(prefix):
                         yield Completion("@" + key, start_position=-len(text),
                                          display_meta=t(AT_COMPLETE_META.get(key, key)))
@@ -565,6 +566,34 @@ def _build_slash_completer(commands: Dict[str, str], custom: Optional[List] = No
                                      display_meta=meta)
 
     return SlashCompleter()
+
+
+# 不能拿来绑自定义命令的键：这些是"输入行本身的语义"，被覆盖会让用户莫名其妙。
+RESERVED_KEYS = frozenset(("enter", "c-c", "c-d", "escape", "c-j", "s-enter", "c-m"))
+_KEY_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def parse_keybindings(raw: Any) -> List[Tuple[str, str]]:
+    """配置里的 `keybindings` → [(键, 斜杠命令)]，非法项**丢弃并计数**由调用方展示。
+
+    约定（写进文档也写进这里）：键名是 prompt_toolkit 的写法（`c-e` = Ctrl+E、
+    `f5`、`c-s-f` 这类组合），值必须是斜杠命令。为什么不让它绑任意字符串：
+    自定键位的作用是"少打字走常用命令"，不是开一个新的脚本执行面 ——
+    那件事 hooks 已经做了，而且 hooks 有它自己的边界说明。
+    """
+    out: List[Tuple[str, str]] = []
+    if not isinstance(raw, dict):
+        return out
+    for key, cmd in raw.items():
+        k = str(key or "").strip().lower()
+        v = str(cmd or "").strip()
+        if not k or not v.startswith("/"):
+            continue
+        if k in RESERVED_KEYS or not _KEY_RE.match(k):
+            continue
+        if (k, v) not in out:
+            out.append((k, v))
+    return out[:20]
 
 
 def _handle_enter_key(buf) -> None:
@@ -1200,10 +1229,13 @@ class _AtCommands:
             self._at_file(arg)
         elif cmd == "@folder":
             self._at_folder(arg)
+        elif cmd == "@image":
+            self._at_image(arg)
         elif cmd in ("@refs", "@context"):
             self._at_refs()
         elif cmd == "@clear":
             self.context_refs = []
+            self._pending_images = []
             print(c("green", t("at_clear_done")))
         else:
             print(t("at_help", lang=LANG_NAMES.get(self.lang, self.lang)))
@@ -1284,6 +1316,28 @@ class _AtCommands:
         self.context_refs = self.context_refs[-3:]
         print(c("green", t("at_folder_added", path=p, n=len(items))))
 
+    def _at_image(self, arg: str) -> None:
+        """`@image <路径>`：把一张图挂进下一轮请求（多模态输入）。
+
+        边界写清楚：图会**原样发给模型提供商**（base64 进请求体）。这不是"本地预览"，
+        是"把这张图交给对面的服务" —— 所以挂上时会点明这一点，而且只在你主动打
+        `@image` 时发生。
+        """
+        from core import ace_model
+        if not arg:
+            print(c("dim", t("at_image_usage")))
+            return
+        path = str(self._resolve_local_path(arg) or arg)
+        block, err = ace_model.build_image_block(path, self.client.api_format)
+        if block is None:
+            print(c("red", t("at_image_failed", err=err)))
+            return
+        self._pending_images.append({"path": path, "block": block})
+        self._pending_images = self._pending_images[-ace_model.MAX_IMAGES_PER_TURN:]
+        print(c("green", t("at_image_added", n=len(self._pending_images),
+                           name=Path(path).name)))
+        print(c("dim", t("at_image_notice")))
+
     def _at_refs(self) -> None:
         if not self.context_refs:
             print(t("at_refs_empty"))
@@ -1309,8 +1363,9 @@ class _SlashCommands:
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
-        ("group_tools", ["/open", "/edit", "/search", "/memory", "/report", "/goal"]),
-        ("group_extend", ["/mcp", "/hooks", "/plugins"]),
+        ("group_tools", ["/open", "/edit", "/review", "/search", "/memory", "/report",
+                        "/goal"]),
+        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim"]),
     ]
     GROUP_FALLBACK = "group_more"
 
@@ -1377,6 +1432,8 @@ class _SlashCommands:
         "/resume": "cmd_resume",
         "/fork": "cmd_fork",
         "/rewind": "cmd_rewind",
+        "/review": "cmd_review",
+        "/vim": "cmd_vim",
         "/hooks": "cmd_hooks",
         "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
@@ -1417,6 +1474,8 @@ class _SlashCommands:
         "/resume": ("_cmd_resume", True),
         "/fork": ("_cmd_fork", True),
         "/rewind": ("_cmd_rewind", True),
+        "/review": ("_cmd_review", True),
+        "/vim": ("_cmd_vim", True),
         "/hooks": ("_cmd_hooks", True),
         "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
@@ -2057,6 +2116,9 @@ class _SlashCommands:
                 parts.append(("class:footer-dim", " 目标:done "))
         parts.append(("class:footer-dim",
                       f" 轮{self.session['rounds']} 工具{self.session['tools']} "))
+        # 挂着的图片：只有非空时显示（提醒"这些东西会跟着下一轮发出去"）
+        if getattr(self, "_pending_images", None):
+            parts.append(("class:footer-w", t("footer_images", n=len(self._pending_images))))
         # 待办进度：只有非空时才占位置（空清单不该在底栏占一格）
         try:
             _todo_store = getattr(getattr(self, "el", None), "todos", None)
@@ -2075,6 +2137,19 @@ class _SlashCommands:
         if _bdg_text:
             parts.append((_bdg_cls, _bdg_text))
         return parts
+
+    def cost_estimate(self) -> Dict[str, Any]:
+        """本会话成本估算（$）。口径见 core/ace_cost：**估算，不是账单**。
+
+        价格表是本地快照、token 数是按字符估的，所以文案里必须带"估算"；查不到价格
+        就直说"价格未知"，不编一个数字出来。
+        """
+        from core import ace_cost
+        table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
+        out = ace_cost.cost_line(self.client.model, self._cost["in_tokens"],
+                                 self._cost["out_tokens"], table)
+        out["snapshot"] = ace_cost.PRICING_SNAPSHOT
+        return out
 
     def context_usage(self, messages: Optional[List[Dict]] = None,
                       system: str = "") -> Dict[str, Any]:
@@ -2703,6 +2778,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._ctx_warn_band = 0
         # /history 选中后要预填到下一次输入行的内容（空 = 不预填）
         self._pending_input = ""
+        # @image 挂上的图片（block 已按接口格式组装好），下一轮请求带上后清空
+        self._pending_images: List[Dict] = []
+        # 最近一次带 diff 的改动（/review 用）：{"tool","path","diff"}
+        self._last_diff: Optional[Dict] = None
+        # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
+        self._cost = {"in_tokens": 0, "out_tokens": 0}
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
         # 工具往返（执行层）+ 模型请求/输出（CLI）都进同一份 append-only 事实源。
         self.cfg["session_log"] = str(Path(self.cfg.get("project_root", "."))
@@ -2783,11 +2864,14 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if el is not None:
             self._fire_hook("session_end")
             if getattr(self, "json_mode", False):
+                _c = self.cost_estimate()
                 self.events.emit(
                     "session_end", rounds=self.session.get("rounds", 0),
                     tools=self.session.get("tools", 0),
                     violations=self.session.get("violations", 0),
-                    elapsed=round(time.time() - self.session.get("start", time.time()), 3))
+                    elapsed=round(time.time() - self.session.get("start", time.time()), 3),
+                    cost_estimate_usd=_c["usd"], in_tokens=_c["in_tokens"],
+                    out_tokens=_c["out_tokens"])
             try:
                 el.close()
             except Exception:  # noqa: BLE001 —— 收尾失败不该掩盖主流程
@@ -2840,6 +2924,82 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if cmd is None:
             return None
         return cmd.expand(parts[1] if len(parts) > 1 else "")
+
+    def _cmd_review(self, parts: List[str]) -> bool:
+        """`/review`：把上一处改动写成补丁 → 在编辑器里打开 → **读回**并应用。
+
+        为什么用"补丁文件"而不是直接在源文件上改：模型刚改完的东西，人往往只想动其中
+        一两行。给一份补丁，改哪行就是哪行；改完回填走的是**同一道执行层闸门**
+        （快照、权限、审计都在），不是绕过工具直接写盘。
+        """
+        from core import ace_patch
+        info = getattr(self, "_last_diff", None)
+        if not info or not info.get("diff"):
+            print(c("dim", t("review_none")))
+            return True
+        target = Path(str(self.cfg.get("project_root", "."))) / str(info.get("path") or "")
+        if not target.is_file():
+            print(c("red", t("review_no_file", path=str(target))))
+            return True
+        review_dir = Path(str(self.cfg.get("project_root", "."))) / ".ace_review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        patch_path = review_dir / f"review-{int(time.time())}.diff"
+        # 只在缺尾换行时补一个：多补会多出一条空行，解析时会被当成上下文空行
+        _ptext = info["diff"] if info["diff"].endswith("\n") else info["diff"] + "\n"
+        patch_path.write_text(_ptext, encoding="utf-8")
+        editor = (os.environ.get("ACE_EDITOR") or os.environ.get("VISUAL")
+                  or os.environ.get("EDITOR") or "")
+        print(c("cyan", t("review_wrote", path=str(patch_path))))
+        if not editor:
+            print(c("yellow", t("review_no_editor", path=str(patch_path))))
+            return True
+        try:
+            print(c("dim", t("review_opening", editor=editor)))
+            subprocess.run(f'{editor} "{patch_path}"', shell=True, check=False)
+        except Exception as e:  # noqa: BLE001 —— 编辑器起不来不该崩会话
+            print(c("red", t("review_editor_failed", err=e)))
+            return True
+        edited = patch_path.read_text(encoding="utf-8")
+        if edited.strip() == (info["diff"].strip() + ""):
+            print(c("dim", t("review_unchanged")))
+            return True
+        original = target.read_text(encoding="utf-8", errors="replace")
+        new_text, ok, note = ace_patch.apply_unified_diff(original, edited)
+        if not ok:
+            print(c("red", t("review_apply_failed", note=note)))
+            return True
+        if new_text == original:
+            print(c("dim", t("review_unchanged")))
+            return True
+        rel = os.path.relpath(str(target), str(self.cfg.get("project_root", ".")))
+        res = self.el.executor.execute({"tool": "file_write", "path": rel,
+                                        "content": new_text})
+        if res.status != "success":
+            print(c("red", t("review_write_failed", err=res.message)))
+            return True
+        print(c("green", t("review_applied", path=rel, note=note)))
+        return True
+
+    def _cmd_vim(self, parts: List[str]) -> bool:
+        """`/vim [on|off]`：切换 vi 编辑模式（下个输入行生效），并列出自定义键位。"""
+        arg = (parts[1].lower() if len(parts) > 1 else "")
+        if arg in ("on", "1", "true", "yes", "开"):
+            self.cfg["vim_mode"] = True
+        elif arg in ("off", "0", "false", "no", "关"):
+            self.cfg["vim_mode"] = False
+        else:
+            self.cfg["vim_mode"] = not bool(self.cfg.get("vim_mode", False))
+        on = bool(self.cfg.get("vim_mode"))
+        print(c("cyan", t("vim_on") if on else t("vim_off")))
+        binds = parse_keybindings(self.cfg.get("keybindings"))
+        if binds:
+            print(c("dim", t("keys_title", n=len(binds))))
+            for key, cmd in binds:
+                print(c("dim", f"    {key} → {cmd}"))
+        else:
+            print(c("dim", t("keys_none")))
+        print(c("dim", t("vim_hint")))
+        return True
 
     def _cmd_todo(self, parts: List[str]) -> bool:
         """`/todo [add <文本>|start <id>|done <id>|remove <id>|clear [all]]`。
@@ -3460,6 +3620,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             spinner.stop()
         # 会话事件日志：记录模型本轮完整输出（原文，可重放）
         self.session_log.record_assistant(output)
+        self._cost["out_tokens"] += ace_context.estimate_tokens(output)
         self.messages = self.client.trim_messages(
             msgs + [{"role": "assistant", "content": output}], self.max_history)
         return output, system, disp
@@ -3546,7 +3707,16 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 收尾给一行汇总，才看得出这次到底做了什么。
         self._round_tools: List[Tuple[str, str, float, Optional[int]]] = []
         for _round in range(1, MAX_ROUNDS + 1):
-            msgs = self.messages + [{"role": "user", "content": next_user}]
+            _blocks = [im["block"] for im in self._pending_images]
+            _user_msg = ace_model.compose_user_message(
+                next_user, _blocks, self.client.api_format) if _blocks else \
+                {"role": "user", "content": next_user}
+            if _blocks and _round == 1:
+                print(c("dim", t("image_sent", n=len(_blocks))))
+                self._pending_images = []
+            self._cost["in_tokens"] += ace_context.measure(self.messages) + \
+                ace_context.estimate_tokens(next_user)
+            msgs = self.messages + [_user_msg]
             output, system, disp = self._model_turn(msgs, round_no=_round)
             if output is None:
                 return                      # 中断/模型报错：提示已经打过了
@@ -3699,6 +3869,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         _raw_diff = str(_d.get("diff") or "")
                         if _raw_diff and ace_diff.looks_like_diff(_raw_diff):
                             _diff = _raw_diff
+                            # 记下来给 /review 用：哪次调用、改的哪个文件、diff 原文
+                            self._last_diff = {"tool": result.get("tool", ""),
+                                               "path": str(_d.get("path") or ""),
+                                               "diff": _raw_diff}
                             # diff 单独渲染，正文只留一行摘要 —— 否则同一份 diff
                             # 会先在"输出"里刷一遍、再在 diff 段里刷一遍
                             _out = str(_d.get("summary") or "")[:4000]
@@ -3811,6 +3985,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(t("status_snapshots", n=len(snaps), limit=limit))
         print(t("status_modules", v2=stats["v2_gateway"],
                 v1=stats["v1_modules"], parser=stats["parser"]))
+        _cost = self.cost_estimate()
+        print(c("dim" if _cost["usd"] is not None else "yellow",
+                t("status_cost", text=_cost["text"], tin=_cost["in_tokens"],
+                  tout=_cost["out_tokens"])))
         _cu = self.context_usage()
         if _cu["state"] != "unknown":
             _ctx_line = t("status_context", tokens=_cu["tokens"], window=_cu["window"],
@@ -3875,6 +4053,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if sys.stdin.isatty() and sys.stdout.isatty():
             try:
                 from prompt_toolkit import PromptSession
+                from prompt_toolkit.enums import EditingMode
                 from prompt_toolkit.styles import Style
                 from prompt_toolkit.key_binding import KeyBindings
                 from prompt_toolkit.history import FileHistory, InMemoryHistory
@@ -3944,6 +4123,21 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             pass
                     kb.add(_hotkey)(_hotkey_handler)
 
+                # 用户自定义键位（config.keybindings）：走与 F1–F4 同一条通道 ——
+                # 退出输入行并把斜杠命令交给 run_command，不另开一套执行面。
+                for _ukey, _ucmd in parse_keybindings(self.cfg.get("keybindings")):
+                    def _user_binding(event, _c=_ucmd):
+                        try:
+                            event.current_buffer.reset()
+                            event.app.exit(result="\x00MENU:" + _c)
+                        except Exception:
+                            pass
+                    try:
+                        kb.add(_ukey)(_user_binding)
+                    except Exception:  # noqa: BLE001 —— 认不出的键名跳过，不拖垮启动
+                        continue
+
+                _vim = bool(self.cfg.get("vim_mode", False))
                 session = PromptSession(
                     completer=_build_slash_completer(
                         self.COMMANDS,
@@ -3951,6 +4145,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     complete_while_typing=True,
                     key_bindings=kb,
                     history=_history,
+                    editing_mode=(EditingMode.VI if _vim else EditingMode.EMACS),
                     bottom_toolbar=self._footer,
                     # 续行标记：多行输入时第 2 行起用"… "对齐，让人知道还在同一句里
                     prompt_continuation=lambda width, line_number, is_soft_wrap: [

@@ -31,6 +31,18 @@ config = {
 }
 ```
 
+### 界面与成本（`vim_mode` / `keybindings` / `pricing`）
+
+```json
+"vim_mode": false,                          // vi 编辑模式（也可 /vim on|off 热切换）
+"keybindings": {"c-e": "/expand", "f5": "/todo"},   // 键 → 斜杠命令；保留键(enter/esc/Ctrl+C)不许覆盖
+"pricing": {"deepseek-v4-flash": {"in": 0.28, "out": 0.42}}  // 美元/百万 token，覆盖内置快照
+```
+
+- `keybindings` 的值必须是斜杠命令（自定键位是为了少打字走常用命令，不是开一个新的脚本执行面 —— 那是 hooks 的活）。
+- `pricing` 的键按**子串**匹配、最长优先；`in`/`out` 单位是**美元每百万 token**。
+- **成本是估算，不是账单**：token 数按字符估（中文按字），价格表是本地快照（`core/ace_cost.PRICING_SNAPSHOT`）。查不到价格时 `/status` 显示"价格未知"，**不编数字**。
+
 ### 事件钩子（`hooks`）
 
 ```json

@@ -67,6 +67,8 @@ ace-agent/
 │   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
 │   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
+│   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
+│   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
@@ -107,7 +109,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.20.0.md #  本版更新介绍（可直接贴进 GitHub Release；会话管理 + 待办清单）
+│   ├── RELEASE-NOTES-v3.21.0.md #  本版更新介绍（可直接贴进 GitHub Release；编辑器桥/图片/键位/成本）
+│   ├── RELEASE-NOTES-v3.20.0.md #  v3.20 更新介绍（会话管理 + 待办清单）
 │   ├── RELEASE-NOTES-v3.19.0.md #  v3.19 更新介绍（headless 事件流）
 │   ├── RELEASE-NOTES-v3.18.0.md #  v3.18 更新介绍（钩子 + 自定义命令 + 插件）
 │   ├── RELEASE-NOTES-v3.17.0.md #  v3.17 更新介绍（MCP 客户端）

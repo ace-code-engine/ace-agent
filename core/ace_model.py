@@ -17,7 +17,72 @@
 任何模块（与 ace_isolation 同一取态，谁都能安全地引它）。
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+# —— 图片输入（多模态）：只做**纯逻辑**（读文件 + 组装 payload），不发请求 ——
+# 只认这几种格式：各家 API 支持的就是这些，别的传过去只会报错。
+IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".webp": "image/webp", ".gif": "image/gif"}
+MAX_IMAGE_BYTES = 4_000_000        # 单张上限：再大就该先压缩，而不是把请求撑爆
+MAX_IMAGES_PER_TURN = 3
+
+
+def guess_media_type(path: str) -> Optional[str]:
+    """按扩展名判断 MIME；不支持的类型返回 None（调用方据此说清原因）。"""
+    import os
+    ext = os.path.splitext(str(path or ""))[1].lower()
+    return IMAGE_MEDIA_TYPES.get(ext)
+
+
+def build_image_block(path: str, api_format: str = "openai"
+                      ) -> Tuple[Optional[Dict[str, Any]], str]:
+    """读一张图 → 该接口格式的 content block。返回 (block, 错误说明)。
+
+    - OpenAI 兼容：`{"type":"image_url","image_url":{"url":"data:<mime>;base64,…"}}`
+    - Anthropic：`{"type":"image","source":{"type":"base64","media_type":…,"data":…}}`
+
+    超限/格式不对/读不出来都**如实返回原因**，不静默跳过 —— 用户以为图发出去了、
+    其实没发，是这类功能最容易出的错。
+    """
+    import base64
+    import os
+    p = str(path or "").strip()
+    if not p:
+        return None, "路径为空"
+    mime = guess_media_type(p)
+    if not mime:
+        return None, f"不支持的图片格式（只支持 {'/'.join(sorted(set(IMAGE_MEDIA_TYPES.values())))}）"
+    if not os.path.isfile(p):
+        return None, f"文件不存在: {p}"
+    try:
+        size = os.path.getsize(p)
+        if size > MAX_IMAGE_BYTES:
+            return None, f"图片过大（{size} 字节 > {MAX_IMAGE_BYTES}）"
+        with open(p, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+    except OSError as e:
+        return None, f"读取失败: {e}"
+    if str(api_format).lower() == "anthropic":
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": data}}, ""
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}, ""
+
+
+def compose_user_message(text: str, images: Optional[List[Dict[str, Any]]] = None,
+                         api_format: str = "openai") -> Dict[str, Any]:
+    """把"文本 + 图片块"组装成一条 user 消息。
+
+    没有图片时 content 就是字符串（保持与旧行为逐字节一致 —— 各家对纯字符串的
+    处理最稳，改成数组反而可能踩兼容性）。
+    """
+    blocks = [b for b in (images or []) if isinstance(b, dict)]
+    if not blocks:
+        return {"role": "user", "content": str(text or "")}
+    parts: List[Dict[str, Any]] = []
+    if str(text or "").strip():
+        parts.append({"type": "text", "text": str(text)})
+    parts.extend(blocks)
+    return {"role": "user", "content": parts}
 
 
 def trim_history(messages: List[Dict], max_history: int) -> List[Dict]:

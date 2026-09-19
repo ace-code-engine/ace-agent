@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46"]
+             "43", "44", "45", "46", "47"]
 _SEEN_SECTIONS: list = []
 
 
@@ -7160,6 +7160,214 @@ if _want("46"):
           len(_replayed46) == 2 and _replayed46[0].status == "done",
           [t.as_dict() for t in _replayed46])
     _cli46.close()
+
+    # ============================================================
+
+# ============================================================
+if _want("47"):
+    # ── [47] ────
+    print("[47] 编辑器桥与 diff 回读 · 图片输入 · vim 模式与键位 · 成本估算")
+    # ============================================================
+    import io as _io47  # noqa: E402
+    import contextlib as _cl47  # noqa: E402
+    import ai_code as _ai47  # noqa: E402
+    from core import ace_cost as _co47  # noqa: E402
+    from core import ace_patch as _pt47  # noqa: E402
+    from core import ace_model as _mo47  # noqa: E402
+
+    # —— 纯逻辑：unified diff 应用器 ——
+    _orig47 = "def a():\n    return 1\n\ndef b():\n    return 2\n"
+    _diff47 = ("--- a/x.py\n+++ b/x.py\n@@ -1,5 +1,6 @@\n def a():\n-    return 1\n"
+               "+    return 42\n \n def b():\n     return 2\n+x = 1\n")
+    _new47, _ok47, _note47 = _pt47.apply_unified_diff(_orig47, _diff47)
+    check("diff 应用：改一行 + 加一行",
+          _ok47 and _new47 == "def a():\n    return 42\n\ndef b():\n    return 2\nx = 1\n",
+          (_ok47, _new47))
+    check("diff 应用：上下文不匹配就整体失败并指出行号",
+          not _pt47.apply_unified_diff(_orig47, _diff47.replace("def b():", "def c():"))[1]
+          and "第 4 行" in _pt47.apply_unified_diff(
+              _orig47, _diff47.replace("def b():", "def c():"))[2],
+          _pt47.apply_unified_diff(_orig47, _diff47.replace("def b():", "def c():"))[2])
+    check("diff 应用：空补丁 / 没有 @@ 块都如实报错（不静默成功）",
+          not _pt47.apply_unified_diff(_orig47, "")[1]
+          and not _pt47.apply_unified_diff(_orig47, "just text")[1], "")
+    _part47 = "@@ -3,3 +3,3 @@\n \n def b():\n-    return 2\n+    return 3\n"
+    check("diff 应用：只覆盖文件一段时，尾部未提及的内容保留",
+          _pt47.apply_unified_diff(_orig47, _part47)[0].endswith("    return 3\n"),
+          repr(_pt47.apply_unified_diff(_orig47, _part47)[0]))
+    check("parse_hunks：能数出块数与增删行",
+          len(_pt47.parse_hunks(_diff47)) == 1
+          and sum(1 for m, _t in _pt47.parse_hunks(_diff47)[0]["lines"]
+                  if m == "+") == 2, _pt47.parse_hunks(_diff47))
+
+    # —— 纯逻辑：图片输入 ——
+    _img47 = mktemp() / "shot.png"
+    _img47.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    _bad47 = mktemp() / "notes.txt"
+    _bad47.write_text("x", encoding="utf-8")
+    _blk_o, _err_o = _mo47.build_image_block(str(_img47), "openai")
+    _blk_a, _err_a = _mo47.build_image_block(str(_img47), "anthropic")
+    check("图片块：OpenAI 用 data URL，Anthropic 用 base64 source",
+          _blk_o["type"] == "image_url" and _blk_o["image_url"]["url"].startswith("data:image/png;base64,")
+          and _blk_a["type"] == "image" and _blk_a["source"]["media_type"] == "image/png",
+          (_blk_o["type"], _blk_a["type"]))
+    check("图片块：不支持的扩展名如实拒绝",
+          _mo47.build_image_block(str(_bad47), "openai")[0] is None
+          and "不支持" in _mo47.build_image_block(str(_bad47), "openai")[1], "")
+    check("图片块：文件不存在 / 空路径都报原因",
+          _mo47.build_image_block(str(mktemp() / "nope.png"), "openai")[0] is None
+          and _mo47.build_image_block("", "openai")[1], "")
+    _big47 = mktemp() / "big.png"
+    _big47.write_bytes(b"0" * (_mo47.MAX_IMAGE_BYTES + 1))
+    check("图片块：超过 4MB 上限被拒（不让请求体爆掉）",
+          _mo47.build_image_block(str(_big47), "openai")[0] is None
+          and "过大" in _mo47.build_image_block(str(_big47), "openai")[1], "")
+    check("compose_user_message：没有图时 content 仍是字符串（与旧行为逐字节一致）",
+          _mo47.compose_user_message("你好", [], "openai") == {"role": "user",
+                                                             "content": "你好"}, "")
+    _msg47 = _mo47.compose_user_message("看这张图", [_blk_o], "openai")
+    check("compose_user_message：有图时 text 在前、image 在后",
+          isinstance(_msg47["content"], list) and _msg47["content"][0]["type"] == "text"
+          and _msg47["content"][1]["type"] == "image_url", _msg47["content"])
+
+    # —— 纯逻辑：成本估算 ——
+    check("价格：最长子串优先（deepseek-v4-pro 不会被 deepseek 抢走）",
+          _co47.price_for("deepseek-v4-pro")["out"] == 2.19, _co47.price_for("deepseek-v4-pro"))
+    check("价格：查不到就是 None（不编数字）",
+          _co47.price_for("某不存在的模型") is None and _co47.price_for("") is None, "")
+    check("价格：用户配置覆盖默认（子串匹配也一样）",
+          _co47.price_for("my-model",
+                          _co47.resolve_pricing({"my": {"in": 2, "out": 3}})) == {"in": 2.0,
+                                                                                 "out": 3.0}, "")
+    _cost47 = _co47.cost_line("deepseek-v4-flash", 1_000_000, 1_000_000)
+    check("成本：百万输入 + 百万输出 = 单价之和",
+          abs(_cost47["usd"] - 0.70) < 1e-9, _cost47)
+    check("成本：免费档为 $0，未知模型给'价格未知'",
+          _co47.cost_line("qwen2.5-coder", 99999, 99999)["usd"] == 0
+          and "价格未知" in _co47.cost_line("某模型", 1, 1)["text"], "")
+    check("成本：金额格式分档（小额给 4 位小数，不会全变 $0.00）",
+          _co47.format_cost(0.000123) == "$0.0001" and _co47.format_cost(0) == "$0"
+          and _co47.format_cost(None) == "—", "")
+
+    # —— 纯逻辑：自定义键位 ——
+    _kb47 = _ai47.parse_keybindings({"c-e": "/expand", "f5": "/todo", "enter": "/help",
+                                     "c-c": "/clear", "x!": "/bad", "nope": "no-slash",
+                                     "c-s-f": "/status"})
+    check("键位：合法项保留（含组合键），保留键/非法名/非斜杠值一律丢弃",
+          _kb47 == [("c-e", "/expand"), ("f5", "/todo"), ("c-s-f", "/status")], _kb47)
+    check("键位：非 dict 配置返回空列表（不崩）",
+          _ai47.parse_keybindings("c-e") == [] and _ai47.parse_keybindings(None) == [], "")
+
+    # —— 真文件 + 真 CLI：@image / /review / /status 成本 ——
+    _root47 = mktemp()
+    _png47 = _root47 / "shot.png"
+    _png47.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 64)
+    _tgt47 = _root47 / "code.py"
+    _tgt47.write_text("x = 1\ny = 2\n", encoding="utf-8")
+    _cli47 = _ai47.AgentCLI({"project_root": str(_root47), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "", "model": "m1"},
+                            mock=True)
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47._handle_at_command(f"@image {_png47}")
+    check("@image：挂上图片并**明说会发给模型提供商**",
+          len(_cli47._pending_images) == 1
+          and "发给模型提供商" in _buf47.getvalue(), _buf47.getvalue()[:200])
+    check("@image：底栏出现图片角标（发出去之前一直看得见）",
+          any("图1" in p[1] for p in _cli47._footer()), _cli47._footer())
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47._handle_at_command(f"@image {_bad47 if False else (_root47 / 'missing.png')}")
+    check("@image：路径不存在时如实报错，且不污染已挂的图片",
+          len(_cli47._pending_images) == 1 and "失败" in _buf47.getvalue(),
+          _buf47.getvalue()[:200])
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47.converse("看一下这张图", echo_input=False)
+    _sent47 = [m for m in _cli47.messages if isinstance(m.get("content"), list)]
+    check("对话：带图的那轮真的把 image 块组进了消息（之后自动清空）",
+          bool(_sent47) and _sent47[0]["content"][1]["type"] == "image_url"
+          and _cli47._pending_images == [], _cli47.messages[:2])
+
+    # /review：把"人改过的补丁"回填到源文件（用脚本冒充编辑器）
+    _cli47._last_diff = {
+        "tool": "file_write", "path": "code.py",
+        "diff": "--- a/code.py\n+++ b/code.py\n@@ -1,2 +1,3 @@\n x = 1\n y = 2\n+z = 3\n"}
+    _editor47 = _root47 / "fake_editor.py"
+    _editor47.write_text(
+        "import sys, pathlib\n"
+        "p = pathlib.Path(sys.argv[1])\n"
+        "t = p.read_text(encoding='utf-8').replace('+z = 3', '+z = 30')\n"
+        "p.write_text(t, encoding='utf-8')\n",
+        encoding="utf-8")
+    _old_editor47 = os.environ.get("ACE_EDITOR")
+    os.environ["ACE_EDITOR"] = f"{sys.executable} {_editor47}"
+    try:
+        _buf47 = _io47.StringIO()
+        with _cl47.redirect_stdout(_buf47):
+            _cli47.run_command("/review")
+        _out47 = _buf47.getvalue()
+        check("/review：编辑过的补丁被读回并应用到源文件",
+              "z = 30" in _tgt47.read_text(encoding="utf-8")
+              and "已回填" in _out47, (_out47[-200:], _tgt47.read_text(encoding="utf-8")))
+        check("/review：回填走执行层（有快照/审计，不是直接写盘）",
+              _cli47.el.guardian is not None
+              and any(e.get("kind") == "tool/result" for e in
+                      _cli47.session_log.events()), "")
+        check("/review：补丁文件留在 .ace_review/ 下（可复查）",
+              (_root47 / ".ace_review").is_dir()
+              and list((_root47 / ".ace_review").glob("*.diff")), "")
+        # 编辑器不改动 → 明确说"什么都没做"
+        _cli47._last_diff["diff"] = ("--- a/code.py\n+++ b/code.py\n@@ -1,3 +1,3 @@\n"
+                                     " x = 1\n y = 2\n-z = 30\n+z = 31\n")
+        _editor47.write_text("import sys\n", encoding="utf-8")   # 什么都不做的编辑器
+        _buf47 = _io47.StringIO()
+        with _cl47.redirect_stdout(_buf47):
+            _cli47.run_command("/review")
+        check("/review：补丁没改动时如实说没做（不假装应用了）",
+              "什么都没做" in _buf47.getvalue()
+              and _tgt47.read_text(encoding="utf-8").strip().endswith("z = 30"),
+              _buf47.getvalue()[-160:])
+    finally:
+        if _old_editor47 is None:
+            os.environ.pop("ACE_EDITOR", None)
+        else:
+            os.environ["ACE_EDITOR"] = _old_editor47
+
+    # 没有 diff → 明说没得审
+    _cli47._last_diff = None
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47.run_command("/review")
+    check("/review：没有可审阅的改动时如实回答", "可审阅" in _buf47.getvalue(),
+          _buf47.getvalue()[:160])
+
+    # /status 成本行 + /vim
+    _cli47._cost = {"in_tokens": 12_000, "out_tokens": 800}
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47.run_command("/status")
+    _out47 = _buf47.getvalue()
+    check("/status 有成本行（带估算与输入/输出 token）",
+          "成本" in _out47 and "≈12000" in _out47, _out47[-300:])
+    _cli47.client.model = "某不存在的模型"
+    check("价格未知时如实说（不编一个数字）",
+          "价格未知" in _cli47.cost_estimate()["text"], _cli47.cost_estimate())
+    _buf47 = _io47.StringIO()
+    with _cl47.redirect_stdout(_buf47):
+        _cli47.run_command("/vim on")
+        _cli47.cfg["keybindings"] = {"c-e": "/expand", "enter": "/bad"}
+        _cli47.run_command("/vim")
+    _out47 = _buf47.getvalue()
+    check("/vim：切换 vi 模式并生效于配置（无参数=切换）",
+          _cli47.cfg.get("vim_mode") is False, "")   # on → 无参切换回 off
+    check("/vim：列出自定义键位（保留键不出现）",
+          "c-e → /expand" in _out47 and "enter →" not in _out47
+          and "bad" not in _out47, _out47[-260:])
+    _src47 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("vi 模式真的接在 PromptSession 上（不是只改了个配置字段）",
+          "EditingMode.VI" in _src47 and "editing_mode=" in _src47, "")
+    _cli47.close()
 
     # ============================================================
 

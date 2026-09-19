@@ -12,7 +12,7 @@
 | 分类 | 命令 |
 |---|---|
 | 会话 | `/help` `/clear` `/status` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
-| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） |
+| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
@@ -61,6 +61,10 @@
 - `.ace/plugins/<名>/` → 插件：`commands/*.md` + `hooks.json`（命令带插件名前缀 `/名:cmd`）
 - `hooks`（`~/.ai_code.json` 或 `.ace/hooks.json`）→ 四个事件的用户检查；**默认出错即拦截**（fail-close），要宽松显式写 `on_error: warn`
 - `/hooks` 看装了哪些钩子与上次结果，`/plugins` 看插件加载情况
+
+**改动的审阅（`/review`）**：把上一处改动写成补丁 → 在 `$ACE_EDITOR`/`$VISUAL`/`$EDITOR` 里打开 → **读回**并应用。回填走的是**同一道执行层闸门**（快照/权限/审计都在），不是绕过工具直接写盘；补丁留在 `.ace_review/*.diff` 可复查。上下文对不上就**整体不应用**并指出第几行不匹配。
+
+**图片输入（`@image <路径>`）**：挂进下一轮请求（png/jpg/jpeg/webp/gif，单张 ≤4MB，最多 3 张）。底栏会显示 `图1` 直到发出去。**注意：图片会原样发给模型提供商**（base64 进请求体）。
 
 **会话管理**（事实源是 `.ace_sessions/*.jsonl` 事件日志）：
 

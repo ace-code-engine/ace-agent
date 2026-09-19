@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.10.0%20(2026--09--18)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.10.1%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -230,6 +230,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.10.1** (2026-09-19)：三处由真机冒烟与实际运行逼出来的修复。格式纠错不再把执行层的报错包进 SEC-011 的外部内容块（模型照约定拒绝纠错、一路耗到 Stall 断路器介入），纠正指令改为附上执行层实际收到的原文；Go 执行器只在真需要时才索取 `PROCESS_SUSPEND_RESUME`，附加失败时点名被拒的访问位，并可在受限令牌宿主下退回普通启动（如实标 `degraded`）保住 Tier-1；`ace.cmd` 改 CRLF 并由 `.gitattributes` 钉死。**这一版要重发预编译执行器** —— 重发之前 `ace --install-executor` 拿到的仍是修复前的二进制
 - **v3.10.0** (2026-09-18)：根目录瘦身——20 个模块下沉 `ui/`（终端表现）/ `cli/`（自检·上下文·会话日志）/ `core/`（策略·网络·执行器客户端·记忆与快照），根级只留 4 个 `.py`；README 改为英文为主（中文在本文件）；演示补上"被拦下"那条路径
 - **v3.9.0** (2026-09-18)：P2 结构重构落地——测试分段运行（`--only 40` 从 14s 到 0.3s）、`tools/file_tools.py` 按三条执行路径拆域（方法体逐字节未改）、`run_command` 125→25 行 / `converse` 234→175 行、新增共享模型层纯逻辑 `core/ace_model.py`
 - **v3.8.4** (2026-09-18)：斜杠命令表驱动（`run_command` 125→46 行）+ R-01 状态机闭环核对 + `docs/design/STRUCT-REFACTOR.md` 立项卡

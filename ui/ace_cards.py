@@ -151,14 +151,14 @@ def collapse_lines(lines: List[str], max_lines: int) -> List[str]:
     纯函数、可单测。不超限时原样返回；空输入返回空列表。
 
     >>> collapse_lines(["a"] * 10, 4)
-    ['a', 'a', 'a', 'a', '… 已折叠 6 行 (展开看完整)']
+    ['a', 'a', 'a', 'a', '… 已折叠 6 行 (用 /expand 看完整)']
     """
     lines = list(lines)
     max_lines = int(max_lines)
     if len(lines) <= max_lines:
         return lines
     hidden = len(lines) - max_lines
-    return lines[:max_lines] + [f"… 已折叠 {hidden} 行 (展开看完整)"]
+    return lines[:max_lines] + [f"… 已折叠 {hidden} 行 (用 /expand 看完整)"]
 
 
 PARAM_LIMIT = 80    # 参数摘要单行上限
@@ -219,7 +219,7 @@ def tool_card(tool: str, status: str, params: Optional[Dict] = None,
       ["  > terminal_exec ✓ [SUCCESS] · 0.32s",
        "    $ ls -la",                    # 参数摘要（dim，调用方可上色）
        "    drwxr-xr-x ...",              # output 前 N 行（缩进 4 空格）
-       "    … 已折叠 40 行 (展开看完整)"]  # 折叠提示
+       "    … 已折叠 40 行 (用 /expand 看完整)"]  # 折叠提示
     """
     glyph = (glyphs or TOOL_GLYPH).get(tool, GLYPH_FALLBACK)
     mark, _color = status_mark(status)

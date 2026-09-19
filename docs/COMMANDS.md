@@ -12,13 +12,17 @@
 | 会话 | `/help` `/clear` `/status` `/stats` `/exit` |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` |
-| 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` |
+| 工具 | `/open <路径>` `/edit <路径>` `/search <关键词>` `/memory` `/report` `/expand` |
 
 ```bash
 /provider                   # 列出 9 家厂商 · 10 入口（当前标 ✓）
 /provider zhipu             # 一键切智谱（自动换到 glm-4.7-flash）
 /provider 3 sk-你的key      # 编号 + 密钥一把梭
 ```
+
+工具输出超过 8 行时卡片折叠，末行写着「已折叠 N 行 (用 /expand 看完整)」——`/expand` 重印上一次被折叠的完整输出（单次最多保留 4000 字符，被截断时会在标题里说明；没有折叠过就如实回答没有）。
+
+**输入历史**：聊天里的 ↑/↓ 与 Ctrl+R 翻的是 `~/.ace_history`（跨会话保留）。历史文件里可能留下你粘贴过的密钥，`ACE_NO_HISTORY=1` 可退回进程内历史。
 
 **@ 快捷方式**（输入 `@` 弹菜单）：
 

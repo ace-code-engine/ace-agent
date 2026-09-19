@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.1%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.12.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -182,8 +182,9 @@ flowchart LR
 /undo                        # 写入前快照 → 一键回滚
 ```
 
-斜杠：`/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <名称>` `/mock` `/open <路径>` `/edit <路径>` `/search <词>` `/memory` `/report`
+斜杠：`/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <名称>` `/mock` `/open <路径>` `/edit <路径>` `/search <词>` `/memory` `/report` `/expand`
 `@` 快捷：`@lang`（zh/en/ja）· `@skill` · `@file` · `@folder` · `@refs`
+工具输出超过 8 行会被卡片折叠，`/expand` 重印上一次的完整输出（单次最多 4000 字符，被截断时如实标注）；↑/↓ 与 Ctrl+R 翻的是跨会话的 `~/.ace_history`，`ACE_NO_HISTORY=1` 可让它只留在进程内。
 
 → 完整命令表、`/provider` 全示例、启动参数见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
@@ -230,6 +231,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.12.0** (2026-09-19)：把一句空话补成真功能。工具卡片从早先版本起就写着"已折叠 N 行（用 /expand 看完整）"，而全仓根本没有这条命令——恰恰在用户最需要出口的地方挂着一句空承诺。现在 `/expand` 重印上一次被折叠的完整输出，没折叠过就如实说没有，被 4000 字符上限截断时在标题里标出来。输入历史改为跨会话保存在 `~/.ace_history`（↑/↓ 与 Ctrl+R 能翻到昨天的输入；`ACE_NO_HISTORY=1` 退回进程内，因为历史文件里可能留着粘贴过的密钥），状态行加上已用秒数，长思考与卡死从此看得出区别。守卫：`[9]` 新增 12 条，其中一条通用不变量盯"命令表里的 parts 标志必须与处理函数真实签名一致"（它第一次运行就抓住了 `/expand` 自己的签名不符）；`[11]` 现在强制三语键集完全一致、同名键的 `{占位符}` 一致、且没有空译文
 - **v3.11.1** (2026-09-19)：选择器改成**子序列（模糊）匹配**——`glm4` 能命中 `glm-4.6`（`/model` 里从 0 项变 10 项）、`dsk` 能命中 `deepseek`；评分与高亮共用一个匹配器，模糊命中标的正是真正命中的字符。新增 `ui/ace_text.py` 让文本按**列**算宽度（中文占两列）：卡片此前按字数截断，"60 字"的中文实际占 120 列，会把卡片边框顶出屏幕
 
 - **v3.11.0** (2026-09-19)：容器档的运行参数做了一轮加固，并且**在真实 daemon 上验过**而不是读代码觉得没问题——`--init`（回收僵尸，否则它们吃光 `--pids-limit` 名额）、`--ulimit nofile`、`HOME=/tmp`（只读根下 pip 写不了缓存）、SELinux Enforcing 宿主自动加 `,z`（Fedora/RHEL 不加就写不进挂载盘）、`--label` 便于清理、可选 `ACE_SANDBOX_SECCOMP`。CI 新增 `sandbox-smoke`：构建镜像并用客户端自己的参数构造真跑一遍，断言 `--network none` 与 `--read-only` 真的成立。**不发布官方预编译镜像**：组织的包策略不允许把 GHCR 包设为公开，所以默认仍是"本地构建一次"，`ACE_SANDBOX_PULL=1` 留给自建 registry 的场景 → [完整更新介绍](docs/RELEASE-NOTES-v3.11.0.md)

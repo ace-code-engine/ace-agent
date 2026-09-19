@@ -190,5 +190,9 @@
   "sandbox_set": "Sandbox tier switched to: {mode} (session/history/permissions kept; only future terminal_exec / code_execute are affected)",
   "sandbox_usage": "Usage: /sandbox pick via Enter, or /sandbox off|job|docker (off=host, job=Job Object boundary, docker=one-shot container)",
   "banner_net": "Network: {state} (/net toggles)",
-  "cmd_thinking": "Toggle thinking view (F4 or /thinking)"
+  "cmd_thinking": "Toggle thinking view (F4 or /thinking)",
+  "cmd_expand": "Expand the last folded tool output (what the card's \"expand to see it all\" refers to)",
+  "expand_none": "  Nothing to expand — only tool output that was folded can be expanded (the card says \"N lines folded\").",
+  "expand_header": "—— full output ({tool}, {lines} lines) ——",
+  "expand_capped": " (truncated at the 4000-character cap)"
 }

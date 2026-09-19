@@ -18,6 +18,7 @@ test_all.py —— ACE 全模块端到端测试（纯 stdlib，无需 pytest）
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -1146,6 +1147,73 @@ if _want("9"):
         with contextlib.redirect_stdout(buf):
             cli_toggle.run_command("/mock")
         check("/mock 斜杠命令切换", cli_toggle.client.mock is False, buf.getvalue()[:200])
+
+        # —— /expand：兑现卡片上"（展开看完整）"那句话 ——
+        # 卡片从早先版本起就写"已折叠 N 行（展开看完整）"，但此前全仓没有展开出口，
+        # 那句提示是空话。这里连同"没有可展开内容时不许假装展开"一起钉住。
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle.run_command("/expand")
+        _out_none = buf.getvalue()
+        check("无折叠输出时 /expand 如实说没有（不假装展开）",
+              ai_code.t("expand_none").strip()[:10] in _out_none, _out_none[:200])
+
+        _folded_body = "\n".join(f"row-{i}" for i in range(40))
+        cli_toggle._last_folded = {"tool": "terminal_exec", "status": "SUCCESS",
+                                   "output": _folded_body, "lines": 40, "capped": False}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle.run_command("/expand")
+        _out_full = buf.getvalue()
+        check("/expand 真的印全（首行与末行都在，40 行不漏）",
+              "row-0" in _out_full and "row-39" in _out_full
+              and sum(1 for _l in _out_full.splitlines() if "row-" in _l) == 40,
+              _out_full[-200:])
+        check("/expand 标出工具名与行数",
+              "terminal_exec" in _out_full and "40" in _out_full, _out_full[:200])
+
+        cli_toggle._last_folded["capped"] = True
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_toggle.run_command("/expand")
+        check("输出被 4000 字符上限截断时如实标注（不充完整）",
+              "4000" in buf.getvalue(), buf.getvalue()[:200])
+
+        check("/expand 同时在 COMMANDS 与 COMMAND_HANDLERS 里（补全与分发都可见）",
+              "/expand" in ai_code.AgentCLI.COMMANDS
+              and "/expand" in ai_code.AgentCLI.COMMAND_HANDLERS)
+
+        # 表里"是否收 parts"必须与真实签名一致，否则运行期才炸 TypeError。
+        # 这条是通用不变量：新加命令时写错布尔值会当场被抓住。
+        import inspect as _inspect
+        _arity_bad = []
+        for _cname, (_mname, _takes) in ai_code.AgentCLI.COMMAND_HANDLERS.items():
+            # 必须取**绑定方法**（getattr(实例, 名)）：直接取类属性会把 self 也算成必填参数。
+            _sig = _inspect.signature(getattr(cli_toggle, _mname))
+            _required = [p for p in _sig.parameters.values()
+                         if p.default is _inspect.Parameter.empty
+                         and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+            if _takes and len(_required) < 1:
+                _arity_bad.append(f"{_cname} 声明收 parts 但 {_mname} 收不到")
+            if not _takes and _required:
+                _arity_bad.append(f"{_cname} 声明不收 parts 但 {_mname} 必填 {len(_required)} 个")
+        check("命令表的 parts 标志与处理函数签名一致", not _arity_bad, "; ".join(_arity_bad))
+
+        # —— 状态行带已用时长（长思考时能看出是不是卡住） ——
+        check("spinner_line 带秒数", ai_code.spinner_line("思考中", "...", 12) == "◈ 思考中... 12s")
+        check("spinner_line 标签可换（工具阶段用别的文案）",
+              ai_code.spinner_line("调用工具", ".", 3) == "◈ 调用工具. 3s")
+        check("spinner_line 以 ◈ 起头（与卡片同一视觉语汇）",
+              ai_code.spinner_line("x", "", 0).startswith("◈ "))
+
+        # —— 跨会话输入历史（源码级：真起 REPL 需要 tty） ——
+        _src_ai = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+        check("PromptSession 接了 history=（上下键/Ctrl+R 能跨会话）",
+              "history=_history" in _src_ai and "FileHistory(" in _src_ai)
+        check("历史落在 ~/.ace_history", '"~/.ace_history"' not in _src_ai
+              and '".ace_history"' in _src_ai)
+        check("历史可显式关掉（历史文件里可能留下粘贴过的密钥）",
+              "ACE_NO_HISTORY" in _src_ai and "InMemoryHistory()" in _src_ai)
     finally:
         ai_code.AgentCLI._wait_key = _orig_wait_key
 
@@ -2237,6 +2305,35 @@ if _want("11"):
         _miss = [k for k in _ui_keys if not _p.get(k)]
         check(f"i18n 界面键 {_lang} 齐全（{len(_ui_keys)} 个）",
               not _miss, _miss)
+
+    # —— 三语键集完全对齐 + 占位符一致 ——
+    # 键集不齐 = 切到某语言时界面突然露出一串 cmd_xxx；占位符不齐 = 该语言下 .format()
+    # 直接 KeyError。两者都只在切换语言后才暴露，所以在这里一次性钉死。
+    _packs = {_lg: json.loads((Path(__file__).resolve().parent / "locales"
+                               / f"{_lg}.json").read_text(encoding="utf-8"))
+              for _lg in ("zh", "en", "ja")}
+    _key_sets = {_lg: set(_p) for _lg, _p in _packs.items()}
+    _key_diff = {_lg: sorted(_key_sets["zh"] ^ _ks) for _lg, _ks in _key_sets.items()}
+    check("三语键集完全一致（zh/en/ja 各 %d 键）" % len(_key_sets["zh"]),
+          all(not _d for _d in _key_diff.values()),
+          {_lg: _d[:8] for _lg, _d in _key_diff.items() if _d})
+
+    def _ph(text: str):
+        return set(re.findall(r"\{(\w+)\}", text))
+
+    _ph_bad = []
+    for _k in sorted(_key_sets["zh"]):
+        _ref = _ph(str(_packs["zh"].get(_k, "")))
+        for _lg in ("en", "ja"):
+            _got = _ph(str(_packs[_lg].get(_k, "")))
+            if _got != _ref:
+                _ph_bad.append(f"{_k}: zh{ sorted(_ref) } vs {_lg}{ sorted(_got) }")
+    check("同名键的占位符三语一致（防某语言 .format() KeyError）",
+          not _ph_bad, _ph_bad[:8])
+
+    _empty_bad = [_k for _k in sorted(_key_sets["zh"])
+                  if any(not str(_packs[_lg].get(_k, "")).strip() for _lg in _packs)]
+    check("没有空译文（空串等于界面上凭空少一句话）", not _empty_bad, _empty_bad[:8])
     # 语言切换后界面文本确实变化（英文界面不再显示中文硬编码）
     from ui.i18n import set_language as _sl  # noqa: E402
     _sl("en")
@@ -4972,6 +5069,10 @@ if _want("33"):
     check("collapse_lines 10 行 + max=4 → 4 行 + 折叠提示（含'已折叠 6 行'）",
           len(_cl10) == 5 and _cl10[:4] == ["行0", "行1", "行2", "行3"]
           and "已折叠 6 行" in _cl10[-1], _cl10)
+    # 折叠提示必须指向一个**真实存在**的出口：此前写着"(展开看完整)"却全仓没有展开机制，
+    # 是 UI 里的一句空话。/expand 补上之后，提示与实现由这两条断言拴在一起。
+    check("折叠提示指向 /expand（不再是空话）",
+          "/expand" in _cl10[-1], _cl10[-1])
     check("collapse_lines 不超限原样返回",
           collapse_lines(["a", "b"], 4) == ["a", "b"],
           collapse_lines(["a", "b"], 4))

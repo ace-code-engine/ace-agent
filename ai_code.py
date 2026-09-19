@@ -1035,13 +1035,27 @@ class _MockArgs:
     model = None
 
 
+def spinner_line(label: str, dots: str, secs: int) -> str:
+    """状态行文本（纯函数，便于单测）：`◈ 思考中... 12s`。
+
+    带"已用时长"是有意的：一次模型调用卡住几十秒时，用户唯一能判断"它在干活还是
+    死了"的依据就是它在动、并且动了多久。旧版只有动态点号，看不出等了多久。
+    """
+    return f"◈ {label}{dots} {secs}s"
+
+
 class _Spinner:
-    """状态行动画线程：◈ 思考中... / ◈ 正在调用工具...（动态加点，后台每 0.12s 重绘）"""
+    """状态行动画线程：◈ 思考中... 12s / ◈ 正在调用工具... 3s（每 0.12s 重绘）
+
+    带"已用时长"的理由：一次模型调用卡住几十秒时，用户唯一能判断"它在干活还是死了"
+    的依据，就是它在动 **并且** 动了多久。旧版只有动态点号，长时间等待看着像死机。
+    """
 
     def __init__(self, label: str = "思考中") -> None:
         self._label = label
         self._stop_ev = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._t0 = 0.0
 
     def set_label(self, label: str) -> None:
         self._label = label
@@ -1050,14 +1064,15 @@ class _Spinner:
         if self._thread and self._thread.is_alive():
             return
         self._stop_ev.clear()
+        self._t0 = time.monotonic()      # 计时从"本轮开始等待"起算
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
         frame = 0
         while not self._stop_ev.is_set():
-            dots = "." * (frame % 4)
-            sys.stdout.write(f"\r◈ {self._label}{dots}   ")
+            secs = int(time.monotonic() - self._t0)
+            sys.stdout.write("\r" + spinner_line(self._label, "." * (frame % 4), secs) + "   ")
             sys.stdout.flush()
             frame += 1
             self._stop_ev.wait(0.12)
@@ -1233,6 +1248,7 @@ class _SlashCommands:
         "/net": "cmd_net",
         "/sandbox": "cmd_sandbox",
         "/thinking": "cmd_thinking",
+        "/expand": "cmd_expand",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
         "/search": "cmd_search",
@@ -1263,6 +1279,7 @@ class _SlashCommands:
         "/net": ("_toggle_net", True),
         "/sandbox": ("_handle_sandbox", True),
         "/thinking": ("_cmd_thinking", True),
+        "/expand": ("_cmd_expand", False),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
         "/search": ("_cmd_search", True),
@@ -1352,6 +1369,25 @@ class _SlashCommands:
             _ACE_SHOW_THINKING = not _ACE_SHOW_THINKING
         print(c("cyan", "  思考过程: " + ("开 ✓（F4 或 /thinking 关闭；思考将以灰色区分）"
               if _ACE_SHOW_THINKING else "关 ✓（F4 或 /thinking 开启）")))
+        return True
+
+    def _cmd_expand(self) -> bool:
+        """重印上一次被折叠的工具输出 —— 兑现卡片上"（展开看完整）"那句承诺。
+
+        为什么要这条命令：卡片从早先版本起就写着"已折叠 N 行（展开看完整）"，但全仓
+        没有任何展开机制，用户在逐行打印的 REPL 里根本无从展开。工具输出被折到 8 行
+        之后确实需要一个看全的出口，所以这里把功能补上而不是把话收回去。
+        """
+        _fd = getattr(self, "_last_folded", None)
+        if not _fd:
+            print(c("dim", t("expand_none")))
+            return True
+        _hint = t("expand_header", tool=_fd["tool"], lines=_fd["lines"])
+        if _fd.get("capped"):
+            _hint += t("expand_capped")
+        print(c("cyan", _hint))
+        for _ln in _fd["output"].splitlines():
+            print(c("dim", "  " + _ln))
         return True
 
     def _cmd_stats(self, parts: List[str]) -> bool:
@@ -2241,6 +2277,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._ctx_nonce = secrets.token_hex(4)
         self.messages: List[Dict] = []
         self.session = {"rounds": 0, "tools": 0, "violations": 0, "start": time.time()}
+        # 最近一次被折叠的工具输出（/expand 用）。卡片一直写着"已折叠 N 行（展开看完整）"，
+        # 但此前全仓没有任何展开机制 —— 那是 UI 里的一句空话，这里把它兑现。
+        self._last_folded: Optional[Dict] = None
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
         # 工具往返（执行层）+ 模型请求/输出（CLI）都进同一份 append-only 事实源。
         self.cfg["session_log"] = str(Path(self.cfg.get("project_root", "."))
@@ -2762,13 +2801,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if _st == "SUCCESS":
                     _d = result.get("data") or {}
                     if isinstance(_d, dict):
-                        _out = str(_d.get("stdout") or _d.get("content") or "")[:4000]
+                        _raw = str(_d.get("stdout") or _d.get("content") or "")
+                        _out = _raw[:4000]
+                        _capped = len(_raw) > 4000
                 _mark, _color = status_mark(_st)
                 _card = tool_card(
                     result.get("tool", ""), _st,
                     message=result.get("message", ""),
                     output=_out, elapsed=_elapsed_f,
                     collapsed=True, max_lines=8)
+                # 卡片折叠了输出就把原文记下来：卡片上写着"/expand 看完整"，
+                # 得有东西给它展开（此前这句承诺在代码里没有对应实现）。
+                if _out and len(_out.splitlines()) > 8:
+                    self._last_folded = {
+                        "tool": result.get("tool", ""), "status": _st,
+                        "output": _out, "lines": len(_out.splitlines()),
+                        "capped": _capped}
                 # 上色：标题行按状态色，其余 dim
                 for _i, _ln in enumerate(_card):
                     if _i == 0:
@@ -2886,6 +2934,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 from prompt_toolkit import PromptSession
                 from prompt_toolkit.styles import Style
                 from prompt_toolkit.key_binding import KeyBindings
+                from prompt_toolkit.history import FileHistory, InMemoryHistory
+
+                # 跨会话输入历史：prompt_toolkit 默认只给 InMemoryHistory，进程一退历史就没了
+                # ——上箭头与 Ctrl+R 只能在本轮里翻。写一份 ~/.ace_history，日常使用才立得住。
+                # 历史里可能有用户粘贴过的密钥，所以给一个显式关掉的开关（ACE_NO_HISTORY=1）。
+                if os.environ.get("ACE_NO_HISTORY", "").strip().lower() in ("1", "true", "yes", "on"):
+                    _history = InMemoryHistory()
+                else:
+                    _history = FileHistory(str(Path.home() / ".ace_history"))
 
                 kb = KeyBindings()
 
@@ -2939,6 +2996,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     completer=_build_slash_completer(self.COMMANDS),
                     complete_while_typing=True,
                     key_bindings=kb,
+                    history=_history,
                     bottom_toolbar=self._footer,
                     style=Style.from_dict({
                         "prompt": "ansimagenta bold",

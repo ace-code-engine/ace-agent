@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.11.1%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.12.0%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |
@@ -139,8 +139,9 @@ Landing page: ↑/↓ to move, digits to jump, Enter to confirm, Esc/q to quit. 
 /undo                        # roll back to the pre-write snapshot
 ```
 
-Slash: `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <name>` `/mock` `/open <path>` `/edit <path>` `/search <term>` `/memory` `/report`
+Slash: `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <name>` `/mock` `/open <path>` `/edit <path>` `/search <term>` `/memory` `/report` `/expand`
 `@` shortcuts: `@lang` (zh/en/ja) · `@skill` · `@file` · `@folder` · `@refs`
+Tool output longer than 8 lines is folded into the card — `/expand` reprints the full output (up to 4000 characters per call, and it says so when truncated). ↑/↓ and Ctrl+R search `~/.ace_history` across sessions; set `ACE_NO_HISTORY=1` to keep history in-process only.
 
 → Full command table, every `/provider` example and all startup flags: [`docs/COMMANDS.md`](docs/COMMANDS.md).
 
@@ -189,6 +190,7 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
+- **v3.12.0** (2026-09-19): the fold hint became a real feature. Tool cards have said "N lines folded (use /expand for the rest)" since early versions, but no such command existed — an empty promise in the one place the user needs it. `/expand` reprints the last folded output, says so honestly when nothing was folded, and marks output cut at the 4000-character cap. Completions now persist across sessions in `~/.ace_history` (↑/↓ and Ctrl+R; `ACE_NO_HISTORY=1` keeps them in-process, since the file can retain pasted keys), and the spinner shows elapsed seconds so a long think is distinguishable from a hang. Guards: +12 assertions in `[9]`, including a generic "the table's parts flag matches the handler's real signature" invariant (it caught `/expand`'s own mismatch on first run), and `[11]` now enforces that zh/en/ja have identical key sets, identical `{placeholders}` per key, and no empty translations
 - **v3.11.1** (2026-09-19): the picker matches **subsequences**, not substrings — `glm4` finds `glm-4.6` (0 → 10 hits on `/model`), `dsk` finds `deepseek`; scoring and highlighting share one matcher, so a fuzzy hit is highlighted exactly where it matched. New `ui/ace_text.py` makes text handling **column-aware** (CJK is two columns wide): tool cards used to truncate by character count, so a line truncated to "60 characters" of Chinese occupied 120 columns and pushed the card border off-screen
 
 - **v3.11.0** (2026-09-19): the container tier's run flags were hardened and are now verified against a real daemon instead of by reading code — `--init` (reap zombies, or they eat the `--pids-limit` budget), `--ulimit nofile`, `HOME=/tmp` (pip can't write cache under a read-only root), automatic `,z` on SELinux-enforcing hosts (Fedora/RHEL can't write the mount without it), `--label` for cleanup, optional `ACE_SANDBOX_SECCOMP`. A new `sandbox-smoke` CI job builds the image and runs it through the client's own argument construction, asserting `--network none` and `--read-only` really hold. **Official prebuilt images are not published**: the org's package policy forbids making GHCR packages public, so `ACE_SANDBOX_PULL=1` remains as an opt-in for self-hosted registries and the default stays "build it once locally" → [full release notes](docs/RELEASE-NOTES-v3.11.0.md)

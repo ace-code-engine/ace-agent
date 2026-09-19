@@ -190,5 +190,9 @@
   "sandbox_set": "沙箱执行档位已切换: {mode}（会话/历史/权限不变，仅影响后续 terminal_exec / code_execute）",
   "sandbox_usage": "用法: /sandbox 回车弹框选档，或 /sandbox off|job|docker（off=宿主执行，job=Job Object 边界，docker=一次性容器）",
   "banner_net": "联网: {state}（/net 切换）",
-  "cmd_thinking": "开/关 思考过程可视化（F4 或 /thinking）"
+  "cmd_thinking": "开/关 思考过程可视化（F4 或 /thinking）",
+  "cmd_expand": "展开上一次被折叠的工具输出（卡片里的「展开看完整」就是它）",
+  "expand_none": "  没有可展开的输出 —— 只有被折叠过的工具输出才能展开（卡片上会写「已折叠 N 行」）。",
+  "expand_header": "—— 完整输出（{tool}，共 {lines} 行）——",
+  "expand_capped": "（已按 4000 字符上限截断）"
 }

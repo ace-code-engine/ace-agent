@@ -68,6 +68,9 @@ from ui import ace_markdown  # noqa: E402  （回答正文的 Markdown 渲染，
 from ui import ace_dialog  # noqa: E402  （统一对话框：单选/多选/分组/进度/向导）
 from ui import ace_layout  # noqa: E402  （布局/状态行/上下文可视化/任务树/动效）
 from ui import ace_fullscreen  # noqa: E402  （备用屏幕全屏会话：滚动区 + 状态行）
+from ui import ace_keys  # noqa: E402  （键位系统：覆盖/冲突判定/键位表）
+from ui import ace_term  # noqa: E402  （终端能力探测与自检向导）
+from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -1418,16 +1421,17 @@ class _SlashCommands:
     # 分组是**展示层**信息，不进 COMMAND_HANDLERS —— 加一条命令忘了分组只会
     # 落到"其他"，不会影响分发。
     COMMAND_GROUPS = [
-        ("group_session", ["/help", "/keys", "/stash", "/queue", "/clear", "/status",
+        ("group_session", ["/help", "/stash", "/queue", "/clear", "/status",
                            "/statusline", "/tasks", "/fullscreen", "/stats", "/expand",
                            "/history", "/sessions", "/resume", "/fork",
                            "/rewind", "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
-        ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
+        ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking",
+                         "/style"]),
         ("group_tools", ["/open", "/edit", "/review", "/diff", "/search", "/memory",
                         "/report", "/goal"]),
-        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim"]),
+        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term"]),
     ]
     GROUP_FALLBACK = "group_more"
 
@@ -1501,6 +1505,8 @@ class _SlashCommands:
         "/fullscreen": "cmd_fullscreen",
         "/vim": "cmd_vim",
         "/keys": "cmd_keys",
+        "/style": "cmd_style",
+        "/term": "cmd_term",
         "/stash": "cmd_stash",
         "/queue": "cmd_queue",
         "/hooks": "cmd_hooks",
@@ -1550,6 +1556,8 @@ class _SlashCommands:
         "/fullscreen": ("_cmd_fullscreen", True),
         "/vim": ("_cmd_vim", True),
         "/keys": ("_cmd_keys", True),
+        "/style": ("_cmd_style", True),
+        "/term": ("_cmd_term", True),
         "/stash": ("_cmd_stash", True),
         "/queue": ("_cmd_queue", True),
         "/hooks": ("_cmd_hooks", True),
@@ -3446,20 +3454,125 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.session["tools"] += 1
         print(c("dim", t("bash_in_context")))
 
+    def _key_resolution(self) -> "ace_keys.KeyResolution":
+        """当前生效键位（配置里的 keybindings 经 `ui/ace_keys` 解析后的结果）。"""
+        return ace_keys.resolve_bindings(self.cfg.get("keybindings"),
+                                         reserved=RESERVED_KEYS)
+
+    def _key_warning_lines(self) -> List[str]:
+        """把键位警告翻成人话（启动时与 `/keys` 都用它）。
+
+        为什么警告要**说出来**：配置里写错键名的后果是"这条键位没生效"，而用户按下
+        那个键只会觉得"这软件没反应" —— 不留痕的失败最难查。
+        """
+        out: List[str] = []
+        for w in self._key_resolution().warnings:
+            key = {"reserved": "keys_warn_reserved", "app_bound": "keys_warn_app_bound",
+                   "invalid_key": "keys_warn_invalid", "not_command": "keys_warn_not_cmd",
+                   "too_many": "keys_warn_too_many"}.get(w.code)
+            if key:
+                out.append(t(key, detail=w.detail))
+        return out
+
     def _cmd_keys(self, parts: List[str]) -> bool:
-        """`/keys`：内置快捷键 + 自定义键位（一张表，用户不必猜）。"""
-        _w = self._panel_width()
-        print(c("bold", t("keys_header")))
-        print(c("dim", ace_panel.section(t("keys_builtin"), _w)))
-        for _key, _desc in ace_input.keys_table():
-            print(f"  {c('magenta', _key):<24} {t(_desc)}")
-        _custom = parse_keybindings(self.cfg.get("keybindings"))
-        if _custom:
-            print(c("dim", ace_panel.section(t("keys_custom"), _w)))
-            for _key, _cmd in _custom:
-                print(f"  {c('magenta', _key):<24} {_cmd}")
-        print(c("dim", t("keys_hint")))
+        """`/keys`：内置快捷键 + 自定义键位 + **冲突警告**（一张表，用户不必猜）。
+
+        表本身由 `ui/ace_keys.render_key_table` 出（纯函数），这里只负责上色与翻译 ——
+        "哪些键被拒、为什么被拒"和"哪些键生效"从此是同一份数据。
+        """
+        res = self._key_resolution()
+        for _ln in ace_keys.render_key_table(res.bindings, translate=t,
+                                            builtin=ace_input.keys_table()):
+            print(c("magenta", _ln) if "    " in _ln and not _ln.startswith("  ")
+                  else c("dim" if _ln.startswith("  ") else "bold", _ln))
+        for _w in self._key_warning_lines():
+            print(c("yellow", "  ⚠ " + _w))
         return True
+
+    def _cmd_style(self, parts: List[str]) -> bool:
+        """`/style [id]`：查看/切换输出风格预设（提示词 + 界面显示一起改）。
+
+        为什么合成一件事：想"回答短一点"的人同时也在意"别刷屏"。分开两个旋钮的话，
+        用户改了提示词却仍看到满屏推理卡片，只会觉得"这设置没用"。
+        """
+        cur, warn = ace_styles.resolve_style(self.cfg.get("output_style"))
+        arg = (parts[1].strip().lower() if len(parts) > 1 else "")
+        if arg:
+            new, warn2 = ace_styles.resolve_style(arg)
+            if warn2:
+                print(c("yellow", t("style_unknown", name=arg,
+                                    names=", ".join(k for k, _n, _d in
+                                                    ace_styles.style_menu()))))
+                return True
+            self.cfg["output_style"] = new.id
+            cur = new
+        print(c("cyan", t("style_current", name=t(cur.name_key),
+                          desc=t(cur.desc_key))))
+        for sid, name_key, desc_key in ace_styles.style_menu():
+            mark = "●" if sid == cur.id else "○"
+            print(f"  {mark} {c('magenta', sid):<20} {t(name_key)} — {t(desc_key)}")
+        if warn:
+            print(c("yellow", "  ⚠ " + warn))
+        print(c("dim", t("style_hint")))
+        return True
+
+    def _cmd_term(self, parts: List[str]) -> bool:
+        """`/term [check]`：终端能力表；`check` 用向导把"人眼才能确认"的三项问一遍。
+
+        为什么要有：能力决定了界面能开到什么程度（真彩/备用屏幕/方块字/滚轮）。能自动
+        探的自动探，探不了的（颜色对不对、方块字有没有、滚轮管不管用）**问人** ——
+        猜错的代价是花屏，而花屏比"功能少一点"糟得多。
+        """
+        env = ace_term.env_snapshot()
+        isatty = bool(sys.stdin.isatty() and sys.stdout.isatty())
+        caps = ace_term.detect_capabilities(env, isatty=isatty, platform=sys.platform,
+                                           term=env.get("TERM", ""))
+        probed = self.cfg.get("term_probe") if isinstance(self.cfg.get("term_probe"), dict) else {}
+        caps = ace_term.apply_probe(caps, probed)
+        print(c("cyan", t("term_title", summary=ace_term.summarize(caps))))
+        for _cid, _label, _state in ace_term.capability_rows(caps, translate=t):
+            _mark = {"yes": "✓", "no": "✗", "unknown": "?"}.get(_state, "?")
+            _col = {"yes": "green", "no": "red", "unknown": "yellow"}.get(_state, "dim")
+            print(f"  {c(_col, _mark)} {_label:<28}{c('dim', _state)}")
+        if len(parts) > 1 and parts[1].lower() in ("check", "probe", "自检"):
+            self._term_probe(dict(caps))
+            return True
+        print(c("dim", t("term_hint")))
+        return True
+
+    def _term_probe(self, caps: Dict[str, Any]) -> None:
+        """自检向导：3 个"看一眼就能答"的问题，答案存进配置覆盖自动探测。"""
+        state = ace_dialog.WizardState(ace_term.probe_steps(translate=t))
+        print(c("bold", t("term_probe_intro")))
+        try:
+            while not state.done:
+                for _ln in ace_dialog.render_wizard(state, width=_wizard_width(),
+                                                    styler=_md_styler):
+                    print(_ln)
+                step = state.current
+                if step is None:
+                    break
+                try:
+                    raw = input(f"  {step.prompt} [{step.default}]: ")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    print(c("yellow", t("wizard_cancelled")))
+                    return
+                state = ace_dialog.wizard_answer(state, raw)
+        except CommandCancelled:
+            print(c("yellow", t("wizard_cancelled")))
+            return
+        self.cfg["term_probe"] = dict(state.answers)
+        _save = globals().get("save_cli_config")
+        if callable(_save):
+            try:
+                _save(self.cfg)
+            except Exception:  # noqa: BLE001 —— 存不下也先把当前会话改好
+                print(c("dim", t("statusline_save_failed")))
+        print(c("green", t("term_probe_saved", n=len(state.answers))))
+        for _cid, _label, _state in ace_term.capability_rows(
+                ace_term.apply_probe(caps, state.answers), translate=t):
+            print(f"  {_label:<28}{c('dim', _state)}")
 
     def _cmd_stash(self, parts: List[str]) -> bool:
         """`/stash`：暂存/取回输入（Ctrl+S 同效）。"""

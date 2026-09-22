@@ -12,9 +12,9 @@
 | 分类 | 命令 |
 |---|---|
 | 会话 | `/help` `/keys` `/stash` `/queue` `/clear` `/status` `/statusline` `/tasks` `/fullscreen` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
-| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） |
+| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） `/keys`（键位表与冲突警告） `/term`（终端能力与自检） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
-| 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
+| 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` `/style [id]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/review` `/diff [序号]` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
 
 ```bash
@@ -80,6 +80,29 @@
 - 终端小于 8 行或缺 `prompt_toolkit` 时**直接回退普通 REPL**；全屏里不弹嵌套浮层选择框（要弹框按 F5 退出全屏）
 
 **等待动画**：`◈ 思考中.. 12s`；超过 45 秒没有新进展会补一句「Ns 没有新进展 · Ctrl+C 可中断」。判据是"**多久没有新动作**"，换阶段（思考 → 调工具）会刷新计时，多轮任务不会被误报成卡死。
+
+**键位（`/keys`）**：内置键位 + 自定义键位 + **被拒键位的理由**。
+
+- 保命键（Enter / Esc / Ctrl+C …）与已接真功能的键（Ctrl+S / Ctrl+O / Ctrl+L / F1–F4）**不许覆盖** —— 覆盖它们不是改键位，是"两件事各做一半"
+- 键名写法不对、值不是斜杠命令、条数超 20，都会在表下列出；此前这些是静默忽略（按下没反应，只以为软件坏了）
+- 自定键位只能绑斜杠命令（想跑脚本用 hooks，那件事有它自己的边界说明）
+
+**vim 子集**：`/vim on` 打开后，**全屏会话的输入行**支持 `dw`/`d2w`/`de`/`d$`/`cw`/`dd`/`cc`/`yy`/`x`/`D`/`C`/`p`、计数（`3x`）、motion（`h l w b e 0 $ gg G`）与文本对象（`iw aw i" a" i( a( ip`）。做不成时**不动文本**只留说明（`di"` 停在引号外就是这种）。撤销栈/寄存器/宏/`.` 重复/可视模式/`/` 搜索**不做**。
+
+**输出风格（`/style [id]`）**：一份预设同时管两件事 —— 追加给模型的风格段 + 界面显示多少。
+
+| 预设 | 提示词 | 界面 |
+|---|---|---|
+| `default` | 不加额外指令 | 各开关自己决定 |
+| `concise` | 少铺垫、去客套、代码优先 | 不显示推理过程 · diff 只留 40 行 · 卡片只留摘要 |
+| `explanatory` | 动手前说一句为什么，讲清取舍与坑 | 展开推理与完整卡片 |
+| `strict` | 只报验证过的事实 | 不显示推理过程 |
+
+显式按过 F4（`/thinking`）时**以用户为准**，预设让位。
+
+**终端能力（`/term [check]`）**：能自动判的自动判 —— `COLORTERM=truecolor|24bit` 才算真彩（`TERM` 里的 256color 不算）、`NO_COLOR` 优先级最高、管道里一律 no、Windows 旧 conhost 一律 unknown（本项目在这里踩过方框字的坑）；结论分 `full`/`partial`/`limited`。
+
+`/term check` 用**向导**问那三项自动探测答不了的（颜色对不对 / 方块字有没有 / 滚轮管不管用），答案覆盖探测结果并写进配置 —— 猜错的代价是花屏，比"功能少一点"糟得多。
 
 **输入行**：
 

@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50", "51"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8383,6 +8383,193 @@ if _want("51"):
                         "statusline_hint", "tasks_none", "fullscreen_hint")
               for lg in ("zh", "en", "ja")), "")
     _cli51.close()
+
+    # ============================================================
+
+if _want("52"):
+    # ── [52] ────
+    print("[52] 键位与编辑器 —— 键位覆盖/冲突警告 · vim 子集 · 输出风格预设 · 终端能力自检")
+    # ============================================================
+    import io as _io52  # noqa: E402
+    import contextlib as _cl52  # noqa: E402
+    import ai_code as _ai52  # noqa: E402
+    from ui import ace_keys as _k52  # noqa: E402
+    from ui import ace_vim as _v52  # noqa: E402
+    from ui import ace_term as _tm52  # noqa: E402
+    from core import ace_styles as _st52  # noqa: E402
+
+    # —— 键位：先拒绝再接受，且每条拒绝都有理由 ——
+    _res52 = _k52.resolve_bindings({"c-e": "/expand", "c-o": "/todo", "enter": "/help",
+                                    "x y": "/x", "c-p": "oops", "f5": "/tasks"})
+    check("键位：能绑的绑上（c-e）", [b.command for b in _res52.bindings] == ["/expand"],
+          _res52.bindings)
+    check("键位：保命键（回车）与已接功能的键（c-o/f5）被拒，并各自给出理由",
+          [w.code for w in _res52.warnings]
+          == ["app_bound", "reserved", "invalid_key", "not_command", "app_bound"],
+          _res52.warnings)
+    check("键位：值不是斜杠命令就拒绝（自定键位不是新的执行面）",
+          [w.code for w in _k52.resolve_bindings({"c-p": "rm -rf /"}).warnings]
+          == ["not_command"], "")
+    check("键位：非 dict 配置不静默（返回一条 invalid_key）",
+          [w.code for w in _k52.resolve_bindings("c-e=/expand").warnings]
+          == ["invalid_key"], "")
+    check("键位：条数上限如实报出", _k52.resolve_bindings(
+        {f"c-{chr(97 + i)}": "/x" for i in range(25)}).warnings[0].code == "too_many", "")
+    check("键位表：内置在前、自定义在后，且表里含自定义那条",
+          (lambda ls: ls[0] == "keys_header" and any("c-e" in x for x in ls)
+           and any("keys_builtin" in x for x in ls))(
+              _k52.render_key_table(_res52.bindings)), "")
+
+    # —— vim 子集（纯函数）——
+    def _vim52(text, keys, cursor=0):
+        st = _v52.VimState(text, cursor)
+        for _ch in keys:
+            st = _v52.vim_step(st, _ch)
+        return st
+
+    check("vim：dw 删一个词（到下一个词首，不含）", _vim52("hello world", "dw").text == "world", "")
+    check("vim：d$ 删到行尾", _vim52("hello world", "d$").text == "", "")
+    check("vim：de 含词尾", _vim52("hello world", "de").text == "world", "")
+    check("vim：d2w 按计数删两个词（vim 语义）",
+          _vim52("hello world", "d2w").text == "", "")
+    check("vim：cw 删词后进插入模式（c 的语义）",
+          (lambda s: s.text == "world" and s.mode == "insert")(_vim52("hello world", "cw")), "")
+    check("vim：文本对象 di\" 只删引号内（光标在引号内）",
+          _vim52('say "hi there" ok', 'di"', cursor=6).text == 'say "" ok', "")
+    check("vim：文本对象 da\" 连同引号一起删",
+          _vim52('say "hi there" ok', 'da"', cursor=6).text == "say  ok", "")
+    check("vim：光标在引号外时 di\" 不猜、不动文本，只留说明",
+          (lambda s: s.text == 'say "hi" ok' and s.note.startswith("no-target"))(
+              _vim52('say "hi" ok', 'di"', cursor=0)), "")
+    check("vim：单键 x / D 自成命令（不必先按 d）",
+          _vim52("abc", "x").text == "bc" and _vim52("abc", "D").text == "", "")
+    check("vim：3x 带计数", _vim52("abcdef", "3x").text == "def", "")
+    check("vim：dd 整行删除", _vim52("foo bar", "dd").text == "", "")
+    check("vim：motion 与词边界（w/b/e/0/$）",
+          [_vim52("foo bar", k).cursor for k in ("w", "b", "e", "0", "$")]
+          == [4, 0, 3, 0, 7], [_vim52("foo bar", k).cursor for k in ("w", "b", "e", "0", "$")])
+    check("vim：未绑定的键不猜（留 note 不动文本）",
+          (lambda s: s.text == "a b" and s.note.startswith("error"))(_vim52("a b", "q")), "")
+    check("vim：y 只复制不删（note 里带 yanked）",
+          (lambda s: s.text == "foo bar" and s.note.startswith("yanked"))(
+              _vim52("foo bar", "yy")), "")
+    check("vim：解析器认得 count/operator/target，认不出会抛",
+          _v52.parse_command("2dw") == (2, "d", "w")
+          and _v52.parse_command("dd") == (1, "d", "d"), "")
+    _ed52 = _v52.VimLineEditor("hello world", 0)
+    _ed52.feed("d")
+    _ed52.feed("w")
+    check("vim 编辑器：按键进引擎后文本与光标同步（接线方要的就是这两个值）",
+          _ed52.text == "world" and _ed52.cursor == 0, (_ed52.text, _ed52.cursor))
+    check("vim 编辑器：插入模式放行普通字符（接线方交给输入框自己插）",
+          _ed52.feed("i") and _ed52.mode == "insert" and _ed52.feed("z") is False, "")
+    check("vim 编辑器：Esc 回普通模式且光标退一格（vim 习惯）",
+          (lambda: (_ed52.feed("Escape"), _ed52.mode == "normal" and _ed52.cursor == 0))()[1], "")
+    check("vim 编辑器：没开 vim 时等于普通输入（上层不用写第二条分支）",
+          _v52.VimLineEditor("abc", enabled=False).feed("d") is False
+          and _v52.VimLineEditor("abc", enabled=False).mode == "insert", "")
+    _VSRC52 = (FOLDER / "ui" / "ace_fullscreen.py").read_text(encoding="utf-8")
+    check("源码级：全屏输入行真的接了 vim 引擎（不是只有纯函数没人用）",
+          "ace_vim.VimLineEditor" in _VSRC52 and "Keys.Any" in _VSRC52, "")
+
+    # —— 输出风格预设 ——
+    check("风格：四档预设且默认在最前",
+          [k for k, _n, _d in _st52.style_menu()] == ["default", "concise",
+                                                     "explanatory", "strict"], "")
+    check("风格：认不出来回默认并如实报出来（不静默吞掉错名字）",
+          _st52.resolve_style("nope")[0].id == "default"
+          and _st52.resolve_style("nope")[1] == "unknown_style:nope", "")
+    check("风格：简洁档同时改提示词与显示（一份预设两个面）",
+          "concise" in _st52.STYLES["concise"].prompt
+          and _st52.STYLES["concise"].flag("show_thinking") is False
+          and _st52.STYLES["concise"].flag("diff_max_lines") == 40, "")
+    check("风格：用户显式开思考时预设让位（用户操作 > 预设）",
+          _st52.apply_render_flags(_st52.STYLES["concise"],
+                                   {"thinking_forced": True}, True)["show_thinking"] is True
+          and _st52.apply_render_flags(_st52.STYLES["concise"], {}, True)["show_thinking"]
+          is False, "")
+    check("风格：默认档不插手思考显示（None = 交给 /thinking）",
+          _st52.STYLES["default"].flag("show_thinking") is None, "")
+
+    # —— 终端能力 ——
+    _caps52 = _tm52.detect_capabilities(
+        {"TERM": "xterm-256color", "COLORTERM": "truecolor"}, True, "linux")
+    check("终端：真彩只认 COLORTERM=truecolor/24bit（TERM 带 256color 不等于真彩）",
+          _caps52["truecolor"] == "yes"
+          and _tm52.detect_capabilities({"TERM": "xterm-256color"}, True,
+                                        "linux")["truecolor"] == "no", "")
+    check("终端：NO_COLOR 是用户的明确要求，优先级最高",
+          _tm52.detect_capabilities({"NO_COLOR": "1", "COLORTERM": "truecolor"}, True,
+                                    "linux")["color"] == "no", "")
+    check("终端：管道里一律 no（没 TTY 就没有这些能力）",
+          set(_tm52.detect_capabilities({}, False).values()) == {"no"}, "")
+    check("终端：Windows 旧 conhost 一律 unknown（本项目踩过方框字的坑）",
+          all(v == "unknown" for k, v in _tm52.detect_capabilities({}, True, "win32").items()
+              if k != "truecolor"), _tm52.detect_capabilities({}, True, "win32"))
+    check("终端：结论三档（full / partial / limited）",
+          _tm52.summarize({c: "yes" for c in _tm52.CAPABILITIES}) == "full"
+          and _tm52.summarize({c: "unknown" for c in _tm52.CAPABILITIES}) == "partial"
+          and _tm52.summarize({**_tm52.detect_capabilities({}, False)}) == "limited", "")
+    check("终端：自检只问自动探测答不了的三项（颜色/Unicode/鼠标）",
+          [s.key for s in _tm52.probe_steps()] == ["color", "unicode", "mouse"], "")
+    check("终端：向导答案是 y/n 校验，答案覆盖探测结果",
+          _tm52.probe_steps()[0].check("y") == "" and _tm52.probe_steps()[0].check("mmm") != ""
+          and _tm52.apply_probe({"color": "unknown"}, {"color": "y", "mouse": "n"})
+          == {"color": "yes", "mouse": "no"}, "")
+    check("终端：能力表按固定顺序出（表头与结论都在）",
+          [r[0] for r in _tm52.capability_rows(_caps52)] == list(_tm52.CAPABILITIES), "")
+
+    # —— CLI 接线 ——
+    _root52 = mktemp()
+    _cli52 = _ai52.AgentCLI({"project_root": str(_root52), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1",
+                             "keybindings": {"c-e": "/expand", "enter": "/help"}},
+                            mock=True)
+    _buf52 = _io52.StringIO()
+    with _cl52.redirect_stdout(_buf52):
+        _cli52._cmd_keys(["/keys"])
+    _out52 = _buf52.getvalue()
+    check("CLI /keys：表里有自定义键位，也有被拒键位的警告（写错要有人说）",
+          "c-e" in _out52 and "/expand" in _out52 and "不许覆盖" in _out52, _out52[:200])
+    check("CLI /keys：警告能翻成人话（每条拒绝都有理由）",
+          any("保命键" in x for x in _cli52._key_warning_lines()), _cli52._key_warning_lines())
+
+    _buf52 = _io52.StringIO()
+    with _cl52.redirect_stdout(_buf52):
+        _cli52._cmd_style(["/style"])
+    check("CLI /style：列出全部预设并标出当前档",
+          "concise" in _buf52.getvalue() and "●" in _buf52.getvalue(), "")
+    _buf52 = _io52.StringIO()
+    with _cl52.redirect_stdout(_buf52):
+        _cli52._cmd_style(["/style", "concise"])
+    check("CLI /style <id>：切换生效（写进配置）",
+          _cli52.cfg.get("output_style") == "concise", _cli52.cfg.get("output_style"))
+    _buf52 = _io52.StringIO()
+    with _cl52.redirect_stdout(_buf52):
+        _cli52._cmd_style(["/style", "nope"])
+    check("CLI /style：认不出的名字如实报错且**不改配置**",
+          _cli52.cfg.get("output_style") == "concise" and "nope" in _buf52.getvalue(), "")
+
+    _buf52 = _io52.StringIO()
+    with _cl52.redirect_stdout(_buf52):
+        _cli52._cmd_term(["/term"])
+    _out52 = _buf52.getvalue()
+    check("CLI /term：打出能力表（含结论与逐项标记）",
+          "终端能力" in _out52 and ("✓" in _out52 or "?" in _out52 or "✗" in _out52),
+          _out52[:160])
+    check("CLI /term check：接的是同一套向导步骤（问人而不是猜）",
+          "ace_term.probe_steps" in (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
+
+    check("命令表：/style 与 /term 已注册且有 i18n 描述",
+          _ai52._SlashCommands.COMMANDS.get("/style") == "cmd_style"
+          and _ai52._SlashCommands.COMMANDS.get("/term") == "cmd_term", "")
+    check("i18n：keys_warn_*/style_*/cap_* 三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("keys_warn_reserved", "keys_warn_not_cmd", "style_concise",
+                        "cmd_term", "cap_probe_color_ask", "term_probe_saved")
+              for lg in ("zh", "en", "ja")), "")
+    _cli52.close()
 
     # ============================================================
 

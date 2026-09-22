@@ -26,6 +26,7 @@ import sys
 from typing import Any, Callable, Dict, List, Optional
 
 from ui import ace_chatscroll as chatscroll
+from ui import ace_vim
 from ui.ace_text import truncate_width
 
 __all__ = ["TranscriptSink", "FullScreenSession", "run_fullscreen",
@@ -161,7 +162,8 @@ def _terminal_size() -> tuple:
 
 def run_fullscreen(session: FullScreenSession,
                    on_submit: Callable[[str], Any],
-                   overlay: Optional[Callable[[], str]] = None) -> Optional[str]:
+                   overlay: Optional[Callable[[], str]] = None,
+                   vim: bool = False) -> Optional[str]:
     """进备用屏幕跑一轮交互会话；返回退出原因，`None` = 环境不支持（没跑起来）。
 
     `on_submit(line)` 由调用方处理一行输入（命令/对话），**期间 `sys.stdout` 已被换成
@@ -180,12 +182,12 @@ def run_fullscreen(session: FullScreenSession,
         from prompt_toolkit.buffer import Buffer
         from prompt_toolkit.filters import Condition
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
         from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
         from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
         from prompt_toolkit.styles import Style
     except ImportError:
         return None
-
     def _body_height() -> int:
         return max(3, _terminal_size()[1] - 5)
 
@@ -229,6 +231,46 @@ def run_fullscreen(session: FullScreenSession,
     buf = Buffer(multiline=False)
     kb = KeyBindings()
     browse = Condition(lambda: not buf.text)
+    # vim 子集（`ui/ace_vim`）：全屏输入行自己的 vi 键位。为什么这里需要自己的引擎 ——
+    # 普通 REPL 的 vi 模式是 prompt_toolkit 给的，而全屏的输入框是我们自己搭的，
+    # 没有那套绑定；操作符 + 文本对象（`ciw`/`da"`/`d2w`）本来就是纯文本变换，
+    # 所以直接用纯函数实现，顺带能被断言。
+    editor = ace_vim.VimLineEditor(enabled=bool(vim))
+
+    def _sync_from_buf() -> None:
+        editor.set_text(buf.text, buf.cursor_position)
+
+    def _sync_to_buf() -> None:
+        buf.text = editor.text
+        buf.cursor_position = min(editor.cursor, len(buf.text))
+
+    @kb.add(Keys.Any)
+    def _vim_key(event):
+        """普通模式：按键先进 vim 引擎；插入模式：交给输入框自己。"""
+        key = event.data or ""
+        if not editor.enabled:
+            buf.insert_text(key)
+            return
+        if editor.mode == "insert" and key != "\x1b":
+            buf.insert_text(key)
+            editor.insert(key)
+            return
+        if editor.feed("\x1b" if key == "\x1b" else key):
+            _sync_to_buf()
+        event.app.invalidate()
+
+    @kb.add("backspace")
+    def _vim_backspace(event):
+        if editor.enabled and editor.mode == "insert":
+            if editor.backspace():
+                _sync_to_buf()
+            return
+        if editor.enabled:
+            editor.feed("x")
+            _sync_to_buf()
+        else:
+            buf.delete_before_cursor()
+        event.app.invalidate()
 
     def _submit(event) -> None:
         text = buf.text

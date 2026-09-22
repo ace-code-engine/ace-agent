@@ -25,16 +25,16 @@ r"""ace_layout —— 布局与状态行：区域划分 · 可配置底栏 · �
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ui.ace_text import display_width, truncate_width
 
 __all__ = [
     "StatusSegment", "STATUS_NAMES", "DEFAULT_STATUS_ORDER", "fit_status_line",
     "parse_statusline", "context_meter", "context_state_style", "context_state_ansi",
-    "shimmer_span", "spinner_line",
-    "is_stalled", "STALL_SECONDS", "TaskNode", "build_task_tree",
-    "render_task_tree", "banner_frames", "compute_layout",
+    "shimmer_span", "spinner_line", "spinner_verbs",
+    "is_stalled", "STALL_SECONDS", "SOFT_STALL_SECONDS", "TaskNode",
+    "build_task_tree", "render_task_tree", "banner_frames", "compute_layout",
 ]
 
 # ============================================================
@@ -185,7 +185,18 @@ def context_state_ansi(usage: Dict[str, Any]) -> str:
 # 等待动画：高光 + 停滞判定
 # ============================================================
 
-STALL_SECONDS = 45      # 多久没有新进展就算"停滞"（只影响提示，不影响行为）
+STALL_SECONDS = 45      # 多久没有新进展算"停滞"（提示可中断）
+SOFT_STALL_SECONDS = 3  # 多久没有新进展开始"变色"（有活跃工具时不判）
+
+
+def spinner_verbs(translate: Optional[Callable[[str], str]] = None) -> List[str]:
+    """等待时轮换的动词（我们自己写的词，不抄任何现成词库）。
+
+    为什么要有：一个永远显示"思考中"的状态行，用户看两眼就再也不看了；轮换的词
+    让"它还在动"这件事**不需要盯着看**。词库经 i18n 键进（三语一致）。
+    """
+    tr = translate or (lambda k: k)
+    return [tr(f"spin_verb_{i}") for i in range(1, 6)]
 
 
 def shimmer_span(length: int, phase: int, span: int = 3) -> Tuple[int, int]:
@@ -206,15 +217,19 @@ def shimmer_span(length: int, phase: int, span: int = 3) -> Tuple[int, int]:
 
 
 def spinner_line(label: str, secs: float, phase: int = 0,
-                 stalled: bool = False, width: int = 0) -> str:
+                 stalled: bool = False, width: int = 0,
+                 soft_stalled: bool = False) -> str:
     """等待状态行：`◈ 思考中··· 12s`（停滞时补一句"还可以 Ctrl+C"）。
 
     `phase` 决定点号个数与（配合 `shimmer_span`）高光位置；`width>0` 时按列截断，
     免得等待行自己顶破终端、把光标推到第二行（那会让 `\\r` 重绘错位）。
+    两档停滞：`soft_stalled`（几秒没动静 → 加一个安静的标记）/ `stalled`（几十秒 →
+    明说可以中断）。分两档是因为"刚卡了一下"和"真的卡住了"该给不同的提示强度。
     """
     dots = "." * (int(phase) % 4)
     secs_i = int(max(0, secs))
-    line = f"◈ {label}{dots} {secs_i}s"
+    mark = "…" if soft_stalled and not stalled else ""
+    line = f"◈ {label}{dots}{mark} {secs_i}s"
     if stalled:
         line += f"（{secs_i}s 没有新进展 · Ctrl+C 可中断）"
     return truncate_width(line, width) if width and width > 0 else line

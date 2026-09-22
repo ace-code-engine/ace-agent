@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="assets/logo.svg" alt="ACE logo" width="88" height="88">
 </p>
 
@@ -16,7 +16,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.26.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.27.0%20(2026--09--19)-brightgreen"></a>
 </p>
 
 | Property | What you get |

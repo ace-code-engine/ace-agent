@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53"]
 _SEEN_SECTIONS: list = []
 
 
@@ -909,7 +909,9 @@ if _want("9"):
     check("CLI 隐藏内部思考（不泄漏 INTERNAL）",
           "[INTERNAL_THINKING]" not in out_text and "[PLAN] 演示" not in out_text, out_text[:300])
     check("CLI 显示思考/调用工具状态",
-          "思考中" in out_text and "调用工具" in out_text, out_text[:300])
+          # 工具阶段的状态行现在带工具名（"正在调用 file_read"）——比"正在调用工具"
+          # 信息量大得多，所以这里断言的是"调用"而不是那句完整文案
+          "思考中" in out_text and "调用" in out_text, out_text[:300])
     check("CLI 回复内容对用户可见", "当前时间是" in out_text, out_text[:600])
 
     # —— 斜杠补全 / 模型自定义 / 无感回滚 ——
@@ -8570,6 +8572,206 @@ if _want("52"):
                         "cmd_term", "cap_probe_color_ask", "term_probe_saved")
               for lg in ("zh", "en", "ja")), "")
     _cli52.close()
+
+    # ============================================================
+
+if _want("53"):
+    # ── [53] ────
+    print("[53] 交互体验 —— 补全菜单模型 · 无依赖输入行 · 回车语义 · 只读折叠 · 等待动画")
+    # ============================================================
+    import io as _io53  # noqa: E402
+    import subprocess as _sp53  # noqa: E402
+    import sys as _sys53  # noqa: E402
+    import ai_code as _ai53  # noqa: E402
+    from ui import ace_menu as _mn53  # noqa: E402
+    from ui import ace_prompt as _pr53  # noqa: E402
+    from ui import ace_cards as _cd53  # noqa: E402
+    from ui import ace_layout as _ly53  # noqa: E402
+
+    _CMDS53 = {"/help": "cmd_help", "/permission": "cmd_permission",
+               "/sandbox": "cmd_sandbox", "/exit": "cmd_exit", "/status": "cmd_status"}
+    _VALS53 = {"lang": ["zh", "en", "ja"], "skill": ["coding", "writing"]}
+
+    def _menu53(text, cursor=None):
+        return _mn53.build_menu(text, len(text) if cursor is None else cursor,
+                                _CMDS53, mention_values=_VALS53,
+                                translate=lambda k: k)
+
+    # —— 菜单模型：什么时候弹、弹什么、回车是补全还是发送 ——
+    check("菜单：输入 / 就弹（不必先打半个命令）",
+          _menu53("/").open and _menu53("/") .kind == "command", "")
+    check("菜单：模糊匹配（/per → /permission）",
+          _menu53("/per").current.label == "/permission", "")
+    check("菜单：命令名打全后**关闭**（回车让给「直接发送」）",
+          not _menu53("/help").open and _menu53("/help").current.label == "/help", "")
+    check("菜单：命令 + 空格弹参数（/permission → readonly/write/full/rules）",
+          [i.label for i in _menu53("/permission ").items][:2] == ["readonly", "write"],
+          [i.label for i in _menu53("/permission ").items])
+    check("菜单：参数已选好后关闭（否则回车永远发不出去）",
+          not _menu53("/permission readonly ").open, "")
+    check("菜单：参数支持模糊（/sandbox d → docker）",
+          _menu53("/sandbox d").current.label == "docker", "")
+    check("菜单：@ 弹四类提及；@lang 后有取值",
+          [i.label for i in _menu53("@").items][:2] == ["@lang", "@skill"]
+          and _menu53("@lang ").current.label == "zh", "")
+    check("菜单：普通文本不弹（不打扰）", not _menu53("帮我看下这段代码").open, "")
+    check("回车语义：候选能改变输入 → 补全（不发送）",
+          _mn53.accepts_on_enter(_menu53("/he"), "/he") is True, "")
+    check("回车语义：候选与输入一致 → 直接发送",
+          _mn53.accepts_on_enter(_menu53("/help"), "/help") is False, "")
+    check("菜单渲染：带分组、选中标记与按键提示；超出上限时说明还有多少",
+          (lambda rows: any(r.startswith("▶") for r in rows)
+           and any("more" in r or "…" in r for r in rows)
+           and any("hint" in r or "Tab" in r for r in rows))(
+              _mn53.render_menu(_menu53("/"), width=70, max_rows=3,
+                                translate=lambda k: k)), _mn53.render_menu(
+              _menu53("/"), width=70, max_rows=3, translate=lambda k: k))
+
+    # —— 无依赖输入行：用字节流驱动一次真实操作 ——
+    def _drive53(keys, history=("先前的输入",)):
+        return _pr53.LineEditor(
+            completer=_menu53, history=list(history), draw=False,
+            translate=lambda k: k,
+            keys=_pr53.KeySource(stream=_io53.StringIO(keys), tty=False))
+
+    def _read53(keys):
+        ed = _drive53(keys)
+        try:
+            return ed.read_line(), ed
+        except KeyboardInterrupt:
+            return "<interrupt>", ed
+
+    check("内置输入行：Tab 补全半截命令", _read53("/he\t\r")[0] == "/help", "")
+    check("内置输入行：打全的命令一次回车就发（不再要两次）",
+          _read53("/help\r")[0] == "/help", "")
+    check("内置输入行：半截命令回车先补全、再回车才发",
+          _read53("/he\r\r")[0] == "/help", "")
+    check("内置输入行：↑ 取历史，↑ 再 ↓ 回到空白",
+          _read53("\x1b[A\r")[0] == "先前的输入"
+          and _read53("\x1b[A\x1b[B\r")[0] == "", "")
+    check("内置输入行：空输入按 Tab 起个命令（少打一个字符）",
+          _read53("\t\r\r")[0] == "/help", _read53("\t\r\r")[0])
+    check("内置输入行：← → Home End Backspace 都能编",
+          _read53("abc\x1b[D\x1b[DX\r")[0] == "aXbc"
+          and _read53("ab\x7f\r")[0] == "a", "")
+    check("内置输入行：参数菜单 Tab 补全成完整命令",
+          _read53("/permission \t\r")[0] == "/permission readonly ", "")
+    check("内置输入行：Esc 先关菜单（不清输入）", _read53("/he\x1b\r")[0] == "/he", "")
+    check("内置输入行：Ctrl+O 走热键通道（交给 REPL 当命令执行）",
+          _read53("\x0f")[0] == "\x00MENU:/expand", "")
+    check("内置输入行：Ctrl+C 有输入时清空（空输入才中断）",
+          _read53("abc\x03\r")[0] == "" and _read53("\x03")[0] == "<interrupt>", "")
+    check("内置输入行：EOF（Ctrl+D / 管道结束）返回 None 而不是空串",
+          _read53("\x04")[0] is None, "")
+    check("按键解析：方向键/功能键/控制键都认得",
+          (_pr53.parse_key("\x1b[A"), _pr53.parse_key("\x1b[3~"),
+           _pr53.parse_key("\t"), _pr53.parse_key("\x7f")) ==
+          ("up", "delete", "tab", "backspace"), "")
+    check("渲染：菜单行与输入行一起给出（纯文本可断言）",
+          "/he" in (lambda ed: (ed.set_text("/he"), ed.render())[1])(
+              _drive53(""))[0], "")
+
+    # —— 回车语义在 prompt_toolkit 路径与内置路径**必须一致** ——
+    class _Comp53:
+        pass
+
+    def _comp53(text, start):
+        c = _Comp53()
+        c.text = text
+        c.start_position = start
+        return c
+
+    class _Buf53:
+        def __init__(self, text):
+            self.text = text
+            self.cursor_position = len(text)
+            self.applied = None
+            self.complete_state = None
+            self.submitted = False
+
+        class _CS:  # noqa: N801
+            def __init__(self, cur):
+                self.current_completion = cur
+
+        def apply_completion(self, cur):
+            self.applied = cur.text
+            self.text = self.text + cur.text
+
+        def cancel_completion(self):
+            self.complete_state = None
+
+        def validate_and_handle(self):
+            self.submitted = True
+
+    _b53 = _Buf53("/he")
+    _b53.complete_state = _Buf53._CS(_comp53("lp", -2))
+    _ai53._handle_enter_key(_b53)
+    check("回车语义（浮层路径）：候选会改变输入 → 补全且不提交",
+          _b53.applied == "lp" and not _b53.submitted, (_b53.applied, _b53.submitted))
+    _b53b = _Buf53("/help")
+    # 候选就是已输入的命令本身（真实补全器给的就是 `insert=/help, start=-5`）
+    _b53b.complete_state = _Buf53._CS(_comp53("/help", -5))
+    _ai53._handle_enter_key(_b53b)
+    check("回车语义（浮层路径）：候选与输入一致 → 直接提交（少按一次键）",
+          _b53b.submitted and _b53b.applied is None, _b53b.submitted)
+    _b53c = _Buf53("普通输入")
+    _ai53._handle_enter_key(_b53c)
+    check("回车语义（浮层路径）：没有菜单 → 直接提交", _b53c.submitted, "")
+
+    # —— 只读工具折叠：一次性探索不再刷屏 ——
+    _runs53 = _cd53.group_tool_runs([
+        ("file_read", "SUCCESS", 0.1, None), ("file_read", "SUCCESS", 0.1, None),
+        ("grep", "SUCCESS", 0.2, None), ("file_write", "SUCCESS", 0.3, None)])
+    _chunks53 = _cd53.collapse_read_runs(_runs53)
+    check("只读折叠：连续的读/检索合成一段，写操作单独留着（顺序不能讲错）",
+          [ch["kind"] for ch in _chunks53] == ["read", "tool"]
+          and _chunks53[0]["count"] == 3, _chunks53)
+    check("只读折叠：一句话汇总（读取 N / 检索 N）",
+          _cd53.read_sentence(_chunks53[0]["runs"], lambda k: k)
+          .startswith("read_group_read"), _cd53.read_sentence(_chunks53[0]["runs"]))
+    check("只读折叠：失败要在汇总里点名（不能藏进折叠行）",
+          "read_group_failed" in _cd53.read_sentence(
+              _cd53.group_tool_runs([("file_read", "403", 0.1, None)]), lambda k: k), "")
+    check("只读判定：认不出的 MCP 工具按「会改动」处理（保守）",
+          _cd53.is_read_tool("file_read") and _cd53.is_read_tool("mcp__x__search_docs")
+          and not _cd53.is_read_tool("mcp__x__write_file")
+          and not _cd53.is_read_tool("file_write"), "")
+
+    # —— 等待动画：动词轮换 / 两档停滞 / 减少动效 ——
+    check("等待动画：动词库非空且走 i18n（三语一致由 locale 段把关）",
+          len(_ly53.spinner_verbs()) == 5, "")
+    check("等待动画：软停滞给一个安静标记，硬停滞明说可中断",
+          "…" in _ly53.spinner_line("分析中", 4, 1, soft_stalled=True)
+          and "Ctrl+C" in _ly53.spinner_line("分析中", 61, 1, stalled=True), "")
+    check("停滞阈值：软 3 秒 / 硬 45 秒（可断言，便于以后调）",
+          (_ly53.SOFT_STALL_SECONDS, _ly53.STALL_SECONDS) == (3, 45), "")
+    _spn53 = _ai53._Spinner("思考中", verbs=["甲"], reduce_motion=True)
+    check("等待动画：减少动效时不轮换动词、也不逐帧刷新",
+          _spn53.reduce_motion and _spn53._verbs == ["甲"], "")
+    check("CLI：reduce_motion 可由环境变量打开（录屏/无障碍场景）",
+          (lambda: (os.environ.__setitem__("ACE_REDUCE_MOTION", "1"),
+                    _ai53.AgentCLI({"project_root": str(mktemp()),
+                                    "permission": "write", "model": "m", "bait": False},
+                                   mock=True)._reduce_motion(),
+                    os.environ.pop("ACE_REDUCE_MOTION"))[1])() is True, "")
+    check("状态行：工具阶段带工具名（从模型原文里提前看出来）",
+          _ai53._peek_tool_name('```json\n{"name": "file_read"}\n```') == "file_read"
+          and _ai53._peek_tool_name("普通回答") == "", "")
+
+    # —— 真 CLI 端到端：管道喂按键，走的就是内置输入行 ——
+    _env53 = dict(os.environ, PYTHONIOENCODING="utf-8", ACE_NO_ANIM="1")
+    _p53 = _sp53.run([_sys53.executable, "ai_code.py", "--mock", "--project-root",
+                      str(mktemp()), "--permission", "readonly"],
+                     cwd=str(FOLDER), input="/he\t\r/exit\r", capture_output=True,
+                     text=True, encoding="utf-8", errors="replace", timeout=180,
+                     env=_env53)
+    _out53 = (_p53.stdout or "") + (_p53.stderr or "")
+    check("真 CLI：管道里 Tab 补全能跑通（内置输入行真的接上了）",
+          "可用命令" in _out53 or "用法" in _out53, _out53[-300:])
+    check("真 CLI：内置菜单路径不会把按键回显成垃圾（无 TTY 时不画菜单）",
+          "▶" not in _out53 and "\x1b[" not in _out53, _out53[-200:])
+    check("真 CLI：非交互终端提示如实说明内置输入行可用",
+          "内置输入行" in _out53, _out53[:1200])
 
     # ============================================================
 

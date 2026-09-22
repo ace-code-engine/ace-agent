@@ -25,15 +25,96 @@
 """
 
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from ui.ace_text import truncate_width
 
 __all__ = [
     "TOOL_EMOJI", "TOOL_GLYPH", "GLYPH_FALLBACK", "ANSI",
     "MESSAGE_PREFIX", "message_prefix", "group_tool_runs", "thinking_block",
+    "READ_TOOLS", "is_read_tool", "collapse_read_runs", "read_sentence",
     "tool_card", "status_mark", "collapse_lines", "colorize",
 ]
+
+# "只看不动"的工具：读文件、检索、列目录、看终端输出、翻知识库/技能清单。
+# 它们的**成功**输出几乎没有信息量（谁都知道读到了），而一次探索动辄几十条 ——
+# 逐条打卡片会把真正重要的那几行挤出屏幕。所以它们成功时不打卡片，收尾用一句话汇总。
+READ_TOOLS = frozenset({
+    "file_read", "search", "search_read", "grep", "glob", "terminal_view",
+    "kb_search", "kb_list", "skill_list", "skill_load", "goal_status",
+    "datetime_now", "math_calc", "browser_screenshot",
+})
+
+
+def is_read_tool(name: str) -> bool:
+    """只看不动的工具（成功时折叠）。
+
+    工具名可能是 registry 之外的（MCP server 自己起的名字），所以对 `mcp__` 前缀的
+    工具按"名字里带 read/search/list/get/find/stat"判读 —— **认不出的一律按会改动
+    处理**（保守：宁可多打一张卡片，也不要把一次写入藏进折叠行里）。
+    """
+    n = str(name or "")
+    if n in READ_TOOLS:
+        return True
+    if n.startswith("mcp__"):
+        low = n.lower()
+        return any(w in low for w in ("read", "search", "list", "get", "find", "stat",
+                                      "query", "fetch", "peek", "inspect"))
+    return False
+
+
+def collapse_read_runs(runs: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """把**连续的只读调用**合并成一段，其余（写/执行/外呼）原样保留顺序。
+
+    为什么只合并"连续"的：`读 → 写 → 读` 合成一段会把顺序讲错，而顺序恰恰是
+    用户复查时的第一依据。合并段返回 `{"kind": "read", "runs": [...], "count": N}`。
+    """
+    out: List[Dict[str, object]] = []
+    buf: List[Dict[str, object]] = []
+
+    def _flush() -> None:
+        if buf:
+            out.append({"kind": "read", "runs": list(buf),
+                        "count": sum(int(r.get("count") or 1) for r in buf)})
+            buf.clear()
+
+    for run in runs or []:
+        if is_read_tool(str(run.get("tool") or "")):
+            buf.append(run)
+        else:
+            _flush()
+            out.append({"kind": "tool", "runs": [run],
+                        "count": int(run.get("count") or 1)})
+    _flush()
+    return out
+
+
+def read_sentence(runs: List[Dict[str, object]],
+                  translate: Optional[Callable[[str], str]] = None) -> str:
+    """只读组 → 一句话（`读取 3 个文件 · 搜索 2 次`）。
+
+    动词按工具类别归类（读/搜索/查看/知识库…），同类只是计数 —— 用户想知道的是
+    "它翻了哪些东西、翻了多少"，不是每一次调用的名字。
+    """
+    tr = translate or (lambda k: k)
+    buckets: Dict[str, int] = {}
+    kinds = {"file_read": "read", "terminal_view": "read", "browser_screenshot": "read",
+             "search": "search", "search_read": "search", "grep": "search",
+             "glob": "list", "kb_search": "kb", "kb_list": "kb", "skill_list": "skill",
+             "skill_load": "skill", "goal_status": "goal", "datetime_now": "misc",
+             "math_calc": "misc"}
+    for run in runs or []:
+        name = str(run.get("tool") or "")
+        kind = kinds.get(name, "read" if is_read_tool(name) else "other")
+        buckets[kind] = buckets.get(kind, 0) + int(run.get("count") or 1)
+    order = ("read", "search", "list", "kb", "skill", "goal", "misc", "other")
+    parts = [tr(f"read_group_{k}").replace("{n}", str(buckets[k]))
+             for k in order if buckets.get(k)]
+    fails = sum(int(run.get("fail") or 0) for run in runs or [])
+    if fails:
+        parts.append(tr("read_group_failed").replace("{n}", str(fails)))
+    return " · ".join(parts)
+
 
 # 消息种类前缀：一眼分清"谁在说话"。之前只有用户行有符号（❯），助手与工具卡片
 # 全靠颜色区分 —— 颜色在重定向到文件、或色弱终端里全丢了，符号不会。

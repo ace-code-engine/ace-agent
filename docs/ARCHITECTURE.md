@@ -46,6 +46,8 @@ ace-agent/
 │   ├── ace_dialog.py           #   统一对话框：单选/多选/分组/进度/页签 + 向导框架（纯模型 + 纯渲染）
 │   ├── ace_layout.py           #   布局/状态行/上下文可视化/任务树/首屏动效（纯函数，可配置分段）
 │   ├── ace_fullscreen.py       #   备用屏幕全屏会话：滚动区 + 状态行 + 输入行（输出经 stdout 收集器入列）
+│   ├── ace_menu.py             #   补全菜单模型：候选来源/排序/回车语义（两条渲染路径共用）
+│   ├── ace_prompt.py           #   无依赖输入行：菜单 + 历史 + 行编辑（按键来源可注入，可端到端测）
 │   ├── ace_keys.py             #   键位系统：内置语义键 + 用户覆盖 + 冲突警告 + 键位表（纯函数）
 │   ├── ace_vim.py              #   vim 子集：motions/operators/text objects + 行编辑器（纯函数）
 │   ├── ace_term.py             #   终端能力探测（自动判定）+ 自检向导步骤
@@ -118,7 +120,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.26.0.md #  本版更新介绍（可直接贴进 GitHub Release；键位与编辑器集成）
+│   ├── RELEASE-NOTES-v3.27.0.md #  本版更新介绍（可直接贴进 GitHub Release；交互体验专项）
+│   ├── RELEASE-NOTES-v3.26.0.md #  v3.26 更新介绍（键位与编辑器集成）
 │   ├── RELEASE-NOTES-v3.25.0.md #  v3.25 更新介绍（布局与状态行全套）
 │   ├── RELEASE-NOTES-v3.24.0.md #  v3.24 更新介绍（对话框与选择器全套）
 │   ├── RELEASE-NOTES-v3.23.0.md #  v3.23 更新介绍（消息渲染全套）

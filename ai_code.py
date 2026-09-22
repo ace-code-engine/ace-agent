@@ -59,8 +59,9 @@ sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
-from ui.ace_cards import (group_tool_runs, message_prefix,  # noqa: E402
+from ui.ace_cards import (message_prefix,  # noqa: E402
                           status_mark, thinking_block, tool_card)
+from ui import ace_cards  # noqa: E402  （只读工具折叠与一句话汇总、分组规则）
 from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：框、分栏、菜单）
 from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色，颜色由这里定）
 from ui import ace_input  # noqa: E402  （输入行交互：粘贴折叠 / ! bash / 暂存 / 队列）
@@ -70,6 +71,8 @@ from ui import ace_layout  # noqa: E402  （布局/状态行/上下文可视化/
 from ui import ace_fullscreen  # noqa: E402  （备用屏幕全屏会话：滚动区 + 状态行）
 from ui import ace_keys  # noqa: E402  （键位系统：覆盖/冲突判定/键位表）
 from ui import ace_term  # noqa: E402  （终端能力探测与自检向导）
+from ui import ace_menu  # noqa: E402  （补全菜单模型：候选从哪来/怎么排/回车语义）
+from ui import ace_prompt  # noqa: E402  （无依赖的输入行：菜单 + 历史 + 行编辑）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
@@ -639,42 +642,50 @@ def parse_keybindings(raw: Any) -> List[Tuple[str, str]]:
     return out[:20]
 
 
-def _handle_enter_key(buf) -> None:
-    """REPL 回车键统一决策（独立成函数便于测试）：
-    - 补全菜单开着且已选定（↑↓ 移动过）→ 把选中项填入输入行并关闭菜单，
-      不发送（再按一次回车才发送）
-      （修复：此前回车会把选中项丢掉——菜单关了但命令也没进去）
-    - 斜杠命令第一次回车只弹出命令列表（预览，不发送）
-    - 第二次回车才真正发送
+def _peek_tool_name(text: str) -> str:
+    """从模型这一轮的原文里**提前**看出它要调哪个工具（只为状态行动画用）。
+
+    为什么不等执行完再拿名字：状态行的全部价值在于"它现在在干什么"；等结果回来再显示
+    等于事后播报。这里只做一次宽松匹配，认不出就返回空串（调用方退回通用文案），
+    绝不因为认不出而影响执行。
     """
-    cs = buf.complete_state
+    m = re.search(r'"(?:name|tool)"\s*:\s*"([A-Za-z0-9_.:\-]{1,60})"', str(text or ""))
+    return m.group(1) if m else ""
+
+
+def _completion_result(text: str, cursor: int, comp) -> str:
+    """把某条补全应用到 `(text, cursor)` 上会得到什么（不真的动 buffer）。"""
+    try:
+        start = max(0, int(cursor) + int(getattr(comp, "start_position", 0)))
+    except Exception:  # noqa: BLE001 —— 拿不到位置就按"插在光标处"处理
+        start = int(cursor)
+    return f"{text[:start]}{getattr(comp, 'text', '')}{text[int(cursor):]}"
+
+
+def _handle_enter_key(buf) -> None:
+    """REPL 回车键统一决策（独立成函数便于测试）。
+
+    产品口径（与无依赖时的 `ui/ace_prompt` 完全一致，两条路径不许有第二种脾气）：
+    - 菜单开着、且**选中项会改变输入内容** → 先补全（不发送），等下一次回车；
+    - 选中项与已输入内容一致（`/help` 打全了）→ **直接发送**；
+    - 没有菜单 → 直接发送。
+
+    旧实现是"斜杠命令第一次回车只弹列表、第二次才发"，于是**打全命令也要按两次回车**，
+    这正是"僵硬"的来源：用户已经打完了，界面却还要再问一次。
+    """
+    cs = getattr(buf, "complete_state", None)
+    cur = getattr(cs, "current_completion", None) if cs is not None else None
+    if cur is not None:
+        text = buf.text
+        cursor = getattr(buf, "cursor_position", len(text))
+        if _completion_result(text, cursor, cur).strip() != text.strip():
+            buf.apply_completion(cur)          # 补全，不发送
+            return
     if cs is not None:
-        cur = cs.current_completion
-        if cur is not None:
-            # 有选中补全：插入输入行并关闭菜单，等待下一次回车发送
-            buf.apply_completion(cur)
-            buf._ace_preview_shown = True
-            return
-        # 菜单开着但没选定：维持两段回车语义
-        if getattr(buf, "_ace_preview_shown", False):
-            buf._ace_preview_shown = False
-            buf.validate_and_handle()
-            return
-        # 菜单由打字自动弹出（complete_while_typing），
-        # 这次回车算第一次（预览），等第二次回车发送
-        buf._ace_preview_shown = True
-        return
-    text = buf.text.strip()
-    if text.startswith("/") and not getattr(buf, "_ace_preview_shown", False):
-        # 第一次回车：展开补全菜单（列表预览），不发送
-        buf._ace_preview_shown = True
         try:
-            buf.start_completion(select_first=False)
-        except Exception:
+            buf.cancel_completion()            # 菜单挡着发送：先收起来
+        except Exception:  # noqa: BLE001
             pass
-        return
-    # 第二次回车（或非命令输入）：正常提交
-    buf._ace_preview_shown = False
     buf.validate_and_handle()
 
 
@@ -1124,7 +1135,7 @@ class _MockArgs:
 
 
 def spinner_line(label: str, dots: str, secs: int, stalled: bool = False,
-                 width: int = 0) -> str:
+                 width: int = 0, soft_stalled: bool = False) -> str:
     """状态行文本（纯函数，便于单测）：`◈ 思考中... 12s`。
 
     带"已用时长"是有意的：一次模型调用卡住几十秒时，用户唯一能判断"它在干活还是
@@ -1133,7 +1144,8 @@ def spinner_line(label: str, dots: str, secs: int, stalled: bool = False,
     停在同一句话上太久和卡死长得一样，界面上必须说清"还可以按什么键"。
     """
     return ace_layout.spinner_line(f"{label}", secs, len(dots) % 4,
-                                   stalled=stalled, width=width)
+                                   stalled=stalled, width=width,
+                                   soft_stalled=soft_stalled)
 
 
 # 距压缩触发点还剩这么多比例时开始提醒（0.8 = 用掉触发点的 80%）
@@ -1203,18 +1215,30 @@ class _Spinner:
     的依据，就是它在动 **并且** 动了多久。旧版只有动态点号，长时间等待看着像死机。
     """
 
-    def __init__(self, label: str = "思考中") -> None:
+    def __init__(self, label: str = "思考中", verbs: Optional[List[str]] = None,
+                 reduce_motion: bool = False) -> None:
         self._label = label
+        self._verbs = list(verbs or [])
+        self.reduce_motion = bool(reduce_motion)
         self._stop_ev = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = 0.0
         self._last_progress = 0.0        # 最近一次"有新进展"（label 变化）的时刻
         self.stalled = False             # 供 /status 之类读取（只读用途）
+        self.soft_stalled = False
 
-    def set_label(self, label: str) -> None:
+    def set_label(self, label: str, progress: bool = True) -> None:
+        """换阶段文案；`progress=True` 表示这算一次新进展（刷新停滞计时）。
+
+        工具开始跑的瞬间要刷新（说明"动了"），但"同一个工具跑了 30 秒"不该被当成
+        停滞 —— 所以调用方要显式区分"换阶段"与"只是在重画"。
+        """
         if label != self._label:
             self._label = label
-            self._last_progress = time.monotonic()
+            if progress:
+                self._last_progress = time.monotonic()
+                self.stalled = False
+                self.soft_stalled = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1232,16 +1256,26 @@ class _Spinner:
         while not self._stop_ev.is_set():
             now = time.monotonic()
             secs = int(now - self._t0)
-            # 停滞判定：不是"等了多久"，而是"多久没有新动作" —— 换过阶段（思考→调工具）
-            # 就不算停滞，否则一个正常的 60 秒多轮任务会被误报成卡死。
-            self.stalled = ace_layout.is_stalled(
-                now - self._last_progress, ace_layout.STALL_SECONDS)
-            _line = spinner_line(self._label, "." * (frame % 4), secs,
-                                 stalled=self.stalled, width=_term_cols() - 1)
+            idle = now - self._last_progress
+            # 两档停滞：几秒没动静 → 安静标记；几十秒 → 明说可中断。有活跃工具时
+            # 由调用方把 label 换掉（= 一次新进展），所以长命令不会被误判成卡死。
+            self.soft_stalled = idle >= ace_layout.SOFT_STALL_SECONDS
+            self.stalled = ace_layout.is_stalled(idle, ace_layout.STALL_SECONDS)
+            # 动词轮换：前 ~2.4 秒先说正经状态词（"思考中"），之后才换口味词 ——
+            # 短等待看到的是准确状态，长等待才需要用词的变化证明它还活着。
+            label = self._label
+            if self._verbs and not self.reduce_motion and frame >= 20:
+                label = self._verbs[(frame // 20) % len(self._verbs)]
+            # 直接调 ui 那一层（签名是 label/secs/phase）—— 本模块的 spinner_line
+            # 是给旧调用点留的兼容包装，参数顺序不同，别在这里混用。
+            _line = ace_layout.spinner_line(label, secs,
+                                            0 if self.reduce_motion else frame % 4,
+                                            stalled=self.stalled, width=_term_cols() - 1,
+                                            soft_stalled=self.soft_stalled)
             sys.stdout.write("\r" + _line + " " * 3)
             sys.stdout.flush()
             frame += 1
-            self._stop_ev.wait(0.12)
+            self._stop_ev.wait(1.0 if self.reduce_motion else 0.12)
 
     def stop(self, newline: bool = False) -> None:
         self._stop_ev.set()
@@ -3167,6 +3201,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._diff_history: List[Dict] = []
         # 此刻的等待动画（/tasks 用它显示"正在执行什么"）；没在等时为 None
         self._spinner: Optional["_Spinner"] = None
+        # 无依赖时的内置输入行（懒建：只用得到时才需要历史/菜单）
+        self._inline_editor: Optional["ace_prompt.LineEditor"] = None
         # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
         self._cost = {"in_tokens": 0, "out_tokens": 0}
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
@@ -3453,6 +3489,69 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.messages.append({"role": "user", "content": f"$ {command}\n{out}"[:4000]})
         self.session["tools"] += 1
         print(c("dim", t("bash_in_context")))
+
+    def _menu_state(self, text: str, cursor: int) -> "ace_menu.MenuState":
+        """此刻该弹什么菜单（**唯一**判定点：装了依赖与没装依赖共用这一份）。
+
+        候选来源：斜杠命令（含自定义/插件命令，按分组）+ `@` 提及（lang/skill/file/folder）
+        + 命令参数（`/permission ` → readonly/write/full/rules）。@file/@folder 的**路径取值**
+        仍在补全器里现算（那是文件系统的事，不属于菜单模型）。
+        """
+        custom = [c.menu_entry() for c in self.custom_commands.values()] \
+            if getattr(self, "custom_commands", None) else []
+        return ace_menu.build_menu(
+            text, cursor, self.COMMANDS, custom=custom, translate=t,
+            group_of=lambda name: t(self.command_group(name)),
+            mention_values={"lang": sorted(LANG_NAMES.keys()),
+                            "skill": sorted(SKILLS.keys())})
+
+    def _build_ace_completer(self):
+        """把菜单模型包成 prompt_toolkit 的补全器（装了依赖时走这条）。
+
+        `@file`/`@folder` 后面的**路径**交给 `PathCompleter`（文件系统的事不该塞进菜单
+        模型）；其余一律来自 `_menu_state` —— 所以"菜单里有什么"只定义一次。
+        """
+        from prompt_toolkit.completion import Completer, Completion, PathCompleter
+        from prompt_toolkit.document import Document as PTDocument
+
+        cli = self
+
+        class AceCompleter(Completer):
+            def __init__(self) -> None:
+                self._path = PathCompleter(only_directories=False, expanduser=True)
+
+            def get_completions(self, document, complete_event):
+                text = document.text_before_cursor
+                m = re.match(r"^@(file|folder)\s+(.*)$", text)
+                if m:
+                    sub = PTDocument(m.group(2), cursor_position=len(m.group(2)))
+                    for comp in self._path.get_completions(sub, complete_event):
+                        yield Completion(comp.text, start_position=comp.start_position,
+                                         display=comp.display,
+                                         display_meta=t("at_complete_file")
+                                         if m.group(1) == "file" else t("at_complete_folder"))
+                    return
+                state = cli._menu_state(text, len(text))
+                if not state.open:
+                    return
+                token, start, _end = ace_menu._token_under_cursor(text, len(text))
+                for item in state.items:
+                    yield Completion(
+                        item.insert, start_position=-len(token),
+                        display=item.label,
+                        display_meta=(item.desc or "")[:60])
+
+        return AceCompleter()
+
+    def _reduce_motion(self) -> bool:
+        """是否"减少动效"（配置 `reduce_motion` 或环境变量 ACE_REDUCE_MOTION）。
+
+        为什么要有这个开关：录屏、终端复用、无障碍场景下逐帧刷新是负担；关掉之后
+        状态行仍然给出同样的信息，只是不再动。这属于必须预留的开关，不是附加功能。
+        """
+        if os.environ.get("ACE_REDUCE_MOTION"):
+            return True
+        return str(self.cfg.get("reduce_motion", "")).lower() in ("1", "true", "on", "yes")
 
     def _key_resolution(self) -> "ace_keys.KeyResolution":
         """当前生效键位（配置里的 keybindings 经 `ui/ace_keys` 解析后的结果）。"""
@@ -4224,7 +4323,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # spinner —— 否则提醒文字会和 spinner 的 \r 重绘叠在同一行上。
         system = self._build_system_prompt()
         self._warn_context_if_near(msgs, system)
-        spinner = _Spinner(t("thinking"))
+        spinner = _Spinner(t("thinking"), verbs=ace_layout.spinner_verbs(t),
+                           reduce_motion=self._reduce_motion())
         self._spinner = spinner      # /tasks 用：能看出"此刻在跑什么"
         disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner)
         spinner.start()
@@ -4288,7 +4388,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return
         secs = sum(e for _t, _s, e, _rc in tools)
         parts = []
-        for run in group_tool_runs(tools):
+        for chunk in ace_cards.collapse_read_runs(ace_cards.group_tool_runs(tools)):
+            if chunk["kind"] == "read":
+                _runs = chunk["runs"]
+                assert isinstance(_runs, list)
+                parts.append(ace_cards.read_sentence(_runs, t))
+                continue
+            _runs = chunk["runs"]
+            assert isinstance(_runs, list)
+            run = _runs[0]
             mark, _col = status_mark(str(run.get("last_status") or ""))
             count = int(run["count"])
             seg = f"{run['tool']}" + (f" ×{count}" if count > 1 else "") + f" {mark}"
@@ -4296,7 +4404,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             if _rcs:
                 seg += f"(exit {_rcs[-1]})"
             parts.append(seg)
-        # 最多列 5 个，再多就省略（一行汇总不该自己变成一屏）
+        # 最多列 5 项，再多就省略（一行汇总不该自己变成一屏）
         shown = " · ".join(parts[:5]) + (" …" if len(parts) > 5 else "")
         print(c("dim", f"{message_prefix('tool')} "
                        + t("round_tools", n=len(tools), sec=f"{secs:.2f}", tools=shown)))
@@ -4378,8 +4486,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             # 在仍然超出模型窗口时把中间段折成摘要，而不是替用户改主意。
             self._compact_if_needed(system)
 
-            # 工具执行阶段动画（仅当本轮确实是工具调用）
-            exec_spinner = (_Spinner(t("calling_tool"))
+            # 工具执行阶段动画（仅当本轮确实是工具调用）；带工具名 —— "正在调用工具"
+            # 与"正在读取 ace/ui/ace_menu.py"给人的信息量差一个量级。
+            _tool_name = _peek_tool_name(output)
+            _exec_label = (t("calling_tool_named", tool=_tool_name) if _tool_name
+                           else t("calling_tool"))
+            exec_spinner = (_Spinner(_exec_label, verbs=ace_layout.spinner_verbs(t),
+                                     reduce_motion=self._reduce_motion())
                             if disp["state"]["state"] == "tool" else None)
             if exec_spinner:
                 exec_spinner.start()
@@ -4572,15 +4685,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # 只看首字符 —— 否则 `ls` 输出里以 + 开头的行会被误染成绿色。
                 _diff_stripped = ({y.strip() for y in _diff.splitlines() if y.strip()}
                                   if _diff else None)
-                for _i, _ln in enumerate(_card):
-                    if _i == 0:
-                        _ln = _ln.replace(f" {_mark} ", f" {c(_color, _mark)} ", 1)
-                        print(c(_color, _ln))
-                    elif (_diff_stripped is not None and _ln.strip() in _diff_stripped
-                          and ace_diff.diff_marker(_ln.strip()) in "+-@"):
-                        print(c(ace_diff.color_name(_ln.strip()), _ln))
-                    else:
-                        print(c("dim", _ln))
+                # 只读类工具**成功时不打卡片**：一次探索动辄几十条"读到了"，
+                # 逐条刷过去会把真正重要的那几行挤出屏幕。收尾用一句话汇总
+                # （`读取 3 个文件 · 搜索 2 次`，见 _print_tool_timeline）。
+                # 失败照打 —— 出错的读必须看得见。
+                _fold_read = (_st == "SUCCESS" and ace_cards.is_read_tool(
+                    str(result.get("tool") or "")) and not result.get("memory_injected"))
+                if not _fold_read:
+                    for _i, _ln in enumerate(_card):
+                        if _i == 0:
+                            _ln = _ln.replace(f" {_mark} ", f" {c(_color, _mark)} ", 1)
+                            print(c(_color, _ln))
+                        elif (_diff_stripped is not None and _ln.strip() in _diff_stripped
+                              and ace_diff.diff_marker(_ln.strip()) in "+-@"):
+                            print(c(ace_diff.color_name(_ln.strip()), _ln))
+                        else:
+                            print(c("dim", _ln))
                 self._round_tools.append(
                     (result.get("tool", ""), _st, _elapsed_f, _exit_code))
                 if self.json_mode:
@@ -4695,6 +4815,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return
         if str(self.cfg.get("animate", "")).lower() in ("0", "false", "off", "no"):
             return
+        if self._reduce_motion():
+            return                       # 减少动效：首屏也不播
         frames = ace_layout.banner_frames(
             "ACE", t("banner_sub", ver=version.__version__), steps=4)
         for _f in frames[:-1]:
@@ -4877,9 +4999,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
                 _vim = bool(self.cfg.get("vim_mode", False))
                 session = PromptSession(
-                    completer=_build_slash_completer(
-                        self.COMMANDS,
-                        [c.menu_entry() for c in self.custom_commands.values()]),
+                    completer=self._build_ace_completer(),
                     complete_while_typing=True,
                     key_bindings=kb,
                     history=_history,
@@ -4905,20 +5025,27 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         "completion-menu.completion.meta": "bg:#1e1e2e #aaaaaa",
                     }),
                 )
-                print(c("dim", "  ✓ 实时补全已启用（输入 / 或 @ 弹出菜单，按分组排序）"))
+                print(c("dim", "  ✓ 实时补全已启用（输入 / 或 @ 弹菜单；Tab 补全 · Enter 发送；"
+                               "打全的命令一次回车就跑）"))
                 print(c("dim", "  " + t("input_hint_multiline")))
                 print(c("dim", "  " + t("input_hint_history")))
                 print(c("dim", "  状态栏快捷切换: F1=权限  F2=沙箱  F3=联网（直接弹框选档，"
                                "也可打 /permission /sandbox /net 回车弹框）"))
                 print(c("dim", "  二级提示: /thinking 或 F4 开/关思考过程 · 开启后思考以灰色区分"))
             except ImportError:
-                print(c("dim", "  提示: 运行 ace --install-ui 一键安装实时补全依赖（Claude Code 同款 / 弹窗菜单）"))
+                # 依赖缺失**不再是"没有菜单"**：降级到内置菜单（同一份候选模型），
+                # 并把"怎么才能拿到浮层菜单"用一条能直接复制的命令说清楚。
+                print(c("dim", "  ✓ 已启用内置补全菜单（无第三方依赖）：输入 / 或 @ 弹菜单，"
+                               "↑↓ 选 · Tab 补全 · Enter 发送"))
+                print(c("dim", f"  想要浮层菜单（Claude Code 同款）就装一下："
+                               f"\"{sys.executable}\" -m pip install prompt_toolkit  "
+                               f"（或运行 ace --install-ui）"))
             except Exception as e:
                 # 构造失败（终端/版本兼容等）：降级为普通 input()，但明示原因便于排查
                 print(c("yellow", f"  ⚠ 补全菜单未启用（{type(e).__name__}: {e}），已降级为普通输入"))
                 session = None
         else:
-            print(c("dim", "  ⚠ 非交互终端（stdin/stdout 非 TTY），实时补全菜单不可用"))
+            print(c("dim", "  · 非交互终端：用内置输入行（补全菜单照样有，只是不画浮层）"))
 
         # 全屏模式：先进备用屏幕跑一段（同一套行处理），用户按 F5 退出全屏后
         # 回到这里的普通 REPL —— 两种界面的行为完全一致，因为走的是同一个
@@ -4971,7 +5098,29 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         default=self._pending_input or "").strip()
                     self._pending_input = ""
                 else:
-                    line = input(c("magenta", "▊ ")).strip()
+                    # 没有 prompt_toolkit 时**不是裸 input()**：内置输入行带同一份菜单模型
+                    # （补全/历史/行编辑都是标准库实现），所以"没装依赖"只影响长相，
+                    # 不影响能不能用。热键与浮层路径同义（F1–F4 / Ctrl+O）。
+                    if self._inline_editor is None:
+                        _hist: List[str] = []
+                        try:
+                            _hist = list(_history.get_strings()) if _history else []
+                        except Exception:  # noqa: BLE001 —— 拿不到历史就当没有
+                            _hist = []
+                        self._inline_editor = ace_prompt.LineEditor(
+                            prompt=c("magenta", "▊ "),
+                            completer=self._menu_state,
+                            history=_hist,
+                            styler=_md_styler,
+                            translate=t,
+                            width=_term_cols(),
+                            hotkeys={"c-o": "/expand", "f1": "/permission",
+                                     "f2": "/sandbox", "f3": "/net",
+                                     "f4": "/thinking"})
+                    _line = self._inline_editor.read_line()
+                    if _line is None:                 # EOF（Ctrl+D / 管道结束）
+                        raise EOFError
+                    line = _line.strip()
                 line = line.lstrip("\ufeff")  # 兼容带 UTF-8 BOM 的管道/重定向输入
                 # F1/F2/F3 热键退出输入框时带回魔数标记 → 还原成斜杠命令
                 # （魔数值本身以 / 开头，如 \x00MENU:/permission，只需剥掉前缀）

@@ -77,6 +77,7 @@ ace-agent/
 │   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
+│   ├── ace_styles.py           #   输出风格预设：提示词片段 + 界面旗标（一份预设两个面）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 

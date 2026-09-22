@@ -62,6 +62,7 @@ import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界
 from ui.ace_cards import status_mark, tool_card  # noqa: E402
 from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：框、分栏、菜单）
 from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色，颜色由这里定）
+from ui import ace_input  # noqa: E402  （输入行交互：粘贴折叠 / ! bash / 暂存 / 队列）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -1357,7 +1358,8 @@ class _SlashCommands:
     # 分组是**展示层**信息，不进 COMMAND_HANDLERS —— 加一条命令忘了分组只会
     # 落到"其他"，不会影响分发。
     COMMAND_GROUPS = [
-        ("group_session", ["/help", "/clear", "/status", "/stats", "/expand",
+        ("group_session", ["/help", "/keys", "/stash", "/queue", "/clear", "/status",
+                           "/stats", "/expand",
                            "/history", "/sessions", "/resume", "/fork",
                            "/rewind", "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
@@ -1434,6 +1436,9 @@ class _SlashCommands:
         "/rewind": "cmd_rewind",
         "/review": "cmd_review",
         "/vim": "cmd_vim",
+        "/keys": "cmd_keys",
+        "/stash": "cmd_stash",
+        "/queue": "cmd_queue",
         "/hooks": "cmd_hooks",
         "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
@@ -1476,6 +1481,9 @@ class _SlashCommands:
         "/rewind": ("_cmd_rewind", True),
         "/review": ("_cmd_review", True),
         "/vim": ("_cmd_vim", True),
+        "/keys": ("_cmd_keys", True),
+        "/stash": ("_cmd_stash", True),
+        "/queue": ("_cmd_queue", True),
         "/hooks": ("_cmd_hooks", True),
         "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
@@ -2116,6 +2124,11 @@ class _SlashCommands:
                 parts.append(("class:footer-dim", " 目标:done "))
         parts.append(("class:footer-dim",
                       f" 轮{self.session['rounds']} 工具{self.session['tools']} "))
+        # 排队与暂存：有东西就显示（否则用户会忘了自己排过/存过）
+        if getattr(self, "_queued", None):
+            parts.append(("class:footer-w", t("footer_queue", n=len(self._queued))))
+        if getattr(self, "_stash", None):
+            parts.append(("class:footer-dim", t("footer_stash", n=len(self._stash))))
         # 挂着的图片：只有非空时显示（提醒"这些东西会跟着下一轮发出去"）
         if getattr(self, "_pending_images", None):
             parts.append(("class:footer-w", t("footer_images", n=len(self._pending_images))))
@@ -2780,6 +2793,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._pending_input = ""
         # @image 挂上的图片（block 已按接口格式组装好），下一轮请求带上后清空
         self._pending_images: List[Dict] = []
+        # 输入层：粘贴折叠的原文、暂存栈、排队待跑的用户输入
+        self._pastes: Dict[int, str] = {}
+        self._paste_seq = 0
+        self._stash: List[str] = []
+        self._queued: List[str] = []
         # 最近一次带 diff 的改动（/review 用）：{"tool","path","diff"}
         self._last_diff: Optional[Dict] = None
         # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
@@ -3000,6 +3018,101 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(c("dim", t("keys_none")))
         print(c("dim", t("vim_hint")))
         return True
+
+    # ---------- 输入层：! bash 模式 / 粘贴折叠 / 暂存 / 排队 ----------
+
+    def _run_bash_input(self, command: str) -> None:
+        """`!命令`：直接执行（不发模型），输出贴回对话并进入上下文。
+
+        与 Claude Code 的 `!` 同一个用法，但闸门是我们的：走 `terminal_exec` 那条路，
+        逐次确认、沙箱、审计一个不少 —— 所以"直接跑"不等于"绕过审查"。
+        """
+        if not command:
+            print(c("dim", t("bash_usage")))
+            return
+        print(c("cyan", t("bash_running", cmd=command)))
+        res = self.el.executor.execute({"tool": "terminal_exec", "command": command})
+        out = ""
+        if res.status == "success":
+            data = res.data or {}
+            out = str(data.get("stdout") or "")[:4000]
+            if out:
+                print(out.rstrip())
+        else:
+            print(c("red", t("bash_failed", status=res.error_code or res.status,
+                             msg=(res.message or "")[:200])))
+            return
+        # 贴进会话历史：下一轮模型能看到这次命令与它的输出
+        self.messages.append({"role": "user", "content": f"$ {command}\n{out}"[:4000]})
+        self.session["tools"] += 1
+        print(c("dim", t("bash_in_context")))
+
+    def _cmd_keys(self, parts: List[str]) -> bool:
+        """`/keys`：内置快捷键 + 自定义键位（一张表，用户不必猜）。"""
+        _w = self._panel_width()
+        print(c("bold", t("keys_header")))
+        print(c("dim", ace_panel.section(t("keys_builtin"), _w)))
+        for _key, _desc in ace_input.keys_table():
+            print(f"  {c('magenta', _key):<24} {t(_desc)}")
+        _custom = parse_keybindings(self.cfg.get("keybindings"))
+        if _custom:
+            print(c("dim", ace_panel.section(t("keys_custom"), _w)))
+            for _key, _cmd in _custom:
+                print(f"  {c('magenta', _key):<24} {_cmd}")
+        print(c("dim", t("keys_hint")))
+        return True
+
+    def _cmd_stash(self, parts: List[str]) -> bool:
+        """`/stash`：暂存/取回输入（Ctrl+S 同效）。"""
+        action = (parts[1].lower() if len(parts) > 1 else "list")
+        if action == "pop":
+            self._stash, text = ace_input.stash_pop(self._stash)
+            if not text:
+                print(c("dim", t("stash_empty")))
+                return True
+            self._pending_input = text
+            print(c("green", t("stash_restored", n=len(text))))
+            return True
+        if action == "clear":
+            self._stash = []
+            print(c("green", t("stash_cleared")))
+            return True
+        if action != "list":
+            self._stash = ace_input.stash_push(self._stash, " ".join(parts[1:]))
+            print(c("green", t("stash_saved", n=len(self._stash))))
+            return True
+        if not self._stash:
+            print(c("dim", t("stash_empty")))
+            return True
+        print(c("bold", t("stash_title", n=len(self._stash))))
+        for i, item in enumerate(reversed(self._stash), 1):
+            print(f"  {i:>2}. {' '.join(item.split())[:80]}")
+        print(c("dim", t("stash_hint")))
+        return True
+
+    def _cmd_queue(self, parts: List[str]) -> bool:
+        """`/queue <文本>`：排到当前这轮之后（想一次交代几件事时省一次等待）。"""
+        action = (parts[1].lower() if len(parts) > 1 else "list")
+        if action == "clear":
+            self._queued = []
+            print(c("green", t("queue_cleared")))
+            return True
+        if action != "list":
+            self._queued = ace_input.stash_push(self._queued, " ".join(parts[1:]))
+            print(c("green", t("queue_added", n=len(self._queued))))
+            return True
+        if not self._queued:
+            print(c("dim", t("queue_empty")))
+            print(c("dim", t("queue_usage")))
+            return True
+        print(c("bold", t("queue_title", n=len(self._queued))))
+        for i, item in enumerate(self._queued, 1):
+            print(f"  {i:>2}. {' '.join(item.split())[:80]}")
+        return True
+
+    def _expand_input(self, line: str) -> str:
+        """提交前把粘贴占位符换回原文（找不到编号就原样留着，不静默丢掉）。"""
+        return ace_input.expand_pastes(line, self._pastes)
 
     def _cmd_todo(self, parts: List[str]) -> bool:
         """`/todo [add <文本>|start <id>|done <id>|remove <id>|clear [all]]`。
@@ -3675,8 +3788,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     def converse(self, user_input: str, echo_input: bool = True) -> None:
         if echo_input:
-            # 单次对话（--input）没有终端回显，打印聊天标题
-            print(f"\n{c('magenta', '❯')} {user_input}")
+            # 单次对话（--input）没有终端回显，打印聊天标题。
+            # 超长输入按行截断显示并说明截了多少 —— 否则自己的粘贴会把整屏刷掉。
+            print(f"\n{c('magenta', '❯')} {ace_input.truncate_echo(user_input)}")
         else:
             # 交互模式：输入已由终端回显，只留一个空行分隔，避免重复显示
             print()
@@ -4054,6 +4168,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             try:
                 from prompt_toolkit import PromptSession
                 from prompt_toolkit.enums import EditingMode
+                from prompt_toolkit.keys import Keys
                 from prompt_toolkit.styles import Style
                 from prompt_toolkit.key_binding import KeyBindings
                 from prompt_toolkit.history import FileHistory, InMemoryHistory
@@ -4096,6 +4211,37 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 @kb.add("enter")
                 def _two_step_enter(event):
                     _handle_enter_key(event.current_buffer)
+
+                # 括号粘贴：prompt_toolkit 把整段粘贴交过来，我们折叠成一行占位符 ——
+                # 否则粘 300 行日志会把输入行和上一条对话一起顶出屏幕。
+                @kb.add(Keys.BracketedPaste)
+                def _fold_paste(event):
+                    text = event.data or ""
+                    self._paste_seq += 1
+                    placeholder, meta = ace_input.fold_paste(text, self._paste_seq)
+                    if meta is None:
+                        event.current_buffer.insert_text(placeholder)
+                        return
+                    self._pastes[meta["index"]] = meta["text"]
+                    event.current_buffer.insert_text(placeholder)
+                    print(c("dim", t("paste_folded", n=meta["lines"])))
+
+                # Ctrl+S：把当前输入暂存起来（一句话写一半想问别的）
+                @kb.add("c-s")
+                def _stash_input(event):
+                    buf = event.current_buffer
+                    if not buf.text.strip():
+                        print(c("dim", t("stash_empty")))
+                        return
+                    self._stash = ace_input.stash_push(self._stash, buf.text)
+                    buf.reset()
+                    print(c("dim", t("stash_saved", n=len(self._stash))))
+
+                # Ctrl+L：清屏（保留会话，只清画面）
+                @kb.add("c-l")
+                def _clear_screen(event):
+                    self._clear_screen()
+                    event.app.invalidate()
 
                 # 多行输入：Alt+Enter / Ctrl+J 在光标处插入换行，Enter 仍然发送。
                 # 为什么给两个键：Shift+Enter 需要终端支持扩展键协议（Windows Terminal、
@@ -4152,6 +4298,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         ("class:continuation", "… ")],
                     style=Style.from_dict({
                         "prompt": "ansimagenta bold",
+                        "prompt-bash": "ansiyellow bold",
+                        "prompt-multi": "ansicyan bold",
                         "continuation": "ansibrightblack",
                         "perm": "ansicyan bold",
                         "footer": "bg:#2b2b3c #aaaaaa",
@@ -4181,16 +4329,40 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(c("dim", "  ⚠ 非交互终端（stdin/stdout 非 TTY），实时补全菜单不可用"))
 
         while True:
+            # 排队优先：/queue 里排着的东西先跑（一次交代几件事时省一次等待）
+            if self._queued:
+                _next = self._queued[0]
+                self._queued = self._queued[1:]
+                print(c("dim", t("queue_running", n=len(self._queued))))
+                try:
+                    self.converse(_next, echo_input=False)
+                except KeyboardInterrupt:
+                    print("\n" + t("interrupted"))
+                continue
             try:
                 # 提示符带权限状态（readonly=蓝 / write=黄 / full=红），一眼看清当前权限
                 _perm = str(self.cfg.get("permission", "readonly"))
                 _perm_color = {"readonly": "ansiblue", "write": "ansiyellow",
                                "full": "ansired"}.get(_perm, "ansicyan")
                 if session is not None:
+                    # 提示符按**正在输入什么**变色：`!` 开头=直接跑命令（黄）、
+                    # 多行=续行中（青）、其余=普通（品红）。模式指示灯放在最显眼处，
+                    # 免得"这条到底是发给模型还是本机跑"要靠猜。
+                    def _prompt_msg():
+                        try:
+                            _t = session.app.current_buffer.text
+                        except Exception:  # noqa: BLE001
+                            _t = ""
+                        if _t.startswith("!"):
+                            return [("class:prompt-bash", "! ")]
+                        if "\n" in _t:
+                            return [("class:prompt-multi", "… ")]
+                        return [("class:prompt", "▊ ")]
+
                     # /history 选中某条会把它放进 _pending_input：下一次提示符预填好，
                     # 由人确认/编辑后再回车 —— 历史里那句话是当时的上下文，不该自动发出去
                     line = session.prompt(
-                        [("class:prompt", "▊ ")],
+                        _prompt_msg,
                         default=self._pending_input or "").strip()
                     self._pending_input = ""
                 else:
@@ -4203,7 +4375,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             except (EOFError, KeyboardInterrupt):
                 print()
                 break
+            line = self._expand_input(line)
             if not line:
+                continue
+            # `?`（单独一个问号）= 快捷键表。真实终端里没有"按 ? 弹菜单"的说法，
+            # 所以做成回车时判定：比绑一个多数终端送不到的键靠谱。
+            if line.strip() == "?":
+                self._cmd_keys(["/keys"])
+                continue
+            # `!命令`：直接跑，不发模型（走执行层那道闸门）
+            _mode, _payload = ace_input.parse_input_mode(line)
+            if _mode == "bash":
+                self._run_bash_input(_payload)
                 continue
             # 防蠢：用户把 cmd 命令/参数误打进 REPL 时本地拦截，不发给模型
             if _looks_like_cli_command(line):

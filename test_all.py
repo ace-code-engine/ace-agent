@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47"]
+             "43", "44", "45", "46", "47", "48"]
 _SEEN_SECTIONS: list = []
 
 
@@ -7368,6 +7368,158 @@ if _want("47"):
     check("vi 模式真的接在 PromptSession 上（不是只改了个配置字段）",
           "EditingMode.VI" in _src47 and "editing_mode=" in _src47, "")
     _cli47.close()
+
+    # ============================================================
+
+# ============================================================
+if _want("48"):
+    # ── [48] ────
+    print("[48] 输入层 —— ! bash 模式 / 粘贴折叠 / 暂存 / 排队 / 快捷键表")
+    # ============================================================
+    import io as _io48  # noqa: E402
+    import contextlib as _cl48  # noqa: E402
+    import ai_code as _ai48  # noqa: E402
+    from ui import ace_input as _in48  # noqa: E402
+
+    # —— 纯逻辑：输入模式 ——
+    check("parse_input_mode：! 开头 = bash 模式，内容去掉前缀",
+          _in48.parse_input_mode("!git status") == ("bash", "git status"), "")
+    check("parse_input_mode：空输入 = empty（不当成一条空消息发出去）",
+          _in48.parse_input_mode("   ") == ("empty", ""), "")
+    check("parse_input_mode：只有 ! 也是 bash（空命令由调用方提示用法）",
+          _in48.parse_input_mode("!") == ("bash", ""), "")
+    check("parse_input_mode：普通文本原样返回",
+          _in48.parse_input_mode("帮我看下这段代码") == ("normal", "帮我看下这段代码"), "")
+
+    # —— 纯逻辑：粘贴折叠 ——
+    _long48 = "\n".join(f"line {i}" for i in range(30))
+    check("短粘贴不折叠（折叠只会让人多一步）",
+          _in48.fold_paste("hello", 1)[1] is None, "")
+    _ph48, _meta48 = _in48.fold_paste(_long48, 1)
+    check("长粘贴折叠成占位符，并记住行数",
+          _meta48 is not None and _ph48 == "[粘贴 #1 +30 行]"
+          and _meta48["lines"] == 30, (_ph48, _meta48))
+    check("单行长文本也会折叠（超 800 字符）",
+          _in48.fold_paste("x" * 900, 2)[1] is not None, "")
+    _store48 = {1: _long48}
+    check("提交前展开回原文",
+          _in48.expand_pastes(f"看看这个：{_ph48} 有问题吗", _store48)
+          == f"看看这个：{_long48} 有问题吗", "")
+    check("展开时找不到编号就原样留着（不静默丢掉占位符）",
+          _in48.expand_pastes("[粘贴 #9 +3 行]", _store48) == "[粘贴 #9 +3 行]", "")
+    check("没有占位符的输入原样返回",
+          _in48.expand_pastes("普通输入", _store48) == "普通输入", "")
+
+    # —— 纯逻辑：回显截断 ——
+    check("短输入回显原样",
+          _in48.truncate_echo("一句话") == "一句话", "")
+    _echo48 = _in48.truncate_echo("\n".join(f"l{i}" for i in range(40)))
+    check("长输入回显截断并**说明截了多少**（不静默截断）",
+          "回显已截断" in _echo48 and "40 行" in _echo48, _echo48[-80:])
+    check("截断后行数不超过上限 + 一行说明",
+          len(_echo48.splitlines()) <= _in48.ECHO_MAX_LINES + 1, len(_echo48.splitlines()))
+
+    # —— 纯逻辑：暂存 / 排队（同一个栈原语）——
+    _st48 = _in48.stash_push([], "第一句")
+    _st48 = _in48.stash_push(_st48, "第二句")
+    check("暂存：后进先出", _st48 == ["第一句", "第二句"], _st48)
+    _st48, _top48 = _in48.stash_pop(_st48)
+    check("取回最近一条，栈里剩下的还在",
+          _top48 == "第二句" and _st48 == ["第一句"], (_top48, _st48))
+    check("空输入不入栈（避免占位垃圾）", _in48.stash_push([], "   ") == [], "")
+    check("空栈取回返回空串且不报错", _in48.stash_pop([]) == ([], ""), "")
+
+    # —— 纯逻辑：快捷键表 ——
+    _keys48 = _in48.keys_table()
+    check("快捷键表：非空、无重复键、每项都有说明键",
+          len(_keys48) >= 10 and len({k for k, _d in _keys48}) == len(_keys48)
+          and all(d.startswith("keys_") for _k, d in _keys48), _keys48[:3])
+    check("快捷键表覆盖 ! bash 与 ? 帮助（这两个是这一批新加的）",
+          any(k.startswith("!") for k, _d in _keys48)
+          and any(k.startswith("?") for k, _d in _keys48), _keys48)
+
+    # —— 真 CLI：! 命令 / 暂存 / 排队 / 帮助 / 底栏角标 ——
+    _root48 = mktemp()
+    _cli48 = _ai48.AgentCLI({"project_root": str(_root48), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._run_bash_input("echo 输入层测试")
+    _out48 = _buf48.getvalue()
+    check("! 命令：真的执行了（输出出现）",
+          "输入层测试" in _out48, _out48[:200])
+    check("! 命令：输出进上下文（下一条 user 消息带 $ 命令与输出）",
+          any(str(m.get("content", "")).startswith("$ echo 输入层测试")
+              for m in _cli48.messages), _cli48.messages[-1:])
+    check("! 命令：计入工具统计（它确实过了一次执行层）",
+          _cli48.session["tools"] >= 1, _cli48.session)
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._run_bash_input("")
+    check("! 空命令：给用法，不当成执行失败", "用法" in _buf48.getvalue(),
+          _buf48.getvalue()[:120])
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._run_bash_input("definitely_not_a_command_xyz")
+    check("! 命令失败：报状态与原因，且**不进上下文**",
+          "未执行" in _buf48.getvalue()
+          and not any("definitely_not_a_command_xyz" in str(m.get("content", ""))
+                      for m in _cli48.messages), _buf48.getvalue()[:200])
+
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_stash(["/stash", "写一半的想法"])
+    check("/stash <文本>：存进去并在底栏显示",
+          _cli48._stash == ["写一半的想法"]
+          and any("暂存" in p[1] for p in _cli48._footer()), _cli48._footer())
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_stash(["/stash", "pop"])
+    check("/stash pop：取回到输入行（不自动发送）",
+          _cli48._stash == [] and _cli48._pending_input == "写一半的想法",
+          (_cli48._stash, _cli48._pending_input))
+
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_queue(["/queue", "第一件事"])
+        _cli48._cmd_queue(["/queue", "第二件事"])
+    check("/queue：排队并在底栏显示条数",
+          _cli48._queued == ["第一件事", "第二件事"]
+          and any("队列" in p[1] for p in _cli48._footer()), _cli48._footer())
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_queue(["/queue", "clear"])
+    check("/queue clear：清空队列", _cli48._queued == [], _cli48._queued)
+
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_keys(["/keys"])
+    _out48 = _buf48.getvalue()
+    check("/keys：列内置键位（Enter / Ctrl+S / ! / ? 都在）",
+          all(x in _out48 for x in ("Enter", "Ctrl+S", "!", "?")), _out48[:200])
+    _cli48.cfg["keybindings"] = {"c-e": "/expand"}
+    _buf48 = _io48.StringIO()
+    with _cl48.redirect_stdout(_buf48):
+        _cli48._cmd_keys(["/keys"])
+    check("/keys：自定义键位单列一段",
+          "c-e" in _buf48.getvalue() and "自定义" in _buf48.getvalue(),
+          _buf48.getvalue()[-200:])
+
+    # 粘贴折叠在 CLI 里真的接上了（占位符 → 提交前展开）
+    _cli48._paste_seq += 1
+    _ph2, _m2 = _in48.fold_paste("\n".join(f"粘贴行 {i}" for i in range(20)),
+                                 _cli48._paste_seq)
+    _cli48._pastes[_m2["index"]] = _m2["text"]
+    check("CLI 展开粘贴：占位符 → 原文（真的走 _expand_input）",
+          _cli48._expand_input(f"看：{_ph2}") ==
+          "看：" + "\n".join(f"粘贴行 {i}" for i in range(20)), "")
+    check("源码级：提示符按模式变色（! 黄 / 多行青 / 正常品红）",
+          "prompt-bash" in (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+          and "prompt-multi" in (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
+    check("源码级：括号粘贴真的绑到了 BracketedPaste（不是只有纯函数）",
+          "Keys.BracketedPaste" in (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
+    _cli48.close()
 
     # ============================================================
 

@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.21.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.22.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -250,6 +250,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.22.0** (2026-09-19)：「全套 UI 与交互」第一批——**输入行**。! <命令> 直接执行（与 Claude Code 的 ! 同一用法，但走我们自己的闸门：逐次确认/沙箱/审计），输出贴进上下文；提示符按模式变色，不用猜这条是发给模型还是本机跑。超过 6 行或 800 字符的粘贴折叠成 [粘贴 #1 +30 行]、提交时自动展开；回显也截断并说明实际发出多少。Ctrl+S / /stash 存下半句话，/queue 排下一件事，两者都在底栏显示。/keys（或单独一个 ?）打出整张快捷键表
 - **v3.21.0** (2026-09-19)：五条能力线的最后一条。`/review` 把上一处改动写成 **unified diff**、在编辑器里打开、**读回并应用**——回填走同一道执行层闸门（快照/权限/审计），应用器是自己实现的最小版本（不依赖 `patch(1)` 与 `git apply`；上下文对不上就**整体不应用**并指出第几行）。`@image <路径>` 把图挂进下一轮（底栏显示 `图1`；图会**原样发给提供商**，命令里明说）。`vim_mode` + `keybindings` 给 vi 键位与自定义绑定，走与 F1–F4 同一条通道。`/status` 多一行成本估算——标着「估算」，查不到价格就说「价格未知」，绝不编数字
 - **v3.20.0** (2026-09-19)：会话能列、能续、能分叉、能退回——`/sessions`（时间/轮数/首句/**是否被压过**）、`/resume`（历史按它重建，**之后的事件也写进那份日志**）、`/fork`（以某会话为起点开新会话，不共享历史）、`/rewind` **只动对话**（文件是 `/rollback` 的事，提示里每次写明）。外加逐项**待办清单**：`todo_write` 工具（只读组——列个清单不该要授权）、`/todo`、底栏 `待办 1/3`、日志为唯一事实源所以 `/resume` 后不丢。守卫 `[46]` 走真文件 + 真 CLI：`/resume` 后新消息真的写进被续聊的日志、`/rewind` 后磁盘上的文件一字未动
 - **v3.19.0** (2026-09-19)：`ace --json` 给出**机器可读的事件流**——一行一个 JSON 对象（`session_start` / `user_message` / `model_request` / `tool_call` / `tool_result` / `permission_request` / `notice` / `final` / `session_end`），契约表 `core/ace_events.EVENT_REQUIRED` 是文档、运行时校验与断言的唯一来源。人话不丢：`--json` 下 stdout 被 `NoticeProxy` 接管，几百处 print 一律变成 `notice` 事件——一处生效，且自动剥色、丢掉 `\r` 重绘与进度条噪音。刻意**不发 `model_delta`**。守卫真的跑子进程逐行解析 stdout

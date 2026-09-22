@@ -304,6 +304,24 @@ fill="{THEME['dim']}">ace-agent — python ai_code.py --mock</text>
 """
 
 
+def _mismatch_report(names: str, fresh: str, old: str) -> str:
+    """差异摘要：CI 上这张图对不上时，日志里得看得出**是哪几行**变了。
+
+    为什么需要：`--check` 只在 CI（Linux/3.12）跑，本地（Windows）重放会通过 ——
+    平台上真的不一样时，只有一行"请重新录制"等于什么都没说，而 GitHub 上拿不到
+    带认证的日志。所以把前几处差异主动打成 `::error::` 注解：注解不需要登录就能读。
+    数字已归一化（与判定同源），避免时间戳把真正的差异淹掉。
+    """
+    _norm = lambda s: re.sub(r"[\d.]+", "#", s)      # noqa: E731 —— 与判定同一口径
+    a, b = _norm(old).splitlines(), _norm(fresh).splitlines()
+    bad = [(i, x, y) for i, (x, y) in enumerate(zip(a, b)) if x != y][:3]
+    if not bad and len(a) != len(b):
+        bad = [(min(len(a), len(b)), f"<共 {len(a)} 行>", f"<共 {len(b)} 行>")]
+    bits = [f"L{i}: 录制={x.strip()[:110]!r} 现在={y.strip()[:110]!r}"
+            for i, x, y in bad]
+    return f"{names} 骨架不一致（{len(bad)} 处，最多列 3 处）: " + " | ".join(bits)
+
+
 def project_version() -> str:
     """读版本单源（`core/version.py`）。
 
@@ -352,7 +370,10 @@ def main() -> None:
             old_svg = OUT_SVG.read_text(encoding="utf-8")
             # 时间戳会变（mock 会问当前时间），只比结构：行数与去掉数字后的骨架
             if re.sub(r"[\d.]+", "#", svg) != re.sub(r"[\d.]+", "#", old_svg):
-                raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制")
+                _why = _mismatch_report(OUT_SVG.name, svg, old_svg)
+                # GitHub 注解：CI 上失败时不用登录也能读到这里说的"哪几行变了"
+                print(f"::error title=demo-skeleton-mismatch::{_why}")
+                raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制。{_why}")
             # 骨架比对把数字都归一化了，版本号会因此**静默过期**（改版本后这张图看着还"一致"）。
             # 单列一条：图里印的版本必须等于 core/version.py。
             # 首屏图里版本号出现在两处（右侧标题栏 + 面板右上角），格式是 `vX.Y.Z`；

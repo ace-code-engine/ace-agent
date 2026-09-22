@@ -17,7 +17,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.24.0%20(2026--09--19)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.25.0%20(2026--09--19)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -250,6 +250,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.25.0** (2026-09-19)：「全套 UI 与交互」第四批——**布局与状态行**。`--fullscreen` / `/fullscreen` 把会话搬进备用屏幕，固定四块（头部 / 可滚动会话区 / 可配置状态行 / 输入行）：会话有自己的视口（`PageUp`/`↑` 回看、`End` 回底），不再把终端回滚缓冲当历史；`F5` 退回普通 REPL。状态行变成数据：分段带优先级，窄终端先丢装饰（轮数/工具数）而不是丢掉上下文占用，`/statusline model,context,-turns` 可改顺序或去掉某段（写错名字会如实报错，不静默忽略）。等待动画会显示已等多久，并且**没有新进展时明说可 Ctrl+C 中断**；`/tasks` 把目标、逐项待办、正在跑的工具画成一棵多行任务树；`/status` 多一条上下文度量条；首屏标题在真终端里播一次浮现动画（管道/CI 里直接跳过）
 - **v3.24.0** (2026-09-19)：「全套 UI 与交互」第三批——**对话框**。同一个模型（`ui/ace_dialog.py`）渲染应用里所有提问：单选/多选、分组、进度条、页签、脚注按键提示，且每行宽度严格对齐（中文也算两列）。多选复用同一个模糊搜索浮层（Space 勾选、Enter 确认）。`/permission rules` 把"一次性授权"变成可见可改的清单：勾选 = 本次会话不再逐次确认，取消勾选立刻收回；**按设计拒绝会话级授权的工具（terminal_exec、外发工具）照样列出来但标成不可选** —— 不悄悄放行。`/config` 向导改成真正的状态机（`b` 后退、输错当场重问），并且**答案先攒着、跑完才落库**：取消就是真的什么都没改（此前是边问边改内存里的配置，嘴说"没保存"）
 - **v3.23.0** (2026-09-19)：「全套 UI 与交互」第二批——**模型吐出来的那段字**。回答按 Markdown 渲染：标题/列表/引用/分隔线、画边框并标注语言的代码块（块内**不做行内解析**）、按显示列宽对齐的表格、行内粗斜体与代码链接；**认不出的语法原样保留**。渲染**按完整行**进行，所以流式输出与整篇渲染逐行一致。符号标出谁在说话（`❯` 你 / `◈` 模型 / `⚙` 工具），工具汇总里**连续同名调用合并**（`file_read ×2 ✓`），思考过程加框并限行。`/diff` 改成两级：先看动过哪些文件，再看某一处的逐行（`/diff <序号>`）。Ctrl+O —— `/keys` 从 v3.22.0 就写着它、但一直没绑上 —— 现在能展开最近一次被折叠的输出
 - **v3.22.0** (2026-09-19)：「全套 UI 与交互」第一批——**输入行**。! <命令> 直接执行（与 Claude Code 的 ! 同一用法，但走我们自己的闸门：逐次确认/沙箱/审计），输出贴进上下文；提示符按模式变色，不用猜这条是发给模型还是本机跑。超过 6 行或 800 字符的粘贴折叠成 [粘贴 #1 +30 行]、提交时自动展开；回显也截断并说明实际发出多少。Ctrl+S / /stash 存下半句话，/queue 排下一件事，两者都在底栏显示。/keys（或单独一个 ?）打出整张快捷键表

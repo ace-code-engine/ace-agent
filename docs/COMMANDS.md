@@ -11,7 +11,7 @@
 
 | 分类 | 命令 |
 |---|---|
-| 会话 | `/help` `/keys` `/stash` `/queue` `/clear` `/status` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
+| 会话 | `/help` `/keys` `/stash` `/queue` `/clear` `/status` `/statusline` `/tasks` `/fullscreen` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
 | 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` |
@@ -57,6 +57,29 @@
 - 非交互会话只列出规则，什么都不改
 
 **配置向导（`/config`）**：三步（提供商 → 密钥 → 模型）。输错**当场重问**，`b` 退回上一步，模型步的可选值跟着上一步选的提供商走。**答案先攒着、跑完才落库** —— 中途取消就是真的逐字段未变（旧实现边问边改内存配置，嘴说"没保存"，实际早改了）。
+
+**底栏（`/statusline`）**：底栏是"分段 + 优先级"，不是一段写死的字符串。
+
+```
+❯ /statusline
+  底栏分段（当前顺序）: model · permission · sandbox · net · goal · turns · todos · queue · stash · images · context · cost
+  可用分段: model, permission, sandbox, net, goal, turns, todos, queue, stash, images, context, cost
+  /statusline model,context,-turns 改顺序；-名字 = 去掉该段（窄终端会自动按优先级丢装饰）
+```
+
+- 终端窄了先丢装饰（轮数/工具数），**先保住上下文占用与目标进度**；丢完还会回填，20 列时是"模型 + 上下文"而不是只剩模型
+- 写错分段名如实报错，不当成设置成功；设置会写进配置
+
+**任务树（`/tasks`）**：目标 + 逐项待办 + 此刻在跑的工具画成一棵多行树（三者都空时如实说没有）。状态符号与 `todo` 清单同一套口径：`✓` 完成 / `▶` 进行中 / `·` 待办 / `✗` 阻塞。
+
+**全屏会话（`--fullscreen` 或 `/fullscreen [on|off]`）**：备用屏幕里固定四块 —— 头部 / **会话滚动区** / 状态行 / 输入行。
+
+- `PageUp` / `↑` 回看（提示行给出 `↑12-24/96`）、`End` 回底、`PageDown` 翻页；退出全屏后终端画面原样恢复
+- `F5` 退出全屏回到普通 REPL；`Ctrl+O` 展开最近一次折叠；`F1`–`F4` 与普通 REPL 同义
+- 输出进滚动区靠替换 `sys.stdout`：CLI 照常 `print`，带 `\r` 的重绘（等待动画/进度）整条丢掉，不会变成一屏残影
+- 终端小于 8 行或缺 `prompt_toolkit` 时**直接回退普通 REPL**；全屏里不弹嵌套浮层选择框（要弹框按 F5 退出全屏）
+
+**等待动画**：`◈ 思考中.. 12s`；超过 45 秒没有新进展会补一句「Ns 没有新进展 · Ctrl+C 可中断」。判据是"**多久没有新动作**"，换阶段（思考 → 调工具）会刷新计时，多轮任务不会被误报成卡死。
 
 **输入行**：
 

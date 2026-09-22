@@ -66,6 +66,8 @@ from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色�
 from ui import ace_input  # noqa: E402  （输入行交互：粘贴折叠 / ! bash / 暂存 / 队列）
 from ui import ace_markdown  # noqa: E402  （回答正文的 Markdown 渲染，流式友好）
 from ui import ace_dialog  # noqa: E402  （统一对话框：单选/多选/分组/进度/向导）
+from ui import ace_layout  # noqa: E402  （布局/状态行/上下文可视化/任务树/动效）
+from ui import ace_fullscreen  # noqa: E402  （备用屏幕全屏会话：滚动区 + 状态行）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -507,12 +509,17 @@ def _md_styler(kind: str, text: str) -> str:
     return c(_MD_STYLES.get(str(kind or ""), ""), text)
 
 
+def _term_cols() -> int:
+    """终端列数（拿不到就按 100 算）—— 状态行、正文渲染宽度共用这一个口径。"""
+    try:
+        return max(20, int(shutil.get_terminal_size((100, 24)).columns))
+    except Exception:  # noqa: BLE001 —— 拿不到尺寸不该让任何显示路径崩
+        return 100
+
+
 def _md_width() -> int:
     """正文渲染宽度：终端列数留 2 列余量（免得刚好卡在边界上触发自动折行）。"""
-    try:
-        return max(40, shutil.get_terminal_size((100, 24)).columns - 2)
-    except Exception:  # noqa: BLE001 —— 拿不到尺寸就用默认宽度，不该因为终端信息崩
-        return ace_markdown.DEFAULT_WIDTH
+    return max(40, _term_cols() - 2)
 
 
 def _wizard_width() -> int:
@@ -725,6 +732,9 @@ def merge_config(args) -> Dict:
     cfg.setdefault("project_root", ".")
     cfg.setdefault("bait", True)
     cfg.setdefault("tools", bool(getattr(args, "tools", False)))
+    # --fullscreen 只给一个初始值：/fullscreen 或 F5 随时可切（全屏适合长时间盯着，
+    # 短命令用普通 REPL 更省事，这个选择权该在用户手上）
+    cfg.setdefault("fullscreen", bool(getattr(args, "fullscreen", False)))
     cfg.setdefault("max_history", int(getattr(args, "max_history", 0) or 0))
     cfg.setdefault("context_window",
                    int(getattr(args, "context_window", 0) or 32768))
@@ -1110,13 +1120,17 @@ class _MockArgs:
     model = None
 
 
-def spinner_line(label: str, dots: str, secs: int) -> str:
+def spinner_line(label: str, dots: str, secs: int, stalled: bool = False,
+                 width: int = 0) -> str:
     """状态行文本（纯函数，便于单测）：`◈ 思考中... 12s`。
 
     带"已用时长"是有意的：一次模型调用卡住几十秒时，用户唯一能判断"它在干活还是
     死了"的依据就是它在动、并且动了多久。旧版只有动态点号，看不出等了多久。
+    超过 `ui/ace_layout.STALL_SECONDS` 没有新进展时补一句"可 Ctrl+C 中断" ——
+    停在同一句话上太久和卡死长得一样，界面上必须说清"还可以按什么键"。
     """
-    return f"◈ {label}{dots} {secs}s"
+    return ace_layout.spinner_line(f"{label}", secs, len(dots) % 4,
+                                   stalled=stalled, width=width)
 
 
 # 距压缩触发点还剩这么多比例时开始提醒（0.8 = 用掉触发点的 80%）
@@ -1191,23 +1205,37 @@ class _Spinner:
         self._stop_ev = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = 0.0
+        self._last_progress = 0.0        # 最近一次"有新进展"（label 变化）的时刻
+        self.stalled = False             # 供 /status 之类读取（只读用途）
 
     def set_label(self, label: str) -> None:
-        self._label = label
+        if label != self._label:
+            self._label = label
+            self._last_progress = time.monotonic()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop_ev.clear()
-        self._t0 = time.monotonic()      # 计时从"本轮开始等待"起算
+        now = time.monotonic()
+        self._t0 = now                   # 计时从"本轮开始等待"起算
+        self._last_progress = now        # 起始即算一次进展，否则一开局就报停滞
+        self.stalled = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
         frame = 0
         while not self._stop_ev.is_set():
-            secs = int(time.monotonic() - self._t0)
-            sys.stdout.write("\r" + spinner_line(self._label, "." * (frame % 4), secs) + "   ")
+            now = time.monotonic()
+            secs = int(now - self._t0)
+            # 停滞判定：不是"等了多久"，而是"多久没有新动作" —— 换过阶段（思考→调工具）
+            # 就不算停滞，否则一个正常的 60 秒多轮任务会被误报成卡死。
+            self.stalled = ace_layout.is_stalled(
+                now - self._last_progress, ace_layout.STALL_SECONDS)
+            _line = spinner_line(self._label, "." * (frame % 4), secs,
+                                 stalled=self.stalled, width=_term_cols() - 1)
+            sys.stdout.write("\r" + _line + " " * 3)
             sys.stdout.flush()
             frame += 1
             self._stop_ev.wait(0.12)
@@ -1391,7 +1419,7 @@ class _SlashCommands:
     # 落到"其他"，不会影响分发。
     COMMAND_GROUPS = [
         ("group_session", ["/help", "/keys", "/stash", "/queue", "/clear", "/status",
-                           "/stats", "/expand",
+                           "/statusline", "/tasks", "/fullscreen", "/stats", "/expand",
                            "/history", "/sessions", "/resume", "/fork",
                            "/rewind", "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
@@ -1468,6 +1496,9 @@ class _SlashCommands:
         "/rewind": "cmd_rewind",
         "/review": "cmd_review",
         "/diff": "cmd_diff",
+        "/statusline": "cmd_statusline",
+        "/tasks": "cmd_tasks",
+        "/fullscreen": "cmd_fullscreen",
         "/vim": "cmd_vim",
         "/keys": "cmd_keys",
         "/stash": "cmd_stash",
@@ -1514,6 +1545,9 @@ class _SlashCommands:
         "/rewind": ("_cmd_rewind", True),
         "/review": ("_cmd_review", True),
         "/diff": ("_cmd_diff", True),
+        "/statusline": ("_cmd_statusline", True),
+        "/tasks": ("_cmd_tasks", True),
+        "/fullscreen": ("_cmd_fullscreen", True),
         "/vim": ("_cmd_vim", True),
         "/keys": ("_cmd_keys", True),
         "/stash": ("_cmd_stash", True),
@@ -2248,51 +2282,59 @@ class _SlashCommands:
 
     # ---------- OpenClaw 式底部状态栏（Footer 聚合，状态带动作提示） ----------
 
-    def _footer(self) -> List[Tuple[str, str]]:
-        """模型 | 权限(着色) | 沙箱 | 联网 | 目标(带动作提示) | 统计。
-        状态永远附带下一步动作（如 目标:paused(/goal resume)）。"""
-        parts: List[Tuple[str, str]] = []
+    def _status_segments(self) -> List["ace_layout.StatusSegment"]:
+        """底栏的数据（不排版）：顺序与去留交给 `ace_layout.fit_status_line`。
+
+        为什么拆开：此前这是一段写死的拼接，终端窄了就截尾巴 —— 被截掉的往往是"上下文
+        92%"这种最该看见的；用户也没法把"轮数/工具数"换成"成本"。现在每一项都是带
+        `priority` 的分段，窄了按优先级丢装饰、保信息，顺序还能用配置 `statusline` 改。
+        """
+        parts: List[ace_layout.StatusSegment] = []
         # mock 模式下 client.model 还是配置里的默认值，写出来等于谎报"在用某个模型"
         model = "mock" if self.client.mock else (
             self.client.model.split("/")[-1] if self.client.model else "?")
-        parts.append(("class:footer", f" {model} "))
+        parts.append(ace_layout.StatusSegment("model", f" {model} ", "class:footer", 10))
         perm = str(self.cfg.get("permission", "readonly"))
         perm_cls = {"readonly": "class:footer-ro",
                     "write": "class:footer-w",
                     "full": "class:footer-f"}.get(perm, "class:footer")
-        parts.append((perm_cls, f" 权限:{perm} "))
-        parts.append(("class:footer-dim", " F1 "))
+        parts.append(ace_layout.StatusSegment("permission", f" 权限:{perm} ",
+                                              perm_cls, 10))
         sb = str(self.cfg.get("sandbox", "off") or "off")
-        parts.append(("class:footer", f" 沙箱:{sb} "))
-        parts.append(("class:footer-dim", " F2 "))
+        parts.append(ace_layout.StatusSegment("sandbox", f" 沙箱:{sb} ", "class:footer",
+                                              55))
         net = "开" if getattr(self.el.executor, "network_enabled", True) else "关"
-        parts.append(("class:footer-dim", f" 联网:{net} "))
-        parts.append(("class:footer-dim", " F3 "))
+        parts.append(ace_layout.StatusSegment("net", f" 联网:{net} ", "class:footer-dim",
+                                              55))
         try:
             g = self.el.goal_store.snapshot()
-        except Exception:
+        except Exception:  # noqa: BLE001 —— 底栏不该因为目标读不出来就崩
             g = None
         if g:
             phase = g["phase"]
             if phase == "active":
-                parts.append(("class:footer-goal",
-                              f" 目标:R{g['rounds_started']}/{g['max_rounds']} "))
-            elif phase == "paused":
-                parts.append(("class:footer-goal", " 目标:paused(/goal resume) "))
-            elif phase == "blocked":
-                parts.append(("class:footer-goal", " 目标:blocked(/goal resume) "))
+                _gt = f" 目标:R{g['rounds_started']}/{g['max_rounds']} "
+            elif phase in ("paused", "blocked"):
+                _gt = f" 目标:{phase}(/goal resume) "
             else:
-                parts.append(("class:footer-dim", " 目标:done "))
-        parts.append(("class:footer-dim",
-                      f" 轮{self.session['rounds']} 工具{self.session['tools']} "))
+                _gt = " 目标:done "
+            parts.append(ace_layout.StatusSegment("goal", _gt, "class:footer-goal", 30))
+        parts.append(ace_layout.StatusSegment(
+            "turns", f" 轮{self.session['rounds']} 工具{self.session['tools']} ",
+            "class:footer-dim", 70))
         # 排队与暂存：有东西就显示（否则用户会忘了自己排过/存过）
         if getattr(self, "_queued", None):
-            parts.append(("class:footer-w", t("footer_queue", n=len(self._queued))))
+            parts.append(ace_layout.StatusSegment(
+                "queue", t("footer_queue", n=len(self._queued)), "class:footer-w", 35))
         if getattr(self, "_stash", None):
-            parts.append(("class:footer-dim", t("footer_stash", n=len(self._stash))))
+            parts.append(ace_layout.StatusSegment(
+                "stash", t("footer_stash", n=len(self._stash)),
+                "class:footer-dim", 40))
         # 挂着的图片：只有非空时显示（提醒"这些东西会跟着下一轮发出去"）
         if getattr(self, "_pending_images", None):
-            parts.append(("class:footer-w", t("footer_images", n=len(self._pending_images))))
+            parts.append(ace_layout.StatusSegment(
+                "images", t("footer_images", n=len(self._pending_images)),
+                "class:footer-w", 35))
         # 待办进度：只有非空时才占位置（空清单不该在底栏占一格）
         try:
             _todo_store = getattr(getattr(self, "el", None), "todos", None)
@@ -2301,10 +2343,118 @@ class _SlashCommands:
             if _ts["total"]:
                 _cls = ("class:footer-goal" if _ts["done"] == _ts["total"]
                         else "class:footer-w")
-                parts.append((_cls, t("footer_todos", done=_ts["done"],
-                                      total=_ts["total"])))
+                parts.append(ace_layout.StatusSegment(
+                    "todos", t("footer_todos", done=_ts["done"], total=_ts["total"]),
+                    _cls, 25))
         except Exception:  # noqa: BLE001 —— 底栏不该因为清单读不出来就崩
             pass
+        # 上下文占用：把"还有多久会开始丢历史"摆到用户眼前。压缩发生时才提示就晚了，
+        # 用户看到的只是"模型突然忘事"。窗口未知时 `context_badge` 返回空串，这段就不出现
+        # （不显示一个假的 0%）。
+        _bdg_text, _bdg_cls = context_badge(self.context_usage(self.messages))
+        if _bdg_text:
+            parts.append(ace_layout.StatusSegment("context", _bdg_text, _bdg_cls, 20))
+        # 成本：只有算得出来才显示（查不到价格就直说"未知"，不编数字）
+        if str(self.cfg.get("statusline_show_cost", "")).lower() in ("1", "true", "on"):
+            try:
+                _cost = self.cost_estimate()
+                parts.append(ace_layout.StatusSegment(
+                    "cost", " " + str(_cost.get("text") or "-") + " ",
+                    "class:footer-dim", 45))
+            except Exception:  # noqa: BLE001
+                pass
+        return parts
+
+    def _footer(self, width: int = 0) -> List[Tuple[str, str]]:
+        """底栏（prompt_toolkit 的 bottom_toolbar）：分段 + 按宽度丢车保帅。
+
+        顺序与去留来自配置 `statusline`（`/statusline` 可查可改）；装不下时按分段
+        优先级丢弃，**保底留下模型那一段** —— 空底栏比少一项更让人摸不着头脑。
+        `width>0` 时按该列宽排版（`--preview` 用它把"某个宽度下长什么样"钉住，
+        否则同一份预览在不同终端上会不一样）。
+        """
+        order, _unknown = ace_layout.parse_statusline(self.cfg.get("statusline"))
+        parts = ace_layout.fit_status_line(self._status_segments(),
+                                           int(width) or (_term_cols() - 1),
+                                           order=order)
+        return parts or [("class:footer", " ")]
+
+    def _context_meter_line(self) -> str:
+        """底栏之外的一行上下文度量（`/status` 用）：条 + 百分比 + 口径说明。"""
+        usage = self.context_usage()
+        meter = ace_layout.context_meter(
+            usage, 20, t("ctx_meter", bar="{bar}", pct="{pct}"))
+        return meter
+
+    def _cmd_statusline(self, parts: List[str]) -> bool:
+        """`/statusline [名字...|-名字]`：查看/修改底栏显示哪些段（配置 `statusline`）。
+
+        为什么要有它：底栏是"随时在眼前"的一行，谁关心什么差别很大 —— 有人盯着上下文
+        占用，有人只想知道这轮跑了几次工具。写死顺序等于替所有人做同一个选择。
+        """
+        if len(parts) >= 2:
+            raw = " ".join(parts[1:])
+            order, unknown = ace_layout.parse_statusline(raw)
+            if unknown:
+                print(c("yellow", t("statusline_unknown", names=", ".join(unknown),
+                                    names_all=", ".join(ace_layout.STATUS_NAMES))))
+                return True
+            if not order:
+                print(c("yellow", t("statusline_empty",
+                                    names_all=", ".join(ace_layout.STATUS_NAMES))))
+                return True
+            self.cfg["statusline"] = list(order)
+            print(c("green", t("statusline_set", names=" → ".join(order))))
+            _save = globals().get("save_cli_config")
+            if callable(_save):
+                try:
+                    _save(self.cfg)
+                except Exception:  # noqa: BLE001 —— 存不下也先把当前会话改好
+                    print(c("dim", t("statusline_save_failed")))
+            return True
+        order, unknown = ace_layout.parse_statusline(self.cfg.get("statusline"))
+        print(c("cyan", t("statusline_title",
+                          names=" · ".join(order))))
+        if unknown:
+            print(c("yellow", t("statusline_unknown", names=", ".join(unknown),
+                                names_all=", ".join(ace_layout.STATUS_NAMES))))
+        print(c("dim", t("statusline_available",
+                         names=", ".join(ace_layout.STATUS_NAMES))))
+        print(c("dim", t("statusline_hint")))
+        return True
+
+    def _cmd_tasks(self, parts: List[str]) -> bool:
+        """`/tasks`：把目标 + 逐项待办 + 正在跑的工具画成**多行任务树**。
+
+        为什么要有它：`goal`（任务级）、`todo`（步骤级）、`tool`（此刻在做）此前分散在
+        三处，长任务跑起来之后"我在哪一层"要自己拼。一棵树一次讲清层级。
+        """
+        tree = self._current_task_tree()
+        if tree is None:
+            print(c("dim", t("tasks_none")))
+            return True
+        for _ln in ace_layout.render_task_tree(tree, width=_md_width()):
+            print(_ln)
+        return True
+
+    def _cmd_fullscreen(self, parts: List[str]) -> bool:
+        """`/fullscreen [on|off]`：切换备用屏幕全屏会话（头部/滚动区/状态行/输入行）。
+
+        为什么做成可切换而不是启动参数：全屏适合"长时间盯着跑"和回看历史，短命令
+        用普通 REPL 更省事。切换权交给用户，`--fullscreen` 只是给一个初始值。
+        """
+        arg = (parts[1].lower() if len(parts) > 1 else "")
+        if arg in ("on", "1", "true", "开"):
+            self.cfg["fullscreen"] = True
+        elif arg in ("off", "0", "false", "关"):
+            self.cfg["fullscreen"] = False
+        else:
+            self.cfg["fullscreen"] = not bool(self.cfg.get("fullscreen"))
+        on = bool(self.cfg.get("fullscreen"))
+        print(c("cyan", t("fullscreen_on") if on else t("fullscreen_off")))
+        if on:
+            print(c("dim", t("fullscreen_next_turn")))
+        return True
         # 上下文占用：把"还有多久会开始丢历史"摆到用户眼前。压缩发生时才提示就晚了，
         # 用户看到的只是"模型突然忘事"。
         _bdg_text, _bdg_cls = context_badge(self.context_usage(self.messages))
@@ -3007,6 +3157,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 只留最近 MAX_DIFF_HISTORY 条 —— 这是一份给人翻的清单，不是审计日志
         # （审计日志是 .ace_sessions 里的会话事件日志，那份不截断）。
         self._diff_history: List[Dict] = []
+        # 此刻的等待动画（/tasks 用它显示"正在执行什么"）；没在等时为 None
+        self._spinner: Optional["_Spinner"] = None
         # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
         self._cost = {"in_tokens": 0, "out_tokens": 0}
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
@@ -3960,6 +4112,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         system = self._build_system_prompt()
         self._warn_context_if_near(msgs, system)
         spinner = _Spinner(t("thinking"))
+        self._spinner = spinner      # /tasks 用：能看出"此刻在跑什么"
         disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner)
         spinner.start()
         try:
@@ -4387,6 +4540,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                   tout=_cost["out_tokens"])))
         _cu = self.context_usage()
         if _cu["state"] != "unknown":
+            # 先给一条可视化的度量（条 + 百分比），再给口径明细 —— 数字要看，趋势也要看。
+            _meter = self._context_meter_line()
+            if _meter:
+                print(c(ace_layout.context_state_style(_cu)
+                        .replace("class:footer-", "") or "dim", _meter))
             _ctx_line = t("status_context", tokens=_cu["tokens"], window=_cu["window"],
                           pct=_cu["pct"], trigger=_cu["trigger"])
             if not self.compact_enabled:
@@ -4407,10 +4565,36 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     # ---------- REPL ----------
 
+    def _play_banner_animation(self) -> None:
+        """首屏标题动效：逐字浮现 + 下划线生长（只在真终端里播）。
+
+        为什么要播：一片静态文字刷上去之后，用户分不清"界面已经就绪"还是"还在加载"。
+        一段 0.4 秒的浮现把这件事说清楚了。**非 TTY 直接跳过**（管道/CI 里多出几帧纯属
+        噪音），`ACE_NO_ANIM=1` 或配置 `animate: false` 也能关掉。
+        """
+        if os.environ.get("ACE_NO_ANIM"):
+            return
+        try:
+            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+                return
+        except Exception:  # noqa: BLE001 —— 判不了 TTY 就当不是终端，不播
+            return
+        if str(self.cfg.get("animate", "")).lower() in ("0", "false", "off", "no"):
+            return
+        frames = ace_layout.banner_frames(
+            "ACE", t("banner_sub", ver=version.__version__), steps=4)
+        for _f in frames[:-1]:
+            sys.stdout.write(f"\r{_f[0]}")
+            sys.stdout.flush()
+            time.sleep(0.06)
+        sys.stdout.write("\r" + " " * (len(frames[-1][0]) + 4) + "\r")
+        sys.stdout.flush()
+
     def repl(self, return_to_landing: bool = False) -> None:
         """聊天 REPL；return_to_landing=True 时退出聊天回到主界面，否则结束程序"""
         # 进入聊天前清屏，避免登录页的 logo/菜单残留在屏幕上造成双头部
         self._clear_screen()
+        self._play_banner_animation()
         # 头部用与首屏同一套面板：模型/边界/目录/历史四行，字段一多也不会错位
         print(c("bold", "ACE") + c("dim", t("banner_sub", ver=version.__version__)))
         _hw = self._panel_width()
@@ -4622,6 +4806,19 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         else:
             print(c("dim", "  ⚠ 非交互终端（stdin/stdout 非 TTY），实时补全菜单不可用"))
 
+        # 全屏模式：先进备用屏幕跑一段（同一套行处理），用户按 F5 退出全屏后
+        # 回到这里的普通 REPL —— 两种界面的行为完全一致，因为走的是同一个
+        # `_process_line`，不是两套实现。
+        if self.cfg.get("fullscreen") and session is not None:
+            _reason = self._run_fullscreen_repl()
+            if _reason in ("exit", "ctrl-c", "eof", "interrupt"):
+                print(c("dim", t("back_landing")) if return_to_landing
+                      else c("dim", t("bye")))
+                return
+            if _reason == "leave-fullscreen":
+                self.cfg["fullscreen"] = False
+                print(c("dim", t("fullscreen_off_hint")))
+
         while True:
             # 排队优先：/queue 里排着的东西先跑（一次交代几件事时省一次等待）
             if self._queued:
@@ -4669,58 +4866,123 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             except (EOFError, KeyboardInterrupt):
                 print()
                 break
-            line = self._expand_input(line)
-            if not line:
-                continue
-            # `?`（单独一个问号）= 快捷键表。真实终端里没有"按 ? 弹菜单"的说法，
-            # 所以做成回车时判定：比绑一个多数终端送不到的键靠谱。
-            if line.strip() == "?":
-                self._cmd_keys(["/keys"])
-                continue
-            # `!命令`：直接跑，不发模型（走执行层那道闸门）
-            _mode, _payload = ace_input.parse_input_mode(line)
-            if _mode == "bash":
-                self._run_bash_input(_payload)
-                continue
-            # 防蠢：用户把 cmd 命令/参数误打进 REPL 时本地拦截，不发给模型
-            if _looks_like_cli_command(line):
-                self._handle_cli_mistype(line)
-                continue
-            if line.startswith("@"):
-                # @ 快捷方式：语言 / 技能 / 文件与文件夹引用
-                self._handle_at_command(line)
-                continue
-            if line.startswith("/") or line.lower() in ("exit", "quit"):
-                # 自定义命令（.ace/commands/*.md / 插件）优先于"当聊天发出去"：
-                # 它们展开成一段提示词，走正常对话流程（内置命令在 _maybe_custom_command
-                # 里被排除，永远不会被自定义命令顶掉）。
-                _expanded = self._maybe_custom_command(line)
-                if _expanded is not None:
-                    try:
-                        self.converse(_expanded, echo_input=False)
-                    except KeyboardInterrupt:
-                        print("\n" + t("interrupted"))
-                    except Exception as e:
-                        print(c("red", t("chat_error", err=e)))
-                    continue
-                try:
-                    if not self.run_command(line):
-                        break
-                except CommandCancelled:
-                    print(c("yellow", t("cancelled") + "。"))
-                except KeyboardInterrupt:
-                    print("\n" + t("cancelled") + "。")
-                except Exception as e:
-                    print(c("red", t("command_failed", err=e)))
-                continue
-            try:
-                self.converse(line, echo_input=False)
-            except KeyboardInterrupt:
-                print("\n" + t("interrupted"))
-            except Exception as e:
-                print(c("red", t("chat_error", err=e)))
+            if not self._process_line(line):
+                break
         print(c("dim", t("back_landing")) if return_to_landing
               else c("dim", t("bye")))
+
+    def _process_line(self, line: str) -> bool:
+        """处理 REPL 里的一行输入；返回 False = 该结束会话。
+
+        这段逻辑被普通 REPL 与全屏会话**共用**：两种界面的差别只在"画面怎么摆"和
+        "怎么读到一个字符串"，行为（`!`/`@`/斜杠命令/对话）必须一模一样 —— 否则
+        全屏模式迟早长成另一个软件。
+        """
+        line = self._expand_input(line)
+        if not line:
+            return True
+        # `?`（单独一个问号）= 快捷键表。真实终端里没有"按 ? 弹菜单"的说法，
+        # 所以做成回车时判定：比绑一个多数终端送不到的键靠谱。
+        if line.strip() == "?":
+            self._cmd_keys(["/keys"])
+            return True
+        # `!命令`：直接跑，不发模型（走执行层那道闸门）
+        _mode, _payload = ace_input.parse_input_mode(line)
+        if _mode == "empty":
+            # 只有空白字符：什么都别做。旧 REPL 只挡了空串，一串空格会被当问题发给模型
+            # （白花一次调用，模型还得猜你在问什么）。
+            return True
+        if _mode == "bash":
+            self._run_bash_input(_payload)
+            return True
+        # 防蠢：用户把 cmd 命令/参数误打进 REPL 时本地拦截，不发给模型
+        if _looks_like_cli_command(line):
+            self._handle_cli_mistype(line)
+            return True
+        if line.startswith("@"):
+            # @ 快捷方式：语言 / 技能 / 文件与文件夹引用
+            self._handle_at_command(line)
+            return True
+        if line.startswith("/") or line.lower() in ("exit", "quit"):
+            # 自定义命令（.ace/commands/*.md / 插件）优先于"当聊天发出去"：
+            # 它们展开成一段提示词，走正常对话流程（内置命令在 _maybe_custom_command
+            # 里被排除，永远不会被自定义命令顶掉）。
+            _expanded = self._maybe_custom_command(line)
+            if _expanded is not None:
+                try:
+                    self.converse(_expanded, echo_input=False)
+                except KeyboardInterrupt:
+                    print("\n" + t("interrupted"))
+                except Exception as e:  # noqa: BLE001 —— 单条命令失败不该结束会话
+                    print(c("red", t("chat_error", err=e)))
+                return True
+            try:
+                if not self.run_command(line):
+                    return False
+            except CommandCancelled:
+                print(c("yellow", t("cancelled") + "。"))
+            except KeyboardInterrupt:
+                print("\n" + t("cancelled") + "。")
+            except Exception as e:  # noqa: BLE001
+                print(c("red", t("command_failed", err=e)))
+            return True
+        try:
+            self.converse(line, echo_input=False)
+        except KeyboardInterrupt:
+            print("\n" + t("interrupted"))
+        except Exception as e:  # noqa: BLE001
+            print(c("red", t("chat_error", err=e)))
+        return True
+
+    def _run_fullscreen_repl(self) -> str:
+        """在备用屏幕里跑会话（头部/滚动区/状态行/输入行），返回退出原因。
+
+        为什么值得单独一条路：普通 REPL 是流水账 —— 一轮跑几十条工具之后，想回看
+        刚才那张卡片只能翻终端回滚缓冲。全屏把会话放进自己的滚动区（`PageUp`/`↑`
+        回看、`End` 回底），状态行沿用同一份可配置分段。
+        环境不支持（没有 prompt_toolkit / 终端太小）时返回 `"unsupported"`，
+        调用方回退普通 REPL。
+        """
+        def _header() -> str:
+            model = "mock" if self.client.mock else (self.client.model or "?")
+            return (f"ACE · {model} · {self.cfg.get('permission', 'readonly')}"
+                    f" · {self.cfg.get('project_root', '.')}")
+
+        session = ace_fullscreen.FullScreenSession(
+            title="ACE", status_fn=self._footer, header_fn=_header)
+        for _ln in ace_layout.render_task_tree(self._current_task_tree(),
+                                               width=_md_width()):
+            session.feed(_ln + "\n")
+        session.feed(t("fullscreen_hint") + "\n")
+        reason = ace_fullscreen.run_fullscreen(
+            session,
+            on_submit=self._process_line,
+            overlay=lambda: (t("fullscreen_pasted", n=len(self._pastes))
+                             if self._pastes else ""))
+        return str(reason or "unsupported")
+
+    def _current_task_tree(self) -> "ace_layout.TaskNode":
+        """当前的任务树（`/tasks` 与全屏头部共用同一份构造逻辑）。"""
+        try:
+            g = self.el.goal_store.snapshot()
+        except Exception:  # noqa: BLE001
+            g = None
+        todos: List[Dict] = []
+        try:
+            _store = getattr(getattr(self, "el", None), "todos", None)
+            if _store is not None:
+                todos = [it.as_dict() for it in _store.items]
+        except Exception:  # noqa: BLE001
+            todos = []
+        running = ""
+        _sp = getattr(self, "_spinner", None)
+        if _sp is not None and getattr(_sp, "_thread", None) is not None \
+                and _sp._thread.is_alive():
+            running = getattr(_sp, "_label", "")
+        return ace_layout.build_task_tree(
+            goal=g, todos=todos, running=running,
+            goal_text=t("tasks_goal"), todo_text=t("tasks_todos"),
+            running_text=t("tasks_running"))
 
 
 def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
@@ -4736,7 +4998,7 @@ def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
     print()
     # 状态栏示例：底栏是 prompt_toolkit 的画布，这里按同一份数据渲染成一行，
     # 免得"预览里看不到状态栏"。
-    ftr = cli._footer()
+    ftr = cli._footer(width=w)
     print(ace_panel.section(t("preview_footer_title"), w, fill="·"))
     print("".join(seg for _cls, seg in ftr).strip())
     print()
@@ -4789,6 +5051,9 @@ def main() -> None:
                              "人看的输出会转成 notice 事件，不含 ANSI 与进度条")
     parser.add_argument("--preview", action="store_true",
                         help="只画一遍首屏（含状态栏示例）然后退出：不开终端也能看界面")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="进备用屏幕跑会话：头部/会话滚动区（PageUp 回看）/可配置状态行/"
+                             "输入行四块固定布局；F5 退出全屏回到普通 REPL")
     parser.add_argument("--preview-width", type=int, default=0,
                         help="配合 --preview：按指定列宽渲染（默认按当前终端，取不到用 100）")
     parser.add_argument("--save-config", action="store_true", help="把当前参数保存到 ~/.ai_code.json")

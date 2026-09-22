@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8074,6 +8074,297 @@ if _want("50"):
     _cli50._rule_candidates()
     _ = _el50  # 段内 import 的一致性检查（分组口径直接来自执行层）
     _cli50.close()
+
+    # ============================================================
+
+if _want("51"):
+    # ── [51] ────
+    print("[51] 布局与状态行 —— 可配置底栏 / 上下文可视化 / 等待动画 / 任务树 / 全屏会话")
+    # ============================================================
+    import io as _io51  # noqa: E402
+    import contextlib as _cl51  # noqa: E402
+    import ai_code as _ai51  # noqa: E402
+    from ui import ace_layout as _ly51  # noqa: E402
+    from ui import ace_fullscreen as _fs51  # noqa: E402
+    from ui import ace_chatscroll as _cs51  # noqa: E402
+    from ui.ace_text import display_width as _dw51  # noqa: E402
+
+    # —— 状态行：按宽度丢车保帅 ——
+    _segs51 = [_ly51.StatusSegment("model", " mock ", "class:footer", 10),
+               _ly51.StatusSegment("permission", " 权限:readonly ", "class:footer-ro", 10),
+               _ly51.StatusSegment("sandbox", " 沙箱:off ", "class:footer", 55),
+               _ly51.StatusSegment("turns", " 轮3 工具7 ", "class:footer-dim", 70),
+               _ly51.StatusSegment("context", " 上下文 88% ", "class:footer-f", 20)]
+
+    def _text51(parts):
+        return "".join(x[1] for x in parts)
+
+    check("状态行：宽终端全显示，且总宽不超过终端列数",
+          _dw51(_text51(_ly51.fit_status_line(_segs51, 100))) <= 100
+          and len(_ly51.fit_status_line(_segs51, 100)) == 5, _text51(_ly51.fit_status_line(_segs51, 100)))
+    check("状态行：窄终端先丢低优先级（轮数）而不是丢掉上下文占用",
+          "轮3" not in _text51(_ly51.fit_status_line(_segs51, 40))
+          and "上下文" in _text51(_ly51.fit_status_line(_segs51, 40)),
+          _text51(_ly51.fit_status_line(_segs51, 40)))
+    check("状态行：极窄时保底留模型那一段（空底栏比少一项更让人摸不着头脑）",
+          len(_ly51.fit_status_line(_segs51, 8)) == 1
+          and "mock" in _text51(_ly51.fit_status_line(_segs51, 8)), "")
+    check("状态行：回填 —— 20 列时是「模型+上下文」而不是只剩模型（信息更多）",
+          _text51(_ly51.fit_status_line(_segs51, 20)).strip() == "mock  上下文 88%",
+          _text51(_ly51.fit_status_line(_segs51, 20)))
+    check("状态行：自定义顺序生效（配置 statusline 的语义）",
+          [t for _s, t in _ly51.fit_status_line(_segs51, 200,
+                                                order=["context", "model"])]
+          == [" 上下文 88% ", " mock "], "")
+    check("状态行：顺序里没提到的段落按默认顺序补在后面（只关心前几个不必写全）",
+          len(_ly51.fit_status_line(
+              _segs51, 200, order=_ly51.parse_statusline(["context"])[0])) == 5, "")
+
+    # —— 配置解析 ——
+    check("statusline 配置：字符串/列表/去重都能解析",
+          _ly51.parse_statusline("model, context")[0][:2] == ["model", "context"]
+          and _ly51.parse_statusline(["model"])[0][0] == "model", "")
+    check("statusline 配置：-名字 = 去掉该段（比重写完整列表常见）",
+          "turns" not in _ly51.parse_statusline("model,-turns")[0], "")
+    check("statusline 配置：未知名字如实报出来（不当成设置成功）",
+          _ly51.parse_statusline(["model", "nope"])[1] == ["nope"], "")
+    check("statusline 配置：非法类型不崩，退回默认顺序并报错",
+          _ly51.parse_statusline({"a": 1})[1] == ["<非法类型>"]
+          and _ly51.parse_statusline({"a": 1})[0] == list(_ly51.DEFAULT_STATUS_ORDER), "")
+
+    # —— 上下文可视化 ——
+    check("上下文条：按百分比画格（50% 时正好一半实心）",
+          _ly51.context_meter({"state": "ok", "pct": 50}, 10).count("█") == 5, "")
+    check("上下文条：窗口未知时不显示（不拿 0 当分母造假的 0%）",
+          _ly51.context_meter({"state": "unknown", "pct": 0}) == "", "")
+    check("上下文条：文案模板里的 {bar}/{pct} 会被替换",
+          _ly51.context_meter({"state": "near", "pct": 73}, 10,
+                              "上下文 {bar} {pct}%").endswith("73%"), "")
+    check("上下文条：超过 100% 也不画出界（夹住而不是画两倍）",
+          _ly51.context_meter({"state": "over", "pct": 250}, 10).count("█") == 10, "")
+    check("上下文条：颜色即语义（near=黄 / over=红 / unknown=空）",
+          _ly51.context_state_style({"state": "near"}) == "class:footer-w"
+          and _ly51.context_state_style({"state": "over"}) == "class:footer-f"
+          and _ly51.context_state_style({"state": "unknown"}) == "", "")
+
+    # —— 等待动画 ——
+    check("高光：窗口在长度内循环移动，越界自动回绕",
+          [_ly51.shimmer_span(10, p, 3)[0] for p in (0, 1, 9, 10)] == [0, 1, 9, 0], "")
+    check("高光：长度为 0 时给空窗口（不崩）",
+          _ly51.shimmer_span(0, 3, 2) == (0, 0), "")
+    check("等待行：带标签与已用秒数",
+          "思考中" in _ly51.spinner_line("思考中", 12.7, 2)
+          and "12s" in _ly51.spinner_line("思考中", 12.7, 2), "")
+    check("等待行：停滞时补一句可中断的原因（否则和卡死长得一样）",
+          "Ctrl+C" in _ly51.spinner_line("思考中", 60, 1, stalled=True), "")
+    check("等待行：按列截断（顶破终端会让 \\r 重绘错位）",
+          _dw51(_ly51.spinner_line("思考中", 60, 1, stalled=True, width=30)) <= 30, "")
+    check("停滞判定：按「多久没新进展」而不是「等了多久」（多轮任务不会被误报）",
+          _ly51.is_stalled(10, 45) is False and _ly51.is_stalled(60, 45) is True
+          and _ly51.is_stalled("x", 45) is False, "")
+
+    # —— 任务树 ——
+    _tree51 = _ly51.build_task_tree(
+        goal={"phase": "active", "rounds_started": 2, "max_rounds": 20,
+              "objective": "把 UI 补齐"},
+        todos=[{"id": 1, "text": "画状态行", "status": "done"},
+               {"id": 2, "text": "接任务树", "status": "in_progress"}],
+        running="file_write", goal_text="目标", todo_text="待办",
+        running_text="正在执行")
+    _lines51 = _ly51.render_task_tree(_tree51, width=60)
+    check("任务树：根是目标（带轮次）、子节点是待办与正在跑的工具",
+          _lines51[0].startswith("▶ 目标 [R2/20]") and "✓ #1 画状态行" in _lines51[1]
+          and any("file_write" in x for x in _lines51), _lines51)
+    check("任务树：连接线用 ├─/└─，最后一项是 └─",
+          any(x.startswith("├─") for x in _lines51)
+          and _lines51[-1].startswith("└─"), _lines51)
+    check("任务树：没有目标时以待办为根；三者都空时返回 None（不凭空造节点）",
+          _ly51.build_task_tree(todos=[{"id": 1, "text": "x", "status": "pending"}],
+                                goal_text="目标", todo_text="待办").text == "待办"
+          and _ly51.build_task_tree() is None, "")
+    check("任务树：状态符号与 todo 口径一致（✓/▶/·/✗）",
+          [_ly51.TaskNode("a", s).glyph() for s in
+           ("done", "in_progress", "pending", "blocked")] == ["✓", "▶", "·", "✗"], "")
+
+    # —— 首屏动效 ——
+    _frames51 = _ly51.banner_frames("ACE 工具", "v1", steps=4)
+    check("动效：帧数 = steps，最后一帧是完整标题（TTY 播完就停在这一帧）",
+          len(_frames51) == 4 and _frames51[-1][0] == "ACE 工具", _frames51)
+    check("动效：标题逐帧变长（不会中途缩短）",
+          [len(f[0]) for f in _frames51] == sorted(len(f[0]) for f in _frames51), "")
+    check("动效：副标题只在最后一帧出现",
+          all("v1" not in f[1] for f in _frames51[:-1]) and "v1" in _frames51[-1][1], "")
+
+    # —— 区域划分 ——
+    _lay51 = _ly51.compute_layout(30, tree_lines=6)
+    check("布局：各区域高度之和等于终端行数（不多不少）",
+          sum(_lay51.values()) == 30, _lay51)
+    check("布局：行数不够时先砍装饰（任务树→头部），输入行与状态行永远保住",
+          _ly51.compute_layout(8, tree_lines=6)["tree"] == 0
+          and _ly51.compute_layout(4, tree_lines=6)["header"] == 0
+          and all(_ly51.compute_layout(r, tree_lines=6)["input"] == 1
+                  and _ly51.compute_layout(r, tree_lines=6)["status"] == 1
+                  for r in (3, 4, 6, 8, 12, 30)), "")
+    check("布局：正文至少 1 行（正文为 0 的界面等于坏了）",
+          all(_ly51.compute_layout(r, tree_lines=9)["transcript"] >= 1
+              for r in (3, 4, 6, 10)), "")
+
+    # —— 全屏会话（不需要 prompt_toolkit 就能断言的部分）——
+    _sink51 = _fs51.TranscriptSink(_cs51.ChatScroll(view_height=3))
+    _sink51.write("第一行\n第二行\n没有换行的尾巴")
+    check("全屏收集：只有完整行进滚动区，半行先留着",
+          _sink51.scroll.lines == ["第一行", "第二行"], _sink51.scroll.lines)
+    _sink51.flush()
+    check("全屏收集：flush 时把尾巴补上（不静默丢掉最后一行）",
+          _sink51.scroll.lines[-1] == "没有换行的尾巴", _sink51.scroll.lines)
+    _sink51.write("\r◈ 思考中 3s   ")
+    check("全屏收集：带 \\r 的重绘整条丢掉（收进去只会变成一屏残影）",
+          _sink51.dropped == 1 and all("思考中" not in x for x in _sink51.scroll.lines), "")
+    check("全屏收集：isatty 恒为 False（全屏里不弹嵌套浮层，见模块说明）",
+          _sink51.isatty() is False, "")
+    try:
+        _sink51.fileno()
+        _fileno51 = "no-raise"
+    except OSError:
+        _fileno51 = "raised"
+    check("全屏收集：没有文件描述符时抛 OSError（而不是给一个假的 fd）",
+          _fileno51 == "raised", _fileno51)
+
+    _sess51 = _fs51.FullScreenSession(
+        title="ACE", status_fn=lambda: [("class:footer", " mock ")],
+        header_fn=lambda: "ACE · mock", view_height=3)
+    for _i51 in range(1, 9):
+        _sess51.feed(f"行{_i51}\n")
+    check("全屏会话：贴底时视口是最新几行",
+          _sess51.viewport() == ["行6", "行7", "行8"], _sess51.viewport())
+    _sess51.page(1)
+    check("全屏会话：PageUp 回看旧内容，且给出滚动位置提示",
+          _sess51.viewport() == ["行5", "行6", "行7"] and _sess51.at_bottom is False
+          and "↑5-7/8" in _sess51.scroll_indicator(), _sess51.scroll_indicator())
+    _sess51.to_bottom()
+    check("全屏会话：End 回到底部，提示行随之消失（没回看就不占位置）",
+          _sess51.at_bottom and _sess51.scroll_indicator() == "", "")
+    check("全屏会话：头部与状态行取自调用方（同一份底栏数据，不另写一套）",
+          _sess51.header() == "ACE · mock"
+          and _sess51.status_parts() == [("class:footer", " mock ")], "")
+    _pad51 = _fs51._compose_transcript_lines(_sess51, 5)
+    check("全屏会话：视口行数补/截到固定高度（不固定就会整屏上下抖）",
+          len(_pad51) == 5 and _pad51[-1] == "行8", _pad51)
+
+    _orig_size51 = _fs51._terminal_size
+    _fs51._terminal_size = lambda: (30, 5)      # 终端太矮
+    _small51 = _fs51.run_fullscreen(_fs51.FullScreenSession(), on_submit=lambda t: True)
+    _fs51._terminal_size = _orig_size51
+    check("全屏：终端太小直接回退（不硬撑出一个比普通 REPL 更难用的界面）",
+          _small51 is None, _small51)
+
+    # —— CLI 接线 ——
+    _root51 = mktemp()
+    _cli51 = _ai51.AgentCLI({"project_root": str(_root51), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1", "context_window": 32768}, mock=True)
+    _ftr51 = _cli51._footer()
+    check("CLI 底栏：渲染出来的宽度不超过终端列数（窄终端不再截尾巴）",
+          sum(_dw51(t) for _c, t in _ftr51) <= _ai51._term_cols() - 1,
+          sum(_dw51(t) for _c, t in _ftr51))
+    check("CLI 底栏：模型那一段永远在（保底信息）",
+          any("mock" in t for _c, t in _ftr51), _ftr51)
+    _cli51.cfg["statusline"] = "turns,model,-sandbox"
+    _ftr51b = [t.strip() for _c, t in _cli51._footer()]
+    check("CLI 底栏：配置 statusline 后顺序/去留真的变了（不是只写进配置没人读）",
+          _ftr51b and _ftr51b[0].startswith("轮")
+          and "权限:write" in _ftr51b
+          and not any("沙箱" in x for x in _ftr51b), _ftr51b)
+
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _cli51._cmd_statusline(["/statusline"])
+    check("/statusline：无参数时列出当前顺序与可用分段",
+          "model" in _buf51.getvalue() and "context" in _buf51.getvalue(), "")
+    _orig_save51 = _ai51.save_cli_config
+    _ai51.save_cli_config = lambda _cfg: None
+    _buf51 = _io51.StringIO()
+    try:
+        with _cl51.redirect_stdout(_buf51):
+            _cli51._cmd_statusline(["/statusline", "turns,model,-sandbox"])
+    finally:
+        _ai51.save_cli_config = _orig_save51
+    check("/statusline：设置后写进配置并去掉 -名字 指定的段",
+          _cli51.cfg["statusline"][:2] == ["turns", "model"]
+          and "sandbox" not in _cli51.cfg["statusline"], _cli51.cfg["statusline"])
+    _keep51 = list(_cli51.cfg["statusline"])
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _cli51._cmd_statusline(["/statusline", "nope_name"])
+    check("/statusline：写错名字时如实报错且**不改配置**（不静默当成成功）",
+          _cli51.cfg["statusline"] == _keep51 and "nope_name" in _buf51.getvalue(), "")
+
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _cli51._cmd_tasks(["/tasks"])
+    check("/tasks：没有目标也没有待办时如实说明（不打印空树）",
+          "没有目标" in _buf51.getvalue(), _buf51.getvalue()[:80])
+    _cli51.el.todos.add("先写状态行")
+    _cli51.el.todos.add("再接任务树")
+    _cli51.el.todos.update(1, "done")
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _cli51._cmd_tasks(["/tasks"])
+    _out51 = _buf51.getvalue()
+    check("/tasks：有待办时画出树（含完成符号与连接线）",
+          "✓" in _out51 and "└─" in _out51 and "待办" in _out51, _out51[:120])
+
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _cli51._cmd_fullscreen(["/fullscreen", "on"])
+    check("/fullscreen on：写进配置（初始值来自 --fullscreen，随时可切）",
+          _cli51.cfg.get("fullscreen") is True
+          and "开" in _buf51.getvalue(), _cli51.cfg.get("fullscreen"))
+    with _cl51.redirect_stdout(_io51.StringIO()):
+        _cli51._cmd_fullscreen(["/fullscreen", "off"])
+    check("/fullscreen off：关掉后回到普通 REPL", _cli51.cfg.get("fullscreen") is False, "")
+
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _ok51 = _cli51._process_line("/exit")
+    check("REPL 行处理抽出来后可复用：/exit 返回 False（会话该结束）",
+          _ok51 is False, _ok51)
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _ok51b = _cli51._process_line("/statusline")
+    check("REPL 行处理：普通命令返回 True（会话继续）",
+          _ok51b is True and "model" in _buf51.getvalue(), _ok51b)
+    _buf51 = _io51.StringIO()
+    with _cl51.redirect_stdout(_buf51):
+        _ok51c = _cli51._process_line("   ")
+    check("REPL 行处理：空输入不动任何事（也不结束会话）",
+          _ok51c is True and _buf51.getvalue() == "", repr(_buf51.getvalue()))
+
+    _sp51 = _ai51._Spinner("思考中")
+    _sp51.set_label("正在调用工具")
+    check("spinner：换阶段会刷新「最近进展」时刻（多轮任务不会被误判停滞）",
+          _sp51.stalled is False and _sp51._last_progress > 0, _sp51._last_progress)
+    check("spinner：暴露 stalled 供界面读取（/tasks 之类能看到卡住了）",
+          hasattr(_sp51, "stalled"), "")
+
+    _SRC51 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    _FSRC51 = (FOLDER / "ui" / "ace_fullscreen.py").read_text(encoding="utf-8")
+    check("源码级：全屏会话真的接在 REPL 里（不是只写了个模块没人调）",
+          "_run_fullscreen_repl" in _SRC51
+          and "ace_fullscreen.run_fullscreen(" in _SRC51, "")
+    check("源码级：全屏里 F5 退出、PageUp 回看都绑上了",
+          'kb.add("f5")' in _FSRC51 and 'kb.add("pageup")' in _FSRC51
+          and "full_screen=True" in _FSRC51, "")
+    check("源码级：全屏期间 stdout 换成滚动区收集器（输出才不会乱屏）",
+          "sys.stdout = session.sink" in _FSRC51, "")
+    check("源码级：--fullscreen 只是个初始值（/fullscreen 可随时切）",
+          '"--fullscreen"' in _SRC51 and 'cfg.setdefault("fullscreen"' in _SRC51, "")
+    check("i18n：statusline_*/tasks_*/fullscreen_* 三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("cmd_statusline", "cmd_tasks", "cmd_fullscreen",
+                        "statusline_hint", "tasks_none", "fullscreen_hint")
+              for lg in ("zh", "en", "ja")), "")
+    _cli51.close()
 
     # ============================================================
 

@@ -31,7 +31,8 @@ from ui.ace_text import display_width, truncate_width
 
 __all__ = [
     "StatusSegment", "STATUS_NAMES", "DEFAULT_STATUS_ORDER", "fit_status_line",
-    "parse_statusline", "context_meter", "shimmer_span", "spinner_line",
+    "parse_statusline", "context_meter", "context_state_style", "context_state_ansi",
+    "shimmer_span", "spinner_line",
     "is_stalled", "STALL_SECONDS", "TaskNode", "build_task_tree",
     "render_task_tree", "banner_frames", "compute_layout",
 ]
@@ -167,6 +168,17 @@ def context_meter(usage: Dict[str, Any], width: int = 16,
 def context_state_style(usage: Dict[str, Any]) -> str:
     """上下文占用对应的样式类名（unknown → 空串，调用方据此不显示）。"""
     return _CTX_STATE.get(str((usage or {}).get("state") or ""), ("", ""))[0]
+
+
+def context_state_ansi(usage: Dict[str, Any]) -> str:
+    """上下文占用对应的 **ANSI 颜色名**（给直接 `print` 的路径用）。
+
+    为什么单列一个函数：底栏用的是 prompt_toolkit 的样式类名（`class:footer-w`），
+    而 `c()` 只认 ANSI 名（dim/yellow/red…）。把 `class:footer-w` 的后缀直接喂给
+    `c()` 会 `KeyError: 'w'` —— 两套命名混用是会真炸的坑，所以在这里一次性翻好。
+    """
+    state = str((usage or {}).get("state") or "")
+    return {"ok": "dim", "near": "yellow", "over": "red"}.get(state, "")
 
 
 # ============================================================

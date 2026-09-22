@@ -4541,10 +4541,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         _cu = self.context_usage()
         if _cu["state"] != "unknown":
             # 先给一条可视化的度量（条 + 百分比），再给口径明细 —— 数字要看，趋势也要看。
+            # 注意：这里是 **ANSI 颜色名**，不是底栏的样式类名（"w"/"f" 是 prompt_toolkit
+            # 的类名后缀，直接丢给 c() 会 KeyError —— 探针里差点漏过去）。
             _meter = self._context_meter_line()
             if _meter:
-                print(c(ace_layout.context_state_style(_cu)
-                        .replace("class:footer-", "") or "dim", _meter))
+                print(c(ace_layout.context_state_ansi(_cu), _meter))
             _ctx_line = t("status_context", tokens=_cu["tokens"], window=_cu["window"],
                           pct=_cu["pct"], trigger=_cu["trigger"])
             if not self.compact_enabled:

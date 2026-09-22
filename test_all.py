@@ -8146,6 +8146,10 @@ if _want("51"):
           _ly51.context_state_style({"state": "near"}) == "class:footer-w"
           and _ly51.context_state_style({"state": "over"}) == "class:footer-f"
           and _ly51.context_state_style({"state": "unknown"}) == "", "")
+    check("上下文条：给 print 用的 ANSI 名与底栏类名分开（混用会 KeyError: 'w'）",
+          _ly51.context_state_ansi({"state": "near"}) == "yellow"
+          and _ly51.context_state_ansi({"state": "over"}) == "red"
+          and _ly51.context_state_ansi({"state": "unknown"}) == "", "")
 
     # —— 等待动画 ——
     check("高光：窗口在长度内循环移动，越界自动回绕",
@@ -8346,6 +8350,20 @@ if _want("51"):
           _sp51.stalled is False and _sp51._last_progress > 0, _sp51._last_progress)
     check("spinner：暴露 stalled 供界面读取（/tasks 之类能看到卡住了）",
           hasattr(_sp51, "stalled"), "")
+
+    # /status 在上下文"接近/超过触发点"时也要能打（此处曾把底栏类名当 ANSI 名用，
+    # 会 KeyError: 'w' —— 只在快满的时候炸，最难碰到的那种）
+    _cli51.messages = [{"role": "user", "content": "x" * 90000}]
+    _buf51 = _io51.StringIO()
+    try:
+        with _cl51.redirect_stdout(_buf51):
+            _cli51._show_status()
+        _st51 = _buf51.getvalue()
+    except Exception as _e51:  # noqa: BLE001 —— 这里失败就是要抓的回归
+        _st51 = f"EXC {type(_e51).__name__}: {_e51}"
+    check("/status：上下文接近/超过触发点时也能打出来（颜色名两套命名没混用）",
+          "EXC" not in _st51 and ("█" in _st51 or "上下文" in _st51), _st51[:160])
+    _cli51.messages = []
 
     _SRC51 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
     _FSRC51 = (FOLDER / "ui" / "ace_fullscreen.py").read_text(encoding="utf-8")

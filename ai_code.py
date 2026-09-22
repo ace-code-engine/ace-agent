@@ -41,7 +41,7 @@ import threading
 import time
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 # Windows GBK 控制台兼容：强制 UTF-8 输出（否则 emoji 会 UnicodeEncodeError）
 for _stream in (sys.stdout, sys.stderr):
@@ -65,6 +65,7 @@ from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：
 from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色，颜色由这里定）
 from ui import ace_input  # noqa: E402  （输入行交互：粘贴折叠 / ! bash / 暂存 / 队列）
 from ui import ace_markdown  # noqa: E402  （回答正文的 Markdown 渲染，流式友好）
+from ui import ace_dialog  # noqa: E402  （统一对话框：单选/多选/分组/进度/向导）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -512,6 +513,11 @@ def _md_width() -> int:
         return max(40, shutil.get_terminal_size((100, 24)).columns - 2)
     except Exception:  # noqa: BLE001 —— 拿不到尺寸就用默认宽度，不该因为终端信息崩
         return ace_markdown.DEFAULT_WIDTH
+
+
+def _wizard_width() -> int:
+    """对话框/向导宽度：比正文窄一点（框太宽时眼睛要横扫一整行）。"""
+    return max(44, min(88, _md_width() - 8))
 
 
 def _build_slash_completer(commands: Dict[str, str], custom: Optional[List] = None):
@@ -1990,12 +1996,25 @@ class _SlashCommands:
     def _pick_option(self, title: str, options: List[Tuple[str, Any]]) -> Optional[Any]:
         """弹搜索式二次选择框，返回选中值；用户取消（Esc/Ctrl+C）返回 None。
         仅在 _interactive_tty() 为 True 时调用（内部不再重复判 TTY）。
-        options = [(显示文本, 取值), ...]，显示文本可带"（当前）"标注。"""
-        labels = [o[0] for o in options]
-        idx = run_selector(title, labels)
-        if idx is None or not (0 <= idx < len(options)):
+        options = [(显示文本, 取值), ...]，显示文本可带"（当前）"标注。
+
+        走统一对话框（`ui/ace_dialog`）：框长什么样、脚注写什么按键，与 /permission
+        rules、向导是同一份渲染器 —— 同一个软件里问同一件事不该有两种长相。
+        注入的还是本模块的 `run_selector`（缺 prompt_toolkit 时为 None，此时调用方
+        本来就进不来），所以"选择器缺失就降级"这条契约没变。
+        """
+        if run_selector is None:
             return None
-        return options[idx][1]
+        spec = ace_dialog.DialogSpec(
+            title, [ace_dialog.DialogItem(str(i), label)
+                    for i, (label, _v) in enumerate(options)])
+        res = ace_dialog.run_dialog(spec, selector=run_selector)
+        if not res.accepted or res.key is None:
+            return None
+        try:
+            return options[int(res.key)][1]
+        except (ValueError, IndexError):
+            return None
 
     def _toggle_net(self, parts: List[str]) -> None:
         """/net 或 /net on|off：联网开/关。交互 TTY 下裸命令弹 on/off 选择框。"""
@@ -2028,10 +2047,13 @@ class _SlashCommands:
                 t("net_status", state=t("net_on") if enabled else t("net_off"))))
 
     def _handle_permission(self, parts: List[str]) -> None:
-        """/permission 或 /permission [readonly|write|full]：切换权限等级。
+        """/permission 或 /permission [readonly|write|full|rules]：切换权限等级 / 编辑会话级规则。
         交互 TTY 下裸命令弹出三档选择框（当前档置顶）。"""
         if len(parts) >= 2 and parts[1] in ("readonly", "write", "full"):
             self._set_permission(parts[1])
+            return
+        if len(parts) >= 2 and parts[1].lower() in ("rules", "rule", "规则"):
+            self._permission_rules()
             return
         if self._interactive_tty():
             cur = str(self.cfg.get("permission", "readonly"))
@@ -2044,6 +2066,117 @@ class _SlashCommands:
             return
         # 非交互（脚本/管道/测试）：保持原"打印 JSON 状态"语义
         print(json.dumps(self.el.permission.get_status(), ensure_ascii=False, indent=2))
+
+    def _permission_rules(self) -> None:
+        """`/permission rules`：会话级"不再逐次确认"的规则编辑器。
+
+        为什么要有它：`ask_grant` 里回答 `a` 会给出会话级授权，可此后没有任何地方能
+        看见"我到底放行过什么"，也撤不掉 —— 授权只进不出，用户只能靠 /clear 或重启
+        收拾。这里把规则摆出来：勾选 = 本次会话免问，取消勾选 = 立刻收回。
+        工具按可给的类型分组（写 / 执行 / 外发），且**被设计拒绝会话级授权的工具照样
+        列出来但标成不可选** —— 让它在列表里消失，用户会以为"这功能漏了"。
+        """
+        pm = self.el.permission
+        status = pm.get_status()
+        before = set(status.get("session_grants") or [])
+        temp = set(status.get("temp_grants") or [])
+        candidates = self._rule_candidates()
+        if not candidates:
+            print(c("dim", t("rules_none")))
+            return
+        items = [ace_dialog.DialogItem(
+            name, name, detail=t("rules_detail_allow"),
+            group=self._rule_group(name),
+            disabled=not self._rule_can_grant(name),
+            note="" if self._rule_can_grant(name) else t("rules_note_single_only"),
+            checked=name in before) for name in candidates]
+        spec = ace_dialog.DialogSpec(
+            t("rules_title"), items, mode="multi", allow_empty=True,
+            hint=t("rules_hint"),
+            progress=(len(before), len(candidates), t("rules_progress")))
+        if not self._interactive_tty():
+            # 非交互：把当前规则与对话框长相打出来，问不了就不问（也不擅自改）
+            print(c("cyan", t("rules_status", level=status.get("current_level", "?"),
+                              n=len(before), temp=len(temp))))
+            for _ln in ace_dialog.render_dialog(
+                    spec, checked=sorted(before), cursor=-1, width=_wizard_width(),
+                    styler=_md_styler):
+                print(_ln)
+            print(c("dim", t("rules_non_tty")))
+            return
+        for _ln in ace_dialog.render_dialog(spec, checked=sorted(before), cursor=-1,
+                                            width=_wizard_width(), styler=_md_styler):
+            print(_ln)
+        res = ace_dialog.run_dialog(spec)
+        if not res.accepted:
+            print(c("dim", t("rules_cancelled")))
+            return
+        self._apply_rule_selection(before, set(res.keys))
+
+    def _apply_rule_selection(self, before: Set[str], after: Set[str]) -> Dict[str, List[str]]:
+        """把"勾选前后"的差集落到权限管理器上，并如实分类报出来。
+
+        三类结果各有各的意思，**不能混成一句"已更新"**：
+        - granted：真的加进了会话级规则；
+        - single_only：`grant_session` 按设计拒绝了（terminal_exec 与外发工具），
+          它给我们的是单次授权 —— 用户以为"整场会话免问"，实际下一次还会被问；
+        - revoked：取消勾选 → 立刻收回（授权只进不出的话，用户只能靠 /clear 或重启收拾）。
+        """
+        pm = self.el.permission
+        granted, single_only, revoked = [], [], []
+        for name in sorted(after - before):
+            if pm.grant_session(name):
+                granted.append(name)
+            else:
+                single_only.append(name)
+        for name in sorted(before - after):
+            pm.revoke_temp(name)
+            revoked.append(name)
+        if not (granted or single_only or revoked):
+            print(c("dim", t("rules_unchanged")))
+            return {"granted": [], "single_only": [], "revoked": []}
+        if granted:
+            print(c("green", t("rules_granted", n=len(granted),
+                               tools=", ".join(granted))))
+        if revoked:
+            print(c("yellow", t("rules_revoked", n=len(revoked),
+                                tools=", ".join(revoked))))
+        if single_only:
+            print(c("yellow", t("rules_single_only", n=len(single_only),
+                                tools=", ".join(single_only))))
+        return {"granted": granted, "single_only": single_only, "revoked": revoked}
+
+    def _rule_candidates(self) -> List[str]:
+        """哪些工具值得给"会话级规则"：当前档位下**仍要人点头**的那些。
+
+        取并集：写类工具（高等级才放行）+ 逐次确认工具（terminal_exec）+ 外发工具。
+        当前档位已经免费放行的工具不列 —— 给已经允许的东西再授权一次是噪音。
+        """
+        pm = self.el.permission
+        free = set(pm.allowed_tools(pm.level))
+        gated = (set(pm.allowed_tools("write"))
+                 | set(getattr(execution_layer, "CONFIRM_TOOLS", set()))
+                 | set(getattr(execution_layer, "EGRESS_TOOLS", set()))) - free
+        # 按分组连续排序：渲染器只在**组名变化**时插标题，交错排序会让"外发"标题
+        # 在一张表里重复出现四五次（探针里当场看到了）。
+        _rank = {t("rules_group_egress"): 0, t("rules_group_confirm"): 1,
+                 t("rules_group_write"): 2}
+        return sorted(gated, key=lambda n: (_rank.get(self._rule_group(n), 9), n))
+
+    @staticmethod
+    def _rule_can_grant(name: str) -> bool:
+        """这个工具能不能给会话级授权（`grant_session` 自己会拒的两类，先在这里标出来）。"""
+        return not (name in getattr(execution_layer, "CONFIRM_TOOLS", set())
+                    or name in getattr(execution_layer, "EGRESS_TOOLS", set()))
+
+    @staticmethod
+    def _rule_group(name: str) -> str:
+        """分组：外发 / 逐次确认 / 写类（同一件事的不同类混一个平铺列表里读不出边界）。"""
+        if name in getattr(execution_layer, "EGRESS_TOOLS", set()):
+            return t("rules_group_egress")
+        if name in getattr(execution_layer, "CONFIRM_TOOLS", set()):
+            return t("rules_group_confirm")
+        return t("rules_group_write")
 
     def _set_permission(self, level: str) -> None:
         if level not in ("readonly", "write", "full"):
@@ -2401,52 +2534,94 @@ class _SlashCommands:
             print(c("yellow", "  ⚠ 还没有该提供商的 API Key：用 /provider <id> <api-key> 或 /config 设置"))
 
     def _config_wizard(self) -> None:
-        print(c("bold", "\n模型配置向导（回车跳过 = 保持原值，Ctrl+C 取消且不保存）"))
+        """模型配置向导：走 `ui/ace_dialog` 的向导框架（可后退、可校验、可取消）。
 
-        def _ask(label: str, current: str, hidden: bool = False) -> Optional[str]:
-            try:
-                if hidden:
-                    import getpass
-                    answer = getpass.getpass(f"  {label} [{current}]: ").strip()
-                else:
-                    answer = input(f"  {label} [{current}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                raise CommandCancelled() from None
-            return answer or None
-
+        为什么重写：此前是边问边改 `self.cfg`，中途 Ctrl+C 说"配置未保存"，可内存里的
+        base_url/model 早被改过一轮了 —— 说话与事实不一致（而且退出时那份 cfg 可能
+        被顺手写盘）。现在**答案先攒在 `WizardState` 里，跑完才落库**：取消就是真的
+        什么都没发生。顺带拿到两个此前没有的东西：输错了当场重问（而不是"无效就跳过"），
+        以及 b 回上一步。
+        """
+        steps = self._config_steps({})
+        state = ace_dialog.WizardState(steps)
+        print(c("bold", "\n模型配置向导（回车用默认值 · b 后退 · Ctrl+C 取消且不保存）"))
         try:
-            # ① 选提供商（一键换端点 + 自动选默认模型）
-            print(c("bold", "① 选择 AI 提供商:"))
-            for i, p in enumerate(PROVIDERS, 1):
-                print(f"  {i}. {p['name']}  {c('dim', p['base_url'])}")
-            choice = _ask("提供商编号（回车跳过）", "")
-            if choice:
-                if choice.isdigit() and 1 <= int(choice) <= len(PROVIDERS):
-                    p = PROVIDERS[int(choice) - 1]
-                    self.cfg["base_url"] = p["base_url"]
-                    if self.cfg.get("model", "") not in p["models"]:
-                        self.cfg["model"] = p["models"][0]
-                else:
-                    print(c("yellow", "编号无效，跳过（可用 /provider 重试）"))
-            # ② 密钥（隐藏输入，不回显）
-            key = _ask("API Key（输入时不显示）", mask_secret(self.cfg.get("api_key", "")), hidden=True)
-            if key:
-                self.cfg["api_key"] = key
-            # ③ 模型
-            prov = _find_provider(self.cfg)
-            model_hint = ""
-            if prov:
-                model_hint = f"（可选: {' / '.join(prov['models'][:8])}）"
-            model = _ask(f"模型名{model_hint}", self.cfg.get("model", ""))
-            if model:
-                self.cfg["model"] = model
+            while not state.done:
+                state = ace_dialog.wizard_restep(state, self._config_steps(state.answers))
+                for _ln in ace_dialog.render_wizard(state, width=_wizard_width(),
+                                                    styler=_md_styler):
+                    print(_ln)
+                step = state.current
+                if step is None:
+                    break
+                current = str(step.default or "")
+                try:
+                    if step.hidden:
+                        import getpass
+                        raw = getpass.getpass(f"  {step.prompt} [{current}]: ")
+                    else:
+                        raw = input(f"  {step.prompt} [{current}]: ")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    raise CommandCancelled() from None
+                state = ace_dialog.wizard_answer(state, raw)
         except CommandCancelled:
-            print(c("yellow", "已取消，配置未保存。"))
+            print(c("yellow", t("wizard_cancelled")))
             return
+        self._apply_config_answers(state.answers)
         save_cli_config(self.cfg)
         self._reload_client()
-        print(c("green", "配置已保存，当前: " + self.client.describe()))
+        print(c("green", t("wizard_saved", desc=self.client.describe())))
+
+    def _config_steps(self, answers: Dict[str, str]) -> List["ace_dialog.WizardStep"]:
+        """向导的三步（数据驱动）：提供商 → 密钥 → 模型。
+
+        每一步的默认值取**当前配置**，所以"回车跳过"永远是"保持原值"；模型那一步的
+        可选值跟着上一步选的提供商走（选了 Kimi 却列出 DeepSeek 的模型，是让人按错）。
+        """
+        chosen = answers.get("provider", "")
+        prov = None
+        if chosen.isdigit() and 1 <= int(chosen) <= len(PROVIDERS):
+            prov = PROVIDERS[int(chosen) - 1]
+        if prov is None:
+            prov = _find_provider(self.cfg)
+        prov_choices = [f"{i}. {p['name']}" for i, p in enumerate(PROVIDERS, 1)]
+        model_choices = list(prov["models"][:8]) if prov else []
+
+        def _check_provider(text: str) -> str:
+            if not text.isdigit() or not (1 <= int(text) <= len(PROVIDERS)):
+                return t("wizard_bad_provider", n=len(PROVIDERS))
+            return ""
+
+        return [
+            ace_dialog.WizardStep(
+                "provider", t("wizard_step_provider"), t("wizard_ask_provider"),
+                default="", choices=prov_choices,
+                help_text=t("wizard_help_provider"), validate=_check_provider),
+            ace_dialog.WizardStep(
+                "api_key", t("wizard_step_key"), t("wizard_ask_key"),
+                default="", hidden=True, help_text=t("wizard_help_key")),
+            ace_dialog.WizardStep(
+                "model", t("wizard_step_model"), t("wizard_ask_model"),
+                default=str((prov or {}).get("models", [""])[0] or
+                            self.cfg.get("model", "")),
+                choices=model_choices, help_text=t("wizard_help_model")),
+        ]
+
+    def _apply_config_answers(self, answers: Dict[str, str]) -> None:
+        """向导答案落库（**只在跑完整套之后调用**，取消时不碰 cfg）。"""
+        choice = str(answers.get("provider") or "")
+        if choice.isdigit() and 1 <= int(choice) <= len(PROVIDERS):
+            p = PROVIDERS[int(choice) - 1]
+            self.cfg["base_url"] = p["base_url"]
+            if self.cfg.get("model", "") not in p["models"]:
+                self.cfg["model"] = p["models"][0]
+        key = str(answers.get("api_key") or "")
+        if key:
+            self.cfg["api_key"] = key
+        model = str(answers.get("model") or "")
+        if model:
+            self.cfg["model"] = model
 
     def _handle_cli_mistype(self, line: str) -> None:
         """防蠢处理：识别并接管误打进 REPL 的命令行指令"""

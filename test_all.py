@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49"]
+             "43", "44", "45", "46", "47", "48", "49", "50"]
 _SEEN_SECTIONS: list = []
 
 
@@ -7784,6 +7784,296 @@ if _want("49"):
           _SRC49.count('disp["flush"]()') >= 3, _SRC49.count('disp["flush"]()'))
     _cli49.close()
     _ = _ar49  # 段内 import 的一致性检查（渲染层不依赖 headless runner）
+
+    # ============================================================
+
+if _want("50"):
+    # ── [50] ────
+    print("[50] 对话框与选择器 —— 单选/多选/分组/进度/页签 · 统一渲染 · 向导框架 · 权限规则编辑")
+    # ============================================================
+    import io as _io50  # noqa: E402
+    import builtins as _bi50  # noqa: E402
+    import contextlib as _cl50  # noqa: E402
+    import ai_code as _ai50  # noqa: E402
+    import execution_layer as _el50  # noqa: E402
+    from ui import ace_dialog as _dl50  # noqa: E402
+    from ui import ace_selector as _sel50  # noqa: E402
+    from ui.ace_text import display_width as _dw50  # noqa: E402
+
+    # —— 统一渲染：宽度必须严格对齐（框歪了比没框更难看）——
+    _items50 = [
+        _dl50.DialogItem("a", "甲", detail="第一个", group="组一"),
+        _dl50.DialogItem("b", "乙", group="组一", checked=True),
+        _dl50.DialogItem("c", "丙", group="组二", disabled=True, note="不可选"),
+        _dl50.DialogItem("d", "丁", group="组二"),
+    ]
+    _spec50 = _dl50.DialogSpec("标题", _items50, mode="multi", hint="提示",
+                               tabs=["常规", "高级"], active_tab=1,
+                               progress=(1, 4, "已授予"))
+    for _w50 in (40, 64, 90):
+        _lines50 = _dl50.render_dialog(_spec50, cursor=1, checked=["b"],
+                                       tab=1, width=_w50)
+        check(f"对话框：宽度 {_w50} 下每一行都恰好 {_w50} 列（CJK/边框/进度条都算对）",
+              {_dw50(x) for x in _lines50} == {_w50},
+              sorted({_dw50(x) for x in _lines50}))
+    _out50 = "\n".join(_dl50.render_dialog(_spec50, checked=["b"], cursor=1,
+                                           tab=1, width=64))
+    check("对话框：标题/页签/进度/提示都在框里",
+          "标题" in _out50 and "[ 高级 ]" in _out50 and "1/4" in _out50
+          and "提示" in _out50, _out50[:80])
+    check("对话框：多选按勾选画 [x]/[ ]，光标行带 ▶",
+          "[x] 乙" in _out50 and "[ ] 丁" in _out50 and "▶" in _out50,
+          [x for x in _out50.splitlines() if "乙" in x])
+    check("对话框：不可选条目照样列出来并说明原因（消失会让人以为功能漏了）",
+          "丙" in _out50 and "不可选" in _out50, "")
+    check("对话框：cursor=-1 表示「只展示没有光标」（非交互列表不该假装有人选中）",
+          "▶" not in "\n".join(_dl50.render_dialog(_spec50, cursor=-1, width=64)), "")
+
+    # —— 分组 ——
+    _rows50 = _dl50.grouped_rows(_items50)
+    check("分组：只在组名变化处插标题（不是每行都插）",
+          [k for k, _v in _rows50].count("group") == 2, _rows50)
+    check("分组：组标题带的是组名本身（渲染器不用回头去猜）",
+          [v for k, v in _rows50 if k == "group"] == ["组一", "组二"], _rows50)
+    check("分组：没有 group 的条目不会凭空多出一个「其他」组",
+          all(k == "item" for k, _v in _dl50.grouped_rows(
+              [_dl50.DialogItem("x", "X"), _dl50.DialogItem("y", "Y")])), "")
+
+    # —— 进度条 / 页签 ——
+    check("进度条：总数未知时给 —，不拿 0 当分母造百分比",
+          _dl50.progress_bar(0, 0) == "—" and _dl50.progress_bar(3, 0) == "—", "")
+    check("进度条：百分比与填充按比例（3/4 = 75%）",
+          "75%" in _dl50.progress_bar(3, 4) and "3/4" in _dl50.progress_bar(3, 4),
+          _dl50.progress_bar(3, 4))
+    check("进度条：done 超出 total 也不画出界（夹住而不是画满两倍）",
+          _dl50.progress_bar(9, 4).count(_dl50.BAR_FULL)
+          == _dl50.progress_bar(4, 4).count(_dl50.BAR_FULL), _dl50.progress_bar(9, 4))
+    check("进度条：宽度固定（不随比例忽长忽短）",
+          len(_dl50.progress_bar(0, 5).split(" ")[0])
+          == len(_dl50.progress_bar(5, 5).split(" ")[0]), "")
+    check("页签：当前页签带方括号，空列表给空串",
+          _dl50.tab_bar(["一", "二"], 1).count("[") == 1
+          and "[ 二 ]" in _dl50.tab_bar(["一", "二"], 1)
+          and _dl50.tab_bar([], 0) == "", _dl50.tab_bar(["一", "二"], 1))
+
+    # —— 勾选与校验（纯函数）——
+    _fresh50 = [_dl50.DialogItem("a", "甲"), _dl50.DialogItem("b", "乙"),
+                _dl50.DialogItem("c", "丙", disabled=True)]
+    check("勾选：toggle 往返（勾上再取消回到原样）",
+          _dl50.toggle_checked(_fresh50, "a") == ["a"]
+          and _dl50.toggle_checked(
+              _dl50.apply_checks(_fresh50, ["a"]), "a") == [], "")
+    check("勾选：禁用条目选了等于没选",
+          "c" not in _dl50.toggle_checked(_fresh50, "c"), "")
+    _copied50 = _dl50.apply_checks(_items50, ["a", "c"])
+    check("勾选落盘：返回新列表且不改入参（纯函数好断言）",
+          [it.key for it in _copied50 if it.checked] == ["a"]
+          and all(not it.checked for it in _items50 if it.key == "a"), "")
+    check("校验：单选必须恰好一项",
+          _dl50.validate_selection(_dl50.DialogSpec("t", _items50), ["a"]) == ""
+          and _dl50.validate_selection(_dl50.DialogSpec("t", _items50),
+                                       ["a", "d"]) != "", "")
+    check("校验：多选默认至少一项，allow_empty 才允许空手确认",
+          _dl50.validate_selection(
+              _dl50.DialogSpec("t", _items50, mode="multi", allow_empty=True), "")
+          == "" and _dl50.validate_selection(
+              _dl50.DialogSpec("t", _items50, mode="multi"), []) != "", "")
+    check("校验：禁用条目与未知 key 都被点名拒绝",
+          "c" in _dl50.validate_selection(_spec50, ["c"])
+          and "zz" in _dl50.validate_selection(_spec50, ["zz"]), "")
+
+    # —— run_dialog：非交互不阻塞，且**跳过不可选项** ——
+    _res50 = _dl50.run_dialog(_dl50.DialogSpec("t", _items50))
+    check("run_dialog：单选返回第一项（非交互不阻塞）",
+          _res50.accepted and _res50.keys == ["a"], _res50)
+    _res50b = _dl50.run_dialog(_dl50.DialogSpec(
+        "t", [_dl50.DialogItem("x", "X", disabled=True),
+              _dl50.DialogItem("y", "Y")]))
+    check("run_dialog：第一项不可选时取第一个**可选**项（不是硬取下标 0）",
+          _res50b.keys == ["y"], _res50b)
+    check("run_dialog：多选在非交互下不假装用户勾过东西（取消）",
+          _dl50.run_dialog(_dl50.DialogSpec("t", _items50, mode="multi")).cancelled, "")
+    check("run_dialog：没有可选项时直接取消",
+          _dl50.run_dialog(_dl50.DialogSpec(
+              "t", [_dl50.DialogItem("x", "X", disabled=True)])).cancelled, "")
+    check("选择器：多选入口在非 TTY 下返回 None（不阻塞、不编答案）",
+          _sel50.run_multiselect("t", ["a", "b"]) is None, "")
+
+    # —— 向导框架（纯状态机）——
+    _steps50 = [
+        _dl50.WizardStep("p", "提供商", "编号", default="1",
+                         validate=lambda a: "" if a.isdigit() else "要数字"),
+        _dl50.WizardStep("k", "密钥", "Key", skippable=False),
+        _dl50.WizardStep("m", "模型", "模型名", default="dm"),
+    ]
+    _st50 = _dl50.WizardState(_steps50)
+    check("向导：校验不过停在原地并带错误，已答内容不丢",
+          (_st50 := _dl50.wizard_answer(_st50, "x")).index == 0
+          and _st50.error == "要数字" and _st50.answers == {}, _st50.error)
+    _st50 = _dl50.wizard_answer(_st50, "2")
+    check("向导：答对前进一步并记下答案", _st50.index == 1
+          and _st50.answers["p"] == "2", _st50.answers)
+    check("向导：不允许跳过的步骤给空答案会被拦下",
+          _dl50.wizard_answer(_st50, "").index == 1
+          and _dl50.wizard_answer(_st50, "").error != "", "")
+    _st50 = _dl50.wizard_answer(_st50, "sk-1")       # 第 2 步（不可跳过）答上
+    _st50 = _dl50.wizard_answer(_st50, "b")          # 从第 3 步退回第 2 步
+    check("向导：b 后退一步且保留已答内容",
+          _st50.index == 1 and _st50.answers["k"] == "sk-1", _st50.answers)
+    _st50 = _dl50.wizard_answer(_st50, "b")          # 退回第 1 步
+    check("向导：可以一路退到第一步", _st50.index == 0 and _st50.error == "",
+          (_st50.index, _st50.error))
+    _st50 = _dl50.wizard_answer(_st50, "b")
+    check("向导：第一步再按 b 原地不动并说明原因",
+          _st50.index == 0 and "第一步" in _st50.error, (_st50.index, _st50.error))
+    _st50c = _dl50.WizardState(_steps50, index=len(_steps50), done=True)
+    check("向导：已完成的状态吃任何输入都不变（幂等）",
+          _dl50.wizard_answer(_st50c, "x").answers == {}, "")
+    _st50d = _dl50.wizard_state = _dl50.wizard_restep(
+        _dl50.WizardState(_steps50, {"p": "2"}, 2), _steps50[:2])
+    check("向导：换步骤表（后面的选项依赖前面的答案）时进度与答案都不丢",
+          _st50d.answers == {"p": "2"} and _st50d.index == 2
+          and len(_st50d.steps) == 2, (_st50d.answers, _st50d.index))
+    _wl50 = _dl50.render_wizard(_dl50.WizardState(_steps50), width=64)
+    check("向导：渲染宽度严格对齐，并显示进度 N/M",
+          {_dw50(x) for x in _wl50} == {64} and "1/3" in "".join(_wl50),
+          sorted({_dw50(x) for x in _wl50}))
+
+    # —— CLI 接线：/config 向导 ——
+    _root50 = mktemp()
+    _cli50 = _ai50.AgentCLI({"project_root": str(_root50), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _cfg_steps50 = _cli50._config_steps({})
+    check("/config 向导：三步（提供商/密钥/模型），密钥步是隐藏输入",
+          [s.key for s in _cfg_steps50] == ["provider", "api_key", "model"]
+          and _cfg_steps50[1].hidden is True, [s.key for s in _cfg_steps50])
+    check("/config 向导：模型步的可选值跟着上一步选的提供商走",
+          _cli50._config_steps({"provider": "2"})[2].choices
+          == list(_ai50.PROVIDERS[1]["models"][:8]), "")
+    check("/config 向导：非法提供商标号当场拒绝并说清范围",
+          _cfg_steps50[0].check("99") != "" and _cfg_steps50[0].check("1") == "", "")
+
+    # 取消：什么都不许改（旧实现是边问边改 cfg，嘴说"没保存"、内存里早改了）
+    _before50 = dict(_cli50.cfg)
+    _orig_input50 = _bi50.input
+
+    def _boom50(*_a, **_k):
+        raise KeyboardInterrupt
+
+    _bi50.input = _boom50
+    _buf50 = _io50.StringIO()
+    try:
+        with _cl50.redirect_stdout(_buf50):
+            _cli50._config_wizard()
+    finally:
+        _bi50.input = _orig_input50
+    check("/config 向导：中途取消后配置**逐字段未变**（说话与事实一致）",
+          _cli50.cfg == _before50, {k: v for k, v in _cli50.cfg.items()
+                                    if _before50.get(k) != v})
+    check("/config 向导：取消时会如实说没保存", "取消" in _buf50.getvalue(),
+          _buf50.getvalue()[-120:])
+
+    # 走完三步：答案落库（save 用桩，别动真配置；密钥那步走 getpass，也要换成桩）
+    import getpass as _gp50  # noqa: E402
+    _orig_save50 = _ai50.save_cli_config
+    _orig_reload50 = _cli50._reload_client
+    _orig_getpass50 = _gp50.getpass
+    _ai50.save_cli_config = lambda _cfg: None
+    _cli50._reload_client = lambda: None
+    _answers50 = iter(["3", "sk-test", "deepseek-chat"])
+    _bi50.input = lambda *_a, **_k: next(_answers50)
+    _gp50.getpass = lambda *_a, **_k: next(_answers50)
+    _buf50 = _io50.StringIO()
+    try:
+        with _cl50.redirect_stdout(_buf50):
+            _cli50._config_wizard()
+    except StopIteration:
+        pass
+    finally:
+        _bi50.input = _orig_input50
+        _gp50.getpass = _orig_getpass50
+        _ai50.save_cli_config = _orig_save50
+        _cli50._reload_client = _orig_reload50
+    check("/config 向导：跑完后答案真的落到配置里（base_url/模型一起换）",
+          _cli50.cfg.get("model") == "deepseek-chat"
+          and _cli50.cfg.get("base_url") == _ai50.PROVIDERS[2]["base_url"],
+          {k: _cli50.cfg.get(k) for k in ("model", "base_url")})
+    check("/config 向导：保存成功时如实报告当前配置", "已保存" in _buf50.getvalue(),
+          _buf50.getvalue()[-160:])
+
+    # —— CLI 接线：/permission rules 规则编辑（权限档要在"还有工具要请示"的那一档）——
+    _cli50.cfg["permission"] = "readonly"
+    _cli50.el.permission.upgrade("readonly")
+    check("/permission rules：候选=当前档位下仍要授权的工具（已免费放行的不列）",
+          "file_write" in _cli50._rule_candidates()
+          and "file_read" not in _cli50._rule_candidates(),
+          _cli50._rule_candidates())
+    check("/permission rules：候选按分组连续排列（否则组标题会在一张表里重复出现）",
+          [(_cli50._rule_group(n)) for n in _cli50._rule_candidates()]
+          == sorted([_cli50._rule_group(n) for n in _cli50._rule_candidates()],
+                    key=lambda g: {"外发": 0, "逐次确认": 1, "写类": 2}.get(g, 9)),
+          [_cli50._rule_group(n) for n in _cli50._rule_candidates()])
+    check("/permission rules：设计上拒绝会话级授权的工具被标出来（不是悄悄放行）",
+          _cli50._rule_can_grant("terminal_exec") is False
+          and _cli50._rule_can_grant("file_write") is True, "")
+
+    _buf50 = _io50.StringIO()
+    with _cl50.redirect_stdout(_buf50):
+        _cli50._handle_permission(["/permission", "rules"])
+    _out50b = _buf50.getvalue()
+    check("/permission rules：非交互会话只列规则、**真的没改授权**",
+          _cli50.el.permission.session_grants == set()
+          and "非交互会话" in _out50b, _cli50.el.permission.session_grants)
+    check("/permission rules：列出的就是同一份对话框（框线/勾选标记都在）",
+          "┌" in _out50b and "[ ]" in _out50b, _out50b[:60])
+
+    _buf50 = _io50.StringIO()
+    with _cl50.redirect_stdout(_buf50):
+        _r50 = _cli50._apply_rule_selection(set(), {"file_write", "str_replace"})
+    check("规则编辑：勾选后真的进了会话级授权",
+          _cli50.el.permission.session_grants >= {"file_write", "str_replace"}
+          and _r50["granted"] == ["file_write", "str_replace"], _r50)
+    _buf50 = _io50.StringIO()
+    with _cl50.redirect_stdout(_buf50):
+        _r50b = _cli50._apply_rule_selection(set(), {"terminal_exec"})
+    check("规则编辑：按设计不能给会话级的工具被单列出来说明（不是混在「已授予」里）",
+          _r50b["single_only"] == ["terminal_exec"] and not _r50b["granted"]
+          and "terminal_exec" not in _cli50.el.permission.session_grants, _r50b)
+    _buf50 = _io50.StringIO()
+    with _cl50.redirect_stdout(_buf50):
+        _r50c = _cli50._apply_rule_selection({"file_write"}, set())
+    check("规则编辑：取消勾选立刻收回授权（授权只进不出只能靠重启收拾）",
+          _r50c["revoked"] == ["file_write"]
+          and "file_write" not in _cli50.el.permission.session_grants, _r50c)
+    _buf50 = _io50.StringIO()
+    with _cl50.redirect_stdout(_buf50):
+        _r50d = _cli50._apply_rule_selection({"x"}, {"x"})
+    check("规则编辑：没有变化时如实说没有变化（不假装更新过）",
+          _r50d == {"granted": [], "single_only": [], "revoked": []}
+          and "没有改动" in _buf50.getvalue(), _buf50.getvalue()[:60])
+    _cli50.cfg["permission"] = "full"
+    _cli50.el.permission.upgrade("full")
+    check("规则编辑：满权限档下没有需要授权的工具 → 如实说没有",
+          _cli50._rule_candidates() == [], _cli50._rule_candidates())
+    _cli50.el.permission.upgrade("readonly")
+    _cli50.cfg["permission"] = "readonly"
+
+    # 源码级：命令分发与帮助里都要有 rules（不然只有文档知道这条路）
+    _SRC50 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("源码级：/permission rules 接在分发里（不是只有文档写着）",
+          'parts[1].lower() in ("rules", "rule", "规则")' in _SRC50
+          or '"rules", "rule", "规则"' in _SRC50, "")
+    check("源码级：对话框是唯一入口（_pick_option 也走 ace_dialog）",
+          "ace_dialog.run_dialog(spec)" in _SRC50, "")
+    check("i18n：rules_* 与 wizard_* 三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("rules_title", "rules_granted", "wizard_cancelled",
+                        "wizard_saved", "wizard_bad_provider")
+              for lg in ("zh", "en", "ja")), "")
+    _cli50._rule_candidates()
+    _ = _el50  # 段内 import 的一致性检查（分组口径直接来自执行层）
+    _cli50.close()
 
     # ============================================================
 

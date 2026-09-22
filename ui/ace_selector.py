@@ -37,12 +37,12 @@ run_selector 返回 None（降级不阻塞，绝不拖垮 REPL）。
 from __future__ import annotations
 
 import sys
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
 from ui.ace_text import SEPARATORS
 
-__all__ = ["run_selector", "match_positions", "match_score", "filter_items",
-           "highlight_match"]
+__all__ = ["run_selector", "run_multiselect", "match_positions", "match_score",
+           "filter_items", "highlight_match"]
 
 
 # ============================================================
@@ -182,17 +182,28 @@ def highlight_match(text: str, query: str) -> List[Tuple[str, str]]:
 # ============================================================
 
 class _SelectorState:
-    """交互状态：过滤词、高亮下标、滚动偏移、预览开关、过滤结果。"""
+    """交互状态：过滤词、高亮下标、滚动偏移、预览开关、过滤结果。
 
-    def __init__(self, items: List[str], preview_fn, max_height: int) -> None:
+    `multi=True` 时多两个字段：`checked`（已勾选的**原下标**集合）与
+    `result_multi`（确认后的下标列表）。单选/多选共用同一套过滤与滚动 ——
+    多选不是另一套浮层，只是同一个浮层多一个按键。
+    """
+
+    def __init__(self, items: List[str], preview_fn, max_height: int,
+                 multi: bool = False,
+                 initial: Optional[List[int]] = None) -> None:
         self.items = items
         self.preview_fn = preview_fn
         self.max_height = max(3, int(max_height))
+        self.multi = bool(multi)
+        self.checked = {int(i) for i in (initial or [])
+                        if 0 <= int(i) < len(items)}
         self.query = ""
         self.selected = 0          # 在过滤结果中的下标（0-based）
         self.scroll = 0            # 可见窗口首行（相对过滤结果）
         self.show_preview = False  # v 开关
         self.result: Optional[int] = None
+        self.result_multi: Optional[List[int]] = None
         self.matches = filter_items(items, "")   # [(原下标, 评分)]
 
     @property
@@ -209,14 +220,31 @@ class _SelectorState:
         i = self.matches[idx][0]
         return (i, self.items[i])
 
+    def toggle_current(self) -> bool:
+        """勾选/取消当前高亮项，返回是否有变化。"""
+        cur = self.selected_item
+        if cur is None:
+            return False
+        if cur[0] in self.checked:
+            self.checked.discard(cur[0])
+        else:
+            self.checked.add(cur[0])
+        return True
+
 
 # ============================================================
 # 交互主流程（Application + Layout + Float 居中浮层）
 # ============================================================
 
 def _interactive_select(title: str, items: List[str],
-                        preview_fn, max_height: int) -> Optional[int]:
+                        preview_fn, max_height: int,
+                        multi: bool = False,
+                        initial: Optional[List[int]] = None
+                        ) -> Optional[Union[int, List[int]]]:
     """交互主流程：居中浮层 Application + Layout。
+
+    `multi=True` 时：Space 勾选/取消，Enter 确认并返回**下标列表**（按原下标升序），
+    Esc 取消返回 None。行首标记 `▶ `（高亮）/`  `，多选时多一个 `[x]`/`[ ]`。
 
     prompt_toolkit 缺失或交互异常时返回 None（降级，不阻塞、不崩溃）。
     """
@@ -235,7 +263,8 @@ def _interactive_select(title: str, items: List[str],
     except ImportError:
         return None
 
-    state = _SelectorState(items, preview_fn, max_height)
+    state = _SelectorState(items, preview_fn, max_height, multi=multi,
+                           initial=initial)
 
     # ---------- 过滤输入缓冲：每次输入变化重绘列表（输入即过滤） ----------
     def _on_text_changed(buf):
@@ -285,8 +314,11 @@ def _interactive_select(title: str, items: List[str],
             # 纯函数 token（sel.row/sel.hl）→ 渲染用 class: 样式串
             segs = [(_SEL[t] if is_sel else _NORM[t], s)
                     for t, s in highlight_match(text, state.query)]
+            mark = "▶ " if is_sel else "  "
+            if state.multi:
+                mark += "[x] " if i in state.checked else "[ ] "
             lines.append([("class:sel.row.sel" if is_sel else "class:sel.row",
-                           "▶ " if is_sel else "  "), *segs])
+                           mark), *segs])
         return lines
 
     def _list_formatted() -> List[Tuple[str, str]]:
@@ -330,7 +362,10 @@ def _interactive_select(title: str, items: List[str],
     def _footer_formatted() -> List[Tuple[str, str]]:
         total = len(state.matches)
         cur = 0 if not total else min(state.selected, total - 1) + 1
-        bits = [f"{cur}/{total}", "↑↓/jk 选择", "输入过滤", "Enter 确认", "Esc 取消"]
+        bits = [f"{cur}/{total}", "↑↓/jk 选择", "输入过滤"]
+        if state.multi:
+            bits.append(f"Space 勾选({len(state.checked)})")
+        bits += ["Enter 确认", "Esc 取消"]
         if state.preview_fn:
             bits.append("v 关闭预览" if state.show_preview else "v 预览")
         return [("class:sel.footer", "  " + "  ·  ".join(bits))]
@@ -384,10 +419,22 @@ def _interactive_select(title: str, items: List[str],
 
     @kb.add("enter")
     def _confirm(event):
+        if state.multi:
+            # 多选：确认时把勾选集合交出去（允许空手确认，交由调用方决定算不算取消
+            # —— "什么都没选"和"取消"是两个不同的动作，浮层不替调用方合并它们）
+            state.result_multi = sorted(state.checked)
+            event.app.exit()
+            return
         cur = state.selected_item
         if cur is not None:
             state.result = cur[0]
             event.app.exit()
+
+    @kb.add("space")
+    def _toggle(event):
+        # 多选才吃 Space；单选模式下 Space 仍按普通字符走过滤输入
+        if state.multi and state.toggle_current():
+            event.app.invalidate()
 
     @kb.add("escape")
     def _escape(event):
@@ -480,7 +527,7 @@ def _interactive_select(title: str, items: List[str],
         app.run()
     except (Exception, KeyboardInterrupt, EOFError):
         return None          # 任何异常都降级为取消，绝不拖垮 REPL
-    return state.result
+    return state.result_multi if state.multi else state.result
 
 
 # ============================================================
@@ -513,4 +560,38 @@ def run_selector(title: str, items: List[str],
         interactive = False
     if not interactive:
         return filter_items(items, "")[0][0]
-    return _interactive_select(title, items, preview_fn, max_height)
+    ridx = _interactive_select(title, items, preview_fn, max_height)
+    return ridx if isinstance(ridx, int) else None
+
+
+def run_multiselect(title: str, items: List[str],
+                    initial: Optional[List[int]] = None,
+                    preview_fn: Optional[Callable[[int], str]] = None,
+                    max_height: int = 12) -> Optional[List[int]]:
+    """交互式**多选**（同一个浮层，多一个 Space 勾选）。返回下标列表；取消返回 None。
+
+    参数:
+      title:    顶部标题
+      items:    选项列表
+      initial:  预先勾选的下标（"当前生效的规则"就该是勾好的，而不是让你从头再点一遍）
+      preview_fn / max_height: 同 run_selector
+
+    行为:
+      - Enter 确认：返回勾选下标（**升序**；空列表 = 用户什么都没勾，由调用方决定
+        算不算取消 —— 浮层不替调用方合并"没选"与"取消"）
+      - Esc / Ctrl+C / prompt_toolkit 缺失 / 非 TTY：返回 None（没有交互界面时
+        不假装用户勾过东西）
+    """
+    if not items:
+        return None
+    try:
+        interactive = bool(sys.stdin.isatty() and sys.stdout.isatty())
+    except Exception:
+        interactive = False
+    if not interactive:
+        return None
+    picked = _interactive_select(title, items, preview_fn, max_height,
+                                 multi=True, initial=initial)
+    if picked is None:
+        return None
+    return [int(i) for i in picked] if isinstance(picked, list) else None

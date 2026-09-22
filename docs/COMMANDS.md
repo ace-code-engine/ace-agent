@@ -12,7 +12,7 @@
 | 分类 | 命令 |
 |---|---|
 | 会话 | `/help` `/keys` `/stash` `/queue` `/clear` `/status` `/statusline` `/tasks` `/fullscreen` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
-| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） `/keys`（键位表与冲突警告） `/term`（终端能力与自检） |
+| 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） `/keys`（键位表与冲突警告） `/term`（终端能力与自检） `/rules`（持久授权规则） |
 | 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` `/style [id]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/review` `/diff [序号]` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
@@ -97,7 +97,20 @@
 **热键补充**：`Ctrl+T` = `/tasks`（任务树）；`Ctrl+E` = 全部展开；`Ctrl+O` = 展开最近一次折叠。
 
 
-**等待状态行**：前 2.4 秒说准确状态，之后轮换动词；3 秒没新进展给安静标记，45 秒明说可 `Ctrl+C` 中断；工具阶段显示**目标**（`正在读取 ace/ui/ace_prompt.py`）。`reduce_motion` 或 `ACE_REDUCE_MOTION=1` 关闭全部动效。
+**持久授权规则（`/rules`）**：写文件的规则，跨会话生效（`/permission rules` 只管本次会话）。
+
+```
+/rules add file_write docs/ project      # 允许免问（路径在 docs/ 下），写进随仓库的 .ace/permissions.json
+/rules add terminal_exec '!rm:*' local   # 前缀 ! = 直接拒绝，写进不进 git 的 .ace/permissions.local.json
+/rules                                   # 列出：序号 / 动作 / 说明 / 作用域 / 来源文件
+/rules remove 2
+```
+
+- 作用域三档（优先级 local > project > user）：`local` = `.ace/permissions.local.json`（不进 git）、`project` = `.ace/permissions.json`（随仓库）、`user` = `~/.ace/permissions.json`（全局）
+- 模式：命令类是前缀（`pytest:*`；不写 `:*` 要求完全相同）、文件类是路径前缀、留空 = 该工具任意用法
+- 三条安全纪律：**deny 永远赢**；**外发工具只能 deny**（授权目的地用 `egress_allowlist`）；**规则不提权**（readonly 下写/执行照样要授权）
+- 命中 deny → 直接拒绝并说明规则出处；命中 allow（且当前等级本来就允许、规则带明确模式）→ 不再逐次问
+
 
 
 

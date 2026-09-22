@@ -74,6 +74,7 @@ from ui import ace_term  # noqa: E402  （终端能力探测与自检向导）
 from ui import ace_menu  # noqa: E402  （补全菜单模型：候选从哪来/怎么排/回车语义）
 from ui import ace_prompt  # noqa: E402  （无依赖的输入行：菜单 + 历史 + 行编辑）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
+from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -1498,7 +1499,8 @@ class _SlashCommands:
                          "/style"]),
         ("group_tools", ["/open", "/edit", "/review", "/diff", "/search", "/memory",
                         "/report", "/goal"]),
-        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term"]),
+        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term",
+                          "/rules"]),
     ]
     GROUP_FALLBACK = "group_more"
 
@@ -1580,6 +1582,7 @@ class _SlashCommands:
         "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
         "/expandall": "cmd_expandall",
+        "/rules": "cmd_rules",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
         "/search": "cmd_search",
@@ -1632,6 +1635,7 @@ class _SlashCommands:
         "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
         "/expandall": ("_cmd_expandall", True),
+        "/rules": ("_cmd_rules", True),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
         "/search": ("_cmd_search", True),
@@ -2193,7 +2197,7 @@ class _SlashCommands:
         temp = set(status.get("temp_grants") or [])
         candidates = self._rule_candidates()
         if not candidates:
-            print(c("dim", t("rules_none")))
+            print(c("dim", t("prules_none")))
             return
         items = [ace_dialog.DialogItem(
             name, name, detail=t("rules_detail_allow"),
@@ -2202,8 +2206,8 @@ class _SlashCommands:
             note="" if self._rule_can_grant(name) else t("rules_note_single_only"),
             checked=name in before) for name in candidates]
         spec = ace_dialog.DialogSpec(
-            t("rules_title"), items, mode="multi", allow_empty=True,
-            hint=t("rules_hint"),
+            t("prules_title"), items, mode="multi", allow_empty=True,
+            hint=t("prules_hint"),
             progress=(len(before), len(candidates), t("rules_progress")))
         if not self._interactive_tty():
             # 非交互：把当前规则与对话框长相打出来，问不了就不问（也不擅自改）
@@ -3612,6 +3616,102 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.cfg["expand_all"] = not bool(self.cfg.get("expand_all"))
         print(c("cyan", t("expandall_on") if self.cfg["expand_all"]
                 else t("expandall_off")))
+        return True
+
+    def _reload_rules(self) -> None:
+        """改完规则文件后重新加载（裁决发生在执行器里，所以两处都要更新）。"""
+        try:
+            rules, warns = ace_rules.load_rules(
+                str(self.cfg.get("project_root", ".")))
+            self.el.rules = rules
+            self.el.executor.rules = rules
+            self._rule_warnings = warns
+        except Exception as e:  # noqa: BLE001 —— 读不动就保持原样并说一声
+            print(c("yellow", t("prules_reload_failed", err=type(e).__name__)))
+
+    def _cmd_rules(self, parts: List[str]) -> bool:
+        """`/rules [add <工具> <模式> [作用域] | remove <序号>]`：持久授权规则的查/增/删。
+
+        与 `/permission rules`（只改本次会话）的分工写在这里免得混：
+        **这条命令改的是文件**，关掉终端依然生效。作用域三档 —— `local`（项目本地，
+        不进 git）/ `project`（随仓库走）/ `user`（家目录，对所有项目生效）。
+        安全语义：deny 永远赢；外发工具只能 deny（授权目的地要用 egress_allowlist）；
+        allow 规则只在该工具**当前等级本来就允许**时免问，不会替用户提权。
+        """
+        rules = list(getattr(self.el, "rules", []) or [])
+        warns = list(getattr(self, "_rule_warnings", []) or
+                     getattr(self.el, "rule_warnings", []) or [])
+        act = (parts[1].lower() if len(parts) > 1 else "")
+        if act in ("add", "remove", "rm", "del"):
+            if act == "add":
+                if len(parts) < 4:
+                    print(c("yellow", t("prules_usage")))
+                    return True
+                tool, pattern = parts[2], parts[3]
+                scope = (parts[4].lower() if len(parts) > 4 else "local")
+                if scope not in ace_rules.SCOPES:
+                    print(c("yellow", t("prules_bad_scope",
+                                        names=", ".join(ace_rules.SCOPES))))
+                    return True
+                action = "deny" if pattern.startswith("!") else "allow"
+                if action == "deny":
+                    pattern = pattern[1:]
+                rule, why = ace_rules.parse_rule(
+                    {"tool": tool, "pattern": pattern, "action": action}, scope)
+                if rule is None:
+                    print(c("yellow", t("prules_rejected", why=why)))
+                    return True
+                path = ace_rules.rules_path(scope, str(self.cfg.get("project_root", ".")))
+                keep = [r for r in rules if r.scope == scope]
+                if any(r.tool == rule.tool and r.pattern == rule.pattern
+                       and r.action == rule.action for r in keep):
+                    print(c("dim", t("prules_duplicate")))
+                    return True
+                keep.append(rule)
+                if not ace_rules.save_rules(keep, path):
+                    print(c("red", t("prules_save_failed", path=path)))
+                    return True
+                self._reload_rules()
+                print(c("green", t("prules_added", desc=ace_rules.describe_rule(rule),
+                                   path=path)))
+                for i, j in ace_rules.shadowed_rules(list(getattr(self.el, "rules", []))):
+                    print(c("yellow", t("prules_shadowed",
+                                        a=ace_rules.describe_rule(
+                                            list(self.el.rules)[i]))))
+                return True
+            # remove <序号>
+            if len(parts) < 3 or not parts[2].lstrip("#").isdigit():
+                print(c("yellow", t("prules_usage")))
+                return True
+            idx = int(parts[2].lstrip("#")) - 1
+            if not (0 <= idx < len(rules)):
+                print(c("yellow", t("prules_no_such", n=len(rules))))
+                return True
+            victim = rules[idx]
+            scope_rules = [r for r in rules if r.scope == victim.scope
+                           and not (r.tool == victim.tool
+                                    and r.pattern == victim.pattern
+                                    and r.action == victim.action)]
+            path = ace_rules.rules_path(victim.scope,
+                                        str(self.cfg.get("project_root", ".")))
+            if not ace_rules.save_rules(scope_rules, path):
+                print(c("red", t("prules_save_failed", path=path)))
+                return True
+            self._reload_rules()
+            print(c("green", t("prules_removed", desc=ace_rules.describe_rule(victim))))
+            return True
+        # 默认：列出
+        if not rules:
+            print(c("dim", t("prules_none")))
+        else:
+            print(c("cyan", t("prules_title", n=len(rules))))
+            for i, r in enumerate(rules, 1):
+                print(f"  [{i}] {c('magenta', r.action):<16} {ace_rules.describe_rule(r)}"
+                      f"  {c('dim', r.scope)}")
+                print(c("dim", f"       {r.source}"))
+        for w in warns:
+            print(c("yellow", "  ⚠ " + w))
+        print(c("dim", t("prules_hint", scopes="/".join(ace_rules.SCOPES))))
         return True
 
     def _reduce_motion(self) -> bool:

@@ -67,6 +67,7 @@ from typing import Optional, Dict, Any, List, Set, Tuple
 
 from tools import ToolExecutor, repair_backslash_json
 from core.ace_isolation import wrap_untrusted
+from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
 from cli.ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_ROLLBACK,
                             SessionLog)
 from core import ace_execpolicy as execpolicy  # noqa: E402
@@ -694,6 +695,18 @@ class ExecutionLayer:
         except Exception:  # noqa: BLE001 —— 清单坏了不该让会话起不来
             self.todos = None
 
+        # 持久授权规则（.ace/permissions*.json + ~/.ace/permissions.json）：
+        # 读坏了就当空（并留警告），绝不因为规则文件有问题而让会话起不来。
+        try:
+            from core import ace_rules
+            self.rules, self.rule_warnings = ace_rules.load_rules(
+                str(self.project_root))
+        except Exception as e:  # noqa: BLE001
+            self.rules, self.rule_warnings = [], [f"规则加载失败: {type(e).__name__}"]
+        # 裁决发生在**执行器**里（14 段管线的第 ⑦ 段），所以规则也要挂到执行器上 ——
+        # 只放在这里会出现"规则读到了、匹配也算得对，但没人用它"（实测踩到过）。
+        self.executor.rules = self.rules
+
         # V1 模块
         self.bait_factory = BaitFactory() if V1_WORK_AVAILABLE else None
         self.ast_detector = ASTDetector() if V1_WORK_AVAILABLE else None
@@ -1102,6 +1115,39 @@ class ExecutionLayer:
         """
         ctx.confirmed = (tool_name in self.permission.temp_grants
                          or tool_name in self.permission.session_grants)
+        # ⑨ 持久规则（`.ace/permissions*.json` / `~/.ace/permissions.json`）：
+        # deny 永远赢，同级之间 本地 > 项目 > 用户。命中 deny → 直接拒绝（附规则出处，
+        # 免得用户以为"我明明拒了"是别的东西在挡）；命中 allow → 视为这次调用已被确认，
+        # **但只在该规则写了明确模式时**才跳过"动项目外文件"那道闸门 —— 空前缀（该工具
+        # 任意用法）不该顺带把项目外也放开。
+        _rule = ace_rules.match_rule(getattr(self, "rules", None) or [], tool_name,
+                                     tool_call)
+        if _rule is not None and _rule.action == ace_rules.DENY:
+            if self.session_log:
+                self.session_log.record_permission(tool_name, "denied_by_rule",
+                                                   self.permission.level,
+                                                   f"{_rule.source}: {_rule.pattern}")
+            return {
+                "status": "403",
+                "tool": tool_name,
+                "message": (f"被持久规则拒绝：{ace_rules.describe_rule(_rule)}"
+                            f"（{_rule.source}）"),
+                "instruction": ("不要重试，也不要换工具绕过。这条规则来自用户配置文件；"
+                                "要改请让用户用 /rules 删除或修改它。"),
+                **route_meta,
+            }
+        if (_rule is not None and _rule.action == ace_rules.ALLOW
+                and _rule.pattern
+                and tool_name in self.permission.allowed_tools(self.permission.level)):
+            # 规则是"这个前缀别再问我"，**不是**"给我提权"：当前等级本来不允许的工具
+            # （readonly 下的写/执行），规则也不放行 —— 想放开请显式升级等级。
+            # 另外要求规则带明确模式：空前缀（该工具任意用法）不该顺带把项目外也放开。
+            ctx.confirmed = True
+            self.permission.grant_temp(tool_name)
+            if self.session_log:
+                self.session_log.record_permission(tool_name, "allowed_by_rule",
+                                                   self.permission.level,
+                                                   f"{_rule.source}: {_rule.pattern}")
         # MCP 名兜底：`mcp__<server>__<tool>` 但不在注册表里 = 那个 server 没起来、
         # 或者它没声明这个工具。必须在这里说清原因，**不能**让它落进下面
         # "权限不足 → 要不要临时授权"的流程 —— 那个提示会让人以为点一下授权就能用，

@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,8 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
+             "55", "56"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8956,6 +8957,159 @@ if _want("55"):
     check("Ctrl+T 的落点（/tasks）在没有目标/待办时如实说明",
           "没有目标" in _buf55.getvalue(), _buf55.getvalue()[:80])
     _cli55.close()
+
+    # ============================================================
+
+if _want("56"):
+    # ── [56] ────
+    print("[56] 持久授权规则 —— 匹配/优先级 · 执行层裁决 · /rules 增删查")
+    # ============================================================
+    import io as _io56  # noqa: E402
+    import json as _json56  # noqa: E402
+    import contextlib as _cl56  # noqa: E402
+    import ai_code as _ai56  # noqa: E402
+    from core import ace_rules as _ru56  # noqa: E402
+    from execution_layer import ExecutionLayer as _EL56, RoundCtx as _RC56  # noqa: E402
+
+    # —— 匹配语义（纯函数）——
+    _rules56 = [_ru56.Rule("terminal_exec", "pytest:*", "allow", "local"),
+                _ru56.Rule("file_write", "docs/", "deny", "project"),
+                _ru56.Rule("file_write", "", "allow", "user")]
+    check("规则匹配：命令前缀（pytest:* 命中 pytest -q，不命中 rm）",
+          _ru56.match_rule(_rules56, "terminal_exec", {"command": "pytest -q"}) is not None
+          and _ru56.match_rule(_rules56, "terminal_exec",
+                               {"command": "rm -rf /"}) is None, "")
+    check("规则匹配：命令模式不带 :* 时要求完全相同（rm 不该命中 rmdir）",
+          _ru56.Rule("terminal_exec", "rm", "allow").pattern == "rm"
+          and _ru56.match_rule([_ru56.Rule("terminal_exec", "rm", "deny")],
+                               "terminal_exec", {"command": "rmdir x"}) is None, "")
+    check("规则匹配：路径按前缀（docs/a.md 命中 docs/，src/a.py 不命中）",
+          _ru56.rule_matches(_rules56[1], "file_write", {"path": "docs/a.md"}) is True
+          and _ru56.rule_matches(_rules56[1], "file_write", {"path": "src/a.py"}) is False, "")
+    check("规则匹配：空前缀 = 该工具任意用法",
+          _ru56.rule_matches(_rules56[2], "file_write", {"path": "whatever"}) is True, "")
+    check("规则匹配：deny 永远赢（同一目标同时有 allow 和 deny）",
+          _ru56.match_rule(_rules56, "file_write", {"path": "docs/a.md"}).action == "deny", "")
+    check("规则匹配：同级之间按 local > project > user",
+          _ru56.match_rule([_ru56.Rule("terminal_exec", "", "allow", "user"),
+                            _ru56.Rule("terminal_exec", "", "allow", "local")],
+                           "terminal_exec", {"command": "x"}).scope == "local", "")
+    check("规则匹配：没命中就返回 None（走原来的审批流程）",
+          _ru56.match_rule(_rules56, "file_read", {"path": "x"}) is None, "")
+
+    # —— 解析与安全边界 ——
+    check("规则解析：外发工具的 allow 被拒绝（授权目的地要用 egress_allowlist）",
+          _ru56.parse_rule({"tool": "api_post", "action": "allow"})[0] is None
+          and _ru56.parse_rule({"tool": "api_post", "action": "deny"})[0] is not None, "")
+    check("规则解析：非法 action / 缺 tool 都如实报错（不静默丢）",
+          _ru56.parse_rule({"tool": "x", "action": "maybe"})[1] != ""
+          and _ru56.parse_rule({"pattern": "y"})[1] != "", "")
+    check("规则解析：遮挡检测（宽 deny 挡住窄 allow 会被点出来）",
+          _ru56.shadowed_rules([_ru56.Rule("file_write", "docs/", "allow"),
+                                _ru56.Rule("file_write", "", "deny")]) == [(0, 1)], "")
+    _root56 = mktemp()
+    _p56 = _ru56.rules_path("project", _root56)
+    check("规则读写：写进作用域自己的文件，读回来作用域正确",
+          _ru56.save_rules([_ru56.Rule("file_write", "docs/", "deny", "project")], _p56)
+          and _ru56.load_rules(_root56, home=_root56)[0][0].scope == "project", "")
+    check("规则读取：文件坏掉返回空 + 警告（不让会话起不来）",
+          (lambda p: (open(p, "w", encoding="utf-8").write("{ bad json"),
+                      _ru56.load_rules_file(p, "project")[1] != ""
+                      and _ru56.load_rules_file(p, "project")[0] == [])[1])(
+              os.path.join(_root56, ".ace", "permissions.json")), "")
+
+    # —— 执行层裁决（第 ⑦ 段管线）——
+    def _mk56(rules, level="full"):
+        root = mktemp()
+        os.makedirs(os.path.join(root, ".ace"), exist_ok=True)
+        with open(os.path.join(root, ".ace", "permissions.json"), "w",
+                  encoding="utf-8") as f:
+            _json56.dump({"rules": rules}, f)
+        return _EL56(project_root=root, permission_level=level,
+                     config={"bait": {"enabled": False}})
+
+    def _stage56(el, tool, **params):
+        call = {"tool": tool}
+        call.update(params)
+        ctx = _RC56()
+        return el._stage_permission(call, tool, {}, ctx), ctx
+
+    _el56 = _mk56([{"tool": "terminal_exec", "pattern": "echo:*", "action": "deny"}])
+    _out56, _ = _stage56(_el56, "terminal_exec", command="echo hi")
+    check("执行层：deny 规则直接 403，并把规则出处写给用户",
+          (_out56 or {}).get("status") == "403"
+          and "持久规则拒绝" in str((_out56 or {}).get("message")), _out56)
+    _out56b, _ = _stage56(_el56, "terminal_exec", command="whoami")
+    check("执行层：不命中的命令照常走逐次确认",
+          (_out56b or {}).get("status") == "PERMISSION_REQUEST", _out56b)
+    _el56.close()
+
+    _el56b = _mk56([{"tool": "terminal_exec", "pattern": "echo:*", "action": "allow"}])
+    _out56c, _ctx56c = _stage56(_el56b, "terminal_exec", command="echo hi")
+    check("执行层：allow 规则命中视为已确认（不再逐次问）",
+          _out56c is None and _ctx56c.confirmed is True, (_out56c, _ctx56c.confirmed))
+    _el56b.close()
+
+    _el56c = _mk56([{"tool": "terminal_exec", "pattern": "echo:*", "action": "allow"}],
+                   level="readonly")
+    _out56d, _ctx56d = _stage56(_el56c, "terminal_exec", command="echo hi")
+    check("执行层：规则**不提权** —— readonly 下 allow 规则照样要授权",
+          (_out56d or {}).get("status") == "PERMISSION_REQUEST"
+          and _ctx56d.confirmed is False, _out56d)
+    _el56c.close()
+
+    _el56d = _mk56([{"tool": "file_write", "pattern": "", "action": "allow"}],
+                   level="write")
+    _out56e, _ctx56e = _stage56(_el56d, "file_write", path="a.txt", content="x")
+    check("执行层：空前缀的 allow 不跳过「项目外文件」那道闸门（confirmed 保持 False）",
+          _ctx56e.confirmed is False, _ctx56e.confirmed)
+    _el56d.close()
+
+    # —— CLI：/rules 增删查 ——
+    _root56b = mktemp()
+    _cli56 = _ai56.AgentCLI({"project_root": _root56b, "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+
+    def _run56(*parts):
+        buf = _io56.StringIO()
+        with _cl56.redirect_stdout(buf):
+            _cli56._cmd_rules(list(parts))
+        return buf.getvalue()
+
+    check("/rules：没有规则时如实说明规则存在哪里",
+          "还没有持久规则" in _run56("/rules"), "")
+    check("/rules add：写进指定作用域的文件并回显规则与路径",
+          "已加规则" in _run56("/rules", "add", "file_write", "docs/", "project")
+          and any(r.scope == "project" for r in _cli56.el.rules), _cli56.el.rules)
+    check("/rules add：! 前缀 = 拒绝",
+          _run56("/rules", "add", "terminal_exec", "!rm:*", "local")
+          and any(r.action == "deny" for r in _cli56.el.rules), _cli56.el.rules)
+    check("/rules add：重复添加会被挡下",
+          "已存在" in _run56("/rules", "add", "file_write", "docs/", "project"), "")
+    check("/rules add：作用域写错如实报错且不落盘",
+          "作用域只能是" in _run56("/rules", "add", "x", "y", "nope"), "")
+    check("/rules add：外发工具的 allow 被拒（同一套安全语义）",
+          "只允许 deny" in _run56("/rules", "add", "api_post", "", "local"), "")
+    check("/rules：列表带序号/动作/说明/作用域，且规则已挂到执行器上（裁决用的是执行器那份）",
+          "[1]" in _run56("/rules") and _cli56.el.executor.rules == _cli56.el.rules, "")
+    check("/rules remove：按序号删除并重载",
+          "已删除" in _run56("/rules", "remove", "1")
+          and len(_cli56.el.rules) == len(_cli56.el.executor.rules), "")
+    check("/rules remove：序号越界如实报错",
+          "没有这个序号" in _run56("/rules", "remove", "99"), "")
+    check("会话级规则对话框的文案没被新命令顶掉（键名冲突过一次）",
+          _t54 is not None and "会话级规则" in
+          (FOLDER / "locales" / "zh.json").read_text(encoding="utf-8").split(
+              '"rules_title"')[1][:40], "")
+    check("命令表：/rules 已注册且有 i18n 描述",
+          _ai56._SlashCommands.COMMANDS.get("/rules") == "cmd_rules", "")
+    check("i18n：prules_* 三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("prules_title", "prules_added", "prules_rejected",
+                        "prules_usage", "cmd_rules")
+              for lg in ("zh", "en", "ja")), "")
+    _cli56.close()
 
     # ============================================================
 

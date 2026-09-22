@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8659,8 +8659,8 @@ if _want("53"):
     check("内置输入行：Esc 先关菜单（不清输入）", _read53("/he\x1b\r")[0] == "/he", "")
     check("内置输入行：Ctrl+O 走热键通道（交给 REPL 当命令执行）",
           _read53("\x0f")[0] == "\x00MENU:/expand", "")
-    check("内置输入行：Ctrl+C 有输入时清空（空输入才中断）",
-          _read53("abc\x03\r")[0] == "" and _read53("\x03")[0] == "<interrupt>", "")
+    check("内置输入行：Ctrl+C 有输入时清空（空输入要双击才中断）",
+          _read53("abc\x03\r")[0] == "" and _read53("\x03\x03")[0] == "<interrupt>", "")
     check("内置输入行：EOF（Ctrl+D / 管道结束）返回 None 而不是空串",
           _read53("\x04")[0] is None, "")
     check("按键解析：方向键/功能键/控制键都认得",
@@ -8772,6 +8772,121 @@ if _want("53"):
           "▶" not in _out53 and "\x1b[" not in _out53, _out53[-200:])
     check("真 CLI：非交互终端提示如实说明内置输入行可用",
           "内置输入行" in _out53, _out53[:1200])
+
+    # ============================================================
+
+if _want("54"):
+    # ── [54] ────
+    print("[54] 交互体验（续）—— 授权对话框三态 · 拒绝理由回传 · 全部展开 · 状态行目标 · 双击确认")
+    # ============================================================
+    import io as _io54  # noqa: E402
+    import contextlib as _cl54  # noqa: E402
+    import ai_code as _ai54  # noqa: E402
+    import agent_runner as _ar54  # noqa: E402
+    from ui import ace_prompt as _pr54  # noqa: E402
+    from ui import ace_menu as _mn54  # noqa: E402
+
+    # —— 授权回答：字母 / 编号 / 拒绝+理由，三类写法都要认 ——
+    _cases54 = [("1", "once", ""), ("y", "once", ""), ("yes", "once", ""),
+                ("2", "session", ""), ("a", "session", ""), ("s", "session", ""),
+                ("3", "deny", ""), ("n", "deny", ""), ("", "deny", ""),
+                ("??", "deny", ""),
+                ("n 别动那个文件", "deny", "别动那个文件"),
+                ("3 这个文件别改", "deny", "这个文件别改")]
+    _bad54 = [(a, _ar54.parse_grant_answer(a)) for a, d, f in _cases54
+              if _ar54.parse_grant_answer(a) != (d, f)]
+    check("授权：字母/编号/拒绝+理由三类写法都认，空输入按拒绝（回车不放行）",
+          not _bad54, _bad54)
+    check("授权：理由长度被夹住（不让一句抱怨把上下文吃掉）",
+          len(_ar54.parse_grant_answer("n " + "x" * 900)[1]) <= 400, "")
+    check("授权：越界输入一律落到拒绝（危险对话框 fail-close）",
+          _ar54.parse_grant_answer("允许吧拜托")[0] == _ar54.GRANT_DENY, "")
+
+    # —— 拒绝理由回传模型 ——
+    _root54 = mktemp()
+    _cli54 = _ai54.AgentCLI({"project_root": str(_root54), "permission": "readonly",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    check("拒绝理由：CLI 启动时把回调登记到 ask_grant 上（跨模块不循环 import）",
+          callable(getattr(_ar54.ask_grant, "on_deny_feedback", None)), "")
+    _ar54.ask_grant.on_deny_feedback("别动那个文件")
+    check("拒绝理由：取走即清空（不会带到下一条权限请求）",
+          _cli54._take_deny_feedback() == "别动那个文件"
+          and _cli54._take_deny_feedback() == "", "")
+
+    # —— 全部展开（/expandall、Ctrl+E）——
+    check("全部展开：默认关闭", _cli54._expand_all() is False, "")
+    _buf54 = _io54.StringIO()
+    with _cl54.redirect_stdout(_buf54):
+        _cli54._cmd_expandall(["/expandall"])
+    check("全部展开：切换后开启，并如实说明影响（卡片/diff/思考）",
+          _cli54._expand_all() is True and "全部展开" in _buf54.getvalue(), "")
+    check("全部展开：工具卡片不再折叠、diff 上限放开（读源码即可验证接线）",
+          "collapsed=not self._expand_all()" in
+          (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
+    check("全部展开：只读工具也不再被折叠成一句话",
+          "_fold_read = (not self._expand_all()" in
+          (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
+    _disp54 = _ai54.AgentCLI._make_display(tools_mode=False, spinner=None,
+                                           show_thinking=True)
+    check("全部展开：思考显示参数接通到流式展示（不必先按 F4）",
+          callable(_disp54.get("on_delta")) and callable(_disp54.get("flush")), "")
+    _buf54 = _io54.StringIO()
+    with _cl54.redirect_stdout(_buf54):
+        _disp54["on_delta"]("<INTERNAL>内部推理甲</INTERNAL><EXTERNAL>answer.正文\n")
+        _disp54["flush"]()
+    check("全部展开：内部思考真的被打出来（不是只改了个配置字段）",
+          "内部推理甲" in _buf54.getvalue(), _buf54.getvalue()[:160])
+
+    # —— 状态行说清目标 ——
+    check("状态行：能从模型原文里提前看出目标（路径/命令/模式）",
+          _ai54._peek_tool_target('{"name":"file_read","arguments":{"path":"a/b.py"}}')
+          == "a/b.py"
+          and _ai54._peek_tool_target('{"name":"terminal_exec",'
+                                      '"arguments":{"command":"pytest -q"}}') == "pytest -q"
+          and _ai54._peek_tool_target("普通回答") == "", "")
+    check("状态行：目标过长会被截断（别把状态行顶破）",
+          len(_ai54._peek_tool_target(
+              '{"path":"' + "x" * 200 + '"}')) <= 60, "")
+    _src54 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("状态行：按工具类别选动词（读取/检索/执行）",
+          't(f"tool_activity_{_verb}"' in _src54, "")
+
+    # —— 内置输入行：双击确认与 Ctrl+字母热键 ——
+    def _drive54(keys, hotkeys=None):
+        ed = _pr54.LineEditor(
+            completer=lambda t, c: _mn54.build_menu(t, c, {"/help": "h"},
+                                                     translate=lambda k: k),
+            draw=False, translate=lambda k: k, hotkeys=hotkeys or {},
+            keys=_pr54.KeySource(stream=_io54.StringIO(keys), tty=False))
+        try:
+            return ed.read_line(), ed
+        except KeyboardInterrupt:
+            return "<interrupt>", ed
+
+    check("内置输入行：Ctrl+C 一次只是提示（不杀会话），两次才退出",
+          _drive54("\x03")[1].notes[:1] == ["ctrl-c-once"]
+          and _drive54("\x03\x03")[0] == "<interrupt>", "")
+    check("内置输入行：Ctrl+字母统一映射成 c-x 名字（否则热键表永远匹配不上）",
+          [_pr54.parse_key(k) for k in ("\x05", "\x0f", "\x12")] == ["c-e", "c-o", "c-r"], "")
+    check("内置输入行：Ctrl+E 走「全部展开」热键通道",
+          _drive54("\x05", {"c-e": "/expandall"})[0] == "\x00MENU:/expandall", "")
+
+    # —— i18n 与命令表 ——
+    from ui.i18n import t as _t54  # noqa: E402
+    check("授权提示改成编号三态（1 本次 / 2 本会话 / 3 拒绝可写理由）",
+          "1)" in _t54("perm_approve_q") and "3)" in _t54("perm_approve_q"),
+          _t54("perm_approve_q"))
+    check("命令表：/expandall 已注册且进分组",
+          _ai54._SlashCommands.COMMANDS.get("/expandall") == "cmd_expandall"
+          and any(n == "/expandall" for _g, ns in
+                  _ai54._SlashCommands.grouped_commands() for n in ns), "")
+    check("i18n：本批新键三语齐全（工具动词 / 展开 / 拒绝理由 / 双击提示）",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("tool_activity_reading", "cmd_expandall", "expandall_on",
+                        "perm_deny_feedback_sent", "exit_again_hint")
+              for lg in ("zh", "en", "ja")), "")
+    _cli54.close()
 
     # ============================================================
 

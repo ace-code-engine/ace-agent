@@ -653,6 +653,21 @@ def _peek_tool_name(text: str) -> str:
     return m.group(1) if m else ""
 
 
+def _peek_tool_target(text: str) -> str:
+    """从模型原文里**提前**看出它要动哪个目标（路径/命令/模式）——只给状态行用。
+
+    为什么值得单独解析：`正在调用 file_read` 和 `正在读取 ace/ui/ace_menu.py` 给人的
+    信息量差一个量级 —— 后者让人当场就能判断"它是不是在翻错地方"，而不必等结果。
+    """
+    s = str(text or "")
+    for key in ("path", "file", "command", "pattern", "query", "url"):
+        m = re.search(rf'"{key}"\s*:\s*"((?:[^"\\]|\\.){{1,120}})"', s)
+        if m:
+            val = m.group(1).replace("\\\\", "\\")
+            return val if len(val) <= 60 else val[:57] + "..."
+    return ""
+
+
 def _completion_result(text: str, cursor: int, comp) -> str:
     """把某条补全应用到 `(text, cursor)` 上会得到什么（不真的动 buffer）。"""
     try:
@@ -1456,7 +1471,8 @@ class _SlashCommands:
     # 落到"其他"，不会影响分发。
     COMMAND_GROUPS = [
         ("group_session", ["/help", "/stash", "/queue", "/clear", "/status",
-                           "/statusline", "/tasks", "/fullscreen", "/stats", "/expand",
+                           "/statusline", "/tasks", "/fullscreen", "/stats",
+                           "/expand", "/expandall",
                            "/history", "/sessions", "/resume", "/fork",
                            "/rewind", "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
@@ -1546,6 +1562,7 @@ class _SlashCommands:
         "/hooks": "cmd_hooks",
         "/plugins": "cmd_plugins",
         "/expand": "cmd_expand",
+        "/expandall": "cmd_expandall",
         "/open": "cmd_open",
         "/edit": "cmd_edit",
         "/search": "cmd_search",
@@ -1597,6 +1614,7 @@ class _SlashCommands:
         "/hooks": ("_cmd_hooks", True),
         "/plugins": ("_cmd_plugins", True),
         "/expand": ("_cmd_expand", False),
+        "/expandall": ("_cmd_expandall", True),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
         "/search": ("_cmd_search", True),
@@ -3203,6 +3221,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._spinner: Optional["_Spinner"] = None
         # 无依赖时的内置输入行（懒建：只用得到时才需要历史/菜单）
         self._inline_editor: Optional["ace_prompt.LineEditor"] = None
+        # 拒绝理由（由 ask_grant 的回调写入、权限分支取走）：
+        # 让"拒绝"带上给模型的一句话，而不是只丢一个"不行"
+        self._deny_feedback: str = ""
+        try:
+            ask_grant.on_deny_feedback = self._record_deny_feedback
+        except Exception:  # noqa: BLE001 —— 登记不上也不该影响启动
+            pass
         # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
         self._cost = {"in_tokens": 0, "out_tokens": 0}
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
@@ -3542,6 +3567,35 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         display_meta=(item.desc or "")[:60])
 
         return AceCompleter()
+
+    def _take_deny_feedback(self) -> str:
+        """取出并清空"拒绝理由"（由 `ask_grant` 的回调写入）。
+
+        `ask_grant` 在 agent_runner 里，没法反向 import 这个模块（循环依赖），
+        所以理由用它身上的回调登记进来，这里取走 —— 取走即清空，避免下一条权限
+        请求又带上上一次的理由。
+        """
+        text = str(getattr(self, "_deny_feedback", "") or "")
+        self._deny_feedback = ""
+        return text
+
+    def _record_deny_feedback(self, text: str) -> None:
+        self._deny_feedback = str(text or "")[:400]
+
+    def _expand_all(self) -> bool:
+        """「全部展开」开关（`/expandall` 或 Ctrl+E）：卡片不折叠、diff 不截断、思考照显。
+
+        为什么需要一个总开关：日常要的是"干净"，出问题时要的是"全都给我看"。前者已有
+        （折叠 + 摘要），后者此前只能靠 `/expand` 一条条展开 —— 排查时那是最烦的事。
+        """
+        return bool(self.cfg.get("expand_all"))
+
+    def _cmd_expandall(self, parts: List[str]) -> bool:
+        """`/expandall`：切换全部展开（卡片/diff/思考一起放开）。"""
+        self.cfg["expand_all"] = not bool(self.cfg.get("expand_all"))
+        print(c("cyan", t("expandall_on") if self.cfg["expand_all"]
+                else t("expandall_off")))
+        return True
 
     def _reduce_motion(self) -> bool:
         """是否"减少动效"（配置 `reduce_motion` 或环境变量 ACE_REDUCE_MOTION）。
@@ -4182,7 +4236,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     @staticmethod
     def _make_display(tools_mode: bool = False,
-                      spinner: Optional["_Spinner"] = None) -> Dict:
+                      spinner: Optional["_Spinner"] = None,
+                      show_thinking: bool = False) -> Dict:
         """智能展示回调：隐藏 <INTERNAL> 内部思考，◈ 状态行实时反馈过程
 
         状态流转：思考中… → 正在调用工具… → 回复正文流式输出
@@ -4217,7 +4272,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
         def on_delta(full: str) -> None:
             state = "thinking"
-            if _ACE_SHOW_THINKING and not st.get("think_shown") and "</INTERNAL>" in full:
+            if (_ACE_SHOW_THINKING or show_thinking) and not st.get("think_shown") \
+                    and "</INTERNAL>" in full:
                 st["think_shown"] = True
                 try:
                     _inner = full.split("<INTERNAL>", 1)[1].split("</INTERNAL>", 1)[0]
@@ -4326,7 +4382,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         spinner = _Spinner(t("thinking"), verbs=ace_layout.spinner_verbs(t),
                            reduce_motion=self._reduce_motion())
         self._spinner = spinner      # /tasks 用：能看出"此刻在跑什么"
-        disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner)
+        disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner,
+                                  show_thinking=self._expand_all())
         spinner.start()
         try:
             # 会话事件日志：记录每次模型请求的 envelope 与完整系统提示词
@@ -4489,8 +4546,20 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             # 工具执行阶段动画（仅当本轮确实是工具调用）；带工具名 —— "正在调用工具"
             # 与"正在读取 ace/ui/ace_menu.py"给人的信息量差一个量级。
             _tool_name = _peek_tool_name(output)
-            _exec_label = (t("calling_tool_named", tool=_tool_name) if _tool_name
-                           else t("calling_tool"))
+            _tool_target = _peek_tool_target(output)
+            # 状态行说清"在做什么、动的是哪个东西"：动词按工具类别选，
+            # 目标取参数里的 path/command/pattern
+            _verb = ("reading" if ace_cards.is_read_tool(_tool_name) else "running")
+            if _verb == "reading" and _tool_name in ("search", "search_read", "grep",
+                                                     "glob", "kb_search"):
+                _verb = "searching"
+            if _tool_name and _tool_target:
+                _exec_label = t(f"tool_activity_{_verb}", tool=_tool_name,
+                                target=_tool_target)
+            elif _tool_name:
+                _exec_label = t("calling_tool_named", tool=_tool_name)
+            else:
+                _exec_label = t("calling_tool")
             exec_spinner = (_Spinner(_exec_label, verbs=ace_layout.spinner_verbs(t),
                                      reduce_motion=self._reduce_motion())
                             if disp["state"]["state"] == "tool" else None)
@@ -4541,8 +4610,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 decision = ask_grant(c("yellow", t("perm_approve_q")),
                                      lambda: print(c("dim", t("auto_deny_perm"))))
                 next_user = resolve_permission(self.el, decision)
+                _fb = self._take_deny_feedback()
                 if decision == GRANT_DENY:
                     print(c("yellow", t("perm_denied_msg")))
+                    if _fb:
+                        # 拒绝理由回传模型：拒绝不是死路，而是一次可执行的纠偏
+                        print(c("dim", t("perm_deny_feedback_sent", text=_fb[:80])))
+                        next_user += "\n\n【用户拒绝的理由】" + _fb
                 elif tool_name in self.el.permission.session_grants:
                     print(c("green", t("perm_granted_session_msg")))
                 else:
@@ -4666,7 +4740,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     message=result.get("message", ""),
                     output=_out, elapsed=_elapsed_f,
                     exit_code=_exit_code, diff=_diff,
-                    collapsed=True, max_lines=8)
+                    collapsed=not self._expand_all(),
+                    max_lines=8 if not self._expand_all() else 500)
                 # 卡片折叠了输出就把原文记下来：卡片上写着"/expand 看完整"，
                 # 得有东西给它展开（此前这句承诺在代码里没有对应实现）。
                 if _out and len(_out.splitlines()) > 8:
@@ -4689,8 +4764,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # 逐条刷过去会把真正重要的那几行挤出屏幕。收尾用一句话汇总
                 # （`读取 3 个文件 · 搜索 2 次`，见 _print_tool_timeline）。
                 # 失败照打 —— 出错的读必须看得见。
-                _fold_read = (_st == "SUCCESS" and ace_cards.is_read_tool(
-                    str(result.get("tool") or "")) and not result.get("memory_injected"))
+                _fold_read = (not self._expand_all() and _st == "SUCCESS"
+                              and ace_cards.is_read_tool(
+                                  str(result.get("tool") or ""))
+                              and not result.get("memory_injected"))
                 if not _fold_read:
                     for _i, _ln in enumerate(_card):
                         if _i == 0:
@@ -5114,7 +5191,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             styler=_md_styler,
                             translate=t,
                             width=_term_cols(),
-                            hotkeys={"c-o": "/expand", "f1": "/permission",
+                            hotkeys={"c-o": "/expand", "c-e": "/expandall",
+                                     "f1": "/permission",
                                      "f2": "/sandbox", "f3": "/net",
                                      "f4": "/thinking"})
                     _line = self._inline_editor.read_line()

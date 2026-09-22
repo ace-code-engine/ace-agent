@@ -32,7 +32,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("ace")
 
@@ -638,8 +638,33 @@ def ask_yes_no(question: str, on_auto_deny=None) -> bool:
         return False
 
 
+def parse_grant_answer(text: str) -> Tuple[str, str]:
+    """授权回答 → `(裁决, 反馈文本)`。裁决取 `once` / `session` / `deny`。
+
+    为什么单拎出来：这是**危险对话框**的回答解析，必须能穷举测试。接受三类写法 ——
+    字母（`y`/`a`/`n`，老手感）、**编号**（`1`/`2`/`3`，与界面上编号一一对应，高频确认
+    可以盲打）、以及"拒绝 + 给模型一句话"的 `n 理由`。空输入按拒绝处理（危险对话框里
+    回车不该等于放行）。
+    """
+    raw = str(text or "").strip()
+    low = raw.lower()
+    if not low:
+        return GRANT_DENY, ""
+    if low in ("1", "y", "yes", "once"):
+        return GRANT_ONCE, ""
+    if low in ("2", "a", "all", "always", "session", "s"):
+        return GRANT_SESSION, ""
+    if low in ("3", "n", "no", "deny", "d", "q"):
+        return GRANT_DENY, ""
+    head, _sep, tail = raw.partition(" ")
+    if head.lower() in ("3", "n", "no", "deny", "d") and tail.strip():
+        # 拒绝理由要**回传模型**：拒绝不该是死路，而是一次可执行的纠偏。
+        return GRANT_DENY, tail.strip()[:400]
+    return GRANT_DENY, ""
+
+
 def ask_grant(question: str, on_auto_deny=None) -> str:
-    """授权三态确认：y 本次 / a 本会话 / 其他一律拒绝。
+    """授权三态确认：`1/y` 本次 / `2/a` 本会话 / `3/n` 拒绝（可写理由）。
 
     默认权限是 readonly，而临时授权用后即焚——如果只有"本次"一个选项，
     一个 10 处编辑的任务就要弹 10 次窗、多跑 10 轮模型。"本会话"这一档是
@@ -651,15 +676,20 @@ def ask_grant(question: str, on_auto_deny=None) -> str:
             on_auto_deny()
         return GRANT_DENY
     try:
-        answer = input(question).strip().lower()
+        answer = input(question).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return GRANT_DENY
-    if answer in ("a", "all", "always", "session"):
-        return GRANT_SESSION
-    if answer in ("y", "yes"):
-        return GRANT_ONCE
-    return GRANT_DENY
+    decision, feedback = parse_grant_answer(answer)
+    if feedback:
+        # 由 CLI 侧登记回调（这里是 runner，不该反向 import ai_code 造成循环依赖）
+        _hook = getattr(ask_grant, "on_deny_feedback", None)
+        if callable(_hook):
+            try:
+                _hook(feedback)
+            except Exception:  # noqa: BLE001 —— 记不上理由也不该改变裁决
+                pass
+    return decision
 
 
 def resolve_plan(el: "ExecutionLayer", approved: bool) -> str:

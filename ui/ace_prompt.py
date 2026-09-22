@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ui import ace_menu
@@ -46,7 +47,11 @@ _CONTROLS: Dict[str, str] = {
 
 
 def parse_key(seq: str) -> str:
-    """字节序列 → 键名（认不出就返回原字符；空串返回空串）。"""
+    """字节序列 → 键名（认不出就返回原字符；空串返回空串）。
+
+    `Ctrl+字母`统一映射成 `c-x` 名字（1..26 → a..z）—— 否则热键表里写 `c-e` 永远
+    匹配不上（键源只会给出 `\\x05` 这个裸控制字符）。
+    """
     s = str(seq or "")
     if not s:
         return ""
@@ -56,6 +61,8 @@ def parse_key(seq: str) -> str:
         return _CONTROLS[s]
     if s.startswith("\x1b["):
         return ESCAPES.get(s, "esc")
+    if len(s) == 1 and 1 <= ord(s) <= 26:
+        return "c-" + chr(ord(s) + 96)
     return s
 
 
@@ -187,6 +194,8 @@ class LineEditor:
         self._search = ""
         self._drawn_lines = 0
         self.notes: List[str] = []          # 供测试/上层读取（如"已清空"）
+        self._hint = ""                     # 临时提示（如"再按一次 Ctrl+C 退出"）
+        self._last_ctrl_c = 0.0
 
     # ---- 文本操作 ----
     def set_text(self, text: str, cursor: Optional[int] = None) -> None:
@@ -275,6 +284,8 @@ class LineEditor:
                 styler=self.styler, translate=self.translate))
         if self._search:
             rows.append(self.styler("dim", self.translate("search_hint")))
+        if self._hint:
+            rows.append(self.styler("yellow", "  " + self._hint))
         return rows
 
     def _paint(self) -> None:
@@ -350,8 +361,17 @@ class LineEditor:
                     self._refresh_menu()
                     self._paint()
                     continue
-                self._erase()
-                raise KeyboardInterrupt
+                # 空输入：**双击确认**才退出（与浮层路径同一条纪律）。
+                # 一次误按就杀掉一个跑了十分钟的会话，比"多按一次"贵得多。
+                now = time.monotonic()
+                if now - self._last_ctrl_c < 1.0:
+                    self._erase()
+                    raise KeyboardInterrupt
+                self._last_ctrl_c = now
+                self.notes.append("ctrl-c-once")
+                self._hint = self.translate("exit_again_hint")
+                self._paint()
+                continue
             if key == "c-d":
                 if not self.text:
                     self._erase()

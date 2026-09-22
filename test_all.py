@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54"]
+             "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8887,6 +8887,75 @@ if _want("54"):
                         "perm_deny_feedback_sent", "exit_again_hint")
               for lg in ("zh", "en", "ja")), "")
     _cli54.close()
+
+    # ============================================================
+
+if _want("55"):
+    # ── [55] ────
+    print("[55] 交互体验（三）—— Esc 双击历史选择器 · 状态行防抖 · Ctrl+T 任务树")
+    # ============================================================
+    import io as _io55  # noqa: E402
+    import contextlib as _cl55  # noqa: E402
+    import ai_code as _ai55  # noqa: E402
+    from ui import ace_prompt as _pr55  # noqa: E402
+    from ui import ace_menu as _mn55  # noqa: E402
+    from ui import ace_layout as _ly55  # noqa: E402
+
+    def _drive55(keys, history=("第一条输入", "第二条输入", "第三条输入")):
+        ed = _pr55.LineEditor(
+            completer=lambda t, c: _mn55.build_menu(t, c, {"/help": "h"},
+                                                     translate=lambda k: k),
+            history=list(history), draw=False, translate=lambda k: k,
+            hotkeys={"c-t": "/tasks", "c-e": "/expandall"},
+            keys=_pr55.KeySource(stream=_io55.StringIO(keys), tty=False))
+        try:
+            return ed.read_line(), ed
+        except KeyboardInterrupt:
+            return "<interrupt>", ed
+
+    # —— Esc 的四层语义 ——
+    check("Esc：菜单开着先关菜单（输入保留）", _drive55("/he\x1b\r")[0] == "/he", "")
+    check("Esc：有输入时清空输入", _drive55("abc\x1b\r")[0] == "", "")
+    check("Esc Esc：空输入时打开历史选择器（最近的排在前面）",
+          _drive55("\x1b\x1b\r\r")[0] == "第三条输入"
+          and "history-menu" in _drive55("\x1b\x1b")[1].notes, "")
+    check("Esc Esc：↑↓ 能在历史里挑，回车只填入不发送（再回车才发）",
+          _drive55("\x1b\x1b\x1b[B\r\r")[0] == "第二条输入", "")
+    check("Esc Esc：打开后按 Esc 关掉（回车发出的是空输入，不会误发历史）",
+          _drive55("\x1b\x1b\x1b\r")[0] == "", "")
+    check("Esc Esc：历史为空时不弹（没什么可选的就别装样子）",
+          _drive55("\x1b\x1b\r", history=())[0] == "", "")
+
+    # —— 状态行防抖 ——
+    check("状态行防抖：第一次变化立即生效，窗口内第二次被挡下",
+          _ly55.should_apply_label(10.0, 0) is True
+          and _ly55.should_apply_label(10.1, 10.0) is False
+          and _ly55.should_apply_label(10.5, 10.0) is True, "")
+    check("状态行防抖：时间参数坏掉时不卡死（照常换）",
+          _ly55.should_apply_label("x", "y") is True, "")
+    _sp55 = _ai55._Spinner("甲")
+    _sp55.set_label("乙")
+    _sp55.set_label("丙")
+    check("状态行防抖：被挡下的文案进 pending（不是丢掉）",
+          _sp55._label == "乙" and _sp55._pending_label == "丙", "")
+    check("状态行防抖：窗口约定值可断言（0.3 秒）",
+          abs(_ly55.LABEL_DWELL_SECONDS - 0.3) < 1e-9, "")
+
+    # —— Ctrl+T 任务树热键 ——
+    check("热键：Ctrl+T 交给 /tasks（与浮层路径同义）",
+          _drive55("\x14")[0] == "\x00MENU:/tasks", _drive55("\x14")[0])
+    _src55 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("源码级：浮层路径也绑了 Ctrl+T（两条路径不许两套脾气）",
+          '@kb.add("c-t")' in _src55, "")
+    _cli55 = _ai55.AgentCLI({"project_root": str(mktemp()), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _buf55 = _io55.StringIO()
+    with _cl55.redirect_stdout(_buf55):
+        _cli55._cmd_tasks(["/tasks"])
+    check("Ctrl+T 的落点（/tasks）在没有目标/待办时如实说明",
+          "没有目标" in _buf55.getvalue(), _buf55.getvalue()[:80])
+    _cli55.close()
 
     # ============================================================
 

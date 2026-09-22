@@ -32,8 +32,8 @@ from ui.ace_text import display_width, truncate_width
 __all__ = [
     "StatusSegment", "STATUS_NAMES", "DEFAULT_STATUS_ORDER", "fit_status_line",
     "parse_statusline", "context_meter", "context_state_style", "context_state_ansi",
-    "shimmer_span", "spinner_line", "spinner_verbs",
-    "is_stalled", "STALL_SECONDS", "SOFT_STALL_SECONDS", "TaskNode",
+    "shimmer_span", "spinner_line", "spinner_verbs", "should_apply_label",
+    "is_stalled", "STALL_SECONDS", "SOFT_STALL_SECONDS", "LABEL_DWELL_SECONDS", "TaskNode",
     "build_task_tree", "render_task_tree", "banner_frames", "compute_layout",
 ]
 
@@ -187,6 +187,22 @@ def context_state_ansi(usage: Dict[str, Any]) -> str:
 
 STALL_SECONDS = 45      # 多久没有新进展算"停滞"（提示可中断）
 SOFT_STALL_SECONDS = 3  # 多久没有新进展开始"变色"（有活跃工具时不判）
+LABEL_DWELL_SECONDS = 0.3   # 状态行文案两次变化之间的最小间隔（防高频切换闪烁）
+
+
+def should_apply_label(now: float, last_change: float, dwell: float = LABEL_DWELL_SECONDS
+                       ) -> bool:
+    """状态行文案现在能不能换（纯函数，便于断言防抖规则）。
+
+    规则：**第一次变化立即生效**，之后同一窗口（`dwell`）内的变化要等窗口过去 ——
+    否则模型连着切几个工具名时，状态行会以每秒十几次的速度抖，看着像坏了。
+    """
+    if not last_change:
+        return True
+    try:
+        return (float(now) - float(last_change)) >= max(0.0, float(dwell))
+    except (TypeError, ValueError):
+        return True
 
 
 def spinner_verbs(translate: Optional[Callable[[str], str]] = None) -> List[str]:

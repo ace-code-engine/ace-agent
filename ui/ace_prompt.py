@@ -196,6 +196,8 @@ class LineEditor:
         self.notes: List[str] = []          # 供测试/上层读取（如"已清空"）
         self._hint = ""                     # 临时提示（如"再按一次 Ctrl+C 退出"）
         self._last_ctrl_c = 0.0
+        self._last_esc = 0.0                # Esc 双击判定（空输入时打开历史选择器）
+        self._history_pick = False          # 当前菜单是不是"历史选择器"
 
     # ---- 文本操作 ----
     def set_text(self, text: str, cursor: Optional[int] = None) -> None:
@@ -225,6 +227,8 @@ class LineEditor:
         self._refresh_menu()
 
     def _refresh_menu(self) -> None:
+        if self._history_pick and self.menu.open:
+            return                       # 历史选择器由 Esc Esc 维护，不按输入重建
         if self._menu_suppressed:
             self.menu = ace_menu.MenuState()
             return
@@ -236,6 +240,25 @@ class LineEditor:
         self.text = new_text
         self.cursor = len(self.text)
         self._refresh_menu()
+
+    def open_history_menu(self, limit: int = 8) -> bool:
+        """Esc Esc（空输入）：把最近的历史打开成**可选列表**（再回车即填入，不发送）。
+
+        为什么把它放在 Esc 上：终端里"我想改刚才那句话"是高频动作，而 Esc 本来
+        就是"退一层"的键 —— 空输入时它没有别的事可做（菜单开着时先关菜单，有输入时
+        清空输入），所以这里是最顺的落点。填入而不是直接发送：历史那句话是当时的
+        上下文，不该被原样再发一次。
+        """
+        items = [h for h in self.history if str(h).strip()][-max(1, int(limit)):]
+        if not items:
+            return False
+        menu_items = [ace_menu.MenuItem(str(h)[:120], str(h), "", "",
+                                       "history") for h in reversed(items)]
+        self.menu = ace_menu.MenuState(menu_items, 0, True, "history", "",
+                                       (0, len(self.text)))
+        self._menu_suppressed = False
+        self._history_pick = True
+        return True
 
     def history_move(self, delta: int) -> None:
         """历史上下翻：`_hist_idx` = 往回走了几条（0 = 当前正在输入的内容）。
@@ -329,6 +352,15 @@ class LineEditor:
                 self._paint()
                 continue
             if key in ("enter",):
+                if self.menu.open and self._history_pick:
+                    # 历史选择器：回车=填入输入行（不发送），再回车才是发送
+                    self.text = str(self.menu.current.insert if self.menu.current else "")
+                    self.cursor = len(self.text)
+                    self._history_pick = False
+                    self._menu_suppressed = True
+                    self.menu = ace_menu.MenuState()
+                    self._paint()
+                    continue
                 if self.menu.open and ace_menu.accepts_on_enter(self.menu, self.text):
                     self.accept_menu()
                     self._paint()
@@ -348,10 +380,20 @@ class LineEditor:
             if key == "esc":
                 if self.menu.open:
                     self._menu_suppressed = True
+                    self._history_pick = False
                     self.menu = ace_menu.MenuState()
                 elif self.text:
                     self.text, self.cursor = "", 0
                     self.notes.append("cleared")
+                elif self._last_esc and (time.monotonic() - self._last_esc) < 0.8:
+                    # 空输入下双击 Esc：打开历史选择器（Esc 的第四层语义）
+                    if self.open_history_menu():
+                        self.notes.append("history-menu")
+                    self._last_esc = 0.0
+                    self._paint()
+                    continue
+                else:
+                    self._last_esc = time.monotonic()
                 self._paint()
                 continue
             if key == "c-c":

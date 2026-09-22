@@ -1239,6 +1239,8 @@ class _Spinner:
         self._thread: Optional[threading.Thread] = None
         self._t0 = 0.0
         self._last_progress = 0.0        # 最近一次"有新进展"（label 变化）的时刻
+        self._last_label_change = 0.0    # 最近一次文案变化（防抖用）
+        self._pending_label = ""         # 被防抖挡下的文案，等窗口过去再换
         self.stalled = False             # 供 /status 之类读取（只读用途）
         self.soft_stalled = False
 
@@ -1247,13 +1249,24 @@ class _Spinner:
 
         工具开始跑的瞬间要刷新（说明"动了"），但"同一个工具跑了 30 秒"不该被当成
         停滞 —— 所以调用方要显式区分"换阶段"与"只是在重画"。
+        文案变化走**防抖**（`ui/ace_layout.should_apply_label`）：换得太密会闪。
         """
-        if label != self._label:
-            self._label = label
-            if progress:
-                self._last_progress = time.monotonic()
-                self.stalled = False
-                self.soft_stalled = False
+        if label == self._label or label == self._pending_label:
+            return
+        now = time.monotonic()
+        if not ace_layout.should_apply_label(now, self._last_label_change):
+            self._pending_label = label
+            return
+        self._apply_label(label, now, progress)
+
+    def _apply_label(self, label: str, now: float, progress: bool = True) -> None:
+        self._label = label
+        self._pending_label = ""
+        self._last_label_change = now
+        if progress:
+            self._last_progress = now
+            self.stalled = False
+            self.soft_stalled = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1276,6 +1289,10 @@ class _Spinner:
             # 由调用方把 label 换掉（= 一次新进展），所以长命令不会被误判成卡死。
             self.soft_stalled = idle >= ace_layout.SOFT_STALL_SECONDS
             self.stalled = ace_layout.is_stalled(idle, ace_layout.STALL_SECONDS)
+            # 防抖窗口过去后，把攒下的文案换上去
+            if self._pending_label and ace_layout.should_apply_label(
+                    now, self._last_label_change):
+                self._apply_label(self._pending_label, now)
             # 动词轮换：前 ~2.4 秒先说正经状态词（"思考中"），之后才换口味词 ——
             # 短等待看到的是准确状态，长等待才需要用词的变化证明它还活着。
             label = self._label
@@ -5025,6 +5042,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # Ctrl+O：展开最近一次被折叠的输出（工具输出或 diff）。
                 # `/keys` 从早先版本就把 Ctrl+O 写作"展开上一次被折叠的输出"，
                 # 但这个键一直没绑上——文档承诺了、代码里没有，等于骗人。
+                @kb.add("c-t")
+                def _tasks_hotkey(event):
+                    try:
+                        event.current_buffer.reset()
+                        self._cmd_tasks(["/tasks"])
+                        event.app.invalidate()
+                    except Exception:  # noqa: BLE001 —— 热键出错不该把 REPL 打崩
+                        pass
+
                 @kb.add("c-o")
                 def _expand_output(event):
                     try:
@@ -5192,6 +5218,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             translate=t,
                             width=_term_cols(),
                             hotkeys={"c-o": "/expand", "c-e": "/expandall",
+                                     "c-t": "/tasks",
                                      "f1": "/permission",
                                      "f2": "/sandbox", "f3": "/net",
                                      "f4": "/thinking"})

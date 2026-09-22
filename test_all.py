@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56"]
+             "55", "56", "57"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9110,6 +9110,76 @@ if _want("56"):
                         "prules_usage", "cmd_rules")
               for lg in ("zh", "en", "ja")), "")
     _cli56.close()
+
+    # ============================================================
+
+if _want("57"):
+    # ── [57] ────
+    print("[57] 顺手记成规则 —— 建议模式 · 回答解析 · 落地写文件 · 外发不提供")
+    # ============================================================
+    import io as _io57  # noqa: E402
+    import builtins as _bi57  # noqa: E402
+    import contextlib as _cl57  # noqa: E402
+    import ai_code as _ai57  # noqa: E402
+    from core import ace_rules as _ru57  # noqa: E402
+
+    check("建议模式：命令类取第一个词 + :*（不把整条命令写进规则）",
+          _ru57.suggest_rule("terminal_exec", {"command": "pytest -q --tb=short"})
+          == "pytest:*"
+          and _ru57.suggest_rule("terminal_exec", {"command": "git"}) == "git", "")
+    check("建议模式：文件类取所在目录（不把单个文件记成规则）",
+          _ru57.suggest_rule("file_write", {"path": "ace/ui/ace_prompt.py"}) == "ace/ui/"
+          and _ru57.suggest_rule("file_read", {"path": "README.md"}) == "README.md", "")
+    check("建议模式：认不出的工具给空前缀（用户自己改，别替他决定范围）",
+          _ru57.suggest_rule("subagent", {}) == "", "")
+    check("回答解析：回车 = 不记（最省事的路径永远是不做额外的事）",
+          _ru57.parse_persist_answer("", "docs/") == (None, ""), "")
+    check("回答解析：y = 按建议记；可带模式与作用域",
+          _ru57.parse_persist_answer("y", "docs/")[0].pattern == "docs/"
+          and _ru57.parse_persist_answer("y", "docs/")[0].scope == "local"
+          and _ru57.parse_persist_answer("y ace/ user", "docs/")[0].scope == "user", "")
+    check("回答解析：! 前缀记成拒绝（可以顺手把某个前缀锁死）",
+          (lambda rl: rl.action == _ru57.DENY and rl.pattern == "rm:*")(
+              _ru57.parse_persist_answer("! rm:*", "x")[0]), "")
+    check("回答解析：认不出的写法/坏作用域如实回报（不静默不记）",
+          _ru57.parse_persist_answer("nope", "x")[1] != ""
+          and _ru57.parse_persist_answer("y x nope", "x")[1] != "", "")
+    check("回答解析：合法回答不因为「缺 tool」被判死（tool 由调用方补）",
+          _ru57.parse_persist_answer("y docs/", "x")[0] is not None, "")
+
+    _root57 = mktemp()
+    _cli57 = _ai57.AgentCLI({"project_root": _root57, "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _cli57._interactive_tty = lambda: True
+    _orig_in57 = _bi57.input
+
+    def _persist57(answer, tool="file_write", params=None, decision="session"):
+        _bi57.input = lambda *_a, **_k: answer
+        buf = _io57.StringIO()
+        try:
+            with _cl57.redirect_stdout(buf):
+                _cli57._maybe_persist_rule(tool, params or {"path": "docs/a.md"},
+                                           decision)
+        finally:
+            _bi57.input = _orig_in57
+        return buf.getvalue()
+
+    _out57 = _persist57("y docs/ project")
+    check("落地：把规则写进对应作用域的文件，并同步到执行器（裁决用的是执行器那份）",
+          any(r.tool == "file_write" and r.scope == "project"
+              for r in _cli57.el.rules)
+          and _cli57.el.executor.rules == _cli57.el.rules, _cli57.el.rules)
+    check("落地：写成功后回显规则与文件路径", "已记下规则" in _out57, _out57[:120])
+    check("落地：只问不提（回车不记）",
+          not (_persist57("") or "").count("已记下规则"), "")
+    check("落地：选了「仅本次」不会来劝存规则（没听懂用户的话）",
+          _persist57("y", decision="once") == "", "")
+    check("落地：外发工具不提供「顺手允许」（要授权目的地得用 egress_allowlist）",
+          _persist57("y", tool="api_post", params={}) == "", "")
+    check("落地：回答里写了坏作用域时如实报错且不写文件",
+          "不能用" in _persist57("y x nope") or "作用域" in _persist57("y x nope"), "")
+    _cli57.close()
 
     # ============================================================
 

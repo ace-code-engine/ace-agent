@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 __all__ = ["Rule", "RULES_FILENAME", "LOCAL_RULES_FILENAME", "SCOPES",
            "parse_rule", "rule_matches", "match_rule", "load_rules",
            "load_rules_file", "save_rules", "describe_rule", "shadowed_rules",
-           "rules_path"]
+           "rules_path", "suggest_rule", "parse_persist_answer"]
 
 # 文件名与作用域（顺序 = 优先级，前面的赢）
 RULES_FILENAME = "permissions.json"
@@ -122,6 +122,30 @@ def rule_matches(rule: Rule, tool: str, params: Dict[str, Any]) -> bool:
         if isinstance(val, str) and val:
             return _command_matches(val, pat)
     return False                                     # 有模式但参数里没东西可比 → 不命中
+
+
+def suggest_rule(tool: str, params: Dict[str, Any]) -> str:
+    """从这次调用**猜一个**最小模式（给"顺手记成规则"用）。
+
+    为什么是"最小"：规则是长期的，默认给太宽等于把整个工具放开。命令类取第一个词 +
+    `:*`（`pytest -q --tb=short` → `pytest:*`）；文件类取所在目录（`ace/ui/x.py` →
+    `ace/ui/`，避免把单个文件名记成规则）；其余工具给空前缀（该工具任意用法，用户自己改）。
+    """
+    p = params if isinstance(params, dict) else {}
+    tool = str(tool or "")
+    if tool in ("terminal_exec", "code_execute") or "command" in p or "code" in p:
+        cmd = " ".join(str(p.get("command") or p.get("code") or "").split())
+        if cmd:
+            head = cmd.split(" ")[0]
+            return f"{head}:*" if len(cmd.split(" ")) > 1 else head
+        return ""
+    path = p.get("path") or p.get("dest") or p.get("target")
+    if isinstance(path, str) and path:
+        norm = _norm_path(path)
+        if "/" in norm:
+            return norm.rsplit("/", 1)[0] + "/"
+        return norm
+    return ""
 
 
 def match_rule(rules: Sequence[Rule], tool: str, params: Dict[str, Any]
@@ -244,6 +268,41 @@ def describe_rule(rule: Rule) -> str:
         what = "任意用法"
     verb = "允许免问" if rule.action == ALLOW else "直接拒绝"
     return f"{rule.tool}: {verb}（{what}）"
+
+
+def parse_persist_answer(text: str, suggested: str,
+                         default_scope: str = "local"
+                         ) -> Tuple[Optional[Rule], str]:
+    """解析"顺手记成规则"的回答 → `(Rule 或 None, 提示)`。
+
+    接受的写法（**回车 = 不记**，最省事的路径永远是不做额外的事）：
+      `y`                     → 用建议的模式 + 默认作用域
+      `y <模式>`               → 自定义模式
+      `y <模式> <作用域>`       → 自定义模式与作用域
+      `!`                     → 记成 deny（用建议的模式）
+      `! <模式> <作用域>`       → 自定义的 deny
+    写法不对时返回 (None, 原因) —— 调用方如实说出来，而不是默默不记。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return None, ""
+    parts = raw.split()
+    head = parts[0].lower()
+    action = ALLOW
+    if head.startswith("!"):
+        action = DENY
+        parts[0] = head[1:]
+        head = parts[0] or "y"
+    if head not in ("y", "yes", "记", "是"):
+        return None, f"unrecognized:{raw[:20]}"
+    rest = [p for p in parts[1:] if p]
+    pattern = rest[0] if rest else suggested
+    scope = rest[1] if len(rest) > 1 else default_scope
+    if scope not in SCOPES:
+        return None, f"bad_scope:{scope}"
+    # 这里**不**走 parse_rule：工具名由调用方补（他知道是哪个工具在请求），
+    # 所以不能因为"缺 tool"把一条合法回答判死（探针里当场踩到过）。
+    return Rule("", pattern, action, scope), ""
 
 
 def shadowed_rules(rules: Sequence[Rule]) -> List[Tuple[int, int]]:

@@ -3629,6 +3629,43 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         except Exception as e:  # noqa: BLE001 —— 读不动就保持原样并说一声
             print(c("yellow", t("prules_reload_failed", err=type(e).__name__)))
 
+    def _maybe_persist_rule(self, tool_name: str, params: Dict, decision: str) -> None:
+        """选了「本会话允许」之后，问一句"要不要顺手记成持久规则"。
+
+        为什么放在这一步：用户刚刚明确说"这个我允许"，正是把意图固化成规则的最佳时机；
+        等他下次开新会话再想起来，就得自己去翻 `/rules add` 的语法了。
+        回车 = 不记（最省事的路径永远是不做额外的事），`!` 前缀可以改成拒绝。
+        """
+        if decision != GRANT_SESSION or not self._interactive_tty():
+            return
+        if ace_rules.is_egress_tool(tool_name):
+            return                      # 外发工具只能 deny，不适合在这里"顺手允许"
+        suggested = ace_rules.suggest_rule(tool_name, params or {})
+        print(c("dim", t("rule_persist_ask", tool=tool_name,
+                         pattern=suggested or "*")))
+        try:
+            answer = input(c("dim", t("rule_persist_prompt"))).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        rule, why = ace_rules.parse_persist_answer(answer, suggested)
+        if rule is None:
+            if why:
+                print(c("yellow", t("prules_rejected", why=why)))
+            return
+        rule.tool = tool_name
+        path = ace_rules.rules_path(rule.scope,
+                                    str(self.cfg.get("project_root", ".")))
+        keep = [r for r in (getattr(self.el, "rules", []) or [])
+                if r.scope == rule.scope]
+        keep.append(rule)
+        if ace_rules.save_rules(keep, path):
+            self._reload_rules()
+            print(c("green", t("rule_persist_saved",
+                               desc=ace_rules.describe_rule(rule), path=path)))
+        else:
+            print(c("red", t("prules_save_failed", path=path)))
+
     def _cmd_rules(self, parts: List[str]) -> bool:
         """`/rules [add <工具> <模式> [作用域] | remove <序号>]`：持久授权规则的查/增/删。
 
@@ -4741,6 +4778,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     if decision == GRANT_SESSION:
                         print(c("yellow", t("perm_session_refused", tool=tool_name)))
                     print(c("green", t("perm_granted_msg")))
+                # 顺手把这次允许固化成规则（只有"本会话允许"才问：选了"仅本次"的人
+                # 刚刚明确说了"就这一次"，再劝他存规则是没听懂）
+                self._maybe_persist_rule(
+                    str(tool_name or ""), result.get("params") or {}, decision)
                 continue
 
 

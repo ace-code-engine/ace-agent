@@ -13,12 +13,13 @@
 （CJK 两列、ANSI 零宽）。
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ui.ace_text import ELLIPSIS, truncate_width
 
-__all__ = ["looks_like_diff", "summarize_diff", "diff_marker", "color_name",
-           "colorize_diff", "stat_text", "split_for_display", "MAX_DIFF_LINES"]
+__all__ = ["looks_like_diff", "summarize_diff", "split_by_file", "diff_marker",
+           "color_name", "colorize_diff", "stat_text", "split_for_display",
+           "MAX_DIFF_LINES"]
 
 # 一张卡里最多显示多少行 diff（多出来的走折叠提示 → /expand 看完整）
 MAX_DIFF_LINES = 200
@@ -109,6 +110,62 @@ def stat_text(text: str) -> str:
     if not s["added"] and not s["removed"]:
         return ""
     return f"+{s['added']} -{s['removed']}"
+
+
+def split_by_file(text: str) -> List[Dict[str, Any]]:
+    """把 unified diff 按文件切开（两级视图的第一级）。
+
+    为什么要两级：一次性改 5 个文件时，几百行 diff 全铺出来，用户连"改了哪些文件"
+    都看不出来。先给一份文件清单（每个文件 +N -M、几个 hunk），再按需看某个文件的
+    逐行 —— 这是 diff 这种东西唯一还能读的排版方式。
+
+    段落切分：`diff --git` 起新段；`--- ` 出现在**已经见过 `+++`** 的段落之后也起新段
+    （git 每个文件的形状固定是 `--- a/x` / `+++ b/x` / `@@ …`）。
+    路径取 `+++ ` 那行并剥掉 `b/` 前缀：删除文件时 `--- ` 是 `/dev/null`，
+    拿它当路径会得到一个不存在的"文件名"。新文件同理剥 `a/`。
+
+    返回 `[{path, added, removed, hunks:[{header, added, removed}]}]`，顺序按出现顺序。
+    """
+    out: List[Dict[str, Any]] = []
+    cur: Optional[Dict[str, Any]] = None
+    hunk: Optional[Dict[str, Any]] = None
+    seen_new = False        # 当前段落是否已经见过 `+++ `
+
+    def _new_section() -> Dict[str, Any]:
+        sec: Dict[str, Any] = {"path": "", "added": 0, "removed": 0, "hunks": []}
+        out.append(sec)
+        return sec
+
+    for ln in (text or "").splitlines():
+        if ln.startswith("diff --git ") or (ln.startswith("--- ") and seen_new):
+            cur, hunk, seen_new = _new_section(), None, False
+        elif cur is None:
+            cur = _new_section()
+        if ln.startswith("+++ "):
+            name = ln[4:].strip().split("\t")[0]
+            if name and name != "/dev/null":
+                for _px in ("b/", "a/"):
+                    if name.startswith(_px):
+                        name = name[len(_px):]
+                        break
+                cur["path"] = name
+            seen_new = True
+            continue
+        if ln.startswith("--- "):
+            continue
+        if ln.startswith("@@"):
+            hunk = {"header": ln.strip(), "added": 0, "removed": 0}
+            cur["hunks"].append(hunk)
+            continue
+        if ln.startswith("+"):
+            cur["added"] = int(cur["added"]) + 1
+            if hunk is not None:
+                hunk["added"] = int(hunk["added"]) + 1
+        elif ln.startswith("-"):
+            cur["removed"] = int(cur["removed"]) + 1
+            if hunk is not None:
+                hunk["removed"] = int(hunk["removed"]) + 1
+    return [s for s in out if s["path"] or s["hunks"]]
 
 
 def split_for_display(text: str, width: int = 0,

@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -188,7 +188,7 @@ def _want(num: str) -> bool:
 _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17",
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
-             "43", "44", "45", "46", "47", "48"]
+             "43", "44", "45", "46", "47", "48", "49"]
 _SEEN_SECTIONS: list = []
 
 
@@ -2485,6 +2485,9 @@ if _want("10"):
     _buf2 = io.StringIO()
     with contextlib.redirect_stdout(_buf2):
         _disp2["on_delta"]("你的桌面上有这些文件")
+        # 收尾必须显式调用：渲染按**完整行**交付，没有换行的最后一句靠 flush 交出来
+        # （长段落期间不会一直不显示，见 StreamRenderer 的"忍到 160 字先给一截"）
+        _disp2["flush"]()
     _out2 = _buf2.getvalue()
     check("tools 模式纯文本正常展示", "桌面上" in _out2, _out2[:200])
     _disp3 = ai_code.AgentCLI._make_display(tools_mode=True, spinner=None)
@@ -7520,6 +7523,267 @@ if _want("48"):
     check("源码级：括号粘贴真的绑到了 BracketedPaste（不是只有纯函数）",
           "Keys.BracketedPaste" in (FOLDER / "ai_code.py").read_text(encoding="utf-8"), "")
     _cli48.close()
+
+    # ============================================================
+
+if _want("49"):
+    # ── [49] ────
+    print("[49] 消息渲染 —— Markdown 受控子集 / 流式渲染器 / 思考框 / 工具分组 / 两级 diff")
+    # ============================================================
+    import io as _io49  # noqa: E402
+    import contextlib as _cl49  # noqa: E402
+    import ai_code as _ai49  # noqa: E402
+    import agent_runner as _ar49  # noqa: E402
+    from ui import ace_markdown as _md49  # noqa: E402
+    from ui import ace_diff as _df49  # noqa: E402
+    from ui.ace_cards import (group_tool_runs as _grp49,  # noqa: E402
+                              message_prefix as _pfx49,
+                              thinking_block as _tblk49)
+    from ui.ace_text import display_width as _dw49, strip_ansi as _sa49  # noqa: E402
+
+    _SRC49 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+
+    # —— Markdown 受控子集：认得的渲染、认不出的原样保留 ——
+    _m49 = _md49.render("# 标题\n\n**粗** 与 `码`\n", width=60)
+    check("Markdown：标题保留层级并把行内标记去掉",
+          _m49[0].startswith("# ") and "标题" in _m49[0], _m49)
+    check("Markdown：行内粗体/代码去掉标记只留内容",
+          any("粗" in x and "**" not in x for x in _m49)
+          and any("码" in x and "`" not in x for x in _m49), _m49)
+    check("Markdown：默认 styler 是无色 no-op（纯文本可断言）",
+          all("\x1b[" not in x for x in _m49), _m49[:1])
+
+    _code_md49 = "```python\nx = 1  # **不是粗体**\n```\n"
+    _c49 = _md49.render(_code_md49, width=60)
+    check("Markdown：代码块内部**不做行内解析**（星号原样保留）",
+          any("**不是粗体**" in x for x in _c49), _c49)
+    check("Markdown：代码块画出上下边框并标注语言",
+          _c49[0].strip().endswith("python")
+          and any(x.strip().endswith("└─") for x in _c49), _c49)
+
+    _tbl49 = _md49.render("| 名称 | 数量 |\n|---|---|\n| 中文 | 12 |\n| ab | 3 |\n",
+                          width=60)
+    _tbl49_live = [x for x in _tbl49 if x.strip()]
+    check("Markdown：表格按显示列宽对齐（中文两列，所以列一定齐）",
+          len({_dw49(x) for x in _tbl49_live}) == 1,
+          [(x, _dw49(x)) for x in _tbl49_live])
+    _narrow49 = _md49.render("| 名称很长很长 | 数量 |\n|---|---|\n| 中文内容也长 | 123456 |",
+                             width=20)
+    check("Markdown：宽度不够时按列截断并给省略号，不硬顶破终端",
+          all(_dw49(x) <= 20 for x in _narrow49)
+          and any("…" in x for x in _narrow49), _narrow49)
+
+    _kinds49: list = []
+
+    def _styler49(kind, text):
+        _kinds49.append(kind)
+        return text
+
+    _md49.render("> 引用\n\n- 项目\n\n1. 有序\n", width=60, styler=_styler49)
+    check("Markdown：styler 收到语义 kind（不是颜色名，颜色由调用方定）",
+          {"dim", "cyan"} <= set(_kinds49), sorted(set(_kinds49)))
+
+    _plain49 = "第一段普通文字，没有任何标记。\n"
+    check("Markdown：不吞内容 —— 纯文本原样出现",
+          _sa49(_md49.render(_plain49, width=60)[0]) == _plain49.strip(), "")
+
+    # —— BlockStreamer：块级 flush 的判据 ——
+    _bs49 = _md49.BlockStreamer()
+    check("BlockStreamer：增量末尾的 \\n 是'行写完'，**不是空行**（不该每段都 flush）",
+          _bs49.feed("第一段") == [] and _bs49.feed("继续\n") == [], "")
+    _bs49 = _md49.BlockStreamer()
+    check("BlockStreamer：遇到真空行才交付整段",
+          _bs49.feed("第一段\n") == [] and _bs49.feed("\n") == ["第一段", ""], "")
+    _bs49 = _md49.BlockStreamer()
+    _bs49.feed("```py\nx=1\n")
+    check("BlockStreamer：围栏开着时不当成块结束",
+          _bs49.feed("y=2\n") == [], _bs49.pending)
+    check("BlockStreamer：围栏收尾一次交付整块（含围栏行）",
+          _bs49.feed("```\n") == ["```py", "x=1", "y=2", "```"], "")
+
+    # —— StreamRenderer：流式渲染结果必须与整篇渲染一致 ——
+    class _Sink49:
+        """收集出口：完整行与"未完结片段"分开记，好分别断言。"""
+
+        def __init__(self):
+            self.lines: list = []
+            self.frags: list = []
+
+        def __call__(self, lines, final=True):
+            (self.lines if final else self.frags).extend(lines)
+
+    _doc49 = ("# 标题\n\n**粗**文字\n\n| 名称 | 数量 |\n|---|---|\n| 中文 | 12 |\n\n"
+              "```py\nx=1\n```\n尾行")
+    _sk49 = _Sink49()
+    _sr49 = _md49.StreamRenderer(width=60, sink=_sk49)
+    for _i49 in range(0, len(_doc49), 5):        # 按 5 字符切片喂进去，模拟流式分片
+        _sr49.feed(_doc49[_i49:_i49 + 5])
+    _sr49.flush()
+    _got49 = _sk49.lines
+    check("StreamRenderer：分片喂入的最终排版与整篇渲染逐行一致",
+          _got49 == _md49.render(_doc49, width=60), (_got49, _md49.render(_doc49, width=60)))
+    check("StreamRenderer：短行不会提前吐片段（该等就等）",
+          _sk49.frags == [], _sk49.frags)
+    check("StreamRenderer：未完结的最后一行不提前渲染（否则 **粗 会被拆开漏星号）",
+          all("**" not in x for x in _got49), _got49)
+    check("StreamRenderer：flush 之后记账行数等于实际行数",
+          _sr49.emitted == len(_got49), (_sr49.emitted, len(_got49)))
+
+    # 长段落不能一直不显示：忍到阈值就先给一截，且给出去的字与整行渲染**对得上**
+    _long49 = " ".join(f"字{i}" for i in range(120))
+    _sk49b = _Sink49()
+    _sr49c = _md49.StreamRenderer(width=200, sink=_sk49b)
+    for _i49 in range(0, len(_long49), 7):
+        _sr49c.feed(_long49[_i49:_i49 + 7])
+    check("StreamRenderer：长段落未换行时先显示一截（否则屏幕上什么都不动，和卡死一样）",
+          len(_sk49b.frags) >= 1 and _sk49b.lines == [], (_sk49b.frags[:1], _sk49b.lines))
+    check("StreamRenderer：切在空白处且不切破词（片段都以空格收尾）",
+          all(f.endswith(" ") for f in _sk49b.frags), _sk49b.frags[:2])
+    _sr49c.feed("\n")
+    check("StreamRenderer：整行到齐后只补剩下的部分（不重打已显示的字）",
+          "".join(_sk49b.frags) + "".join(_sk49b.lines) == _long49,
+          (_sk49b.frags[-1:], _sk49b.lines[-1:]))
+
+    _sk49c = _Sink49()
+    _sr49d = _md49.StreamRenderer(width=200, sink=_sk49c)
+    _sr49d.feed("a " * 4 + "*" + " b" * 200)     # 星号没闭合
+    check("StreamRenderer：行内标记没闭合就先不吐（宁可晚一点，也不漏出星号）",
+          _sk49c.frags == [], _sk49c.frags)
+
+    _sk49d = _Sink49()
+    _sr49b = _md49.StreamRenderer(width=60, sink=_sk49d)
+    _sr49b.feed("只有一行没有换行")
+    check("StreamRenderer：没有换行的单行在 flush 前不输出",
+          _sk49d.lines == [], _sk49d.lines)
+    _sr49b.flush()
+    check("StreamRenderer：flush 把最后一行交出来（不 flush 会永远留在缓冲里）",
+          _sk49d.lines == ["只有一行没有换行"], _sk49d.lines)
+
+    _sk49e = _Sink49()
+    _tb49 = _md49.StreamRenderer(width=40, sink=_sk49e)
+    _tb49.feed("| a | b |\n|---|---|\n| 1 | 2 |\n")
+    _sink49 = _sk49e.lines
+    check("StreamRenderer：表格要等所有行才渲染（列宽依赖全部行）",
+          _sink49 == [] and _tb49._table, (_sink49, _tb49._table))
+    _tb49.feed("\n")
+    check("StreamRenderer：遇到非表格行就交出表格（空行本身照旧保留）",
+          [x for x in _sink49 if x.strip()][0].startswith("│")
+          and len([x for x in _sink49 if x.strip()]) == 3 and _sink49[-1] == "",
+          _sink49)
+
+    # —— 思考框 ——
+    _think49 = _tblk49(["第一步", "第二步", "第三步"], max_lines=2)
+    check("思考框：画出上下边框并标出总行数",
+          _think49[0].startswith("┌") and _think49[-1].startswith("└")
+          and "3 行" in _think49[0], _think49)
+    check("思考框：超过上限折叠并说明还剩多少（不静默丢）",
+          any("其余 1 行" in x for x in _think49)
+          and sum(1 for x in _think49 if x.startswith("│ ")) == 3, _think49)
+    check("思考框：空白行不占位", _tblk49(["", "  ", "x"])[0].endswith("(1 行)"), "")
+
+    # —— 工具分组 ——
+    _run49 = _grp49([("file_read", "SUCCESS", 0.1, None),
+                     ("file_read", "SUCCESS", 0.2, None),
+                     ("terminal_exec", "SUCCESS", 0.5, 1),
+                     ("file_read", "403", 0.1, None)])
+    check("工具分组：连续同名合并成一段并计数",
+          [_r["tool"] for _r in _run49] == ["file_read", "terminal_exec", "file_read"]
+          and int(_run49[0]["count"]) == 2, _run49)
+    check("工具分组：**只合并连续**的（中间隔了别的动作就不合并，否则顺序讲错）",
+          int(_run49[2]["count"]) == 1, _run49)
+    check("工具分组：保留非零退出码与最后一次状态（合并段按最后一次定性）",
+          _run49[1]["exit_codes"] == [1] and _run49[2]["last_status"] == "403", _run49)
+    check("工具分组：耗时累加（合并了也要能看出花了多久）",
+          abs(float(_run49[0]["secs"]) - 0.3) < 1e-9, _run49[0])
+
+    # —— 消息前缀 ——
+    check("消息前缀：用户/助手/工具各有符号（颜色丢了也能分清谁在说话）",
+          _pfx49("user") == "❯" and _pfx49("assistant") == "◈"
+          and _pfx49("tool") == "⚙", "")
+    check("消息前缀：未知种类返回空串（不猜符号）", _pfx49("who") == "", "")
+
+    # —— 两级 diff ——
+    _df49_src = ("--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,4 @@\n ctx\n-old\n+new\n+extra\n"
+                 "--- a/y.py\n+++ b/y.py\n@@ -5,2 +5,2 @@\n-a\n+b\n")
+    _files49 = _df49.split_by_file(_df49_src)
+    check("两级 diff：按文件切开，每个文件各自统计增删",
+          [(f["path"], f["added"], f["removed"]) for f in _files49]
+          == [("x.py", 2, 1), ("y.py", 1, 1)], _files49)
+    check("两级 diff：hunk 数按 @@ 切（不是按文件数猜）",
+          [len(f["hunks"]) for f in _files49] == [1, 1], _files49)
+    check("两级 diff：文件头行不计入增删（否则每个 diff 都'删一行加一行'）",
+          _df49.summarize_diff(_df49_src)["added"] == 3, _df49.summarize_diff(_df49_src))
+    check("两级 diff：路径剥掉 a//b 前缀，且不拿 /dev/null 当文件名",
+          all(not f["path"].startswith(("a/", "b/")) for f in _files49)
+          and _df49.split_by_file("--- /dev/null\n+++ b/new.py\n@@ -0,0 +1 @@\n+x\n"
+                                  )[0]["path"] == "new.py", "")
+    check("两级 diff：空输入/非 diff 返回空表（调用方据此走'没有记录'分支）",
+          _df49.split_by_file("") == [] and _df49.split_by_file("普通输出\n") == [], "")
+
+    # —— CLI：/diff 两级视图 + Ctrl+O + 流式接线 ——
+    _root49 = mktemp()
+    _cli49 = _ai49.AgentCLI({"project_root": str(_root49), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _cli49._cmd_diff(["/diff"])
+    check("/diff：没有记录时给出一条说明，而不是空屏",
+          "还没有记录到改动" in _buf49.getvalue(), _buf49.getvalue()[:120])
+
+    _cli49._diff_history = [{"tool": "file_write", "path": "x.py", "diff": _df49_src}]
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _cli49._cmd_diff(["/diff"])
+    _out49 = _buf49.getvalue()
+    check("/diff 第一级：列出文件与 +N -M（先回答'动了什么'）",
+          "x.py" in _out49 and "+3" in _out49 and "-2" in _out49, _out49)
+    check("/diff 第一级：给出下一级用法提示",
+          "/diff <序号>" in _out49, _out49)
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _cli49._cmd_diff(["/diff", "1"])
+    _out49 = _buf49.getvalue()
+    check("/diff 第二级：铺出逐行 diff（+/- 行都在）",
+          "+new" in _out49 and "-old" in _out49 and "@@" in _out49, _out49[:200])
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _cli49._cmd_diff(["/diff", "9"])
+    check("/diff：序号越界给出当前条数，不静默什么都不打",
+          "9" in _buf49.getvalue() and "1" in _buf49.getvalue(), _buf49.getvalue()[:120])
+
+    check("命令表：/diff 已注册且有 i18n 描述（补全菜单与 /help 从它派生）",
+          _ai49._SlashCommands.COMMANDS.get("/diff") == "cmd_diff"
+          and any(n == "/diff" for _g, ns in _ai49._SlashCommands.grouped_commands()
+                  for n in ns), _ai49._SlashCommands.COMMANDS.get("/diff"))
+    check("源码级：Ctrl+O 真的绑上了（/keys 一直写着它，此前代码里没有）",
+          '@kb.add("c-o")' in _SRC49, "")
+    check("源码级：正文流式经过 StreamRenderer，而不是逐字符 print",
+          "ace_markdown.StreamRenderer" in _SRC49 and "_emit_reply(visible)" in _SRC49, "")
+
+    _disp49 = _cli49._make_display(tools_mode=False)
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _disp49["on_delta"]("<INTERNAL>内部推理</INTERNAL><EXTERNAL>answer.\n**粗**体\n")
+        _disp49["flush"]()
+    _out49 = _buf49.getvalue()
+    check("真接线：流式正文走 Markdown 渲染（星号不会原样漏给用户）",
+          "**粗**" not in _out49 and "粗体" in _out49, _out49[:200])
+    check("真接线：内部思考不外泄（INTERNAL 段不出现）",
+          "内部推理" not in _out49, _out49[:200])
+    _buf49 = _io49.StringIO()
+    with _cl49.redirect_stdout(_buf49):
+        _disp49b = _cli49._make_display(tools_mode=False)
+        _disp49b["on_delta"]("<EXTERNAL>answer.没有换行的收尾")
+        _disp49b["flush"]()
+    check("真接线：没有换行的最后一句也会被 flush 出来",
+          "没有换行的收尾" in _buf49.getvalue(), _buf49.getvalue()[:200])
+    check("真接线：_make_display 一定带 flush 出口（否则调用方无从收尾）",
+          callable(_disp49.get("flush")), list(_disp49))
+    check("真接线：_model_turn 在两个异常分支上也 flush（报错时不留半句缓冲）",
+          _SRC49.count('disp["flush"]()') >= 3, _SRC49.count('disp["flush"]()'))
+    _cli49.close()
+    _ = _ar49  # 段内 import 的一致性检查（渲染层不依赖 headless runner）
 
     # ============================================================
 

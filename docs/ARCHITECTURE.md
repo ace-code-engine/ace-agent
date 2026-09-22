@@ -42,6 +42,7 @@ ace-agent/
 │   ├── ace_panel.py            #   宽度感知排版：面板框/左右分栏/分组菜单（首屏与聊天头部、--preview 共用）
 │   ├── ace_diff.py             #   工具改动的 diff：上色规则与增删统计（改动可见）
 │   ├── ace_input.py            #   输入行交互：粘贴折叠 / ! bash 模式 / 暂存 / 快捷键表（纯函数）
+│   ├── ace_markdown.py         #   回答正文渲染：Markdown 受控子集 + 流式按行渲染（纯函数，styler 可注入）
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
 │   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
@@ -110,7 +111,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.22.0.md #  本版更新介绍（可直接贴进 GitHub Release；输入层全套）
+│   ├── RELEASE-NOTES-v3.23.0.md #  本版更新介绍（可直接贴进 GitHub Release；消息渲染全套）
+│   ├── RELEASE-NOTES-v3.22.0.md #  v3.22 更新介绍（输入层全套）
 │   ├── RELEASE-NOTES-v3.21.0.md #  v3.21 更新介绍（编辑器桥/图片/键位/成本）
 │   ├── RELEASE-NOTES-v3.20.0.md #  v3.20 更新介绍（会话管理 + 待办清单）
 │   ├── RELEASE-NOTES-v3.19.0.md #  v3.19 更新介绍（headless 事件流）

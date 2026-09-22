@@ -59,10 +59,12 @@ sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
-from ui.ace_cards import status_mark, tool_card  # noqa: E402
+from ui.ace_cards import (group_tool_runs, message_prefix,  # noqa: E402
+                          status_mark, thinking_block, tool_card)
 from ui import ace_panel  # noqa: E402  （首屏/头部的宽度感知排版：框、分栏、菜单）
 from ui import ace_diff  # noqa: E402  （工具改动的 diff：按 +/- 上色，颜色由这里定）
 from ui import ace_input  # noqa: E402  （输入行交互：粘贴折叠 / ! bash / 暂存 / 队列）
+from ui import ace_markdown  # noqa: E402  （回答正文的 Markdown 渲染，流式友好）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -92,6 +94,7 @@ LEGACY_CONFIG_PATH = Path.home() / ".agent_cli.json"
 CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 MAX_ROUNDS = 20
 STALL_ABORT_ROUNDS = 6  # 连续失败轮数阈值：达到即中止会话（防死循环烧轮数）
+MAX_DIFF_HISTORY = 20   # /diff 保留的改动条数（给人翻的清单，审计日志另有其物）
 
 # Windows 无默认打开程序时，这些文本类扩展名回退记事本打开
 _TEXT_EXTENSIONS = {".py", ".txt", ".md", ".json", ".log", ".csv", ".ini", ".cfg",
@@ -486,6 +489,29 @@ if os.name == "nt":
 
 def c(color: str, text: str) -> str:
     return f"{ANSI[color]}{text}{ANSI['reset']}" if USE_COLOR else text
+
+
+# Markdown 渲染的色板：语义 kind → ANSI 名（`ui/ace_markdown` 只用 kind，不认颜色，
+# 所以"终端的颜色"这件事只在这里决定一次）。
+_MD_STYLES: Dict[str, str] = {
+    "head1": "bold", "head2": "bold", "head3": "bold",
+    "head4": "cyan", "head5": "dim", "head6": "dim",
+    "bold": "bold", "italic": "italic", "cyan": "cyan",
+    "dim": "dim", "yellow": "yellow", "red": "red", "green": "green",
+}
+
+
+def _md_styler(kind: str, text: str) -> str:
+    """`ui/ace_markdown` 的 styler 注入点：把语义 kind 翻成 ANSI 颜色。"""
+    return c(_MD_STYLES.get(str(kind or ""), ""), text)
+
+
+def _md_width() -> int:
+    """正文渲染宽度：终端列数留 2 列余量（免得刚好卡在边界上触发自动折行）。"""
+    try:
+        return max(40, shutil.get_terminal_size((100, 24)).columns - 2)
+    except Exception:  # noqa: BLE001 —— 拿不到尺寸就用默认宽度，不该因为终端信息崩
+        return ace_markdown.DEFAULT_WIDTH
 
 
 def _build_slash_completer(commands: Dict[str, str], custom: Optional[List] = None):
@@ -1365,8 +1391,8 @@ class _SlashCommands:
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking"]),
-        ("group_tools", ["/open", "/edit", "/review", "/search", "/memory", "/report",
-                        "/goal"]),
+        ("group_tools", ["/open", "/edit", "/review", "/diff", "/search", "/memory",
+                        "/report", "/goal"]),
         ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim"]),
     ]
     GROUP_FALLBACK = "group_more"
@@ -1435,6 +1461,7 @@ class _SlashCommands:
         "/fork": "cmd_fork",
         "/rewind": "cmd_rewind",
         "/review": "cmd_review",
+        "/diff": "cmd_diff",
         "/vim": "cmd_vim",
         "/keys": "cmd_keys",
         "/stash": "cmd_stash",
@@ -1480,6 +1507,7 @@ class _SlashCommands:
         "/fork": ("_cmd_fork", True),
         "/rewind": ("_cmd_rewind", True),
         "/review": ("_cmd_review", True),
+        "/diff": ("_cmd_diff", True),
         "/vim": ("_cmd_vim", True),
         "/keys": ("_cmd_keys", True),
         "/stash": ("_cmd_stash", True),
@@ -2800,6 +2828,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._queued: List[str] = []
         # 最近一次带 diff 的改动（/review 用）：{"tool","path","diff"}
         self._last_diff: Optional[Dict] = None
+        # 全部改动记录（/diff 用，最新在后）：两级视图靠它列出"动过哪些文件"。
+        # 只留最近 MAX_DIFF_HISTORY 条 —— 这是一份给人翻的清单，不是审计日志
+        # （审计日志是 .ace_sessions 里的会话事件日志，那份不截断）。
+        self._diff_history: List[Dict] = []
         # 成本估算的累计（输入 token 按每轮 system+messages 估，输出按回复长度估）
         self._cost = {"in_tokens": 0, "out_tokens": 0}
         # 会话事件日志（全链路）：CLI 建一份，传给执行层共用 —— 权限/守卫/快照/
@@ -2942,6 +2974,46 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if cmd is None:
             return None
         return cmd.expand(parts[1] if len(parts) > 1 else "")
+
+    def _cmd_diff(self, parts: List[str]) -> bool:
+        """`/diff [序号]`：第一次调用给文件清单，给了序号才铺逐行 diff。
+
+        为什么分两级：模型一次改 5 个文件时，几百行 diff 全铺出来，人连"动了哪些
+        文件"都读不出来。第一级只回答"动了什么"，第二级才回答"怎么动的"。
+        记录来自带 diff 的工具返回（与 `/review` 共用同一份），最新在最前。
+        """
+        hist = list(getattr(self, "_diff_history", []) or [])
+        if not hist:
+            print(c("dim", t("diff_none")))
+            return True
+        if len(parts) < 2:
+            print(c("cyan", "◈ " + t("diff_title", n=len(hist))))
+            for i, item in enumerate(reversed(hist), start=1):
+                files = ace_diff.split_by_file(str(item.get("diff") or ""))
+                stats = ace_diff.summarize_diff(str(item.get("diff") or ""))
+                path = str(item.get("path") or "") or (
+                    files[0]["path"] if files else "?")
+                hunks = sum(len(f["hunks"]) for f in files) or 1
+                print(c("dim", t("diff_item", i=i, tool=item.get("tool", ""),
+                                 path=path, added=stats["added"],
+                                 removed=stats["removed"], hunks=hunks)))
+            print(c("dim", t("diff_hint")))
+            return True
+        raw = parts[1].lstrip("#")
+        if not raw.isdigit() or not (1 <= int(raw) <= len(hist)):
+            print(c("red", t("diff_bad_index", raw=raw, n=len(hist))))
+            return True
+        item = list(reversed(hist))[int(raw) - 1]
+        text = str(item.get("diff") or "")
+        stats = ace_diff.summarize_diff(text)
+        files = ace_diff.split_by_file(text)
+        path = str(item.get("path") or "") or (files[0]["path"] if files else "?")
+        print(c("cyan", "◈ " + t("diff_detail_title",
+                                 i=raw, path=path, added=stats["added"],
+                                 removed=stats["removed"])))
+        for ln, color in ace_diff.split_for_display(text, width=_md_width()):
+            print(c(color, ln))
+        return True
 
     def _cmd_review(self, parts: List[str]) -> bool:
         """`/review`：把上一处改动写成补丁 → 在编辑器里打开 → **读回**并应用。
@@ -3580,6 +3652,29 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         spinner 提供动效：思考/工具阶段持续加点动画，回复正文出现时自动停掉。
         """
         st = {"state": "thinking", "reply_printed": 0}
+        # 正文流式渲染器：懒建（没正文就不建，`/help` 这类全静态输出的路径不受影响）。
+        # 交付方式从"逐字符 print"换成"完整行交给 Markdown 渲染器"，理由是模型吐的是
+        # Markdown：原样打印用户看到满屏 `**`，而先全后有又会看起来像卡死。
+        md = {"renderer": None}
+
+        def _renderer() -> "ace_markdown.StreamRenderer":
+            if md["renderer"] is None:
+                md["renderer"] = ace_markdown.StreamRenderer(
+                    width=_md_width(), styler=_md_styler)
+            return md["renderer"]
+
+        def _emit_reply(visible: str) -> None:
+            """把新出现的正文增量交给渲染器（推进 `reply_printed` 记账）。"""
+            if len(visible) <= st["reply_printed"]:
+                return
+            delta = visible[st["reply_printed"]:]
+            st["reply_printed"] = len(visible)
+            _renderer().feed(delta)
+
+        def _flush_reply() -> None:
+            """收尾：交出未完结的最后一行与攒着的表格。幂等。"""
+            if md["renderer"] is not None:
+                md["renderer"].flush()
 
         def on_delta(full: str) -> None:
             state = "thinking"
@@ -3589,9 +3684,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     _inner = full.split("<INTERNAL>", 1)[1].split("</INTERNAL>", 1)[0]
                 except IndexError:
                     _inner = ""
-                for _ln in _inner.splitlines():
-                    if _ln.strip():
-                        print(c("dim", "· " + _ln.strip()[:240]))
+                for _ln in thinking_block(
+                        [x.strip()[:240] for x in _inner.splitlines()]):
+                    print(c("dim", _ln))
             has_protocol = "<INTERNAL>" in full or "<EXTERNAL>" in full
             if has_protocol:
                 # 模型按协议输出：隐藏 INTERNAL 思考，只展示 EXTERNAL 内容
@@ -3615,12 +3710,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                                 visible = visible.split(_tag)[0]
                                 break
                         visible = re.sub(r"</?[A-Za-z]*$", "", visible)
-                        if len(visible) > st["reply_printed"]:
-                            if st["state"] != "reply":
-                                print()   # 状态行 → 正文换行
-                            delta = visible[st["reply_printed"]:]
-                            print(delta, end="", flush=True)
-                            st["reply_printed"] = len(visible)
+                        if st["state"] != "reply":
+                            # 状态行 → 正文：标出"下面是回答"（不靠颜色区分谁在说话）
+                            print(c("dim", message_prefix("assistant")))
+                        _emit_reply(visible)
                         st["state"] = state
                         return
             elif tools_mode and full.strip():
@@ -3643,12 +3736,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if spinner is not None:
                     spinner.stop()
                 if st["state"] != "reply":
-                    print()
+                    print(c("dim", message_prefix("assistant")))
                 visible = _sanitize_display_text(full)
-                delta = visible[st["reply_printed"]:]
-                if delta:
-                    print(delta, end="", flush=True)
-                    st["reply_printed"] = len(visible)
+                _emit_reply(visible)
                 st["state"] = state
                 return
             if state == "tool" and spinner is not None:
@@ -3663,7 +3753,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 sys.stdout.flush()
             st["state"] = state
 
-        return {"state": st, "on_delta": on_delta}
+        return {"state": st, "on_delta": on_delta, "flush": _flush_reply}
 
     def _warn_context_if_near(self, msgs: List[Dict], system: str) -> None:
         """上下文估算逼近压缩触发点时提前提醒（每 10% 一档最多一次）。
@@ -3712,11 +3802,16 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                                  messages_count=len(msgs), system_len=len(system),
                                  model=self.client.model)
             output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"])
+            # 流式正文收尾：渲染器按行交付，最后一行往往没有换行符，
+            # 不 flush 就会把回答的最后一句话永远留在缓冲里（探针里踩到过）。
+            disp["flush"]()
         except KeyboardInterrupt:
+            disp["flush"]()
             spinner.stop(newline=True)
             print("\n" + t("interrupted"))
             return None, system, disp
         except Exception as e:
+            disp["flush"]()
             spinner.stop(newline=True)
             hint = _model_error_hint(e)
             self.session_log.record_model_error(str(e), hint)
@@ -3739,11 +3834,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         return output, system, disp
 
     def _print_tool_timeline(self) -> None:
-        """本轮工具调用汇总（一行）：`3 次工具调用 · 1.8s · terminal_exec ✓ · file_write +3 -1 ✓`
+        """本轮工具调用汇总（一行）：`3 次工具调用 · 1.8s · terminal_exec ×2 ✓ · file_write ✓`
 
         为什么要有它：卡片是一条条刷过去的，一轮里跑了五六次工具之后，用户只记得
         "好像动过几个东西"。收尾给一行，才看得出这次到底做了什么、有没有失败项。
         只调一次工具时不打（那一张卡片本身就是全部信息，再汇总一遍是噪音）。
+        连续同名调用合并成 `名字 ×N`（分组规则在 `ui/ace_cards.group_tool_runs`）。
         """
         tools = list(getattr(self, "_round_tools", []) or [])
         self._round_tools = []
@@ -3751,15 +3847,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return
         secs = sum(e for _t, _s, e, _rc in tools)
         parts = []
-        for name, status, _e, rc in tools:
-            mark, _col = status_mark(status)
-            seg = f"{name} {mark}"
-            if rc not in (None, 0):
-                seg += f"(exit {rc})"
+        for run in group_tool_runs(tools):
+            mark, _col = status_mark(str(run.get("last_status") or ""))
+            count = int(run["count"])
+            seg = f"{run['tool']}" + (f" ×{count}" if count > 1 else "") + f" {mark}"
+            _rcs = run.get("exit_codes") or []
+            if _rcs:
+                seg += f"(exit {_rcs[-1]})"
             parts.append(seg)
         # 最多列 5 个，再多就省略（一行汇总不该自己变成一屏）
         shown = " · ".join(parts[:5]) + (" …" if len(parts) > 5 else "")
-        print(c("dim", t("round_tools", n=len(tools), sec=f"{secs:.2f}", tools=shown)))
+        print(c("dim", f"{message_prefix('tool')} "
+                       + t("round_tools", n=len(tools), sec=f"{secs:.2f}", tools=shown)))
 
     def _note_round_progress(self, result: Dict) -> bool:
         """连续失败/无进展熔断记账。返回 False = 已达阈值（调用方应结束本次对话）。
@@ -3914,9 +4013,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         continue
                     print(c("yellow", "\n" + t("unverified_claim_final")))
                 if disp["state"]["reply_printed"] < len(result["message"]):
-                    # 兜底：流式展示未覆盖时补打完整回复
+                    # 兜底：流式展示未覆盖时补打完整回复。同样走 Markdown 渲染 ——
+                    # 否则同一条回复会因为"走的是哪条路径"而排版不同。
                     print()
-                    print(result["message"], end="", flush=True)
+                    for _ln in ace_markdown.render(str(result["message"]),
+                                                   width=_md_width(), styler=_md_styler):
+                        print(_ln)
                 self._print_tool_timeline()
                 if self.json_mode:
                     self.events.emit("final", text=str(result["message"] or ""),
@@ -3987,6 +4089,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             self._last_diff = {"tool": result.get("tool", ""),
                                                "path": str(_d.get("path") or ""),
                                                "diff": _raw_diff}
+                            # 同一份也进改动记录（/diff 用）：/review 只看最新一处，
+                            # /diff 要能回答"这一轮到底动过哪些文件"。
+                            self._diff_history.append(dict(self._last_diff))
+                            if len(self._diff_history) > MAX_DIFF_HISTORY:
+                                del self._diff_history[0]
                             # diff 单独渲染，正文只留一行摘要 —— 否则同一份 diff
                             # 会先在"输出"里刷一遍、再在 diff 段里刷一遍
                             _out = str(_d.get("summary") or "")[:4000]
@@ -4242,6 +4349,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 def _clear_screen(event):
                     self._clear_screen()
                     event.app.invalidate()
+
+                # Ctrl+O：展开最近一次被折叠的输出（工具输出或 diff）。
+                # `/keys` 从早先版本就把 Ctrl+O 写作"展开上一次被折叠的输出"，
+                # 但这个键一直没绑上——文档承诺了、代码里没有，等于骗人。
+                @kb.add("c-o")
+                def _expand_output(event):
+                    try:
+                        event.current_buffer.reset()
+                        self._cmd_expand()
+                        event.app.invalidate()
+                    except Exception:  # noqa: BLE001 —— 展开失败不该把 REPL 打崩
+                        pass
 
                 # 多行输入：Alt+Enter / Ctrl+J 在光标处插入换行，Enter 仍然发送。
                 # 为什么给两个键：Shift+Enter 需要终端支持扩展键协议（Windows Terminal、

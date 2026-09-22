@@ -31,8 +31,22 @@ from ui.ace_text import truncate_width
 
 __all__ = [
     "TOOL_EMOJI", "TOOL_GLYPH", "GLYPH_FALLBACK", "ANSI",
+    "MESSAGE_PREFIX", "message_prefix", "group_tool_runs", "thinking_block",
     "tool_card", "status_mark", "collapse_lines", "colorize",
 ]
+
+# 消息种类前缀：一眼分清"谁在说话"。之前只有用户行有符号（❯），助手与工具卡片
+# 全靠颜色区分 —— 颜色在重定向到文件、或色弱终端里全丢了，符号不会。
+MESSAGE_PREFIX: Dict[str, str] = {
+    "user": "❯", "assistant": "◈", "tool": "⚙", "notice": "·",
+    "error": "✗", "thinking": "…", "done": "✓",
+}
+
+
+def message_prefix(kind: str) -> str:
+    """取消息前缀；未知种类退化为空串（宁可没有前缀，也不要猜一个符号）。"""
+    return MESSAGE_PREFIX.get(str(kind or "").lower(), "")
+
 
 # ============================================================
 # 符号表
@@ -260,6 +274,63 @@ def _diff_stat(diff: str) -> str:
         return ""
     from ui.ace_diff import stat_text
     return stat_text(diff)
+
+
+def group_tool_runs(tools: List[Tuple[str, str, float, Optional[int]]]
+                    ) -> List[Dict[str, object]]:
+    """把**连续同名**工具调用合并成一段：`file_read ×3 ✓`
+
+    为什么合并而不是逐个列：模型读三个文件时，时间线上写着 `file_read ✓ ·
+    file_read ✓ · file_read ✓` —— 三份重复信息，把"这轮其实只做了一件事"讲了三遍。
+    合并成 `file_read ×3 ✓` 之后，剩下的位置才留给真正不同的动作。
+
+    只合并**连续**的：`read · write · read` 里两次 read 中间隔着一次写，
+    合成一段会把顺序讲错。
+
+    每段返回 `{tool, count, ok, fail, secs, last_status, exit_codes}`，
+    顺序按首次出现；`last_status` 用于取状态标记（合并段是按最后一次调用定性的）。
+    """
+    runs: List[Dict[str, object]] = []
+    for name, status, elapsed, rc in tools or []:
+        _name, _status = str(name or ""), str(status)
+        _secs = float(elapsed or 0.0)
+        _ok = 1 if _status.upper() == "SUCCESS" else 0
+        if runs and runs[-1]["tool"] == _name:
+            cur = runs[-1]
+            cur["count"] = int(cur["count"]) + 1
+            cur["ok"] = int(cur["ok"]) + _ok
+            cur["fail"] = int(cur["fail"]) + (1 - _ok)
+            cur["secs"] = float(cur["secs"]) + _secs
+            cur["last_status"] = _status
+            if rc not in (None, 0):
+                _codes = cur["exit_codes"]
+                if isinstance(_codes, list):
+                    _codes.append(rc)
+            continue
+        runs.append({"tool": _name, "count": 1, "ok": _ok, "fail": 1 - _ok,
+                     "secs": _secs, "last_status": _status,
+                     "exit_codes": [] if rc in (None, 0) else [rc]})
+    return runs
+
+
+def thinking_block(lines: List[str], max_lines: int = 6,
+                   total: Optional[int] = None) -> List[str]:
+    """思考过程框：`┌ 思考 (N 行)` / `│ …` / `└─`。
+
+    为什么给框而不是逐行 `· 文本`：逐行打散之后，"这是模型的内部推理、不是回复"
+    这件事只靠暗色表达；框把边界画出来，用户一眼知道框外的才是要读的东西。
+    超过 `max_lines` 就折叠并说明总共多少行 —— 内部推理不该占满屏幕。
+    """
+    body = [str(x) for x in (lines or []) if str(x).strip()]
+    total = len(body) if total is None else int(total)
+    shown, extra = body[:max(1, int(max_lines))], max(0, total - len(body[:max(1, int(max_lines))]))
+    head = f"┌ 思考 ({total} 行)"
+    out = [head]
+    out.extend("│ " + ln for ln in shown)
+    if extra > 0:
+        out.append(f"│ … 其余 {extra} 行已折叠（/thinking 控制显示）")
+    out.append("└─")
+    return out
 
 
 # ============================================================

@@ -43,7 +43,7 @@ text{white-space:pre;dominant-baseline:middle}
 .r19{animation:s19 14.04s steps(1,end) infinite}
 @keyframes s20{0%,47.507%{opacity:0}47.508%,100%{opacity:1}}
 .r20{animation:s20 14.04s steps(1,end) infinite}
-@keyframes s21{0%,52.849%{opacity:0}52.850%,100%{opacity:1}}
+@keyframes s21{0%,49.501%{opacity:0}49.502%,100%{opacity:1}}
 .r21{animation:s21 14.04s steps(1,end) infinite}
 @keyframes s22{0%,54.843%{opacity:0}54.844%,100%{opacity:1}}
 .r22{animation:s22 14.04s steps(1,end) infinite}
@@ -59,11 +59,11 @@ text{white-space:pre;dominant-baseline:middle}
 .r27{animation:s27 14.04s steps(1,end) infinite}
 @keyframes s28{0%,66.809%{opacity:0}66.810%,100%{opacity:1}}
 .r28{animation:s28 14.04s steps(1,end) infinite}
-@keyframes s29{0%,72.151%{opacity:0}72.152%,100%{opacity:1}}
+@keyframes s29{0%,68.803%{opacity:0}68.804%,100%{opacity:1}}
 .r29{animation:s29 14.04s steps(1,end) infinite}
 @keyframes s30{0%,74.145%{opacity:0}74.146%,100%{opacity:1}}
 .r30{animation:s30 14.04s steps(1,end) infinite}
-@keyframes s31{0%,79.487%{opacity:0}79.488%,100%{opacity:1}}
+@keyframes s31{0%,76.140%{opacity:0}76.141%,100%{opacity:1}}
 .r31{animation:s31 14.04s steps(1,end) infinite}
 .cur{animation:blink 1.05s steps(1,end) infinite}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
@@ -72,8 +72,8 @@ text{white-space:pre;dominant-baseline:middle}
 <rect y="40" width="989" height="802" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="494.5" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.22.0 · AI Code Engine</tspan></text>
-<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.22.0 ─╮</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.23.0 · AI Code Engine</tspan></text>
+<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.23.0 ─╮</tspan></text>
 <text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 模型    mock（离线演示，无需密钥）                                                           </tspan><tspan fill="#7d879c">│</tspan></text>
 <text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 边界    权限 readonly · 沙箱 off · 联网 开 · 审批 on_request                                 </tspan><tspan fill="#7d879c">│</tspan></text>
 <text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 目录    …                </tspan><tspan fill="#7d879c">│</tspan></text>
@@ -84,24 +84,24 @@ text{white-space:pre;dominant-baseline:middle}
 <text class="r9" x="22" y="268" xml:space="preserve"><tspan fill="#d7dce5">  输入 </tspan><tspan fill="#c39ac9">/help</tspan><tspan fill="#d7dce5"> 查看命令，</tspan><tspan fill="#c39ac9">@</tspan><tspan fill="#d7dce5"> 打开快捷方式，</tspan><tspan fill="#c39ac9">/exit</tspan><tspan fill="#d7dce5"> 退出</tspan></text>
 <text class="r10" x="22" y="292" xml:space="preserve"><tspan fill="#d7dce5">▊ 现在几点</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
 <text class="r11" x="22" y="316" xml:space="preserve">&#160;</text>
-<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s</tspan></text>
+<text class="r12" x="22" y="340" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   </tspan><tspan fill="#7d879c">◈</tspan></text>
 <text class="r13" x="22" y="364" xml:space="preserve">&#160;</text>
 <text class="r14" x="22" y="388" xml:space="preserve"><tspan fill="#d7dce5">◈ 正在调用工具 0s</tspan></text>
 <text class="r15" x="22" y="412" xml:space="preserve"><tspan fill="#5fd68a">  t datetime_now </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.00s</tspan></text>
 <text class="r16" x="22" y="436" xml:space="preserve">&#160;</text>
-<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   当前时间是 2026-09-22 19:52:47</tspan></text>
-<text class="r18" x="22" y="484" xml:space="preserve">&#160;</text>
-<text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
-<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 1 次 | 违规 0 次 | 已运行 0s</tspan></text>
-<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
-<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
-<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
-<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
-<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#f0c674">  成本: 价格未知（配置 pricing 可补） · 输入 ≈272 / 输出 ≈131 tokens（价格表快照，可用配置 pricing 覆盖）</tspan></text>
-<text class="r27" x="22" y="700" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 338 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
-<text class="r28" x="22" y="724" xml:space="preserve"><tspan fill="#d7dce5">▊ /permission readonly</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r29" x="22" y="748" xml:space="preserve"><tspan fill="#5fd68a">权限已切换为 readonly</tspan></text>
-<text class="r30" x="22" y="772" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
-<text class="r31" x="22" y="796" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
+<text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#d7dce5">◈ 思考中. 0s   </tspan><tspan fill="#7d879c">◈</tspan></text>
+<text class="r18" x="22" y="484" xml:space="preserve"><tspan fill="#d7dce5">当前时间是 2026-09-22 20:04:10</tspan></text>
+<text class="r19" x="22" y="508" xml:space="preserve">&#160;</text>
+<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（2 轮, 0.5s）</tspan></text>
+<text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#d7dce5">▊ /status</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#d7dce5">  会话: 2 轮 | 工具执行 1 次 | 违规 0 次 | 已运行 0s</tspan></text>
+<text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#d7dce5">  语言: 中文 | 技能: 通用助手 | 引用: 0 项</tspan></text>
+<text class="r24" x="22" y="628" xml:space="preserve"><tspan fill="#d7dce5">  权限: readonly | 违规累计 0 | 执行累计 1</tspan></text>
+<text class="r25" x="22" y="652" xml:space="preserve"><tspan fill="#d7dce5">  快照: 0 个（自动清理上限 20，/undo 一键回滚最近）</tspan></text>
+<text class="r26" x="22" y="676" xml:space="preserve"><tspan fill="#d7dce5">  模块: v2=True v1={'work': True, 'guardian': True, 'archive': True, 'nuwa': True} parser=True</tspan></text>
+<text class="r27" x="22" y="700" xml:space="preserve"><tspan fill="#f0c674">  成本: 价格未知（配置 pricing 可补） · 输入 ≈272 / 输出 ≈131 tokens（价格表快照，可用配置 pricing 覆盖）</tspan></text>
+<text class="r28" x="22" y="724" xml:space="preserve"><tspan fill="#7d879c">  上下文: 约 338 tokens / 窗口 32768（1%，压缩触发点约 23040；估算值，不是服务端读数）</tspan></text>
+<text class="r29" x="22" y="748" xml:space="preserve"><tspan fill="#d7dce5">▊ /permission readonly</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
+<text class="r30" x="22" y="772" xml:space="preserve"><tspan fill="#5fd68a">权限已切换为 readonly</tspan></text>
+<text class="r31" x="22" y="796" xml:space="preserve"><tspan fill="#d7dce5">▊ /exit</tspan><tspan class="cur" fill="#c39ac9">&#9601;</tspan></text>
 </svg>

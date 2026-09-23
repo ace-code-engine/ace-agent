@@ -54,6 +54,7 @@ from core import ace_http  # noqa: E402
 from core import ace_model  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
 from tools.registry import openai_tools  # noqa: E402
+from ui import ace_grace  # noqa: E402  （纯逻辑：危险对话框的防误触宽限期）
 
 
 PROMPT_DIR = FOLDER / "prompts"
@@ -621,7 +622,26 @@ GRANT_SESSION = "session"
 GRANT_DENY = "deny"
 
 
-def ask_yes_no(question: str, on_auto_deny=None) -> bool:
+def _read_answer(question: str, grace_hint: str = "") -> str:
+    """读一行**危险对话框**的回答，带防误触宽限期（见 `ui/ace_grace.py`）。
+
+    为什么第一次问就要设宽限：最危险的恰恰是第一次 —— 对话框刚冒出来的那一瞬，
+    用户上一个动作里敲的回车正好落在它上面。所以每次都开销表，而不是"重问时才防"。
+    判为飞行按键时**不采纳**（按"没回答"处理）、提示一句、再问一次；重问次数用尽
+    就直接采纳 —— 否则自动化喂输入的场景会被永久挡在门外。
+    """
+    gate = ace_grace.GraceGate()
+    while True:
+        gate.arm()
+        answer = input(question).strip()
+        if gate.admit() or gate.exhausted:
+            ask_grant.discards += gate.discarded      # 可观测：出了几次误触保护
+            return answer
+        if grace_hint:
+            print(grace_hint)
+
+
+def ask_yes_no(question: str, on_auto_deny=None, grace_hint: str = "") -> bool:
     """y/N 确认；非交互（管道 / CI / 无 tty）一律判否。
 
     fail-close 是这里唯一正确的默认：没人能点头时自动批准，等于把审批环节
@@ -632,7 +652,7 @@ def ask_yes_no(question: str, on_auto_deny=None) -> bool:
             on_auto_deny()
         return False
     try:
-        return input(question).strip().lower() in ("y", "yes")
+        return _read_answer(question, grace_hint).lower() in ("y", "yes")
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -663,20 +683,20 @@ def parse_grant_answer(text: str) -> Tuple[str, str]:
     return GRANT_DENY, ""
 
 
-def ask_grant(question: str, on_auto_deny=None) -> str:
+def ask_grant(question: str, on_auto_deny=None, grace_hint: str = "") -> str:
     """授权三态确认：`1/y` 本次 / `2/a` 本会话 / `3/n` 拒绝（可写理由）。
 
     默认权限是 readonly，而临时授权用后即焚——如果只有"本次"一个选项，
     一个 10 处编辑的任务就要弹 10 次窗、多跑 10 轮模型。"本会话"这一档是
     为了让这个默认可用，而不是逼用户直接把等级升到 write 了事。
-    非交互同样 fail-close。
+    非交互同样 fail-close。带防误触宽限期：飞行过来的回车不算放行。
     """
     if not sys.stdin.isatty():
         if on_auto_deny is not None:
             on_auto_deny()
         return GRANT_DENY
     try:
-        answer = input(question).strip()
+        answer = _read_answer(question, grace_hint)
     except (EOFError, KeyboardInterrupt):
         print()
         return GRANT_DENY
@@ -690,6 +710,10 @@ def ask_grant(question: str, on_auto_deny=None) -> str:
             except Exception:  # noqa: BLE001 —— 记不上理由也不该改变裁决
                 pass
     return decision
+
+
+ask_grant.discards = 0        # 累计拦下的飞行按键次数（可观测；测试与 /status 会读）
+ask_grant.on_deny_feedback = None
 
 
 def resolve_plan(el: "ExecutionLayer", approved: bool) -> str:
@@ -747,7 +771,8 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
             print(f"\n📋 {result.get('plan') or result.get('message', '')}")
             next_prompt = resolve_plan(el, ask_yes_no(
                 "  批准该计划并执行？[y/N]: ",
-                lambda: print("  非交互模式：自动拒绝计划。")))
+                lambda: print("  非交互模式：自动拒绝计划。"),
+                grace_hint="  ⏳ 刚才那下按得太快（对话框刚弹出），不算数，请再答一次: "))
             continue
 
         if result["status"] == "PLAN_ALREADY_APPROVED":
@@ -760,7 +785,8 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
                 print(f"   原因: {result['reason']}")
             next_prompt = resolve_permission(el, ask_grant(
                 "  是否授权？[y 本次 / a 本会话 / N 拒绝]: ",
-                lambda: print("  非交互模式：自动拒绝授权。")))
+                lambda: print("  非交互模式：自动拒绝授权。"),
+                grace_hint="  ⏳ 刚才那下按得太快（对话框刚弹出），不算数，请再答一次: "))
             continue
 
         if result["status"] == "FINAL_REPLY":

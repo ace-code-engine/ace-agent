@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60"]
+             "55", "56", "57", "58", "59", "60", "61"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9508,6 +9508,196 @@ if _want("60"):
           and "engine=lambda line: cli._process_line(line)" in _src60, "")
     check("源码级：没装 textual 时如实回退（不假装跑了 TUI）",
           "TUI 不可用" in _src60 and "run_tui is not None" in _src60, "")
+
+    # ============================================================
+
+if _want("61"):
+    # ── [61] ────
+    print("[61] 危险对话框的防误触宽限期 + 工具看板（四态点 / 同帧同步 / 只重画变化行）")
+    # ============================================================
+    import agent_runner as _ar61  # noqa: E402
+    from ui import ace_grace as _grace61  # noqa: E402
+    from ui import ace_tools as _tools61  # noqa: E402
+
+    # —— 宽限期：判定口径 ——
+    check("[61] 宽限期默认 200ms（人不可能读完三选一对话框再作答）",
+          _grace61.GRACE_MS_DEFAULT == 200, _grace61.GRACE_MS_DEFAULT)
+    check("[61] 飞行按键：10ms 就回来的答案不算数",
+          _grace61.is_inflight(0.010, 200) is True, "")
+    check("[61] 正常作答：800ms 后的答案算数（保护不能把用户挡在门外）",
+          _grace61.is_inflight(0.8, 200) is False, "")
+    check("[61] 边界：恰好等于宽限期那一刻算数（不是 `<` 的模糊地带）",
+          _grace61.is_inflight(0.2, 200) is False, "")
+    check("[61] 宽限期设为 0 = 用户显式关掉这条保护（一个字节都不拦）",
+          _grace61.is_inflight(0.001, 0) is False, "")
+    check("[61] 坏输入不炸也不放宽：`elapsed` 是 None 时按「不放行」处理",
+          _grace61.is_inflight(None, 200) is False, "")
+    # —— 环境变量：写坏了落回默认（配置错误不改安全口径）——
+    check("[61] 环境变量：正常值生效",
+          _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": "500"}) == 500, "")
+    check("[61] 环境变量：空/垃圾/越界都落回默认（不静默变成「不设防」）",
+          _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": "abc"}) == 200
+          and _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": ""}) == 200
+          and _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": "99999"}) == 200
+          and _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": "-1"}) == 200, "")
+    check("[61] 环境变量：0 是合法值（显式关闭），不等于「写坏了」",
+          _grace61.grace_ms_from_env({"ACE_PERM_GRACE_MS": "0"}) == 0, "")
+    check("[61] 宽限期上限 5s：再长就变成「对话框反应迟钝」，保护自己成了新问题",
+          _grace61.GRACE_MS_MAX == 5000, "")
+
+    # —— GraceGate：假时钟推进，不靠 sleep ——
+    _gate61 = _grace61.GraceGate(grace_ms=200)
+    _gate61.arm(now=100.0)
+    check("[61] 闸门：刚开销表就来的答案被判为飞行按键（计入 discarded）",
+          _gate61.admit(now=100.05) is False and _gate61.discarded == 1, "")
+    _gate61.arm(now=200.0)
+    check("[61] 闸门：重新问一次后正常作答，放行且不再计数",
+          _gate61.admit(now=200.4) is True and _gate61.discarded == 1, "")
+    _gate61.arm(now=300.0)
+    _gate61.admit(now=300.01)
+    _gate61.arm(now=400.0)
+    _gate61.admit(now=400.01)
+    check("[61] 闸门：重问次数用尽就放行（否则自动化喂输入会被永久挡住）",
+          _gate61.exhausted is True, _gate61.discarded)
+    _noarm61 = _grace61.GraceGate(grace_ms=200)
+    check("[61] 闸门：没开表就判「算数」（不做没来由的拦截）",
+          _noarm61.admit(now=1.0) is True, "")
+
+    # —— 读答案的那一层：误触要重问、重问用尽要采纳 ——
+    _answers61 = ["1", "1", "1"]
+    _printed61: list = []
+
+    class _FakeIn61:
+        """替掉 `input`：按脚本喂答案，并记录每次问了什么。"""
+        def __init__(self):
+            self.asked: list = []
+
+        def __call__(self, prompt: str = "") -> str:
+            self.asked.append(prompt)
+            return _answers61.pop(0) if _answers61 else ""
+
+    _fi61 = _FakeIn61()
+
+    class _Clock61:
+        """假时钟：每次读都推进 10ms —— 答案永远来得太快，判定因此确定，不靠 sleep。"""
+        def __init__(self) -> None:
+            self.t = 0.0
+
+        def monotonic(self) -> float:
+            self.t += 0.01
+            return self.t
+
+    def _fake_input61(prompt: str = "") -> str:
+        return _fi61(prompt)
+
+    import builtins as _bi61  # noqa: E402
+    _real_input61 = _bi61.input
+    _real_time61 = _grace61.time
+    _bi61.input = _fake_input61
+    _grace61.time = _Clock61()
+    try:
+        _got61 = _ar61._read_answer("  q: ", "  hint")
+    finally:
+        _bi61.input = _real_input61
+        _grace61.time = _real_time61
+    check("[61] 读答案：连续飞行按键 + 重问用尽后如实采纳（不把用户锁在门外）",
+          _got61 == "1" and len(_fi61.asked) == _grace61.MAX_DISCARDS, _fi61.asked)
+
+    # —— 接线：两个危险入口都带上了宽限期 ——
+    _src61 = (FOLDER / "agent_runner.py").read_text(encoding="utf-8")
+    check("[61] 源码级：授权与计划审批都走带宽限期的那一层（同一个入口，两处都改）",
+          _src61.count("_read_answer(question, grace_hint)") == 2
+          and "def _read_answer(question: str, grace_hint: str = \"\") -> str:" in _src61, "")
+    _cli61 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("[61] 源码级：CLI 两处危险对话框都传了三语的提示文案",
+          _cli61.count("grace_hint=c(\"dim\", t(\"grace_inflight\"))") == 2, "")
+    check("[61] i18n：宽限期提示三语齐全",
+          all('"grace_inflight"' in (FOLDER / "locales" / f"{lg}.json").read_text(
+              encoding="utf-8") for lg in ("zh", "en", "ja")), "")
+
+    # —— 工具看板：四态 ——
+    _board61 = _tools61.ToolBoard(width=80, interval=0.16)
+    _row61 = _board61.queue("file_read", "a.py")
+    check("[61] 看板：排队态是空心点（还没轮到，和「在跑」必须一眼分得开）",
+          _tools61.DOT["queued"] == "○" and _board61.render(now=0.0)[0].startswith("○ "),
+          _board61.render(now=0.0))
+    _board61.start("file_read", "a.py", now=1.0)
+    _board61.start("terminal_exec", "pytest", now=1.0)
+    _board61.finish("terminal_exec", "pytest", ok=True, now=1.5)
+    _rows61 = _board61.render(now=2.0)
+    check("[61] 看板：在跑的行用脉冲字形（不是四态点里的任何一个）",
+          _rows61[0].split(" ")[0] in _tools61.RUN_FRAMES, _rows61)
+    check("[61] 看板：四态常量本身对齐（排队○ / 完成● / 失败✗，在跑是脉冲字形）",
+          _tools61.STATES == ("queued", "running", "done", "failed")
+          and _tools61.DOT["done"] == "●" and _tools61.DOT["failed"] == "✗", "")
+    check("[61] 看板：完成的行走实心点 + 耗时（用户要知道「这一步过去了多久」）",
+          any(r.startswith("● terminal_exec") and "0.5s" in r for r in _rows61), _rows61)
+    _board61.finish("file_read", "a.py", ok=False, exit_code=1, now=3.0)
+    _rows61 = _board61.render(now=3.0)
+    check("[61] 看板：失败态是叉 + 非零退出码（「跑过了但失败」与「没跑」是两回事）",
+          any(r.startswith("✗ file_read") and "exit 1" in r for r in _rows61), _rows61)
+
+    # —— 同帧同步：一个钟，所有在跑行共用同一个字形 ——
+    _b61 = _tools61.ToolBoard(width=80, interval=0.16)
+    _b61.start("a", now=0.0)
+    _b61.start("b", now=0.5)          # 晚半秒开始，但**帧号由全局钟决定**
+    _rows61 = _b61.render(now=0.16)
+    _dots61 = [r.split(" ")[0] for r in _rows61]
+    check("[61] 同帧同步：两行并行工具在同一帧里用**同一个字形**（不是一个行一个相位）",
+          len(set(_dots61)) == 1, _rows61)
+    check("[61] 同帧同步：帧号只看时间差（同一个 now-t0 必得同一帧，与谁先开始无关）",
+          _tools61.frame_index(1.0, 0.0, 0.16, 6) == _tools61.frame_index(0.5, -0.5, 0.16, 6)
+          and _tools61.frame_index(0.0, 0.0, 0.16, 6) == 0, "")
+    check("[61] 同帧同步：时钟倒退不抛异常（系统时间被调也要能画）",
+          _tools61.frame_index(1.0, 5.0, 0.16, 6) == 0
+          and _tools61.frame_index(None, 0.0, 0.16, 6) == 0, "")
+
+    # —— 只重画变化行 ——
+    _b61 = _tools61.ToolBoard(width=80, interval=0.16)
+    _b61.start("a", now=0.0)
+    _b61.start("b", now=0.0)
+    _f1 = _b61.render(now=0.0)
+    _f2 = _b61.render(now=0.0)
+    check("[61] 重画：同一帧内重复渲染 = 零补丁（不该白白重刷整块）",
+          _b61.patches(_f1, _f2) == [], _b61.patches(_f1, _f2))
+    _b61.finish("a", ok=True, now=0.0)
+    _f3 = _b61.render(now=0.0)
+    _p61 = _b61.patches(_f1, _f3)
+    check("[61] 重画：只有变了的那一行进补丁（含行号，调用方照单重画）",
+          len(_p61) == 1 and _p61[0][0] == 0 and _p61[0][1].startswith("● a"), _p61)
+
+    # —— 长会话兜底 + 摘要 + 清理 ——
+    _b61 = _tools61.ToolBoard(width=40, max_rows=3)
+    for i in range(7):
+        _b61.queue(f"tool{i}", f"t{i}")
+    _rows61 = _b61.render(now=0.0)
+    check("[61] 长会话：行数封顶 + 明确告知还有几个（看板是状态，不能吃掉屏幕）",
+          len(_rows61) == 4 and "还有 4 个工具" in _rows61[-1], _rows61)
+    check("[61] 长会话：CJK/长目标按**显示宽度**截断（中文路径不会把行顶破）",
+          all(_tools61.display_width(r) <= 40 for r in _rows61), _rows61)
+    _b61.finish("tool0", "t0", ok=True, now=1.0)
+    check("[61] 看板摘要：多工具时给「共几个 · 几个完成 · 几个待跑」",
+          _b61.headline().startswith("⚙ ") and "7 个工具" in _b61.headline()
+          and "1 完成" in _b61.headline(), _b61.headline())
+    _single61 = _tools61.ToolBoard()
+    _single61.start("file_write", "x.py", now=0.0)
+    check("[61] 看板摘要：单工具时给出工具名与目标（信息量与原来那行一致）",
+          "file_write" in _single61.headline() and "x.py" in _single61.headline(),
+          _single61.headline())
+    _cleared61 = _b61.clear_finished()
+    check("[61] 看板清理：收尾的行摘掉（卡片已经讲过了，看板不留尸体）",
+          _cleared61 == 1 and _b61.count("done") == 0, _cleared61)
+
+    # —— 接线：CLI 里真的用上了 ——
+    check("[61] 源码级：工具执行时进看板、结束后按执行层结论收尾（不是「跑过就算成功」）",
+          "_board.start(_tool_name, _tool_target)" in _cli61
+          and "not in ERROR_STATUSES" in _cli61
+          and "_board.finish(" in _cli61, "")
+    check("[61] 源码级：看板按「一问」重置，也在键盘中断时收尾（不留「还在跑」的假象）",
+          "_board = ace_tools.ToolBoard()" in _cli61
+          and 'note=t("interrupted")' in _cli61, "")
+    check("[61] 源码级：底栏在有工具在跑/排队时报出来（切窗口回来也知道跑到哪）",
+          '"tools_live"' in _cli61 and "_board.count('running')" in _cli61, "")
 
     # ============================================================
 

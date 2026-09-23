@@ -75,6 +75,7 @@ from ui import ace_menu  # noqa: E402  （补全菜单模型：候选从哪来/�
 from ui import ace_prompt  # noqa: E402  （无依赖的输入行：菜单 + 历史 + 行编辑）
 from ui import ace_spinner  # noqa: E402  （等待指示器状态机：阶段字形 + 卡住渐变）
 from ui import ace_notify  # noqa: E402  （通知排队 + 终端标题/桌面通知通道）
+from ui import ace_tools  # noqa: E402  （工具看板：四态点 + 同帧同步 + 只重画变化行）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 try:
@@ -1236,13 +1237,13 @@ class _Spinner:
 
     def __init__(self, label: str = "思考中", verbs: Optional[List[str]] = None,
                  reduce_motion: bool = False, phase: str = "reasoning",
-                 truecolor: bool = True) -> None:
+                 truecolor: bool = True, active_tool: bool = False) -> None:
         self._label = label
         self._verbs = list(verbs or [])
         self.reduce_motion = bool(reduce_motion)
         self.phase = phase if phase in ace_spinner.PHASES else "reasoning"
         self.truecolor = bool(truecolor)
-        self.active_tool = False
+        self.active_tool = bool(active_tool)   # 工具在跑：不做"卡住"判定（长命令是正常的）
         self._stop_ev = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = 0.0
@@ -2419,6 +2420,12 @@ class _SlashCommands:
             "turns", f" 轮{self.session['rounds']} 工具{self.session['tools']} ",
             "class:footer-dim", 70))
         # 排队与暂存：有东西就显示（否则用户会忘了自己排过/存过）
+        _board = getattr(self, "_board", None)
+        if _board is not None and _board.active():
+            # 有工具在跑/排队时，底栏直接报出来（切到别的窗口回来也知道跑到哪了）
+            parts.append(ace_layout.StatusSegment(
+                "tools_live", f" 工具:{_board.count('running')}跑/"
+                              f"{_board.count('queued')}排 ", "class:footer-w", 25))
         if getattr(self, "_queued", None):
             parts.append(ace_layout.StatusSegment(
                 "queue", t("footer_queue", n=len(self._queued)), "class:footer-w", 35))
@@ -3264,6 +3271,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 并把"该回来了"这件事发到窗口标题/系统通知（没有 TTY 就什么都不发）
         self.notices = ace_notify.NoticeQueue()
         self.term = ace_notify.TerminalChannel()
+        # 工具看板：这一问里的工具四态（排队/在跑/完成/失败）。一次请求一份，
+        # 收尾时清掉已完成的 —— 看板是"现在进行到哪"，明细归工具卡片。
+        self._board = ace_tools.ToolBoard()
         try:
             ask_grant.on_deny_feedback = self._record_deny_feedback
         except Exception:  # noqa: BLE001 —— 登记不上也不该影响启动
@@ -4731,6 +4741,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 工具卡片是一条条刷过去的，多轮之后用户只会记得"好像跑了几个东西"；
         # 收尾给一行汇总，才看得出这次到底做了什么。
         self._round_tools: List[Tuple[str, str, float, Optional[int]]] = []
+        # 看板按"一问"重置：上一问的残留行留在屏幕上只会让人以为它还在跑
+        self._board = ace_tools.ToolBoard()
         for _round in range(1, MAX_ROUNDS + 1):
             _blocks = [im["block"] for im in self._pending_images]
             _user_msg = ace_model.compose_user_message(
@@ -4766,8 +4778,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 _exec_label = t("calling_tool_named", tool=_tool_name)
             else:
                 _exec_label = t("calling_tool")
+            # 看板：本轮工具进"四态"（排队/在跑/完成/失败）。**只有一个工具时不动原样**
+            # —— 原来那句"正在读取 x.py"带着动词和目标，信息量比一个点大；
+            # 多个工具时它才接管：给出"共几个 · 几个完成 · 几个待跑"，
+            # 用户不必靠猜"后面还有没有"。长命令跑起来时，屏幕上有没有进度是两回事。
+            if _tool_name:
+                self._board.start(_tool_name, _tool_target)
+                if self._board.count() > 1:
+                    _exec_label = self._board.headline() or _exec_label
             exec_spinner = (_Spinner(_exec_label, verbs=ace_layout.spinner_verbs(t),
-                                     reduce_motion=self._reduce_motion())
+                                     reduce_motion=self._reduce_motion(),
+                                     phase="tool_running",
+                                     active_tool=bool(_tool_name))
                             if disp["state"]["state"] == "tool" else None)
             if exec_spinner:
                 exec_spinner.start()
@@ -4776,6 +4798,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             except KeyboardInterrupt:
                 if exec_spinner:
                     exec_spinner.stop(newline=True)
+                if _tool_name:
+                    self._board.finish(_tool_name, _tool_target, ok=False,
+                                       note=t("interrupted"))
                 print("\n" + t("interrupted"))
                 return
             except Exception as e:
@@ -4786,6 +4811,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 continue
             if exec_spinner:
                 exec_spinner.stop(newline=True)
+            # 看板收尾：状态取执行层的结论（不是"跑过了"就算成功 —— 工具报错也是跑过了）
+            if _tool_name:
+                self._board.finish(
+                    _tool_name, _tool_target,
+                    ok=str(result.get("status") or "") not in ERROR_STATUSES,
+                    exit_code=result.get("exit_code")
+                    if isinstance(result.get("exit_code"), int) else None)
             self.session["rounds"] += 1
 
             if not self._note_round_progress(result):
@@ -4795,7 +4827,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 print(c("cyan", f"\n  {result.get('plan') or result.get('message', '')}"))
                 next_user = resolve_plan(self.el, ask_yes_no(
                     c("yellow", t("plan_approve_q")),
-                    lambda: print(c("dim", t("auto_reject_plan")))))
+                    lambda: print(c("dim", t("auto_reject_plan"))),
+                    grace_hint=c("dim", t("grace_inflight"))))
                 print(c("green", t("plan_approved_msg"))
                       if next_user == PROMPT_PLAN_APPROVED
                       else c("yellow", t("plan_rejected_msg")))
@@ -4817,7 +4850,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if result.get("reason"):
                     print(c("dim", t("perm_reason", reason=result["reason"])))
                 decision = ask_grant(c("yellow", t("perm_approve_q")),
-                                     lambda: print(c("dim", t("auto_deny_perm"))))
+                                     lambda: print(c("dim", t("auto_deny_perm"))),
+                                     grace_hint=c("dim", t("grace_inflight")))
                 next_user = resolve_permission(self.el, decision)
                 _fb = self._take_deny_feedback()
                 if decision == GRANT_DENY:

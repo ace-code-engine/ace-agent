@@ -91,6 +91,7 @@
   "perm_reason": "  Reason: {reason}",
   "perm_approve_q": "  1) allow once   2) allow this session   3) deny (add a reason: n do not touch that file)  [1-3/y/a/n]: ",
   "perm_deny_feedback_sent": "  Your reason was passed back to the model: {text}",
+  "grace_inflight": "  ⏳ That keystroke arrived too fast (the dialog had just appeared), so it did not count — read the options above and answer again.",
   "auto_deny_perm": "  Non-interactive mode: access auto-denied.",
   "perm_granted_msg": "  Access granted, Agent continues.",
   "perm_granted_session_msg": "  Granted for this session; won't ask again for this tool.",

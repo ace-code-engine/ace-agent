@@ -550,5 +550,17 @@
   "tui_help_title": "  Keyboard (generated from the keymap: everything listed here is really bound)",
   "tui_help_footer": "  More in /keys and /help",
   "tui_help_shown": "  Help was printed into the transcript (scroll up)",
-  "interrupt_before_tool": "  Interrupted: {tool} was not executed (stopping before a tool is the clean spot)"
+  "interrupt_before_tool": "  Interrupted: {tool} was not executed (stopping before a tool is the clean spot)",
+  "model_pick": "Pick a model (type to filter, Enter to confirm, Esc to cancel)",
+  "provider_pick": "Pick a provider (type to filter, Enter to confirm, Esc to cancel)",
+  "choose_filter": "type to filter…",
+  "choose_hint_keys": "  ↑/↓ choose · Enter confirm · Esc cancel",
+  "choose_more": "  …{n} more (keep typing to filter)",
+  "text_enter_hint": "type, then Enter (Esc cancels)",
+  "text_hint_keys": "  Enter confirm · Esc cancel",
+  "confirm_yes": "Yes (continue)",
+  "confirm_no": "No (cancel)",
+  "find_title": "Find in transcript (Enter to search, Ctrl+F again for the next hit)",
+  "find_hit": "  · Hit {n}/{total} for \"{q}\" (Ctrl+F for the next one)",
+  "find_none": "  · No \"{q}\" in this transcript"
 }

@@ -1795,7 +1795,7 @@ class _SlashCommands:
         "那次问的是 glm4 相关的事"。这里复用选择器那套子序列评分（`dsk` 能命中
         `deepseek`），按相关度排，并把命中的字符标出来。
         """
-        from ui.ace_selector import filter_items, highlight_match, run_selector
+        from ui.ace_selector import filter_items, highlight_match
         entries = self._history_entries()
         if not entries:
             print(c("dim", t("history_empty")))
@@ -1817,8 +1817,8 @@ class _SlashCommands:
         print(c("dim", t("history_match", n=len(hits), q=query)))
         # 交互终端里给一个选择器：挑中就把那条填进输入框（不自动发送 —— 历史里
         # 的那句话是当时的上下文，直接发出去大概率不是你这次想说的）
-        if run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
-            picked = run_selector(
+        if self._can_pick():
+            picked = self._select_index(
                 t("history_pick"),
                 [" ".join(entries[i].split())[:120] for i, _score in hits])
             if picked is not None and 0 <= picked < len(hits):
@@ -1916,7 +1916,8 @@ class _SlashCommands:
             print(c("red", "快照 id 格式非法（应为 时间戳_标签，用 /snapshots 查看）"))
             return True
         try:
-            answer = input(f"确认回滚到 {parts[1]}？这会覆盖当前文件状态 [y/N]: ").strip().lower()
+            answer = str(self._ask_text(
+                f"确认回滚到 {parts[1]}？这会覆盖当前文件状态 [y/N]: ") or "").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             print(t("cancelled"))
@@ -2134,7 +2135,19 @@ class _SlashCommands:
         rules、向导是同一份渲染器 —— 同一个软件里问同一件事不该有两种长相。
         注入的还是本模块的 `run_selector`（缺 prompt_toolkit 时为 None，此时调用方
         本来就进不来），所以"选择器缺失就降级"这条契约没变。
+
+        **组件界面在的时候绝不能落到 prompt_toolkit**：那会和界面抢同一份按键，
+        表现就是"/permission 一按就花屏/卡死"。所以界面优先，走界面的选择框。
         """
+        if self._ui_can_prompt():
+            labels = [str(label) for label, _v in options]
+            picked = self._ui.choose(title, labels)
+            if picked is None:
+                return None
+            try:
+                return options[labels.index(str(picked))][1]
+            except (ValueError, IndexError):
+                return None
         if run_selector is None:
             return None
         spec = ace_dialog.DialogSpec(
@@ -2709,12 +2722,11 @@ class _SlashCommands:
                 print(c("dim", f"  该提供商可选模型: {' / '.join(prov['models'][:8])}（/model <名> 切换）"))
             # OpenClaw 式选择器：stdin/stdout 都是 TTY 时弹搜索式选择器选模型
             # （测试环境 stdout 被重定向 → 不弹选择器，直接打印提示）
-            if run_selector is not None and prov and sys.stdin.isatty() and sys.stdout.isatty():
+            if prov and prov.get("models") and self._can_pick():
                 _models = prov.get("models") or []
                 if _models:
-                    _items = [f"{m}  ({t('model_opt')})" if False else m
-                              for m in _models]
-                    idx = run_selector("选择模型（输入过滤，Enter 确认，Esc 取消）", _models)
+                    idx = self._select_index(
+                        t("model_pick"), [str(m) for m in _models])
                     if idx is not None and 0 <= idx < len(_models):
                         self.cfg["model"] = _models[idx]
                         save_cli_config(self.cfg)
@@ -2745,9 +2757,9 @@ class _SlashCommands:
         if len(parts) == 1:
             # OpenClaw 式选择器：stdin/stdout 都是 TTY 时弹搜索式选择器选提供商
             # （测试环境 stdout 被重定向 → 不弹选择器，直接打印清单）
-            if run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
+            if self._can_pick():
                 _items = [f"{p['name']}  {p['base_url']}" for p in PROVIDERS]
-                idx = run_selector("选择提供商（输入过滤，Enter 确认，Esc 取消）", _items)
+                idx = self._select_index(t("provider_pick"), _items)
                 if idx is not None and 0 <= idx < len(PROVIDERS):
                     parts = ["/provider", str(idx + 1)]
                     self._handle_provider(parts)
@@ -2809,15 +2821,21 @@ class _SlashCommands:
                 if step is None:
                     break
                 current = str(step.default or "")
-                try:
-                    if step.hidden:
-                        import getpass
-                        raw = getpass.getpass(f"  {step.prompt} [{current}]: ")
-                    else:
-                        raw = input(f"  {step.prompt} [{current}]: ")
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    raise CommandCancelled() from None
+                if self._ui_can_prompt():
+                    # 组件界面在：向导步骤走界面的输入框（`input()` 会和界面抢 stdin）
+                    raw = self._ask_text(f"{step.prompt} [{current}]: ", current)
+                    if raw is None:
+                        raise CommandCancelled()
+                else:
+                    try:
+                        if step.hidden:
+                            import getpass
+                            raw = getpass.getpass(f"  {step.prompt} [{current}]: ")
+                        else:
+                            raw = input(f"  {step.prompt} [{current}]: ")
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        raise CommandCancelled() from None
                 state = ace_dialog.wizard_answer(state, raw)
         except CommandCancelled:
             print(c("yellow", t("wizard_cancelled")))
@@ -3741,6 +3759,73 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                          lambda: print(c("dim", t("auto_deny_perm"))),
                          grace_hint=c("dim", t("grace_inflight")))
 
+    # ---------- 交互入口：组件界面在的时候**一律走界面** ----------
+    #
+    # 为什么要有这一层：在组件界面里 `sys.stdin.isatty()` 仍然是 True，但 stdin 已经
+    # 归界面所有 —— 那些"弹一个终端选择器/读一行 input()"的命令会和界面抢同一份按键，
+    # 表现就是"/model 一按就花屏或卡死"。所以凡是"要问人"的地方都从这里过一道：
+    # 有界面就用界面的模态框，没有才回落终端。
+
+    def _ui_can_prompt(self) -> bool:
+        """界面能不能代答（能的话调用方就不该碰 stdin）。"""
+        ui = self._ui
+        return ui is not None and callable(getattr(ui, "choose", None))
+
+    def _can_pick(self) -> bool:
+        """这一刻到底能不能弹选择器：界面优先，其次才是终端里的 prompt_toolkit。"""
+        if self._ui_can_prompt():
+            return True
+        return (run_selector is not None and sys.stdin.isatty()
+                and sys.stdout.isatty())
+
+    def _select_index(self, title: str, items: List[str]) -> Optional[int]:
+        """从一串文本里选一个，返回下标；取消返回 None。界面优先。"""
+        ui = self._ui
+        if self._ui_can_prompt():
+            try:
+                picked = ui.choose(title, list(items))
+            except Exception:  # noqa: BLE001
+                picked = None
+            if picked is None:
+                return None
+            try:
+                return list(items).index(str(picked))
+            except ValueError:
+                return None
+        if run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
+            return run_selector(title, list(items))
+        return None
+
+    def _ask_text(self, prompt: str, default: str = "") -> Optional[str]:
+        """读一行文本（向导步骤 / 确认语句 / 拒绝理由）。取消返回 None。"""
+        ui = self._ui
+        if ui is not None and callable(getattr(ui, "ask_text", None)):
+            try:
+                return ui.ask_text(prompt, default)
+            except Exception:  # noqa: BLE001
+                return None
+        if not sys.stdin.isatty():
+            return None
+        try:
+            return input(prompt)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+
+    def _confirm(self, question: str, default_no_text: str = "") -> bool:
+        """二选一确认（计划审批、回滚确认…）。**默认否**：关掉/超时都不等于同意。"""
+        ui = self._ui
+        if ui is not None and callable(getattr(ui, "confirm", None)):
+            try:
+                return bool(ui.confirm(question))
+            except Exception:  # noqa: BLE001
+                return False
+        if default_no_text:
+            print(c("dim", default_no_text))
+        return ask_yes_no(question, lambda: print(c("dim", t("auto_deny_perm"))),
+                          grace_hint=c("dim", t("grace_inflight")))
+
+
     def _expand_all(self) -> bool:
         """「全部展开」开关（`/expandall` 或 Ctrl+E）：卡片不折叠、diff 不截断、思考照显。
 
@@ -3782,7 +3867,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         print(c("dim", t("rule_persist_ask", tool=tool_name,
                          pattern=suggested or "*")))
         try:
-            answer = input(c("dim", t("rule_persist_prompt"))).strip()
+            answer = str(self._ask_text(t("rule_persist_prompt")) or "").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return
@@ -3998,7 +4083,14 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if step is None:
                     break
                 try:
-                    raw = input(f"  {step.prompt} [{step.default}]: ")
+                    if self._ui_can_prompt():
+                        raw = self._ask_text(f"{step.prompt} [{step.default}]: ",
+                                             str(step.default or ""))
+                        if raw is None:
+                            print(c("yellow", t("wizard_cancelled")))
+                            return
+                    else:
+                        raw = input(f"  {step.prompt} [{step.default}]: ")
                 except (EOFError, KeyboardInterrupt):
                     print()
                     print(c("yellow", t("wizard_cancelled")))
@@ -4170,9 +4262,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             if pick is None:
                 print(c("yellow", t("sessions_bad_index", raw=parts[1])))
                 return True
-        elif run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
-            idx = run_selector(t("sessions_pick"),
-                               [f"{i}. {r['when']} {r['label']}" for i, r in enumerate(rows, 1)])
+        else:
+            idx = self._select_index(
+                t("sessions_pick"),
+                [f"{i}. {r['when']} {r['label']}" for i, r in enumerate(rows, 1)])
             if idx is not None and 0 <= idx < len(rows):
                 pick = rows[idx]
         print(c("dim", t("sessions_hint")))
@@ -4916,10 +5009,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
             if result["status"] == "PLAN_PROPOSED":
                 print(c("cyan", f"\n  {result.get('plan') or result.get('message', '')}"))
-                next_user = resolve_plan(self.el, ask_yes_no(
-                    c("yellow", t("plan_approve_q")),
-                    lambda: print(c("dim", t("auto_reject_plan"))),
-                    grace_hint=c("dim", t("grace_inflight"))))
+                next_user = resolve_plan(
+                    self.el, self._confirm(t("plan_approve_q"), t("auto_reject_plan")))
                 print(c("green", t("plan_approved_msg"))
                       if next_user == PROMPT_PLAN_APPROVED
                       else c("yellow", t("plan_rejected_msg")))
@@ -5694,6 +5785,27 @@ def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
     print(c("dim", t("preview_hint")))
 
 
+def _tui_off_reason(args) -> str:
+    """为什么没进组件界面：`missing` / `pipe` / `machine` / `explicit` / `""`。
+
+    分这么细是为了**说人话**：缺依赖要告诉用户怎么装；管道/机器可读是正常回退，
+    不该啰嗦（脚本里刷一行提示只会碍事）。
+    """
+    try:
+        if getattr(args, "no_tui", False):
+            return "explicit"
+        if getattr(args, "json", False) or getattr(args, "input", None):
+            return "machine"
+        if getattr(args, "preview", False) or getattr(args, "preview_width", 0):
+            return "machine"
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return "pipe"
+        from tui import tui_available
+        return "" if tui_available() else "missing"
+    except Exception:  # noqa: BLE001
+        return "missing"
+
+
 def _tui_default_ok(args) -> bool:
     """默认用不用组件化界面。
 
@@ -5871,6 +5983,14 @@ def main() -> None:
             if getattr(args, "tui", False):
                 print(c("yellow", "  没装 textual —— 用 `python setup_env.py --ensure` 装好，"
                                   "或继续用普通 REPL"))
+    else:
+        _tui_reason = _tui_off_reason(args)
+        if _tui_reason == "missing":
+            # 缺依赖这件事必须**说出来**：不说的话，用户只会发现"排队/中断/Shift+Tab
+            # 这些怎么都没有"，然后觉得"好多功能用不了"。
+            print(c("dim", "  （组件界面未启用：没装 textual —— 排队 / 两段式中断 / "
+                           "Shift+Tab 切权限 / F1 帮助 只在组件界面里。装："
+                           "python setup_env.py --ensure）"))
     if os.environ.get("ACE_DIRECT_CHAT") == "1":
         # 直进聊天：会话滚回缓冲里没有“登录主页”，上滑只见开场横幅+对话本身
         cli.repl()

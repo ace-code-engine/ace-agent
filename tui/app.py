@@ -40,7 +40,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Sequence
 
 from tui.bridge import EngineBridge
 from ui import ace_keys, ace_menu, ace_turn
@@ -55,19 +55,204 @@ from textual.widgets import Footer, Header, Input, Static
 
 
 def _bindings(tr: Callable[[str], str]) -> List[Binding]:
-    """Textual 的 BINDINGS 由 `ui/ace_keys.APP_KEYMAP` 生成 —— 帮助面板与真绑定同源。"""
+    """Textual 的 BINDINGS 由 `ui/ace_keys.APP_KEYMAP` 生成 —— 帮助面板与真绑定同源。
+
+    和弦的**第二段不在这里**：Textual 会把"聚焦控件会消费的键"从上层键位里剔掉
+    （普通字母正是被输入框消费的那类），所以 `e`/`t`/`d` 必须绑在输入框自己身上
+    （见 `ChordInput`），否则永远不触发。
+    """
     out: List[Binding] = []
-    skip = {"chord_prefix", "submit", "newline", "dialog_1",
-            "dialog_2", "dialog_3", "history_prev", "history_next"}
+    skip = {"submit", "dialog_1", "dialog_2", "dialog_3",
+            "history_prev", "history_next"}
     for b in ace_keys.APP_KEYMAP:
-        if b.action in skip:
-            continue          # 这些由输入框/对话框自己处理，不抢全局键
-        # `Tab` 必须 priority：Screen 自己有一个"焦点轮转"的 tab 绑定，
-        # 它比 app 级绑定先命中 —— 不抢在它前面，"补全"这个键就永远不会生效。
+        if b.action in skip or b.chord:
+            continue
+        # 优先级键位（抢在聚焦控件**之前**拿到这个键）：
+        # - `Tab`：Screen 有一个"焦点轮转"的 tab 绑定，不抢就永远轮不到补全；
+        # - `Shift+Tab`：Screen 会拿它去**反向轮转焦点**（实测：按下去焦点跑到会话区、
+        #   权限档一动不动 —— 用户只会说"这个键没用"）；
+        # - `Ctrl+X`：输入框把它绑成了"剪切"；
+        # - `Ctrl+C`：输入框把它绑成了"复制"。聊天里 `Ctrl+C` 必须是中断/取消
+        #   （这是所有人的肌肉记忆；复制仍可用鼠标选中 + Ctrl+Shift+C）。
+        _prio = b.action in ("complete", "cycle_permission", "chord_prefix",
+                             "interrupt")
         out.append(Binding(b.key, b.action, tr(b.desc_key),
-                           show=(b.scope == "global"),
-                           priority=(b.action == "complete")))
+                           show=(b.scope == "global"), priority=_prio))
     return out
+
+
+class ChordInput(Input):
+    """输入框 —— 同时负责接住和弦的第二段。
+
+    为什么必须在这个类里做（这是踩出来的，不是设计偏好）：
+
+    1. App 级的单个字母键位会被 Textual **从上层键位表里剔掉** —— 聚焦控件
+       （Input）声明"可打印字符归我"，所以 `Ctrl+X` 之后那个 `e` 永远轮不到 App；
+    2. 就算绑到 Input 自己身上也没用：`Input._on_key` 对可打印字符是**直接插入并
+       stop()**，压根不查绑定。
+
+    所以只能在 `_on_key` 里先问一句"现在是不是在和弦里"。挂起时才拦，平时就是普通
+    字母 —— 这也是"按了没反应"和"打字被吃"两种事故的分界线。
+    """
+
+    CHORDS = {"e": "expand_all", "t": "tasks", "d": "diff"}
+
+    def chord_action(self, key: str) -> Optional[str]:
+        """这个键此刻该触发什么动作（没挂起 / 没登记 → None）。"""
+        chords = getattr(self.app, "chords", None)
+        if chords is None or not chords.armed:
+            return None
+        return self.CHORDS.get(str(key or ""))
+
+    async def _on_key(self, event) -> None:
+        action = self.chord_action(getattr(event, "character", "") or "")
+        if action:
+            event.stop()
+            event.prevent_default()
+            chords = getattr(self.app, "chords", None)
+            if chords is not None:
+                chords.reset()
+            handler = getattr(self.app, f"action_{action}", None)
+            if callable(handler):
+                handler()
+            try:
+                self.app._refresh_status()
+            except Exception:      # noqa: BLE001
+                pass
+            return
+        await super()._on_key(event)
+
+
+class ChoiceScreen(ModalScreen):
+    """通用选择框：`/model`、`/provider`、`/sessions`、`/permission` 这些命令在
+    组件界面里必须走这里 —— 在界面里 stdin 归界面所有，prompt_toolkit 的选择器
+    会和界面抢同一份按键（表现就是"这个命令一按就花屏/卡住"）。
+
+    输入即过滤（复用 `ui/ace_selector` 的模糊匹配），↑/↓ 选择，回车确认，Esc 取消。
+    """
+
+    CSS = """
+    ChoiceScreen { align: center middle; }
+    #choice_box { width: 76; height: auto; max-height: 80%; border: round $accent;
+                  padding: 1 2; background: $surface; }
+    .choice_opt { padding: 0 1; }
+    .choice_opt.sel { background: $accent; color: $text; }
+    """
+
+    BINDINGS = [
+        Binding("up", "move(-1)", "", show=False),
+        Binding("down", "move(1)", "", show=False),
+        Binding("enter", "choose", "确认"),
+        Binding("escape", "cancel", "取消"),
+    ]
+
+    def __init__(self, title: str, items, t, on_done, filterable: bool = True) -> None:
+        super().__init__()
+        self.title_text = title
+        self.items = list(items)
+        self.shown = list(self.items)
+        self.t = t
+        self.on_done = on_done
+        self.filterable = bool(filterable)
+        self.sel = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="choice_box"):
+            yield Static(self.title_text, id="choice_title")
+            if self.filterable:
+                yield Input(placeholder=self.t("choose_filter"), id="choice_filter")
+            yield Static("", id="choice_list")
+            yield Static(self.t("choose_hint_keys"), classes="dim")
+
+    def on_mount(self) -> None:
+        self._repaint()
+        if self.filterable:
+            self.query_one("#choice_filter", Input).focus()
+
+    def _repaint(self) -> None:
+        rows = []
+        for i, item in enumerate(self.shown[:12]):
+            mark = "▶" if i == self.sel else " "
+            rows.append(f"{mark} {item}")
+        if len(self.shown) > 12:
+            rows.append(self.t("choose_more").replace("{n}", str(len(self.shown) - 12)))
+        try:
+            self.query_one("#choice_list", Static).update("\n".join(rows))
+        except Exception:      # noqa: BLE001
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        q = (event.value or "").strip()
+        if not q:
+            self.shown = list(self.items)
+        else:
+            try:
+                from ui.ace_selector import filter_items
+                order = [i for i, _s in filter_items(self.items, q)]
+                self.shown = [self.items[i] for i in order]
+            except Exception:      # noqa: BLE001 —— 过滤失败就不过滤，别把选择框弄空
+                self.shown = [x for x in self.items if q.lower() in x.lower()]
+        self.sel = 0
+        self._repaint()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_choose()
+
+    def action_move(self, delta: int) -> None:
+        if self.shown:
+            self.sel = (self.sel + int(delta)) % len(self.shown)
+            self._repaint()
+
+    def action_choose(self) -> None:
+        value = self.shown[self.sel] if self.shown else None
+        self.dismiss()
+        self.on_done(value)
+
+    def action_cancel(self) -> None:
+        self.dismiss()
+        self.on_done(None)
+
+
+class TextScreen(ModalScreen):
+    """通用文本输入框：向导步骤、拒绝理由、`/rollback` 的确认这些都走它。
+
+    为什么要它：这些地方原来都是 `input()`，而组件界面里 `input()` 会和界面
+    抢 stdin —— 表现就是"这个命令一按就卡住"。
+    """
+
+    CSS = """
+    TextScreen { align: center middle; }
+    #text_box { width: 76; height: auto; border: round $accent; padding: 1 2;
+                background: $surface; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "取消")]
+
+    def __init__(self, title: str, t, on_done, default: str = "") -> None:
+        super().__init__()
+        self.title_text = title
+        self.t = t
+        self.on_done = on_done
+        self.default = str(default or "")
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="text_box"):
+            yield Static(self.title_text)
+            yield Input(value=self.default, placeholder=self.t("text_enter_hint"),
+                        id="text_field")
+            yield Static(self.t("text_hint_keys"), classes="dim")
+
+    def on_mount(self) -> None:
+        self.query_one("#text_field", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value or ""
+        self.dismiss()
+        self.on_done(value)
+
+    def action_cancel(self) -> None:
+        self.dismiss()
+        self.on_done(None)
 
 
 class HelpScreen(ModalScreen):
@@ -249,6 +434,10 @@ class AceTuiApp(App):
         self._hist_idx = 0
         self._quit_armed = False
         self._mode_armed = False
+        self._chord_deadline = 0.0
+        self._find_query = ""
+        self._find_ready = False
+        self._find_idx = -1
         # Textual 的键位是**类级**合并出来的（`DOMNode.__init__` 从 `cls._merged_bindings`
         # 复制一份），所以实例上再赋 `self.BINDINGS` 是没用的 —— 必须往这张表里加。
         for _b in _bindings(self.t):
@@ -277,7 +466,7 @@ class AceTuiApp(App):
         yield Static("", id="status")
         with Vertical(id="palette"):
             yield Static("", id="palette_inner")
-        yield Input(placeholder=self.t("tui_input_placeholder"), id="prompt")
+        yield ChordInput(placeholder=self._msg("tui_input_placeholder"), id="prompt")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -508,6 +697,47 @@ class AceTuiApp(App):
         self._refresh_status()
 
     # ================= 对话框（引擎线程阻塞等答案）=================
+    # ================= 宿主协议：CLI 通过这几个方法问界面 =================
+    def _modal(self, factory, title: str, default: Any = None) -> Any:
+        """弹一个模态框并阻塞**调用线程**（引擎线程）直到有人作答。
+
+        超时设得长：等人是正常的，超时只是兜底（界面已经关掉时别把引擎永久挂住）。
+        """
+        with self._perm_lock:
+            self._perm_event.clear()
+            self._perm_slot.clear()
+
+            def _done(value: Any) -> None:
+                self._perm_slot.append(value)
+                self._perm_event.set()
+
+            self.call_from_thread(self.push_screen, factory(_done))
+            self._perm_event.wait(timeout=900)
+            return self._perm_slot[0] if self._perm_slot else default
+
+    def choose(self, title: str, options: Sequence[str]) -> Optional[str]:
+        """列表选择（`/model`、`/provider`、`/sessions`、`/permission` 档位…）。"""
+        items = [str(o) for o in options]
+        if not items:
+            return None
+        return self._modal(lambda done: ChoiceScreen(title, items, self._msg, done),
+                           title, None)
+
+    def ask_text(self, prompt: str, default: str = "") -> Optional[str]:
+        """文本输入（向导步骤、拒绝理由、确认语句…）。"""
+        return self._modal(lambda done: TextScreen(prompt, self._msg, done, default),
+                           prompt, None)
+
+    def confirm(self, question: str) -> bool:
+        """二选一确认：**默认否**（关掉/超时都不等于同意）。"""
+        yes = self._msg("confirm_yes")
+        no = self._msg("confirm_no")
+        picked = self._modal(
+            lambda done: ChoiceScreen(question, [yes, no], self._msg, done,
+                                      filterable=False),
+            question, no)
+        return picked == yes
+
     def ask_permission(self, tool: str, reason: str, options) -> str:
         """给 CLI 调的：弹出模态框、阻塞引擎线程直到用户作答。
 
@@ -537,6 +767,63 @@ class AceTuiApp(App):
                 return "deny"
             return resolved
 
+    # ================= 和弦与输入细节 =================
+    def action_chord_prefix(self) -> None:
+        """`Ctrl+X`：挂起和弦（底栏显示"Ctrl+X …"），等第二个键。
+
+        第二个键由**优先级键位**接住（见 `_bindings`），所以焦点留在输入框也没关系：
+        没挂起时那个字母压根不是绑定，照常打字。
+        """
+        self.chords.feed("ctrl+x", self._now())
+        self._chord_deadline = self._now() + ace_keys.CHORD_TIMEOUT
+        self._refresh_status()
+
+    def check_action(self, action: str, parameters: str):
+        """和弦的第二段只在挂起时可用。
+
+        这一条是**必须**的：`e`/`t`/`d` 是普通字母，全局绑死它们会在焦点不在输入框时
+        （比如刚点过会话区）把用户的按键吃掉 —— 表现就是"打字没反应"。
+        """
+        if action in ("expand_all", "tasks", "diff") and not self.chords.armed:
+            return False
+        return True
+
+    def on_key(self, event) -> None:
+        """和弦兜底：挂起时按了**没登记**的键（比如功能键），把状态撤掉。
+
+        普通字母不会到这里 —— 它们由 `ChordInput` 自己的优先级键位先接住。
+        """
+        if not self.chords.armed:
+            return
+        action, _pending = self.chords.feed(getattr(event, "key", ""), self._now())
+        self._refresh_status()
+        if action:
+            event.stop()
+            handler = getattr(self, f"action_{action}", None)
+            if callable(handler):
+                handler()
+
+    def _refocus_prompt(self) -> None:
+        try:
+            self.query_one("#prompt", Input).focus()
+        except Exception:      # noqa: BLE001
+            pass
+
+    def action_newline(self) -> None:
+        r"""`Ctrl+J`：在输入框里插入一个换行（多行消息 / 贴一段代码）。
+
+        `Input` 是单行的，但**值里可以有 `\n`**：引擎本来就吃多行消息，粘贴也是这么
+        进来的（探针验过），所以这里只需把换行插到光标处，不必换掉输入组件。
+        """
+        try:
+            inp = self.query_one("#prompt", Input)
+            pos = inp.cursor_position
+            val = inp.value or ""
+            inp.value = val[:pos] + "\n" + val[pos:]
+            inp.cursor_position = pos + 1
+        except Exception:      # noqa: BLE001
+            pass
+
     # ================= 动作 =================
     def action_cancel(self) -> None:
         """Esc：先收菜单，菜单没开就当中断（正在跑）或清提示。"""
@@ -557,13 +844,16 @@ class AceTuiApp(App):
         self.body_lines = 0
 
     def action_expand(self) -> None:
-        host = self.ui_host
-        if host is not None and hasattr(host, "_cmd_expandall"):
-            self.call_later(host._cmd_expandall, [])
-            self.notice(self.t("tui_expanded"))
+        """`Ctrl+O`：展开**上一次被折叠的输出**（卡片上那句"展开看完整"的兑现）。
+
+        别和 `/expandall` 混：那是一个总开关（以后都不折），这个是"把刚才那条摊开看看"。
+        绑错命令的话，用户按下去只会以为"怎么什么都没发生"。
+        """
+        self._host_command("/expand")
 
     def action_expand_all(self) -> None:
-        self.action_expand()
+        """`Ctrl+X e`：全部展开的总开关。"""
+        self._host_command("/expandall")
 
     def action_tasks(self) -> None:
         self._host_command("/tasks")
@@ -584,7 +874,61 @@ class AceTuiApp(App):
             self.append_lines(lines, "notice")
 
     def action_find(self) -> None:
-        self._host_command("/search")
+        """`Ctrl+F`：在**本次会话的转写区**里找，再按一次跳到下一处。
+
+        为什么不是联网搜索：这条键位在帮助里写的是"搜会话"。绑到一个会发网络请求的
+        命令上，用户按下去只会看到"搜索中…"，然后以为界面卡了。
+        """
+        if self._find_query and getattr(self, "_find_ready", False):
+            self._find_advance()
+            return
+        self._push_text(self._msg("find_title"), "", self._find_start)
+
+    def _push_text(self, title: str, default: str, on_done) -> None:
+        """界面自己发起的文本输入（**不阻塞**：这里是主线程，等下去就是死锁）。"""
+        try:
+            self.push_screen(TextScreen(title, self._msg, on_done, default))
+        except Exception:      # noqa: BLE001
+            pass
+
+    def _find_start(self, value: Optional[str]) -> None:
+        q = str(value or "").strip()
+        if not q:
+            return
+        self._find_query = q
+        self._find_ready = True
+        self._find_idx = -1
+        self._find_advance()
+
+    def _find_advance(self) -> None:
+        """跳到下一处命中（到尾回头），并把命中的那条滚进视野。"""
+        q = str(getattr(self, "_find_query", "") or "").lower()
+        if not q:
+            return
+        try:
+            body = self.query_one("#body", VerticalScroll)
+            kids = list(body.children)
+        except Exception:      # noqa: BLE001
+            return
+        texts: List[str] = []
+        for _w in kids:
+            try:
+                texts.append(str(_w.render()))
+            except Exception:      # noqa: BLE001
+                texts.append("")
+        hits = [i for i, t in enumerate(texts) if q in t.lower()]
+        if not hits:
+            self.notice(self._msg("find_none", q=self._find_query))
+            self._find_ready = False
+            return
+        nxt = next((i for i in hits if i > self._find_idx), hits[0])
+        self._find_idx = nxt
+        try:
+            kids[nxt].scroll_visible(animate=False)
+        except Exception:      # noqa: BLE001
+            pass
+        self.notice(self._msg("find_hit", q=self._find_query,
+                              n=hits.index(nxt) + 1, total=len(hits)))
 
     def action_toggle_board(self) -> None:
         try:

@@ -545,5 +545,17 @@
   "tui_help_title": "  键盘（由键位表生成：这里写着的就一定绑上了）",
   "tui_help_footer": "  更多见 /keys 与 /help",
   "tui_help_shown": "  帮助已打进会话区（往上翻）",
-  "interrupt_before_tool": "  已中断：{tool} 没有执行（停在一个工具之前最干净）"
+  "interrupt_before_tool": "  已中断：{tool} 没有执行（停在一个工具之前最干净）",
+  "model_pick": "选择模型（输入过滤，回车确认，Esc 取消）",
+  "provider_pick": "选择提供商（输入过滤，回车确认，Esc 取消）",
+  "choose_filter": "输入即过滤…",
+  "choose_hint_keys": "  ↑/↓ 选择 · 回车确认 · Esc 取消",
+  "choose_more": "  …还有 {n} 项（继续输入以过滤）",
+  "text_enter_hint": "输入后回车确认（Esc 取消）",
+  "text_hint_keys": "  回车确认 · Esc 取消",
+  "confirm_yes": "是（继续）",
+  "confirm_no": "否（取消）",
+  "find_title": "在会话里找（回车开始，再按 Ctrl+F 跳下一处）",
+  "find_hit": "  · 命中「{q}」第 {n}/{total} 处（Ctrl+F 继续）",
+  "find_none": "  · 会话里没有「{q}」"
 }

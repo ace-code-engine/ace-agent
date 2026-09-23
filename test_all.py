@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63"]
 _SEEN_SECTIONS: list = []
 
 
@@ -10087,6 +10087,343 @@ if _want("62"):
         check("[62] 界面：F1 是**浮层**帮助，Esc 关掉，会话区不被刷掉",
               _res62["help_screen"] == "HelpScreen"
               and _res62["help_closed"] == "Screen" and _res62["body_untouched"], _res62)
+
+    # ============================================================
+
+if _want("63"):
+    # ── [63] ────
+    print("[63] 界面里「能不能用」—— 交互入口一律走界面 · 键位真有实现 · 命令不再和界面抢 stdin")
+    # ============================================================
+    import re as _re63  # noqa: E402
+    import threading as _th63  # noqa: E402
+    from ui import ace_keys as _keys63  # noqa: E402
+    from ui import ace_turn as _turn63  # noqa: E402
+
+    _src63 = (FOLDER / "tui" / "app.py").read_text(encoding="utf-8")
+    _cli63 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+
+    # —— 键位表 ↔ 实现：绑了却没有 action 的键，按下去只会「没反应" ——
+    _impl63 = set(_re63.findall(r"def action_([a-z0-9_]+)\(", _src63))
+    _input63 = {"submit", "dialog_1", "dialog_2", "dialog_3",
+                "history_prev", "history_next", "nav", "move", "pick", "choose",
+                "deny", "close"}
+    _missing63 = [(b.key, b.action) for b in _keys63.APP_KEYMAP
+                  if b.action not in _input63 and b.action not in _impl63]
+    check("[63] 键位表里每条都有实现（绑了不实现 = 按下去没反应，用户只会说「用不了」）",
+          _missing63 == [], _missing63)
+
+    # —— 和弦：不能全局绑字母，否则焦点不在输入框时字母被吃掉 ——
+    check("[63] 源码级：和弦第二段受 `check_action` 门控（只在挂起时可用）",
+          "def check_action(self, action: str, parameters: str):" in _src63
+          and 'if action in ("expand_all", "tasks", "diff") and not self.chords.armed:'
+          in _src63, "")
+    check("[63] 源码级：和弦第二段在输入框的 `_on_key` 里拦（App 级字母键是被 Textual 剔掉的）",
+          "class ChordInput(Input):" in _src63
+          and "async def _on_key(self, event) -> None:" in _src63
+          and "def chord_action(self, key: str)" in _src63
+          and "if chords is None or not chords.armed:" in _src63
+          and 'CHORDS = {"e": "expand_all", "t": "tasks", "d": "diff"}' in _src63, "")
+    check("[63] 源码级：四个会被人抢的键都是优先级（Tab/Shift+Tab 归 Screen，"
+          "Ctrl+X/Ctrl+C 归输入框）",
+          "priority=_prio" in _src63
+          and '_prio = b.action in ("complete", "cycle_permission", "chord_prefix",'
+          in _src63, "")
+    check("[63] 源码级：Ctrl+J 真往输入框里插换行（不是绑了个空动作）",
+          "def action_newline(self)" in _src63 and 'val[:pos] + "\\n" + val[pos:]' in _src63,
+          "")
+
+    # —— CLI：所有「要问人」的地方都先问界面 ——
+    check("[63] 源码级：选择器界面优先（`_pick_option` 不再直接落到 prompt_toolkit）",
+          "if self._ui_can_prompt():" in _cli63
+          and "labels = [str(label) for label, _v in options]" in _cli63
+          and "picked = self._ui.choose(title, labels)" in _cli63, "")
+    check("[63] 源码级：四个交互命令都改走 `_select_index`（历史/模型/提供商/会话）",
+          _cli63.count("self._select_index(") >= 4, _cli63.count("self._select_index("))
+    check("[63] 源码级：确认与文本输入也有界面版本（计划审批 / 回滚 / 持久规则 / 向导）",
+          "def _ask_text(self, prompt" in _cli63 and "def _confirm(self, question" in _cli63
+          and "self._confirm(t(\"plan_approve_q\")" in _cli63
+          and "self._ask_text(\n                f\"确认回滚到" in _cli63, "")
+    check("[63] 源码级：缺 textual 时**说出来**（不然用户只会觉得「好多功能没了」）",
+          "def _tui_off_reason(args)" in _cli63 and '== "missing"' in _cli63
+          and "组件界面未启用：没装 textual" in _cli63, "")
+
+    # —— 真 CLI：把「要问人」的命令逐个跑一遍，**不许卡住** ——
+    import tempfile as _tmp63  # noqa: E402
+    import ai_code as _ai63  # noqa: E402
+    _ai63.CONFIG_PATH = Path(_tmp63.mkdtemp()) / "cfg63.json"
+
+    class _AutoUI63:
+        """自动作答的假界面：记录被问了什么，直接给第一个选项 / 否。"""
+        def __init__(self) -> None:
+            self.asked: list = []
+            self.perm = "write"
+
+        def attach_ui(self, host) -> None:
+            self.ui = host
+
+        def get_permission(self) -> str:
+            return self.perm
+
+        def set_permission(self, mode: str) -> str:
+            self.perm = mode
+            return mode
+
+        def request_stop(self) -> None:
+            pass
+
+        def choose(self, title: str, options):
+            self.asked.append(("choose", title))
+            return options[0] if options else None
+
+        def ask_text(self, prompt: str, default: str = ""):
+            self.asked.append(("ask_text", prompt))
+            return "n"
+
+        def confirm(self, question: str) -> bool:
+            self.asked.append(("confirm", question))
+            return False
+
+        def ask_permission(self, tool: str, reason: str, options) -> str:
+            self.asked.append(("permission", tool))
+            return "deny"
+
+    _cli63_obj = _ai63.AgentCLI({"project_root": str(_tmp63.mkdtemp()),
+                                 "permission": "write", "mock": True}, mock=True)
+    _ui63 = _AutoUI63()
+    _cli63_obj.attach_ui(_ui63)
+    _cli63_obj._interactive_tty = lambda: True      # 假装「真终端」，正是会踩坑的那条路
+    _boom63 = {"called": 0}
+
+    def _boom_selector(*a, **k):
+        _boom63["called"] += 1
+        raise AssertionError("组件界面在的时候不该落到 prompt_toolkit 选择器")
+
+    _orig_sel63 = _ai63.run_selector
+    _ai63.run_selector = _boom_selector
+    _hang63: list = []
+    try:
+        for _cmd63 in ("/history", "/model", "/provider", "/sessions", "/permission",
+                       "/sandbox", "/net", "/rollback"):
+            _done63 = _th63.Event()
+
+            def _run63(cmd=_cmd63):
+                try:
+                    _cli63_obj._process_line(cmd)
+                except Exception:      # noqa: BLE001 —— 记下来，别让线程静默死掉
+                    pass
+                finally:
+                    _done63.set()
+
+            _t63 = _th63.Thread(target=_run63, daemon=True)
+            _t63.start()
+            if not _done63.wait(timeout=6.0):
+                _hang63.append(_cmd63)
+    finally:
+        _ai63.run_selector = _orig_sel63
+        _cli63_obj.close()
+    check("[63] 真 CLI：八个「要问人」的命令在组件界面下都不卡（卡住就是用户说的「用不了」）",
+          _hang63 == [], _hang63)
+    check("[63] 真 CLI：这些命令一次都没落到 prompt_toolkit（界面与它抢 stdin 才是根因）",
+          _boom63["called"] == 0, _boom63["called"])
+    check("[63] 真 CLI：界面真的被问到了（不是「界面优先」只写在注释里）",
+          any(k == "choose" for k, _t in _ui63.asked), _ui63.asked[:4])
+
+    # —— 界面侧：三个通用模态（选择 / 文本 / 确认）——
+    try:
+        from tui import tui_available as _avail63
+        _TUI63 = bool(_avail63())
+    except Exception:  # noqa: BLE001
+        _TUI63 = False
+    if not _TUI63:
+        skip("通用模态（选择框过滤 / 文本输入 / 确认默认否）与键位真按键",
+             "未安装 textual（python setup_env.py --ensure）")
+    else:
+        import asyncio as _aio63  # noqa: E402
+        from tui import app as _app63  # noqa: E402
+
+        async def _drive63():
+            _out63: dict = {}
+            class _Host63b:
+                def __init__(self) -> None:
+                    from ui import ace_tools
+                    self.perm = "readonly"
+                    self._board = ace_tools.ToolBoard()
+
+                def attach_ui(self, host) -> None:
+                    self.ui = host
+
+                def get_permission(self) -> str:
+                    return self.perm
+
+                def set_permission(self, mode: str) -> str:
+                    self.perm = mode
+                    return mode
+
+                def request_stop(self) -> None:
+                    pass
+
+            _host63 = _Host63b()
+            _a = _app63.AceTuiApp(engine=lambda line: None,
+                                  translate=lambda k, **kw: (k.format(**kw) if kw else k),
+                                  ui_host=_host63)
+            async with _a.run_test(size=(100, 30)) as _p:
+                # 选择框：输入过滤 → 方向键 → 回车
+                _box63: dict = {}
+
+                def _ask_choice():
+                    _box63["v"] = _a.choose("选一个", ["alpha", "beta", "gamma"])
+
+                _t = _th63.Thread(target=_ask_choice, daemon=True)
+                _t.start()
+                await _p.pause(0.3)
+                _out63["choice_screen"] = type(_a.screen).__name__
+                await _p.press(*"ga")           # 过滤到 gamma
+                await _p.pause(0.15)
+                _out63["filtered"] = list(getattr(_a.screen, "shown", []))
+                await _p.press("enter")
+                await _p.pause(0.2)
+                _t.join(timeout=3)
+                _out63["choice"] = _box63.get("v")
+
+                # 文本输入：Esc = 取消（None），不是空串
+                _txt63: dict = {}
+
+                def _ask_text():
+                    _txt63["v"] = _a.ask_text("说点什么", "默认")
+
+                _t = _th63.Thread(target=_ask_text, daemon=True)
+                _t.start()
+                await _p.pause(0.3)
+                await _p.press("escape")
+                await _p.pause(0.2)
+                _t.join(timeout=3)
+                _out63["text_cancel"] = _txt63.get("v", "MISSING")
+
+                # 文本输入：输入 → 回车
+                def _ask_text2():
+                    _txt63["v2"] = _a.ask_text("再说点")
+
+                _t = _th63.Thread(target=_ask_text2, daemon=True)
+                _t.start()
+                await _p.pause(0.3)
+                await _p.press(*"hi")
+                await _p.press("enter")
+                await _p.pause(0.2)
+                _t.join(timeout=3)
+                _out63["text_ok"] = _txt63.get("v2")
+
+                # 确认框：Esc = 否（关掉不等于同意）
+                _cf63: dict = {}
+
+                def _ask_conf():
+                    _cf63["v"] = _a.confirm("要批准吗")
+
+                _t = _th63.Thread(target=_ask_conf, daemon=True)
+                _t.start()
+                await _p.pause(0.3)
+                await _p.press("escape")
+                await _p.pause(0.2)
+                _t.join(timeout=3)
+                _out63["confirm_esc"] = _cf63.get("v")
+
+                # 键位真按键：Ctrl+J 换行 / 字母不被和弦吃掉 / Ctrl+X e 组合
+                _inp = _a.query_one("#prompt")
+                _inp.value = ""
+                await _p.press(*"test")
+                await _p.press("ctrl+j")
+                await _p.press(*"ok")
+                _out63["typed"] = _inp.value
+                _inp.value = ""
+                _calls63: list = []
+                _a.action_expand_all = lambda: _calls63.append("expand_all")
+                await _p.press(*"e")            # 没挂起时：字母进输入框，不触发动作
+                _out63["plain_e"] = (list(_calls63), _inp.value)
+                _inp.value = ""
+                await _p.press("ctrl+x")
+                await _p.pause(0.1)
+                _out63["armed"] = _a.chords.armed
+                await _p.press("e")
+                await _p.pause(0.1)
+                _out63["chord"] = (list(_calls63), _inp.value)
+                _out63["disarmed"] = _a.chords.armed
+
+                # Ctrl+C：输入框自己绑了"复制"，必须抢在它前面当中断
+                _stops63 = []
+                _a.on_stop = lambda: _stops63.append(1)
+                _a.turn.begin()
+                _inp.value = ""
+                await _p.press("ctrl+c")
+                await _p.pause(0.1)
+                _out63["interrupt"] = (_a.turn.interrupt_state, len(_stops63),
+                                       _inp.value)
+                _a.turn.finish()
+
+                # Ctrl+F：在转写区里找（不是联网搜索），再按一次跳下一处
+                _a.append_lines(["第一处 needle", "中间", "第二处 needle"])
+                _a._find_start("needle")
+                _out63["find1"] = _a._find_idx
+                _a.action_find()
+                _out63["find2"] = _a._find_idx
+                _a._find_start("找不到的词")
+                _out63["find_none"] = _a._find_ready
+
+                # Shift+Tab 真按键：Screen 拿它轮转焦点，必须抢在前面
+                _host63 = _a.ui_host
+                _host63.perm = "readonly"
+                await _p.press("shift+tab")
+                await _p.pause(0.1)
+                _out63["perm1"] = _host63.perm
+                await _p.press("shift+tab")          # 进 full 要先确认
+                await _p.pause(0.1)
+                _out63["perm_confirm"] = _host63.perm
+                await _p.press("shift+tab")
+                await _p.pause(0.1)
+                _out63["perm2"] = _host63.perm
+                _out63["focus_after_tab"] = type(_a.focused).__name__
+
+                # Esc：清空输入（不是退出，也不是什么都不做）
+                _inp.value = "打了一半"
+                await _p.press("escape")
+                await _p.pause(0.1)
+                _out63["esc"] = _inp.value
+                return _out63
+
+        _res63 = _aio63.run(_drive63())
+        check("[63] 界面：选择框是模态，能按输入过滤（不是一屏几百行让你自己找）",
+              _res63["choice_screen"] == "ChoiceScreen"
+              and _res63["filtered"] == ["gamma"], _res63.get("filtered"))
+        check("[63] 界面：选择框回车返回选中值（/model、/provider 这些命令靠它）",
+              _res63["choice"] == "gamma", _res63["choice"])
+        check("[63] 界面：文本输入 Esc = 取消（返回 None，不是空串 —— 两者语义不同）",
+              _res63["text_cancel"] is None, _res63["text_cancel"])
+        check("[63] 界面：文本输入回车返回内容",
+              _res63["text_ok"] == "hi", _res63["text_ok"])
+        check("[63] 界面：确认框 Esc = 否（关掉对话框绝不能等于同意）",
+              _res63["confirm_esc"] is False, _res63["confirm_esc"])
+        check("[63] 界面：Ctrl+J 插换行，字母照常进输入框（含 e/t/d 这些和弦键）",
+              _res63["typed"] == "test\nok", repr(_res63["typed"]))
+        check("[63] 界面：没挂起时按 e 只打字、不触发和弦动作（否则焦点不在输入框时字母被吃）",
+              _res63["plain_e"] == ([], "e"), _res63["plain_e"])
+        check("[63] 界面：Ctrl+X 挂起后按 e 才触发（和弦真的通），触发完自动撤销挂起",
+              _res63["armed"] == "ctrl+x" and _res63["chord"] == (["expand_all"], "")
+              and _res63["disarmed"] is None,
+              (_res63["chord"], _res63["disarmed"]))
+        check("[63] 界面：Ctrl+C 是中断（输入框把它绑成了复制，必须抢在它前面）",
+              _res63["interrupt"][:2] == ("requested", 1) and _res63["interrupt"][2] == "",
+              _res63["interrupt"])
+        check("[63] 界面：Shift+Tab 真按键能转档（Screen 拿它轮焦点，必须抢在前面），"
+              "进 full 要按两次，焦点留在输入框",
+              _res63["perm1"] == "write" and _res63["perm_confirm"] == "write"
+              and _res63["perm2"] == "full"
+              and _res63["focus_after_tab"] == "ChordInput",
+              (_res63["perm1"], _res63["perm_confirm"], _res63["perm2"],
+               _res63["focus_after_tab"]))
+        check("[63] 界面：Esc 清空输入（不退出、不装死）", _res63["esc"] == "",
+              repr(_res63["esc"]))
+        check("[63] 界面：Ctrl+F 搜的是**本次会话**并跳到下一处（不是联网搜索）",
+              _res63["find1"] >= 0 and _res63["find2"] > _res63["find1"]
+              and _res63["find_none"] is False,
+              (_res63["find1"], _res63["find2"], _res63["find_none"]))
 
     # ============================================================
 

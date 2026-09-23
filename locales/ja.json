@@ -550,5 +550,17 @@
   "tui_help_title": "  キーボード（キーマップから生成：ここにあるものは実際に割り当て済み）",
   "tui_help_footer": "  詳細は /keys と /help",
   "tui_help_shown": "  ヘルプを会話エリアに出力しました（上へスクロール）",
-  "interrupt_before_tool": "  {tool} は実行せず中断しました（ツールの直前で止めるのが最も安全）"
+  "interrupt_before_tool": "  {tool} は実行せず中断しました（ツールの直前で止めるのが最も安全）",
+  "model_pick": "モデルを選択（入力で絞り込み、Enter 確定、Esc 取消）",
+  "provider_pick": "プロバイダを選択（入力で絞り込み、Enter 確定、Esc 取消）",
+  "choose_filter": "入力で絞り込み…",
+  "choose_hint_keys": "  ↑/↓ 選択 · Enter 確定 · Esc 取消",
+  "choose_more": "  …他に {n} 件（入力を続けると絞り込み）",
+  "text_enter_hint": "入力して Enter（Esc で取消）",
+  "text_hint_keys": "  Enter 確定 · Esc 取消",
+  "confirm_yes": "はい（続行）",
+  "confirm_no": "いいえ（取消）",
+  "find_title": "会話内を検索（Enter で開始、Ctrl+F で次の一致へ）",
+  "find_hit": "  · 「{q}」{n}/{total} 件目（Ctrl+F で次へ）",
+  "find_none": "  · 会話に「{q}」はありません"
 }

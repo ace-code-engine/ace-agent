@@ -319,6 +319,10 @@ class ChordMap:
             return True
         return False
 
+    def reset(self) -> None:
+        """撤掉"待续"状态（和弦已用完、或者宿主决定不接了）。"""
+        self._armed = None
+
     @property
     def armed(self) -> Optional[str]:
         return self._armed

@@ -55,6 +55,10 @@ ace-agent/
 │   ├── ace_term.py             #   终端能力探测（自动判定）+ 自检向导步骤
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
 │   └── i18n.py                 #   轻量国际化（zh / en / ja 字典在根级 locales/）
+├── tui/                        # 组件化全屏界面（Textual）：四区骨架，唯一可选重依赖
+│   ├── __init__.py             #   包入口：tui_available() 能力探测 + 惰性导出（没装时不炸）
+│   ├── bridge.py               #   引擎↔界面桥接（纯逻辑，不依赖 Textual）：按行入队、丢 \r 重绘、剥 ANSI
+│   └── app.py                  #   四区布局（Header/转写区/状态行/输入栏）+ 后台线程跑引擎 + 队列排空
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
 │   ├── __init__.py             #   包入口
 │   ├── ace_doctor.py           #   环境自检（python -m cli.ace_doctor）

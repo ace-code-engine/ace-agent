@@ -5623,10 +5623,13 @@ def main() -> None:
                         help="配合 --preview：按指定列宽渲染（默认按当前终端，取不到用 100）")
     parser.add_argument("--save-config", action="store_true", help="把当前参数保存到 ~/.ai_code.json")
     parser.add_argument("--install-ui", action="store_true",
-                        help="准备界面依赖（prompt_toolkit）：先看当前解释器有没有，"
-                             "没有就建 .ace_env 并安装（离线可把 wheel 放进 vendor/）")
+                        help="准备界面依赖（prompt_toolkit + textual + rich）：先看当前解释器"
+                             "有没有，没有就建 .ace_env 并安装（离线可用仓库自带的 wheel）")
     parser.add_argument("--setup", action="store_true",
                         help="同 --install-ui（别名）：把运行环境准备好再启动")
+    parser.add_argument("--tui", action="store_true",
+                        help="用组件化全屏界面（Textual）启动：鼠标滚轮滚动会话区、"
+                             "状态行常驻、输入框固定；没装 textual 时自动回退普通 REPL")
     parser.add_argument("--install-executor", action="store_true",
                         help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
                              "下载后跑 --version 自校验）")
@@ -5692,6 +5695,22 @@ def main() -> None:
     if args.input:
         cli.converse(args.input)
         return
+    if getattr(args, "tui", False):
+        # 组件化全屏界面：引擎照旧（同一套 _process_line），只把"谁在画屏幕"换掉。
+        # 没装 textual 时 run_tui 返回 2 —— 如实回退，不假装跑了 TUI。
+        try:
+            from tui.app import run_tui
+        except Exception as e:  # noqa: BLE001
+            print(c("yellow", f"  TUI 不可用（{type(e).__name__}: {e}），回退普通 REPL"))
+            run_tui = None
+        if run_tui is not None:
+            _code = run_tui(engine=lambda line: cli._process_line(line),
+                            status_provider=cli._footer,
+                            title=f"ACE {version.__version__}")
+            if _code == 0:
+                return
+            print(c("yellow", "  没装 textual —— 用 `python setup_env.py --ensure` 装好，"
+                              "或继续用普通 REPL"))
     if os.environ.get("ACE_DIRECT_CHAT") == "1":
         # 直进聊天：会话滚回缓冲里没有“登录主页”，上滑只见开场横幅+对话本身
         cli.repl()

@@ -31,7 +31,13 @@ from typing import Dict, List, Optional, Tuple
 HERE = Path(__file__).resolve().parent
 ENV_DIR_NAME = ".ace_env"
 VENDOR_DIR_NAME = "vendor"
-REQUIRED = ("prompt_toolkit",)          # 界面依赖（核心功能仍零依赖）
+# 界面依赖：prompt_toolkit（输入行/浮层菜单）+ textual + rich（组件化 TUI 与渲染）。
+# 核心功能仍然零依赖；这三个只影响"界面长什么样"。
+REQUIRED = ("prompt_toolkit", "textual", "rich")
+# 索引顺序：**官方源优先**，镜像兜底。踩过的坑：某些镜像会返回 "from versions: none"
+# （包索引不完整），于是"装不上"被误判成"没有网络"；换官方源立刻就装上了。
+INDEXES = ("https://pypi.org/simple",
+           "https://pypi.tuna.tsinghua.edu.cn/simple")
 CHECK_TIMEOUT = 20
 
 
@@ -140,8 +146,10 @@ def create_env(root: Optional[Path] = None, base_python: Optional[str] = None,
                log=print) -> Tuple[Optional[str], str]:
     """建 `.ace_env` 并装依赖 → `(解释器路径 或 None, 说明)`。
 
-    安装顺序：本地 wheel（`vendor/*.whl`）→ 在线 pip。两条都不成就返回失败原因，
-    调用方据此如实告诉用户（并给出可复制的命令）。
+    安装顺序（**离线优先，因为仓库里就带着 wheel**）：
+      1. `vendor/*.whl`（`--no-index`，完全不联网）；
+      2. 在线 pip：按 `INDEXES` 逐个试（官方源优先，镜像兜底）。
+    两条都不成就返回失败原因，调用方据此如实告诉用户（并给出可复制的命令）。
     """
     root = root or HERE
     target = env_dir(root)
@@ -157,19 +165,42 @@ def create_env(root: Optional[Path] = None, base_python: Optional[str] = None,
         return None, "虚拟环境里没有解释器（布局不符合预期）"
     wheels = vendor_wheels(root)
     if wheels:
-        log(f"  · 用本地 wheel 离线安装（{len(wheels)} 个）")
+        log(f"  · 用仓库自带的 wheel 离线安装（{len(wheels)} 个）")
         code, out = _run([str(py), "-m", "pip", "install", "--no-index",
                           "--disable-pip-version-check", *wheels])
         if code == 0 and probe(str(py)):
-            return str(py), "已用本地 wheel 装好"
+            return str(py), "已用仓库自带的 wheel 装好（未联网）"
         log(f"  · 本地 wheel 没装成（{out.strip()[:120]}），改走在线安装")
-    log("  · 在线安装: pip install " + " ".join(REQUIRED))
-    code, out = _run([str(py), "-m", "pip", "install", "--disable-pip-version-check",
-                      *REQUIRED])
-    if code != 0 or not probe(str(py)):
-        return None, (f"pip 安装失败: {out.strip()[:200]}\n"
-                      f"    可手动执行: \"{py}\" -m pip install {' '.join(REQUIRED)}")
-    return str(py), "已在线装好"
+    for index in INDEXES:
+        log(f"  · 在线安装（{index}）: pip install {' '.join(REQUIRED)}")
+        code, out = _run([str(py), "-m", "pip", "install", "--disable-pip-version-check",
+                          "--index-url", index, *REQUIRED])
+        if code == 0 and probe(str(py)):
+            return str(py), f"已在线装好（源: {index}）"
+    return None, (f"pip 安装失败（试过 {len(INDEXES)} 个源）: {out.strip()[:200]}\n"
+                  f"    可手动执行: \"{py}\" -m pip install "
+                  f"--index-url {INDEXES[0]} {' '.join(REQUIRED)}")
+
+
+def vendor_into(root: Optional[Path] = None, log=print) -> Tuple[int, str]:
+    """把界面依赖的 wheel 下载到 `vendor/`（**给离线机器准备内置环境**）。
+
+    这是"内置好环境"的正路：在一台能联网的机器上跑一次，把 wheel 提交进仓库，
+    之后任何机器 `python setup_env.py --ensure` 都能离线装好。
+    """
+    root = root or HERE
+    dest = (root) / VENDOR_DIR_NAME
+    dest.mkdir(parents=True, exist_ok=True)
+    base = sys.executable
+    last = ""
+    for index in INDEXES:
+        log(f"  · 从 {index} 下载 wheel 到 {dest}")
+        code, out = _run([base, "-m", "pip", "download", "--index-url", index,
+                          "-d", str(dest), *REQUIRED], timeout=900)
+        if code == 0:
+            return len(vendor_wheels(root)), f"已下载到 {dest}（源: {index}）"
+        last = out.strip()[-200:]
+    return 0, f"下载失败: {last}"
 
 
 def ensure(root: Optional[Path] = None, allow_create: bool = True, log=print
@@ -208,10 +239,16 @@ def main() -> int:
                     help="只打印可用解释器路径（供启动脚本消费；没找到则为空行）")
     ap.add_argument("--check", action="store_true", help="只看状态，不创建环境")
     ap.add_argument("--ensure", action="store_true", help="缺失时创建 .ace_env 并安装")
+    ap.add_argument("--vendor", action="store_true",
+                    help="把界面依赖的 wheel 下载到 vendor/（给离线机器准备内置环境）")
     ap.add_argument("--json", action="store_true", help="以 JSON 输出结果（脚本用）")
     args = ap.parse_args()
 
     root = HERE
+    if args.vendor:
+        count, note = vendor_into(root)
+        print(f"vendor/: {count} 个 wheel · {note}")
+        return 0 if count else 1
     if args.print_python:
         ready = find_ready(root)
         print(ready[1] if ready else "")

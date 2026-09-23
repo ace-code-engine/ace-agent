@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59"]
+             "55", "56", "57", "58", "59", "60"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9406,6 +9406,108 @@ if _want("59"):
               for k in ("notice_perm", "notify_turn_done", "title_waiting")
               for lg in ("zh", "en", "ja")), "")
     _cli59.close()
+
+    # ============================================================
+
+if _want("60"):
+    # ── [60] ────
+    print("[60] 组件化全屏界面（Textual）—— 四区骨架 · 引擎桥接 · 无终端测试台")
+    # ============================================================
+    import asyncio as _aio60  # noqa: E402
+
+    try:
+        from tui import tui_available as _tui_avail60
+        _TUI60 = bool(_tui_avail60())
+    except Exception:  # noqa: BLE001 —— 没装 textual：相关断言走"跳过"，不算失败
+        _TUI60 = False
+    from tui.bridge import EngineBridge as _Bridge60  # noqa: E402 —— 纯逻辑，无需 textual
+    if _TUI60:
+        from tui.app import AceTuiApp as _AceTui60  # noqa: E402
+
+    def _raises60(fn) -> bool:
+        try:
+            fn()
+            return False
+        except OSError:
+            return True
+
+    # —— 引擎桥接是纯逻辑：与 Textual 在不在无关 ——
+    _sink60: list = []
+    _bridge60 = _Bridge60(_sink60.extend)
+    _bridge60.write("第一行\n第二行\n半行")
+    check("桥接：只有完整行进界面，半行先留着（与全屏会话同一套规矩）",
+          _sink60 == ["第一行", "第二行"], _sink60)
+    _bridge60.flush()
+    check("桥接：flush 时把尾巴补上（不静默丢最后一行）",
+          _sink60[-1] == "半行", _sink60)
+    _bridge60.write("\r◈ 思考中 3s   ")
+    check("桥接：带 \\r 的重绘整条丢掉（进滚动区只会变成残影）",
+          _bridge60.dropped == 1 and len(_sink60) == 3, (_bridge60.dropped, _sink60))
+    _bridge60.write("\x1b[31m红色\x1b[0m\n")
+    check("桥接：颜色码剥掉（Textual 自己管样式，留着 ANSI 会串进文本）",
+          _sink60[-1] == "红色", _sink60[-1])
+    check("桥接：isatty 恒 False（界面里不该再弹自己的交互框）",
+          _bridge60.isatty() is False, "")
+    check("桥接：没有文件描述符时抛 OSError（不给假 fd）",
+          _raises60(lambda: _bridge60.fileno()), "")
+
+    if not _TUI60:
+        skip("Textual 界面（输入→引擎→转写区）", "未安装 textual（python setup_env.py --ensure）")
+    else:
+        def _fake_engine60(line: str) -> None:
+            print(f"◈ 收到：{line}")
+            print("\r重绘应被丢掉")
+            print("⚙ file_read ✓")
+
+        def _status60():
+            return [("class:footer", " mock "), ("class:footer", " 权限:write ")]
+
+        async def _drive60():
+            app = _AceTui60(engine=_fake_engine60, status_provider=_status60)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await pilot.press(*"hello")
+                await pilot.press("enter")
+                await pilot.pause(0.5)
+                body = app.query_one("#body")
+                texts = [str(w.render()) for w in body.children]
+                out = {"texts": texts,
+                       "prompt_cleared": app.query_one("#prompt").value == "",
+                       "focused": type(app.focused).__name__,
+                       "status": str(app.query_one("#status").render()),
+                       "dropped": app._bridge.dropped}
+                app.action_clear_body()
+                await pilot.pause(0.1)
+                out["cleared"] = len(body.children)
+            return out
+
+        _res60 = _aio60.run(_drive60())
+        check("TUI：输入提交后进转写区（输入 → 引擎 → 界面走通）",
+              any("❯ hello" in t for t in _res60["texts"])
+              and any("收到：hello" in t for t in _res60["texts"]), _res60["texts"][:4])
+        check("TUI：引擎的 print 被桥接成组件（工具行也在）",
+              any("file_read" in t for t in _res60["texts"]), "")
+        check("TUI：提交后输入框清空、焦点仍在输入框（打完字不会没进输入框）",
+              _res60["prompt_cleared"] and _res60["focused"] == "Input",
+              (_res60["prompt_cleared"], _res60["focused"]))
+        check("TUI：状态行常驻（读的是同一份底栏数据）",
+              "mock" in _res60["status"] and "权限" in _res60["status"], _res60["status"])
+        check("TUI：spinner 的 \\r 重绘不会进滚动区",
+              _res60["dropped"] >= 1, _res60["dropped"])
+        check("TUI：清屏只清转写区（组件数归零）", _res60["cleared"] == 0, _res60["cleared"])
+        check("TUI：绑定了 Ctrl+Q 退出与 Ctrl+L 清屏",
+              any(getattr(b, "key", "") == "ctrl+q" for b in _AceTui60.BINDINGS)
+              and any(getattr(b, "key", "") == "ctrl+l" for b in _AceTui60.BINDINGS), "")
+        check("TUI：CSS 里状态行与输入框是 dock（固定），只有转写区滚动",
+              "#status" in _AceTui60.CSS and "#prompt" in _AceTui60.CSS
+              and "#body" in _AceTui60.CSS, "")
+
+    # —— CLI 接线：--tui 走同一套 _process_line，没装就如实回退 ——
+    _src60 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("源码级：--tui 接的是 run_tui + 同一个 _process_line（引擎没分叉）",
+          "from tui.app import run_tui" in _src60
+          and "engine=lambda line: cli._process_line(line)" in _src60, "")
+    check("源码级：没装 textual 时如实回退（不假装跑了 TUI）",
+          "TUI 不可用" in _src60 and "run_tui is not None" in _src60, "")
 
     # ============================================================
 

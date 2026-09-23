@@ -10097,7 +10097,6 @@ if _want("63"):
     import re as _re63  # noqa: E402
     import threading as _th63  # noqa: E402
     from ui import ace_keys as _keys63  # noqa: E402
-    from ui import ace_turn as _turn63  # noqa: E402
 
     _src63 = (FOLDER / "tui" / "app.py").read_text(encoding="utf-8")
     _cli63 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")

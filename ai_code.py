@@ -3797,15 +3797,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         return None
 
     def _ask_text(self, prompt: str, default: str = "") -> Optional[str]:
-        """读一行文本（向导步骤 / 确认语句 / 拒绝理由）。取消返回 None。"""
+        """读一行文本（向导步骤 / 确认语句 / 拒绝理由）。取消返回 None。
+
+        没有界面时就是**原来的 `input()`**（不再自己判 TTY）：调用方本来就已经判过
+        "能不能问"（`_interactive_tty()`），这里再判一次会把"测试里喂进来的输入"
+        也一起挡掉 —— 那正是"本地过、CI 红"的来源。
+        """
         ui = self._ui
         if ui is not None and callable(getattr(ui, "ask_text", None)):
             try:
                 return ui.ask_text(prompt, default)
             except Exception:  # noqa: BLE001
                 return None
-        if not sys.stdin.isatty():
-            return None
         try:
             return input(prompt)
         except (EOFError, KeyboardInterrupt):

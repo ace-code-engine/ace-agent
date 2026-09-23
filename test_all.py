@@ -2752,24 +2752,25 @@ if _want("11"):
               _b.text == "/provider", repr(_b.text))
         check("选定补全后回车：菜单已关闭", _b.complete_state is None)
         check("选定补全后回车：不立即发送", not hasattr(_b, "_submitted"))
-        check("选定补全后回车：标记为已预览（下次回车即发送）",
-              _b._ace_preview_shown is True)
+        check("选定补全后回车：这次只补全不发送（下次回车才发 —— 不逼用户按两次看命令）",
+              _b.text == "/provider" and not hasattr(_b, "_submitted"))
         # 再按一次回车 → 发送
         ai_code._handle_enter_key(_b)
         check("选定补全后再回车：发送命令",
               getattr(_b, "_submitted", None) == "/provider",
               getattr(_b, "_submitted", None))
 
-        # 2) 菜单开着但未选定（打字自动弹出）→ 这次回车算第一次（预览），不提交
+        # 2) 菜单开着但没选中 → 收起菜单并**直接发送**（菜单不挡回车）
         _b = _enter_buf("/", _cs(False), preview=False)
-        check("未选定回车：标记为已预览、不提交",
-              _b._ace_preview_shown is True and not hasattr(_b, "_submitted"))
+        check("未选定回车：收起菜单并发送原文本（菜单不挡回车）",
+              _b.complete_state is None
+              and getattr(_b, "_submitted", None) == "/")
 
         # 3) 预览态 + 未选定回车 → 发送原文本
         _b = _enter_buf("/", _cs(False), preview=True)
         check("预览态回车：提交原文本", getattr(_b, "_submitted", None) == "/")
 
-        # 4) 无菜单 + 斜杠 + 未预览 → 第一次回车弹菜单（select_first=False 预览）
+        # 4) 无菜单 + 斜杠 → 回车直接发送（v3.27 起"菜单不挡发送"）
         _calls = []
         _b = _PTBuffer(accept_handler=lambda b: setattr(b, "_submitted", b.text))
         _b.text = "/"
@@ -2780,9 +2781,8 @@ if _want("11"):
             ai_code._handle_enter_key(_b)
         finally:
             _b.start_completion = _orig_start
-        check("第一次回车：弹出补全菜单且不提交",
-              _calls == [{"select_first": False}] and _b._ace_preview_shown is True
-              and not hasattr(_b, "_submitted"), _calls)
+        check("没有菜单时：回车直接发送（不再「先弹菜单挡一次」）",
+              _calls == [] and getattr(_b, "_submitted", None) == "/", _calls)
 
         # 5) 无菜单 + 已预览 → 第二次回车发送
         _b = _enter_buf("/provider", None, preview=True)
@@ -9475,7 +9475,7 @@ if _want("60"):
                        "focused": type(app.focused).__name__,
                        "status": str(app.query_one("#status").render()),
                        "dropped": app._bridge.dropped}
-                app.action_clear_body()
+                app.action_clear_transcript()
                 await pilot.pause(0.1)
                 out["cleared"] = len(body.children)
             return out
@@ -9487,16 +9487,16 @@ if _want("60"):
         check("TUI：引擎的 print 被桥接成组件（工具行也在）",
               any("file_read" in t for t in _res60["texts"]), "")
         check("TUI：提交后输入框清空、焦点仍在输入框（打完字不会没进输入框）",
-              _res60["prompt_cleared"] and _res60["focused"] == "Input",
+              _res60["prompt_cleared"] and _res60["focused"] == "ChordInput",
               (_res60["prompt_cleared"], _res60["focused"]))
         check("TUI：状态行常驻（读的是同一份底栏数据）",
               "mock" in _res60["status"] and "权限" in _res60["status"], _res60["status"])
         check("TUI：spinner 的 \\r 重绘不会进滚动区",
               _res60["dropped"] >= 1, _res60["dropped"])
         check("TUI：清屏只清转写区（组件数归零）", _res60["cleared"] == 0, _res60["cleared"])
-        check("TUI：绑定了 Ctrl+Q 退出与 Ctrl+L 清屏",
-              any(getattr(b, "key", "") == "ctrl+q" for b in _AceTui60.BINDINGS)
-              and any(getattr(b, "key", "") == "ctrl+l" for b in _AceTui60.BINDINGS), "")
+        _bkeys60 = list(_AceTui60(engine=lambda line: None)._bindings.key_to_bindings)
+        check("TUI：绑定了 Ctrl+Q 退出与 Ctrl+L 清屏（键位现在由 keymap 生成）",
+              "ctrl+q" in _bkeys60 and "ctrl+l" in _bkeys60, _bkeys60)
         check("TUI：CSS 里状态行与输入框是 dock（固定），只有转写区滚动",
               "#status" in _AceTui60.CSS and "#prompt" in _AceTui60.CSS
               and "#body" in _AceTui60.CSS, "")
@@ -10076,7 +10076,7 @@ if _want("62"):
         check("[62] 界面：方向键选到第二项 → 回车 → 拿到 session（与选项表对齐）",
               _res62["answer"] == "session", _res62["answer"])
         check("[62] 界面：对话框关掉后焦点回到输入框（草稿不丢、能直接接着打）",
-              _res62["focus_after"] == "Input", _res62["focus_after"])
+              _res62["focus_after"] in ("Input", "ChordInput"), _res62["focus_after"])
         check("[62] 界面：Shift+Tab 转档；进 full 要多按一次（确认）",
               _res62["perm1"] == "write" and _res62["perm_full_first"] == "write"
               and _res62["perm_full_second"] == "full",

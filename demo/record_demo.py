@@ -91,7 +91,28 @@ TAIL_PAUSE = 2.6                  # 循环前的停顿，不然看完就闪回�
 _SGR_RE = re.compile(r"\033\[([0-9;]*)m")
 # 清屏 / 移光标之类的控制序列（注意排除 m，那是配色，要留给 split_ansi 解析）
 _ANSI_OTHER_RE = re.compile(r"\033\[[0-9;]*(?!m)[A-Za-z]")
-_SPINNER_RE = re.compile(r"^[◈◐◑◒◓]\s")
+_SPINNER_GLYPHS = "·˙•◈◐◑◒◓◇◆▁▃▅▇▖▘▝▗"   # ace_spinner 五个阶段的首字形（含工具两阶段）
+_SPINNER_RE = re.compile(r"^[%s]\s" % _SPINNER_GLYPHS)
+# 归一表：同一阶段的字形收敛到一个代表字形。**不含 waiting 那三个点** ——
+# `·` 也是正文里常见的项目符号，按转轮处理会把正常行的颜色剥掉。
+_SPINNER_CLASS = {"◐": "◐", "◑": "◐", "◒": "◐", "◓": "◐",
+                  "◈": "◈", "◇": "◈", "◆": "◈",
+                  "▁": "▅", "▃": "▅", "▇": "▅",
+                  "▖": "▘", "▝": "▘", "▗": "▘"}
+
+
+def _canon_spinner(line: str) -> str:
+    """转轮帧 → 稳定形态：字形归一到阶段代表，颜色段整段去掉。
+
+    为什么必须归：动到第几帧、以及"卡住"渐变到哪个色号，都由**采集时机**决定
+    （Windows 本机与 CI 的耗时不同），不是会话内容。不归的话，`--check` 会把
+    "这次等了 12 秒还是 9 秒"报成"CLI 输出变了"，而真正的漂移反而淹在噪声里。
+    这条是 2026-09-19 那次 CI 红换来的：录制时是主题色，CI 上是渐变到一半的告警色。
+    """
+    plain = _SGR_RE.sub("", line)
+    if not plain or plain[0] not in _SPINNER_CLASS:
+        return line
+    return _SPINNER_CLASS[plain[0]] + plain[1:]
 
 
 
@@ -205,6 +226,8 @@ def to_transcript(raw: str) -> list[tuple[str, bool]]:
             return
         if "非交互终端" in plain or "补全菜单不可用" in plain:
             return                                          # 只有管道录制才有，真实终端没有
+        if _SPINNER_RE.match(plain):
+            line = _canon_spinner(line)                     # 帧号/渐变色都不进演示图
         if out and _SPINNER_RE.match(plain) and _SPINNER_RE.match(
                 _SGR_RE.sub("", out[-1][0]).strip()):
             out[-1] = (line, False)                         # 同一段转轮动画只留最后一帧

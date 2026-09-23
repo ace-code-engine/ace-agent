@@ -9699,6 +9699,22 @@ if _want("61"):
     check("[61] 源码级：底栏在有工具在跑/排队时报出来（切窗口回来也知道跑到哪）",
           '"tools_live"' in _cli61 and "_board.count('running')" in _cli61, "")
 
+    # —— 演示图与转轮字形对齐：加了新阶段没同步，CI 上演示图会突然对不上 ——
+    import re as _re61  # noqa: E402
+    from ui import ace_spinner as _sp61  # noqa: E402
+    _demo61 = (FOLDER / "demo" / "record_demo.py").read_text(encoding="utf-8")
+    _m61 = _re61.search(r'_SPINNER_GLYPHS = "([^"]+)"', _demo61)
+    _known61 = set(_m61.group(1)) if _m61 else set()
+    _all_frames61 = set()
+    for _ph in _sp61.PHASES:
+        _all_frames61.update(_sp61.frames_for(_ph))
+    _all_frames61.update(_tools61.RUN_FRAMES)
+    check("[61] 演示脚本认得**所有**转轮字形（新阶段没同步 → 演示图在 CI 上莫名对不上）",
+          bool(_known61) and _all_frames61.issubset(_known61),
+          f"未登记 {sorted(_all_frames61 - _known61)}")
+    check("[61] 演示图把转轮帧归一（帧号与「卡住」渐变色都是采集时机，不是会话内容）",
+          "_canon_spinner(" in _demo61 and "if _SPINNER_RE.match(plain):" in _demo61, "")
+
     # ============================================================
 
 if _LIST:

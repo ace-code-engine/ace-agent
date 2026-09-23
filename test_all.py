@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58"]
+             "55", "56", "57", "58", "59"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9272,6 +9272,140 @@ if _want("58"):
     check(".gitignore：本地环境与 wheel 不入库",
           ".ace_env/" in (FOLDER / ".gitignore").read_text(encoding="utf-8")
           and "vendor/*.whl" in (FOLDER / ".gitignore").read_text(encoding="utf-8"), "")
+
+    # ============================================================
+
+if _want("59"):
+    # ── [59] ────
+    print("[59] 等待指示器状态机 · 通知排队 · 终端通道（标题/桌面通知）")
+    # ============================================================
+    import io as _io59  # noqa: E402
+    import contextlib as _cl59  # noqa: E402
+    import ai_code as _ai59  # noqa: E402
+    from ui import ace_spinner as _sp59  # noqa: E402
+    from ui import ace_notify as _nt59  # noqa: E402
+
+    # —— 指示器状态机：阶段决定字形与速度（"扫光速度即语义"）——
+    check("指示器：每个阶段一套字形，且各不相同",
+          all(_sp59.frames_for(p) for p in _sp59.PHASES)
+          and len({tuple(_sp59.frames_for(p)) for p in _sp59.PHASES})
+          == len(_sp59.PHASES), _sp59.PHASES)
+    check("指示器：速度本身是语义（等网络快 < 工具执行 < 推理最慢）",
+          _sp59.phase_interval("waiting") < _sp59.phase_interval("tool_running")
+          < _sp59.phase_interval("reasoning"),
+          {p: _sp59.phase_interval(p) for p in _sp59.PHASES})
+    check("指示器：帧随时间推进并循环",
+          [_sp59.frame_at("tool_running", t) for t in (0.0, 0.2, 0.35)]
+          == [_sp59.frames_for("tool_running")[i] for i in (0, 1, 2)], "")
+    check("指示器：认不出的阶段退回默认（不抛）",
+          _sp59.frames_for("nope") == _sp59.frames_for(_sp59.DEFAULT_PHASE), "")
+    check("指示器：无动效时固定首帧（不动也能看出状态）",
+          _sp59.frame_at("reasoning", 5.0, reduced_motion=True)
+          == _sp59.frames_for("reasoning")[0], "")
+
+    # —— 卡住程度与颜色过渡 ——
+    check("卡住程度：阈值内为 0，之后递增，再过一倍时长到满",
+          _sp59.stall_level(2.9, 3.0) == 0.0
+          and 0.0 < _sp59.stall_level(4.5, 3.0) < 1.0
+          and _sp59.stall_level(99.0, 3.0) == 1.0, "")
+    check("卡住程度：坏参数不炸（按没卡住处理）",
+          _sp59.stall_level("x", 3.0) == 0.0, "")
+    check("颜色：真彩走平滑插值（中间值不等于两端）",
+          (lambda a, m, b: a != m and m != b)(
+              _sp59.stall_color(0.0, True), _sp59.stall_color(0.5, True),
+              _sp59.stall_color(1.0, True)), "")
+    check("颜色：低色深在过半处**离散**跳到告警红（降级后语义仍成立）",
+          _sp59.stall_color(0.4, False) == "\x1b[33m"
+          and _sp59.stall_color(0.9, False) == "\x1b[31m", "")
+    check("等待行：带字形、文案与秒数",
+          (lambda line: "正在读取 x.py" in line and "3s" in line)(
+              _sp59.spinner_line("reasoning", 3.4, 0, "正在读取 x.py")), "")
+    check("等待行：工具在跑时不做卡住判定（长命令不该被染成告警色）",
+          _sp59.stall_level(60.0, 3.0) > 0
+          and "\x1b[38;2" not in _sp59.spinner_line(
+              "tool_running", 60.0, 60.0, "跑测试", active_tool=True), "")
+    check("等待行：无动效 + 卡住时用**文字**编码（静态也能看出异常）",
+          "无响应" in _sp59.spinner_line("reasoning", 60.0, 60.0, "思考中",
+                                         reduced_motion=True), "")
+    check("等待行：按列截断（顶破终端会让 \\r 重绘错位）",
+          (lambda s: _dw51(s) <= 20)(
+              _sp59.spinner_line("reasoning", 3.4, 0, "很长的工具名" * 8, width=20)), "")
+
+    # —— 通知排队：优先级 / 超时 / 去重 ——
+    _q59 = _nt59.NoticeQueue()
+    _q59.push("普通提示", "low", now=0.0)
+    _q59.push("出错了", "high", now=0.1)
+    check("通知：高优先级插队（低优先级提示顶不掉错误）",
+          _q59.current(0.2).priority == "high", _q59.current(0.2))
+    _q59.push("出错了", "high", now=1.0)
+    check("通知：同文去重（重复提示不刷屏）", len(_q59) == 2, len(_q59))
+    check("通知：过期自动让位（高优先级 12 秒后消失）",
+          _q59.current(20.0) is None, _q59.current(20.0))
+    _q59.push("要你决定", "urgent", now=21.0)
+    check("通知：要人做决定的那种**不会自己消失**",
+          _q59.current(99999.0) is not None
+          and _q59.current(99999.0).priority == "urgent", "")
+    check("通知：容量上限会丢最旧的低优先级（通知区不是日志）",
+          (lambda q: (q.push("a", "low", now=1.0), q.push("b", "low", now=2.0),
+                      q.push("c", "low", now=3.0), q.push("d", "low", now=4.0),
+                      len(q) <= 3)[-1])(_nt59.NoticeQueue(max_items=3)), "")
+
+    # —— 终端通道：没有 TTY 就什么都不发 ——
+    class _FakeTTY(_io59.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    _tty59 = _FakeTTY()
+    _ch59 = _nt59.TerminalChannel(_tty59)
+    check("终端通道：有 TTY 时发标题（OSC 2）与桌面通知（OSC 9）",
+          _ch59.set_title("ACE · 3 轮") and _ch59.notify("跑完了", "ACE")
+          and _tty59.getvalue().count("\x1b]") == 2, "")
+    check("终端通道：三种通知约定都支持（osc9 / osc777 / osc99）",
+          _nt59.notify_sequence("x", "t", "osc777").startswith("\x1b]777;notify;")
+          and _nt59.notify_sequence("x", "t", "osc99").startswith("\x1b]99;;"), "")
+    check("终端通道：文本里的 BEL/ESC 被剔除（否则内容能截断一条通知）",
+          (lambda s: s.startswith("\x1b]9;") and s.count("\x1b") == 1
+           and s.count("\x07") == 1 and s.endswith("\x07"))(
+              _nt59.notify_sequence("a\x07b\x1bc")), "")
+    check("终端通道：非 TTY **一个字节都不发**（管道里不污染机器可读输出）",
+          _nt59.TerminalChannel(_io59.StringIO()).notify("x") is False
+          and _nt59.TerminalChannel(_io59.StringIO()).set_title("t") is False, "")
+    check("终端通道：ACE_NO_NOTIFY 关掉它（不想被系统通知打扰的用户）",
+          (lambda: (os.environ.__setitem__("ACE_NO_NOTIFY", "1"),
+                    _nt59.TerminalChannel(_FakeTTY()).notify("x") is False,
+                    os.environ.pop("ACE_NO_NOTIFY"))[1])(), "")
+
+    # —— CLI 接线 ——
+    _cli59 = _ai59.AgentCLI({"project_root": str(mktemp()), "permission": "write",
+                             "bait": False, "base_url": "", "api_key": "",
+                             "model": "m1"}, mock=True)
+    _buf59 = _io59.StringIO()
+    with _cl59.redirect_stdout(_buf59):
+        _cli59._notice("普通提示", "low")
+        _cli59._notice("要你决定", "urgent")
+    check("CLI：通知打成一行并带优先级标记",
+          "普通提示" in _buf59.getvalue() and "要你决定" in _buf59.getvalue(), "")
+    check("CLI：通知进队列，紧急的那条是当前该显示的",
+          len(_cli59.notices) == 2 and _cli59.notices.current().priority == "urgent", "")
+    check("CLI：空通知不入队（不打印空行）",
+          (lambda n: (n._notice("   "), len(n.notices) == 2)[1])(_cli59), "")
+    _cli59._set_title("等你确认")
+    _cli59._maybe_notify_done(5)
+    _cli59._maybe_notify_done(45)
+    check("CLI：非 TTY 下标题/系统通知都不发（管道里不留转义序列）",
+          _cli59.term.sent == [], _cli59.term.sent)
+    _src59 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("源码级：阶段指示器接在动画线程里（不是只有纯函数）",
+          "ace_spinner.spinner_line(" in _src59
+          and "active_tool=self.active_tool" in _src59, "")
+    check("源码级：需要授权时设标题并发系统通知（切到别的窗口也看得出要回来）",
+          'self._set_title(t("title_waiting"))' in _src59
+          and 'self.term.notify(t("notice_perm"' in _src59, "")
+    check("i18n：通知/标题三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("notice_perm", "notify_turn_done", "title_waiting")
+              for lg in ("zh", "en", "ja")), "")
+    _cli59.close()
 
     # ============================================================
 

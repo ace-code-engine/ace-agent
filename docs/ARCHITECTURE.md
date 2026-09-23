@@ -47,6 +47,8 @@ ace-agent/
 │   ├── ace_layout.py           #   布局/状态行/上下文可视化/任务树/首屏动效（纯函数，可配置分段）
 │   ├── ace_fullscreen.py       #   备用屏幕全屏会话：滚动区 + 状态行 + 输入行（输出经 stdout 收集器入列）
 │   ├── ace_menu.py             #   补全菜单模型：候选来源/排序/回车语义（两条渲染路径共用）
+│   ├── ace_spinner.py          #   等待指示器状态机：阶段字形/速度 + 卡住渐变 + 无动效降级
+│   ├── ace_notify.py           #   通知排队（优先级/去重/TTL）+ 终端标题与桌面通知通道
 │   ├── ace_prompt.py           #   无依赖输入行：菜单 + 历史 + 行编辑（按键来源可注入，可端到端测）
 │   ├── ace_keys.py             #   键位系统：内置语义键 + 用户覆盖 + 冲突警告 + 键位表（纯函数）
 │   ├── ace_vim.py              #   vim 子集：motions/operators/text objects + 行编辑器（纯函数）
@@ -121,7 +123,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.32.0.md #  本版更新介绍（可直接贴进 GitHub Release；运行环境一键准备）
+│   ├── RELEASE-NOTES-v3.33.0.md #  本版更新介绍（可直接贴进 GitHub Release；指示器状态机/通知通道）
+│   ├── RELEASE-NOTES-v3.32.0.md #  v3.32 更新介绍（运行环境一键准备）
 │   ├── RELEASE-NOTES-v3.31.0.md #  v3.31 更新介绍（授权时顺手记规则）
 │   ├── RELEASE-NOTES-v3.30.0.md #  v3.30 更新介绍（持久授权规则）
 │   ├── RELEASE-NOTES-v3.29.0.md #  v3.29 更新介绍（Esc 分层/防抖/Ctrl+T）

@@ -73,6 +73,8 @@ from ui import ace_keys  # noqa: E402  （键位系统：覆盖/冲突判定/键
 from ui import ace_term  # noqa: E402  （终端能力探测与自检向导）
 from ui import ace_menu  # noqa: E402  （补全菜单模型：候选从哪来/怎么排/回车语义）
 from ui import ace_prompt  # noqa: E402  （无依赖的输入行：菜单 + 历史 + 行编辑）
+from ui import ace_spinner  # noqa: E402  （等待指示器状态机：阶段字形 + 卡住渐变）
+from ui import ace_notify  # noqa: E402  （通知排队 + 终端标题/桌面通知通道）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 try:
@@ -1225,17 +1227,22 @@ def context_badge(usage: Dict[str, Any]) -> Tuple[str, str]:
 
 
 class _Spinner:
-    """状态行动画线程：◈ 思考中... 12s / ◈ 正在调用工具... 3s（每 0.12s 重绘）
+    """状态行动画线程：阶段化字形 + 已用时长 + **卡住时颜色渐变到告警红**。
 
-    带"已用时长"的理由：一次模型调用卡住几十秒时，用户唯一能判断"它在干活还是死了"
-    的依据，就是它在动 **并且** 动了多久。旧版只有动态点号，长时间等待看着像死机。
+    为什么要分阶段（`ui/ace_spinner`）："等首字节"和"模型长思考"在旧实现里长得一模一样，
+    用户只能靠读文字区分；现在扫光速度本身就是语义（等网络快、推理慢、工具执行另一套
+    脉冲），并且静默超时后颜色从主题色过渡到告警红 —— 不读任何文字也知道"不太对"。
     """
 
     def __init__(self, label: str = "思考中", verbs: Optional[List[str]] = None,
-                 reduce_motion: bool = False) -> None:
+                 reduce_motion: bool = False, phase: str = "reasoning",
+                 truecolor: bool = True) -> None:
         self._label = label
         self._verbs = list(verbs or [])
         self.reduce_motion = bool(reduce_motion)
+        self.phase = phase if phase in ace_spinner.PHASES else "reasoning"
+        self.truecolor = bool(truecolor)
+        self.active_tool = False
         self._stop_ev = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = 0.0
@@ -1244,6 +1251,15 @@ class _Spinner:
         self._pending_label = ""         # 被防抖挡下的文案，等窗口过去再换
         self.stalled = False             # 供 /status 之类读取（只读用途）
         self.soft_stalled = False
+
+    def set_phase(self, phase: str, active_tool: bool = False) -> None:
+        """换阶段（同时换字形与扫光速度）；`active_tool=True` 时不做卡住判定。
+
+        一条长命令跑 60 秒是正常的 —— 把它染成告警色只会教用户忽略颜色。
+        """
+        if phase in ace_spinner.PHASES:
+            self.phase = phase
+        self.active_tool = bool(active_tool)
 
     def set_label(self, label: str, progress: bool = True) -> None:
         """换阶段文案；`progress=True` 表示这算一次新进展（刷新停滞计时）。
@@ -1284,7 +1300,6 @@ class _Spinner:
         frame = 0
         while not self._stop_ev.is_set():
             now = time.monotonic()
-            secs = int(now - self._t0)
             idle = now - self._last_progress
             # 两档停滞：几秒没动静 → 安静标记；几十秒 → 明说可中断。有活跃工具时
             # 由调用方把 label 换掉（= 一次新进展），所以长命令不会被误判成卡死。
@@ -1299,12 +1314,12 @@ class _Spinner:
             label = self._label
             if self._verbs and not self.reduce_motion and frame >= 20:
                 label = self._verbs[(frame // 20) % len(self._verbs)]
-            # 直接调 ui 那一层（签名是 label/secs/phase）—— 本模块的 spinner_line
-            # 是给旧调用点留的兼容包装，参数顺序不同，别在这里混用。
-            _line = ace_layout.spinner_line(label, secs,
-                                            0 if self.reduce_motion else frame % 4,
-                                            stalled=self.stalled, width=_term_cols() - 1,
-                                            soft_stalled=self.soft_stalled)
+            # 阶段化指示器：字形/速度由阶段决定，颜色随卡住程度过渡到告警红。
+            # 工具在跑时不做卡住判定（长命令是正常的），避免教用户忽略颜色。
+            _line = ace_spinner.spinner_line(
+                self.phase, now - self._t0, idle, label,
+                reduced_motion=self.reduce_motion, truecolor=self.truecolor,
+                width=_term_cols() - 1, active_tool=self.active_tool)
             sys.stdout.write("\r" + _line + " " * 3)
             sys.stdout.flush()
             frame += 1
@@ -3245,6 +3260,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 拒绝理由（由 ask_grant 的回调写入、权限分支取走）：
         # 让"拒绝"带上给模型的一句话，而不是只丢一个"不行"
         self._deny_feedback: str = ""
+        # 通知区与终端通道：同时只显示一条通知（优先级 + 超时 + 去重），
+        # 并把"该回来了"这件事发到窗口标题/系统通知（没有 TTY 就什么都不发）
+        self.notices = ace_notify.NoticeQueue()
+        self.term = ace_notify.TerminalChannel()
         try:
             ask_grant.on_deny_feedback = self._record_deny_feedback
         except Exception:  # noqa: BLE001 —— 登记不上也不该影响启动
@@ -3588,6 +3607,39 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         display_meta=(item.desc or "")[:60])
 
         return AceCompleter()
+
+    def _notice(self, text: str, priority: str = "normal") -> None:
+        """往通知区放一条并打出来：**同时只显示一条**，按优先级与超时管理。
+
+        为什么要排队而不是直接 print：通知会互相盖（一条低优先级的提示能顶掉刚打出来的
+        错误）。这里先入队再让队列决定"此刻该显示哪条"，紧急的（要人做决定）不会自己消失。
+        """
+        if not str(text or "").strip():
+            return
+        self.notices.push(text, priority)
+        item = self.notices.current()
+        if item is None:
+            return
+        glyph = {"urgent": "‼", "high": "✗", "normal": "·", "low": "·"}.get(
+            str(priority), "·")
+        col = {"urgent": "yellow", "high": "red", "normal": "dim",
+               "low": "dim"}.get(str(priority), "dim")
+        print(c(col, f"  {glyph} {item.text}"))
+
+    def _set_title(self, suffix: str = "") -> None:
+        """设置窗口标题（`ACE · 模型 · 状态`）—— 切到别的窗口也能看出要不要回来。"""
+        model = "mock" if self.client.mock else (self.client.model or "?")
+        title = f"ACE · {model}"
+        if suffix:
+            title += f" · {suffix}"
+        self.term.set_title(title)
+
+    def _maybe_notify_done(self, secs: float) -> None:
+        """跑完一轮：长任务才发系统通知（坐在终端前的人不需要被通知打断）。"""
+        self._set_title(f"就绪 · {self.session['rounds']} 轮")
+        if float(secs) >= 30.0:
+            self.term.notify(t("notify_turn_done", sec=round(secs)),
+                             title="ACE")
 
     def _take_deny_feedback(self) -> str:
         """取出并清空"拒绝理由"（由 `ask_grant` 的回调写入）。
@@ -4758,6 +4810,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if self.json_mode:
                     self.events.emit("permission_request", tool=tool_name,
                                      reason=str(result.get("reason") or ""))
+                self._set_title(t("title_waiting"))
+                self._notice(t("notice_perm", tool=tool_name), "urgent")
+                self.term.notify(t("notice_perm", tool=tool_name), title="ACE")
                 print(c("yellow", "\n" + t("perm_request_title", tool=tool_name)))
                 if result.get("reason"):
                     print(c("dim", t("perm_reason", reason=result["reason"])))
@@ -4811,6 +4866,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                                      round=_round, sec=round(time.time() - t0, 3))
                 print(c("green", t("done", round=_round,
                                    sec=time.time() - t0)))
+                self._maybe_notify_done(time.time() - t0)
                 # 目标轮次驱动（借鉴 DSH goal-round-driver）：goal active+armed+预算内
                 # → 自动进入下一轮（不返回主界面），直到模型标记 complete/blocked、
                 # 预算耗尽或用户中断。start_round() 返回 None 即不可续。

@@ -9721,7 +9721,6 @@ if _want("62"):
     # ── [62] ────
     print("[62] 交互重构 —— 一轮的状态机 · 排队与两段式中断 · 作用域键位与和弦 · 组件界面驱动")
     # ============================================================
-    import ai_code as _ai62  # noqa: E402
     from ui import ace_keys as _keys62  # noqa: E402
     from ui import ace_turn as _turn62  # noqa: E402
 

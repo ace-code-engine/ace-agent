@@ -20,11 +20,13 @@ prompt_toolkit 的 `@kb.add` 上。于是"用户把 `c-o` 绑到别处"这种事
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
     "RESERVED_KEYS", "APP_BOUND_KEYS", "BUILTIN_KEYS", "KeyBinding",
     "KeyResolution", "resolve_bindings", "render_key_table", "KeyWarning",
+    "SCOPES", "ActionBinding", "APP_KEYMAP", "bindings_for", "help_rows",
+    "ChordMap", "CHORD_TIMEOUT",
 ]
 
 # 保命键：改掉它们等于把"发不出去/退不出来"写进配置（回车、Esc、Ctrl+C/D…）
@@ -182,3 +184,146 @@ def render_key_table(bindings: Sequence[KeyBinding], width: int = 0,
         lines.append(f"    {b.key:<22}{b.command}")
     lines.append(tr("keys_hint"))
     return lines
+
+
+# ============================================================
+# 作用域键位（上下文决定这一下按的是什么）+ 和弦 + 帮助
+# ============================================================
+#
+# 为什么要有"作用域"：同一个 `Esc` 在四个地方是四件事 —— 输入框里是清空/退出多行、
+# 菜单开着是收起菜单、有对话框是**按拒绝处理**、其余情况是收起面板。"一套全局键位"
+# 解释不了这件事，于是旧实现只能让 Esc"什么都做一点"或者干脆不做。作用域把
+# "此刻按下去会发生什么"变成一张可断言的表。
+#
+# 为什么要有"和弦"：`Ctrl+X` 之后接一个键做低频操作，比给每个低频功能抢一个
+# `Ctrl+字母` 好 —— 后者会把常用键位挤满，用户还得记住哪些被占了（真实终端里
+# `Ctrl+字母` 本来就没剩几个能用的）。
+
+SCOPES: Tuple[str, ...] = ("global", "prompt", "overlay", "dialog", "transcript")
+CHORD_TIMEOUT = 1.2                    # 和弦第一段的有效期（秒）
+
+
+class ActionBinding:
+    """一条**应用动作**键位：`key` → `action`（语义动作名，不是斜杠命令）。"""
+
+    __slots__ = ("key", "action", "desc_key", "scope", "chord")
+
+    def __init__(self, key: str, action: str, desc_key: str,
+                 scope: str = "global", chord: str = "") -> None:
+        self.key = str(key)
+        self.action = str(action)
+        self.desc_key = str(desc_key)
+        self.scope = scope if scope in SCOPES else "global"
+        self.chord = str(chord)        # 非空表示"这是和弦的第二段"
+
+    def __repr__(self) -> str:
+        return (f"ActionBinding({self.key!r} → {self.action!r}, "
+                f"scope={self.scope!r})")
+
+
+# 应用键位表：**唯一**来源。Textual 的 BINDINGS 与 `?` 帮助面板都从这里生成 ——
+# 两处各写一份的结果是"帮助里写着的键其实没绑"，那比没有帮助更坏。
+APP_KEYMAP: Tuple[ActionBinding, ...] = (
+    ActionBinding("enter", "submit", "key_submit", "prompt"),
+    ActionBinding("shift+tab", "cycle_permission", "key_cycle_perm", "prompt"),
+    ActionBinding("escape", "cancel", "key_cancel", "prompt"),
+    ActionBinding("up", "history_prev", "key_history", "prompt"),
+    ActionBinding("down", "history_next", "key_history", "prompt"),
+    ActionBinding("tab", "complete", "key_complete", "prompt"),
+    ActionBinding("ctrl+j", "newline", "key_newline", "prompt"),
+    ActionBinding("ctrl+r", "search_history", "key_search", "prompt"),
+    ActionBinding("ctrl+f", "find", "key_find", "global"),
+    ActionBinding("ctrl+o", "expand", "key_expand", "global"),
+    ActionBinding("ctrl+b", "toggle_board", "key_board", "global"),
+    ActionBinding("ctrl+l", "clear_transcript", "key_clear", "global"),
+    ActionBinding("ctrl+c", "interrupt", "key_interrupt", "global"),
+    ActionBinding("f1", "help", "key_help", "global"),
+    ActionBinding("f2", "toggle_thinking", "key_thinking", "global"),
+    ActionBinding("pageup", "scroll_up", "key_scroll", "transcript"),
+    ActionBinding("pagedown", "scroll_down", "key_scroll", "transcript"),
+    ActionBinding("ctrl+q", "quit", "key_quit", "global"),
+    # 和弦：低频操作不抢常用键
+    ActionBinding("ctrl+x", "chord_prefix", "key_chord", "global"),
+    ActionBinding("e", "expand_all", "key_expand_all", "global", chord="ctrl+x"),
+    ActionBinding("t", "tasks", "key_tasks", "global", chord="ctrl+x"),
+    ActionBinding("d", "diff", "key_diff", "global", chord="ctrl+x"),
+    ActionBinding("1", "dialog_1", "key_dialog_1", "dialog"),
+    ActionBinding("2", "dialog_2", "key_dialog_2", "dialog"),
+    ActionBinding("3", "dialog_3", "key_dialog_3", "dialog"),
+)
+
+
+def bindings_for(scope: str, keymap: Sequence[ActionBinding] = APP_KEYMAP
+                 ) -> List[ActionBinding]:
+    """当前作用域生效的键位：本作用域的 + `global` 的（global 永远兜底）。"""
+    s = str(scope or "")
+    return [b for b in keymap if b.scope == s or b.scope == "global"]
+
+
+def help_rows(scope: str = "", translate: Optional[Callable[[str], str]] = None,
+              keymap: Sequence[ActionBinding] = APP_KEYMAP
+              ) -> List[Tuple[str, str, str]]:
+    """帮助面板的行：`(作用域, 键, 说明)`。按作用域分组，顺序与表里一致。
+
+    帮助是**生成**的，不是手写的：加了键位忘了写帮助，用户就当它不存在。
+    """
+    tr = translate or (lambda k: k)
+    out: List[Tuple[str, str, str]] = []
+    want = str(scope or "")
+    for b in keymap:
+        if want and b.scope != want:
+            continue
+        key = f"{b.chord} {b.key}".strip() if b.chord else b.key
+        out.append((b.scope, key, tr(b.desc_key)))
+    return out
+
+
+class ChordMap:
+    """和弦解析：`Ctrl+X` 之后按 `e` → `expand_all`。
+
+    `feed()` 返回 `(action, pending)`：`pending=True` 表示"第一段已吃下，等第二段"。
+    超时（`CHORD_TIMEOUT`）或按了没登记的键 → 这一段作废，且**不吞掉**这个键
+    （返回 `("", False)`，调用方照常处理它）—— 吞键是"我按了没反应"的经典来源。
+    """
+
+    def __init__(self, keymap: Sequence[ActionBinding] = APP_KEYMAP,
+                 timeout: float = CHORD_TIMEOUT) -> None:
+        self.timeout = float(timeout)
+        self.prefix: Dict[str, Dict[str, str]] = {}
+        self.prefix_actions: Dict[str, str] = {}
+        for b in keymap:
+            if b.chord:
+                self.prefix.setdefault(b.chord, {})[b.key] = b.action
+            else:
+                self.prefix_actions[b.key] = b.action
+        self._armed: Optional[str] = None
+        self._t0 = 0.0
+
+    def feed(self, key: str, now: float) -> Tuple[str, bool]:
+        k = str(key or "")
+        if self._armed:
+            table = self.prefix.get(self._armed, {})
+            self._armed = None
+            if k in table:
+                return table[k], False
+            return "", False              # 第二段不认识：不吞键，交给调用方
+        if k in self.prefix:
+            self._armed = k
+            self._t0 = float(now)
+            return "", True
+        return "", False
+
+    def expired(self, now: float) -> bool:
+        if self._armed and (float(now) - self._t0) > self.timeout:
+            self._armed = None
+            return True
+        return False
+
+    @property
+    def armed(self) -> Optional[str]:
+        return self._armed
+
+    def label(self) -> str:
+        """第一段按下后底栏该显示的提示（"Ctrl+X … 等第二个键"）。"""
+        return self._armed or ""
+

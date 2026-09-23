@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61"]
+             "55", "56", "57", "58", "59", "60", "61", "62"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9714,6 +9714,380 @@ if _want("61"):
           f"未登记 {sorted(_all_frames61 - _known61)}")
     check("[61] 演示图把转轮帧归一（帧号与「卡住」渐变色都是采集时机，不是会话内容）",
           "_canon_spinner(" in _demo61 and "if _SPINNER_RE.match(plain):" in _demo61, "")
+
+    # ============================================================
+
+if _want("62"):
+    # ── [62] ────
+    print("[62] 交互重构 —— 一轮的状态机 · 排队与两段式中断 · 作用域键位与和弦 · 组件界面驱动")
+    # ============================================================
+    import ai_code as _ai62  # noqa: E402
+    from ui import ace_keys as _keys62  # noqa: E402
+    from ui import ace_turn as _turn62  # noqa: E402
+
+    class _Clock62:
+        """假时钟：每次读推进 0.01s（授权那一档要「来得太快」的确定性）。"""
+        def __init__(self) -> None:
+            self.t = 0.0
+
+        def __call__(self) -> float:
+            self.t += 0.01
+            return self.t
+
+    # —— 状态机：忙时输入不丢 ——
+    _c62 = _turn62.TurnController(now=_Clock62())
+    _r62 = _c62.submit("第一句")
+    check("[62] 状态机：空闲时提交立刻开跑（不是「排队等谁来拿」）",
+          _r62.action == "run" and _c62.busy() and _c62.state == _turn62.BUSY, _r62)
+    _r62 = _c62.submit("第二句")
+    check("[62] 状态机：忙的时候输入**入队**（丢输入是最伤的一种「没反应」）",
+          _r62.action == "queued" and _c62.queue == ["第二句"], _r62)
+    _c62.submit("第三句")
+    check("[62] 状态机：队首先进先出，轮末交还给宿主",
+          _c62.finish() == "第二句" and _c62.queue == ["第三句"], _c62.queue)
+    check("[62] 状态机：交还一条之后状态回到空闲（宿主据此立刻接着跑）",
+          _c62.state == _turn62.IDLE and _c62.turns == 1, _c62.state)
+    _c62.begin()
+    _c62.finish()                    # 把残留的"第三句"交还掉
+    _c62.begin()
+    check("[62] 状态机：空队列的 finish 返回 None（宿主不会空跑一轮）",
+          _c62.finish() is None, "")
+    check("[62] 状态机：空输入如实拒绝（不静默吞掉，也不当成一轮）",
+          _c62.submit("   ").action == "rejected", "")
+    _c62.begin()
+    for _i in range(_turn62.MAX_QUEUE):
+        _c62.submit(f"q{_i}")
+    _full62 = _c62.submit("再来一条")
+    check("[62] 状态机：队列有上限，满了如实拒绝（reason 说明原因，不是静默丢）",
+          _full62.action == "rejected" and _full62.reason == "queue_full"
+          and len(_c62.queue) == _turn62.MAX_QUEUE, _full62)
+
+    # —— 两段式中断 ——
+    _c62 = _turn62.TurnController(now=_Clock62())
+    check("[62] 中断：空闲时按下去什么都不做（不误报「已中断」）",
+          _c62.interrupt().action == "none", "")
+    _c62.submit("干活")
+    _i62 = _c62.interrupt()
+    check("[62] 中断：第一下是「请求」——跑完当前这一步就停，能拿到半截结果",
+          _i62.action == "requested" and _c62.stop_requested()
+          and not _c62.abandoned, _i62)
+    _i62 = _c62.interrupt()
+    check("[62] 中断：第二下才是「放弃本轮」（界面立刻可用，输出作废）",
+          _i62.action == "forced" and _c62.abandoned and _c62.discard_output()
+          and _c62.state == _turn62.IDLE, _i62)
+    _c62.submit("中断之后还能继续用")
+    check("[62] 中断：放弃之后新输入照常能开新一轮（状态没被卡住）",
+          _c62.busy() and not _c62.abandoned, _c62.snapshot())
+    _idle62 = _turn62.TurnController(now=_Clock62())
+    _idle62.submit("干活")
+    _idle62.submit("排队的那条")
+    _idle62.interrupt()          # 请求
+    _idle62.interrupt()          # 放弃 → 状态回 idle，队列里那条还在
+    _drop62 = _idle62.interrupt()
+    check("[62] 中断：空闲但有排队时，这一下是「把排队的撤了」（用户按 Esc 的直觉）",
+          _drop62.action == "forced" and _idle62.queue == [], _drop62)
+
+    # —— 授权：宽限期在这个层级同样成立 ——
+    _clock62 = _Clock62()
+    _perm62 = _turn62.TurnController(now=_clock62, grace_ms=200)
+    _opts62 = _perm62.ask_permission("terminal_exec", "要跑命令")
+    check("[62] 授权：弹窗即进入 permission 状态，选项就是界面上那三行",
+          _perm62.state == _turn62.PERMISSION and len(_opts62) == 3
+          and _opts62[0][0] == "once" and _opts62[1][0] == "session"
+          and _opts62[2][0] == "deny", _opts62)
+    check("[62] 授权：来得太快的答案不被采纳（飞行回车 = 没回答，不是放行）",
+          _perm62.answer_permission(1) is None and _perm62.discarded == 1
+          and _perm62.state == _turn62.PERMISSION, _perm62.snapshot())
+    _slow62 = _turn62.TurnController(now=lambda: _slow62_t[0], grace_ms=200)
+    _slow62_t = [0.0]
+    _slow62.ask_permission("file_write")
+    _slow62_t[0] = 5.0               # 人读完选项再答：远超宽限期
+    check("[62] 授权：正常作答返回选项值并收回忙态",
+          _slow62.answer_permission(1) == "session"
+          and _slow62.state == _turn62.BUSY, _slow62.state)
+    _slow62.ask_permission("file_write")
+    _slow62_t[0] = 10.0
+    check("[62] 授权：Esc 关掉对话框 = **拒绝**（危险对话框里关掉不能等于放行）",
+          _slow62.cancel_permission() == "deny", "")
+    check("[62] 授权：要人决定的那一档（本会话）在选项里被标成 danger（界面上要显眼）",
+          _turn62.PERMISSION_OPTIONS[1][2] is True
+          and _turn62.PERMISSION_OPTIONS[0][2] is False, _turn62.PERMISSION_OPTIONS)
+
+    # —— 提示语与快照 ——
+    _snap62 = _turn62.TurnController(now=_Clock62())
+    _h62 = _snap62.hint(lambda k: k)
+    check("[62] 提示：空闲时说清「回车发送 / 命令 / 引用 / 帮助」（不写菜单，写一句话）",
+          _h62 == "turn_hint_idle", _h62)
+    _snap62.submit("x")
+    _snap62.submit("y")
+    from ui.i18n import t as _t62  # noqa: E402
+    _busy_hint62 = _snap62.hint(_t62)
+    check("[62] 提示：忙时告诉用户「再打就是排队」并给出已排数量（{n} 真被填上）",
+          "{n}" not in _busy_hint62 and "1" in _busy_hint62, _busy_hint62)
+    _fields62 = _snap62.snapshot()
+    check("[62] 快照：底栏要的字段一次给全（状态/忙/队列/轮次/耗时/工具/中断）",
+          set(_fields62) >= {"state", "busy", "queued", "turn", "elapsed", "tool",
+                             "interrupt", "abandoned", "permission"}, sorted(_fields62))
+
+    # —— 权限档位环 ——
+    check("[62] 档位环：readonly → write → full → readonly（Shift+Tab 沿着它转）",
+          _turn62.next_permission("readonly") == "write"
+          and _turn62.next_permission("write") == "full"
+          and _turn62.next_permission("full") == "readonly"
+          and _turn62.next_permission("full", -1) == "write", "")
+    check("[62] 档位环：写坏的档位落回第一档（不抛异常，也不乱跳）",
+          _turn62.next_permission("banana") == "readonly"
+          and _turn62.next_permission("") == "readonly", "")
+    check("[62] 档位环：只有 full 需要二次确认（一个快捷键不该解除全部审批）",
+          _turn62.needs_confirm("full") and not _turn62.needs_confirm("write")
+          and not _turn62.needs_confirm("readonly"), "")
+    _tpl62 = {"mode_switch": "权限 → {mode}：{what}", "mode_write": "可写（仍逐次问）",
+              "mode_sandbox_suffix": " · 沙箱 {sandbox}"}
+    _ban62 = _turn62.permission_banner("write", "off", lambda k: _tpl62.get(k, k))
+    check("[62] 档位提示：说清「这一档意味着什么」，不是只报一个新值",
+          "write" in _ban62 and "可写" in _ban62 and "沙箱 off" in _ban62, _ban62)
+
+    # —— 作用域键位 + 和弦 ——
+    _prompt62 = {b.action for b in _keys62.bindings_for("prompt")}
+    _dialog62 = {b.action for b in _keys62.bindings_for("dialog")}
+    check("[62] 键位：作用域决定这一下按的是什么（对话框里有 1/2/3，输入框里没有）",
+          "dialog_1" in _dialog62 and "dialog_1" not in _prompt62
+          and "submit" in _prompt62, sorted(_prompt62))
+    check("[62] 键位：global 永远兜底（不管在哪个作用域，Ctrl+C 都是中断）",
+          "interrupt" in _prompt62 and "interrupt" in _dialog62
+          and "interrupt" in {b.action for b in _keys62.bindings_for("transcript")}, "")
+    _rows62 = _keys62.help_rows(translate=lambda k: k)
+    _acts62 = {b.action for b in _keys62.APP_KEYMAP}
+    check("[62] 帮助是**生成**的：键位表里每一条都在帮助里（加了键位忘写帮助=用户当它不存在）",
+          len(_rows62) == len(_keys62.APP_KEYMAP)
+          and {r[2] for r in _rows62} == {b.desc_key for b in _keys62.APP_KEYMAP}
+          and len(_acts62) == len(_keys62.APP_KEYMAP), len(_rows62))
+    _chord62 = _keys62.ChordMap()
+    check("[62] 和弦：第一段吃下后是「待续」，第二段才出动作",
+          _chord62.feed("ctrl+x", 0.0) == ("", True) and _chord62.armed == "ctrl+x"
+          and _chord62.feed("e", 0.1) == ("expand_all", False), _chord62.armed)
+    check("[62] 和弦：第二段不认识时不吞键（吞键就是「我按了没反应」）",
+          _chord62.feed("ctrl+x", 0.0) == ("", True)
+          and _chord62.feed("z", 0.1) == ("", False), "")
+    _chord62.feed("ctrl+x", 0.0)
+    check("[62] 和弦：超时作废（不把用户永久留在「待续」状态）",
+          _chord62.expired(9.0) and _chord62.armed is None, _chord62.armed)
+
+    # —— 桥接：活尾行（模型边吐字边上屏）——
+    from tui.bridge import EngineBridge as _Bridge62  # noqa: E402
+    _lines62: list = []
+    _partials62: list = []
+    _b62 = _Bridge62(_lines62.extend, partial=_partials62.append)
+    _b62.write("◈ 正在写")
+    check("[62] 桥接：没有换行的写 → 交给「活尾行」，不落成正式行",
+          _lines62 == [] and _partials62[-1] == "◈ 正在写", (_lines62, _partials62))
+    _b62.write("下去\n")
+    check("[62] 桥接：换行那一刻才落成正式行，并把活尾行清空（不会留半句残影）",
+          _lines62 == ["◈ 正在写下去"] and _partials62[-1] == "", (_lines62, _partials62))
+    _b62.write("尾部")
+    _b62.flush()
+    check("[62] 桥接：flush 把尾巴补成正式行，并清掉活尾行",
+          _lines62[-1] == "尾部" and _partials62[-1] == "", (_lines62, _partials62))
+
+    # —— CLI 接线：宿主协议与中断 ——
+    _cli62 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("[62] 源码级：界面挂上来之后，授权走界面（终端路径不再跟界面抢 stdin）",
+          "def attach_ui(self, host)" in _cli62
+          and "ui.ask_permission(tool_name, reason," in _cli62
+          and "decision = self._ask_permission(" in _cli62, "")
+    check("[62] 源码级：中断在**轮边界**与**工具执行前**生效（不在半路扔线程）",
+          "def request_stop(self)" in _cli62
+          and "if self._stop_requested():" in _cli62
+          and "interrupt_before_tool" in _cli62, "")
+    check("[62] 源码级：Shift+Tab 走的是与 /permission 同一条落地路径（upgrade）",
+          "def set_permission(self, mode: str)" in _cli62
+          and "self.el.permission.upgrade(target)" in _cli62, "")
+    check("[62] 源码级：装了 textual 且是真终端时**默认**就是组件界面，--no-tui 可关",
+          "def _tui_default_ok(args)" in _cli62
+          and "not getattr(args, \"no_tui\", False)" in _cli62
+          and 'parser.add_argument("--no-tui"' in _cli62, "")
+    check("[62] 源码级：机器可读/一次性路径不会被全屏界面劫持（--json / --input / 管道）",
+          'if getattr(args, "json", False) or getattr(args, "input", None):' in _cli62
+          and "not (sys.stdin.isatty() and sys.stdout.isatty())" in _cli62, "")
+    check("[62] i18n：交互层新键三语齐全（档位/提示/键位说明/界面文案）",
+          all(all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(
+              encoding="utf-8")
+              for k in ("turn_hint_busy", "mode_full", "key_interrupt", "perm_opt_session",
+                        "tui_queued", "tui_interrupting", "interrupt_before_tool"))
+              for lg in ("zh", "en", "ja")), "")
+
+    # —— 组件界面（Textual）：真按键驱动 ——
+    try:
+        from tui import tui_available as _tui_avail62
+        _TUI62 = bool(_tui_avail62())
+    except Exception:  # noqa: BLE001
+        _TUI62 = False
+    if not _TUI62:
+        skip("Textual 界面（排队 / 两段式中断 / 授权模态 / 档位环 / 补全 / 帮助浮层）",
+             "未安装 textual（python setup_env.py --ensure）")
+    else:
+        import asyncio as _aio62  # noqa: E402
+        from tui.app import AceTuiApp as _App62  # noqa: E402
+
+        class _Host62:
+            """假宿主：只实现界面真正会调的那几个方法。"""
+            def __init__(self) -> None:
+                from ui import ace_tools
+                self.perm = "readonly"
+                self._board = ace_tools.ToolBoard()
+                self.stops = 0
+
+            def attach_ui(self, host) -> None:
+                self.ui = host
+
+            def get_permission(self) -> str:
+                return self.perm
+
+            def set_permission(self, mode: str) -> str:
+                self.perm = mode
+                return mode
+
+            def request_stop(self) -> None:
+                self.stops += 1
+
+        async def _drive62():
+            _host62 = _Host62()
+            _calls62: list = []
+            _release62 = _threading62.Event()
+
+            def _engine62(line: str) -> None:
+                _calls62.append(line)
+                if line == "慢":
+                    print("开始慢活")
+                    _release62.wait(timeout=5)      # 卡住，模拟「还在跑」
+                    print("慢活结束")
+                else:
+                    print(f"答：{line}")
+
+            _app62 = _App62(engine=_engine62,
+                            status_provider=lambda: [("c", " mock ")],
+                            translate=lambda k, **kw: (k.format(**kw) if kw else k),
+                            command_table={"/help": "cmd_help"},
+                            on_stop=_host62.request_stop, ui_host=_host62)
+            _out62: dict = {}
+            async with _app62.run_test(size=(100, 32)) as _pilot62:
+                # 正常一轮
+                await _pilot62.press(*"你好")
+                await _pilot62.press("enter")
+                await _pilot62.pause(0.4)
+                _body62 = [str(w.render()) for w in _app62.query_one("#body").children]
+                _out62["body"] = _body62
+
+                # 忙时输入 → 排队；跑完自动接着跑
+                _release62.clear()
+                await _pilot62.press(*"慢")
+                await _pilot62.press("enter")
+                await _pilot62.pause(0.3)
+                await _pilot62.press(*"排队")
+                await _pilot62.press("enter")
+                await _pilot62.pause(0.2)
+                _out62["queued"] = _app62.turn.snapshot()["queued"]
+                _out62["status_busy"] = _app62._status_text()
+                _release62.set()
+                await _pilot62.pause(0.8)
+                _out62["calls"] = list(_calls62)
+                _out62["queued_after"] = _app62.turn.snapshot()["queued"]
+
+                # 两段式中断
+                _release62.clear()
+                await _pilot62.press(*"慢")
+                await _pilot62.press("enter")
+                await _pilot62.pause(0.3)
+                _app62.action_interrupt()
+                _out62["interrupt1"] = (_app62.turn.interrupt_state, _host62.stops)
+                _app62.action_interrupt()
+                _out62["interrupt2"] = (_app62.turn.state, _app62.turn.abandoned)
+                _release62.set()
+                await _pilot62.pause(0.5)
+
+                # 授权模态：方向键 + 回车
+                import threading as _t62
+                _ans62: dict = {}
+
+                def _ask62():
+                    _ans62["v"] = _app62.ask_permission("terminal_exec", "要跑命令", None)
+
+                _th62 = _t62.Thread(target=_ask62, daemon=True)
+                _th62.start()
+                await _pilot62.pause(0.4)
+                _out62["modal"] = type(_app62.screen).__name__
+                await _pilot62.press("down")
+                await _pilot62.press("enter")
+                await _pilot62.pause(0.3)
+                _th62.join(timeout=3)
+                _out62["answer"] = _ans62.get("v")
+                _out62["focus_after"] = type(_app62.focused).__name__
+
+                # 档位环：Shift+Tab 要按两次才进 full（第二次是确认）
+                _app62.action_cycle_permission()
+                _out62["perm1"] = _host62.perm
+                _app62.action_cycle_permission()
+                _out62["perm_full_first"] = _host62.perm
+                _app62.action_cycle_permission()
+                _out62["perm_full_second"] = _host62.perm
+
+                # 补全：/he → Tab → /help
+                _app62.query_one("#prompt").value = "/he"
+                _app62._refresh_palette("/he")
+                await _pilot62.pause(0.1)
+                _out62["menu_open"] = bool(_app62._menu and _app62._menu.open)
+                await _pilot62.press("tab")
+                await _pilot62.pause(0.1)
+                _out62["completed"] = _app62.query_one("#prompt").value
+
+                # 帮助浮层
+                _app62.query_one("#prompt").value = ""
+                _before62 = len(_app62.query_one("#body").children)
+                await _pilot62.press("f1")
+                await _pilot62.pause(0.2)
+                _out62["help_screen"] = type(_app62.screen).__name__
+                await _pilot62.press("escape")
+                await _pilot62.pause(0.1)
+                _out62["help_closed"] = type(_app62.screen).__name__
+                _out62["body_untouched"] = len(_app62.query_one("#body").children) == _before62
+
+                # 活尾行：引擎写半行
+                _out62["live_before"] = str(_app62.query_one("#live").render())
+            return _out62
+
+        import threading as _threading62  # noqa: E402
+        _res62 = _aio62.run(_drive62())
+        check("[62] 界面：输入 → 引擎 → 转写区（与 REPL 同一套引擎，界面只管画）",
+              any("❯ 你好" in t for t in _res62["body"])
+              and any("答：你好" in t for t in _res62["body"]), _res62["body"][:4])
+        check("[62] 界面：跑着的时候打字 → 入队，并且底栏报出来",
+              _res62["queued"] == 1 and ("tui_status_queue" in _res62["status_busy"]
+                                         or "队列" in _res62["status_busy"]),
+              (_res62["queued"], _res62["status_busy"]))
+        check("[62] 界面：这一轮跑完**自动**接着跑排队的那条（不用再敲一次回车）",
+              _res62["calls"] == ["你好", "慢", "排队"] and _res62["queued_after"] == 0,
+              _res62["calls"])
+        check("[62] 界面：中断第一下 = 请求（并且真的通知了引擎侧停机）",
+              _res62["interrupt1"][0] == "requested" and _res62["interrupt1"][1] == 1,
+              _res62["interrupt1"])
+        check("[62] 界面：中断第二下 = 放弃本轮，界面立刻回到可用",
+              _res62["interrupt2"] == ("idle", True), _res62["interrupt2"])
+        check("[62] 界面：授权是**模态**框（不是让用户在输入框里手打 1/2/3）",
+              _res62["modal"] == "PermissionScreen", _res62["modal"])
+        check("[62] 界面：方向键选到第二项 → 回车 → 拿到 session（与选项表对齐）",
+              _res62["answer"] == "session", _res62["answer"])
+        check("[62] 界面：对话框关掉后焦点回到输入框（草稿不丢、能直接接着打）",
+              _res62["focus_after"] == "Input", _res62["focus_after"])
+        check("[62] 界面：Shift+Tab 转档；进 full 要多按一次（确认）",
+              _res62["perm1"] == "write" and _res62["perm_full_first"] == "write"
+              and _res62["perm_full_second"] == "full",
+              (_res62["perm1"], _res62["perm_full_first"], _res62["perm_full_second"]))
+        check("[62] 界面：补全浮层活着，Tab 把 /he 补成 /help（不发送）",
+              _res62["menu_open"] and _res62["completed"] == "/help",
+              (_res62["menu_open"], _res62["completed"]))
+        check("[62] 界面：F1 是**浮层**帮助，Esc 关掉，会话区不被刷掉",
+              _res62["help_screen"] == "HelpScreen"
+              and _res62["help_closed"] == "Screen" and _res62["body_untouched"], _res62)
 
     # ============================================================
 

@@ -51,6 +51,7 @@ ace-agent/
 │   ├── ace_notify.py           #   通知排队（优先级/去重/TTL）+ 终端标题与桌面通知通道
 │   ├── ace_grace.py            #   危险对话框的防误触宽限期：飞行按键不算放行（纯逻辑，时钟可注入）
 │   ├── ace_tools.py            #   工具看板：四态点（排队/在跑/完成/失败）+ 同帧同步 + 只重画变化行
+│   ├── ace_turn.py             #   一轮的交互状态机：忙时入队、两段式中断、授权选项、档位环（纯逻辑）
 │   ├── ace_prompt.py           #   无依赖输入行：菜单 + 历史 + 行编辑（按键来源可注入，可端到端测）
 │   ├── ace_keys.py             #   键位系统：内置语义键 + 用户覆盖 + 冲突警告 + 键位表（纯函数）
 │   ├── ace_vim.py              #   vim 子集：motions/operators/text objects + 行编辑器（纯函数）
@@ -129,7 +130,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.35.1.md #  本版更新介绍（可直接贴进 GitHub Release；演示图不再随采集时机漂移）
+│   ├── RELEASE-NOTES-v3.36.0.md #  本版更新介绍（可直接贴进 GitHub Release；交互重构：排队/中断/模态/键位）
+│   ├── RELEASE-NOTES-v3.35.1.md #  v3.35.1 更新介绍（演示图不再随采集时机漂移）
 │   ├── RELEASE-NOTES-v3.35.0.md #  v3.35 更新介绍（防误触宽限期/工具看板）
 │   ├── RELEASE-NOTES-v3.34.0.md #  v3.34 更新介绍（组件化界面/环境自带）
 │   ├── RELEASE-NOTES-v3.33.0.md #  v3.33 更新介绍（指示器状态机/通知通道）

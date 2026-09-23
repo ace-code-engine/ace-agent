@@ -24,10 +24,13 @@ class EngineBridge:
     """引擎照常 `print`，界面按行挂组件。
 
     `post` 是界面注入的回调：`post(lines: list[str]) -> None`。
+    `partial` 是可选的第二回调：`partial(text: str) -> None` —— 收到**没有换行的**
+    写时通知界面"这一行还在长"，界面把它显示成一条活的尾行（模型边吐字边显示）。
     """
 
-    def __init__(self, post) -> None:
+    def __init__(self, post, partial=None) -> None:
         self.post = post
+        self.partial = partial
         self._buf = ""
         self.dropped = 0
 
@@ -45,12 +48,19 @@ class EngineBridge:
             lines.append(strip_ansi(line))
         if lines:
             self.post(lines)
+            if self.partial is not None:
+                self.partial(strip_ansi(self._buf))     # 行尾残留 → 活的尾行
+        elif self.partial is not None and self._buf:
+            self.partial(strip_ansi(self._buf))
         return len(s)
 
     def flush(self) -> None:
         if self._buf:
             tail, self._buf = self._buf, ""
             self.post([strip_ansi(tail)])
+        if self.partial is not None:
+            self.partial("")
+
 
     def isatty(self) -> bool:
         return False

@@ -76,6 +76,7 @@ from ui import ace_prompt  # noqa: E402  （无依赖的输入行：菜单 + 历
 from ui import ace_spinner  # noqa: E402  （等待指示器状态机：阶段字形 + 卡住渐变）
 from ui import ace_notify  # noqa: E402  （通知排队 + 终端标题/桌面通知通道）
 from ui import ace_tools  # noqa: E402  （工具看板：四态点 + 同帧同步 + 只重画变化行）
+from ui import ace_turn  # noqa: E402  （一轮的交互状态机：排队/两段式中断/授权选项）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 try:
@@ -3274,6 +3275,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 工具看板：这一问里的工具四态（排队/在跑/完成/失败）。一次请求一份，
         # 收尾时清掉已完成的 —— 看板是"现在进行到哪"，明细归工具卡片。
         self._board = ace_tools.ToolBoard()
+        # 中断与界面宿主：全屏界面挂进来之后，授权对话框、档位切换、中断都走它。
+        # 没有界面（普通 REPL）时这两个都不存在，一切照旧走终端问答。
+        self._stop_event = threading.Event()
+        self._ui = None
         try:
             ask_grant.on_deny_feedback = self._record_deny_feedback
         except Exception:  # noqa: BLE001 —— 登记不上也不该影响启动
@@ -3664,6 +3669,77 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     def _record_deny_feedback(self, text: str) -> None:
         self._deny_feedback = str(text or "")[:400]
+
+    # ---------- 界面宿主（全屏界面挂进来之后的三个入口）----------
+
+    def attach_ui(self, host) -> None:
+        """全屏界面把自己挂上来：授权、档位、中断从此走界面，不再抢 stdin。
+
+        为什么需要这条反向的路：引擎跑在别的线程里，而"要不要授权"这件事必须问人 ——
+        在终端里那是 `input()`，在全屏界面里 stdin 已经归界面所有，`input()` 会和
+        界面抢同一份按键。所以由界面提供一个"提问"接口，引擎线程阻塞等答案。
+        """
+        self._ui = host
+
+    def get_permission(self) -> str:
+        """当前权限档位（界面 Shift+Tab 沿环转档时读它）。"""
+        return str(self.cfg.get("permission", "readonly") or "readonly")
+
+    def set_permission(self, mode: str) -> str:
+        """改权限档位并同步到执行层（与 `/permission <档>` 走同一条落地路径）。"""
+        target = str(mode or "").strip().lower()
+        if target not in ("readonly", "write", "full"):
+            return self.get_permission()
+        self.cfg["permission"] = target
+        try:
+            self.el.permission.upgrade(target)
+        except Exception:  # noqa: BLE001 —— 执行层没这个接口时至少配置改了
+            try:
+                self.el.permission.mode = target
+            except Exception:  # noqa: BLE001
+                pass
+        return target
+
+    def request_stop(self) -> None:
+        """请求中断当前这一轮：引擎在轮边界与工具执行前检查它，跑完当前步就停。
+
+        为什么不做"直接杀线程"：工具跑到一半被扔掉，快照/会话日志会停在一个
+        不一致的位置上 —— 那不是响应快，是留烂摊子。
+        """
+        self._stop_event.set()
+
+    def _stop_requested(self) -> bool:
+        if self._stop_event.is_set():
+            return True
+        ui = self._ui
+        if ui is not None:
+            turn = getattr(ui, "turn", None)
+            if turn is not None and getattr(turn, "stop_requested", None):
+                try:
+                    return bool(turn.stop_requested())
+                except Exception:  # noqa: BLE001
+                    return False
+        return False
+
+    def clear_stop(self) -> None:
+        self._stop_event.clear()
+
+    def _ask_permission(self, tool_name: str, reason: str) -> str:
+        """问人要不要授权：有界面走界面的模态框，没有就回落到终端问答。
+
+        两条路都过 `ui/ace_grace` 的防误触宽限期（终端那条在 `ask_grant` 里，
+        界面那条在 `ui/ace_turn` 里）—— 不能因为"走的是哪条路"而少一层保护。
+        """
+        ui = self._ui
+        if ui is not None and hasattr(ui, "ask_permission"):
+            try:
+                return str(ui.ask_permission(tool_name, reason,
+                                             ace_turn.PERMISSION_OPTIONS) or "deny")
+            except Exception:  # noqa: BLE001 —— 界面答不了就回落，不把流程卡死
+                pass
+        return ask_grant(c("yellow", t("perm_approve_q")),
+                         lambda: print(c("dim", t("auto_deny_perm"))),
+                         grace_hint=c("dim", t("grace_inflight")))
 
     def _expand_all(self) -> bool:
         """「全部展开」开关（`/expandall` 或 Ctrl+E）：卡片不折叠、diff 不截断、思考照显。
@@ -4743,7 +4819,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._round_tools: List[Tuple[str, str, float, Optional[int]]] = []
         # 看板按"一问"重置：上一问的残留行留在屏幕上只会让人以为它还在跑
         self._board = ace_tools.ToolBoard()
+        self.clear_stop()          # 新的一问：上一轮的中断请求不该影响它
         for _round in range(1, MAX_ROUNDS + 1):
+            if self._stop_requested():
+                # 中断请求：在**轮边界**停下来（不在工具跑到一半时扔掉线程，
+                # 否则快照与会话日志会停在不一致的位置）
+                print(c("yellow", "\n" + t("interrupted")))
+                return
             _blocks = [im["block"] for im in self._pending_images]
             _user_msg = ace_model.compose_user_message(
                 next_user, _blocks, self.client.api_format) if _blocks else \
@@ -4793,6 +4875,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                             if disp["state"]["state"] == "tool" else None)
             if exec_spinner:
                 exec_spinner.start()
+            if self._stop_requested() and _tool_name:
+                # 中断请求 + 这一步要动工具：**这一个工具不执行**（这是"跑完当前步就停"
+                # 里最有价值的那半 —— 停在一个工具**之前**，比停在它后面干净）
+                if exec_spinner:
+                    exec_spinner.stop(newline=True)
+                self._board.finish(_tool_name, _tool_target, ok=False,
+                                   note=t("interrupted"))
+                print(c("yellow", "\n" + t("interrupt_before_tool", tool=_tool_name)))
+                return
             try:
                 result = self.el.process_agent_output(output, user_input)
             except KeyboardInterrupt:
@@ -4849,9 +4940,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 print(c("yellow", "\n" + t("perm_request_title", tool=tool_name)))
                 if result.get("reason"):
                     print(c("dim", t("perm_reason", reason=result["reason"])))
-                decision = ask_grant(c("yellow", t("perm_approve_q")),
-                                     lambda: print(c("dim", t("auto_deny_perm"))),
-                                     grace_hint=c("dim", t("grace_inflight")))
+                decision = self._ask_permission(str(tool_name or ""),
+                                                str(result.get("reason") or ""))
                 next_user = resolve_permission(self.el, decision)
                 _fb = self._take_deny_feedback()
                 if decision == GRANT_DENY:
@@ -5604,6 +5694,31 @@ def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
     print(c("dim", t("preview_hint")))
 
 
+def _tui_default_ok(args) -> bool:
+    """默认用不用组件化界面。
+
+    产品口径：**装了就用**（那是这份产品的正脸），但要满足四个前提，任何一个不成立
+    都老实回退 REPL —— 在管道里、在机器可读输出里、在一次性问答里画全屏界面，
+    是"看起来高级、实际把输出弄坏"。
+
+    - 真终端（stdin + stdout 都是 TTY）：否则 resizing/按键都没有意义；
+    - 没开 `--json`：事件流的消费者是程序，不是人；
+    - 不是 `--input` 一次性问答 / `--preview` 静态预览：它们压根不该进交互界面；
+    - 装得上 textual（`tui.app` 能 import）。
+    """
+    try:
+        if getattr(args, "json", False) or getattr(args, "input", None):
+            return False
+        if getattr(args, "preview", False) or getattr(args, "preview_width", 0):
+            return False
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return False
+        from tui import tui_available
+        return bool(tui_available())
+    except Exception:  # noqa: BLE001 —— 探测本身不该拦住启动
+        return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Code —— AI Agent 命令行终端")
     parser.add_argument("--mock", action="store_true", help="离线演示（脚本化假模型）")
@@ -5663,7 +5778,11 @@ def main() -> None:
                         help="同 --install-ui（别名）：把运行环境准备好再启动")
     parser.add_argument("--tui", action="store_true",
                         help="用组件化全屏界面（Textual）启动：鼠标滚轮滚动会话区、"
-                             "状态行常驻、输入框固定；没装 textual 时自动回退普通 REPL")
+                             "状态行常驻、输入框固定；忙时输入自动排队、Ctrl+C 两段式中断。"
+                             "装了 textual 且是真终端时**默认就是它**")
+    parser.add_argument("--no-tui", action="store_true",
+                        help="强制用普通 REPL（不要全屏界面）：脚本化、录屏、"
+                             "或你只是想看逐行滚动时用")
     parser.add_argument("--install-executor", action="store_true",
                         help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
                              "下载后跑 --version 自校验）")
@@ -5729,9 +5848,10 @@ def main() -> None:
     if args.input:
         cli.converse(args.input)
         return
-    if getattr(args, "tui", False):
+    if getattr(args, "tui", False) or (not getattr(args, "no_tui", False)
+                                       and _tui_default_ok(args)):
         # 组件化全屏界面：引擎照旧（同一套 _process_line），只把"谁在画屏幕"换掉。
-        # 没装 textual 时 run_tui 返回 2 —— 如实回退，不假装跑了 TUI。
+        # 没装 textual / 不是真终端 / 机器可读输出（--json）时**如实回退**，不假装跑了。
         try:
             from tui.app import run_tui
         except Exception as e:  # noqa: BLE001
@@ -5740,11 +5860,17 @@ def main() -> None:
         if run_tui is not None:
             _code = run_tui(engine=lambda line: cli._process_line(line),
                             status_provider=cli._footer,
-                            title=f"ACE {version.__version__}")
+                            title=f"ACE {version.__version__}",
+                            translate=t,
+                            command_table=AgentCLI.COMMANDS,
+                            on_stop=cli.request_stop,
+                            board_provider=lambda: cli._board,
+                            ui_host=cli)
             if _code == 0:
                 return
-            print(c("yellow", "  没装 textual —— 用 `python setup_env.py --ensure` 装好，"
-                              "或继续用普通 REPL"))
+            if getattr(args, "tui", False):
+                print(c("yellow", "  没装 textual —— 用 `python setup_env.py --ensure` 装好，"
+                                  "或继续用普通 REPL"))
     if os.environ.get("ACE_DIRECT_CHAT") == "1":
         # 直进聊天：会话滚回缓冲里没有“登录主页”，上滑只见开场横幅+对话本身
         cli.repl()

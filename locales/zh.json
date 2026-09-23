@@ -588,7 +588,7 @@
   "home_sec_start": "开始",
   "home_sec_ability": "能力（这里改，立刻生效）",
   "home_sec_feature": "我们独有的",
-  "home_resume_last": "继续上次：{when}（{turns} 轮）",
+  "home_resume_last": "继续上次：{when}{turns} 轮",
   "home_resume_last_hint": "回车继续 / ↑↓ 选别的",
   "home_resume_none": "还没有历史会话",
   "home_resume_none_hint": "先开一段新的",

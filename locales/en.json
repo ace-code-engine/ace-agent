@@ -593,7 +593,7 @@
   "home_sec_start": "Start",
   "home_sec_ability": "Capabilities (change here, takes effect now)",
   "home_sec_feature": "What only ACE has",
-  "home_resume_last": "Continue: {when} ({turns} turns)",
+  "home_resume_last": "Continue: {when}{turns} turns",
   "home_resume_last_hint": "Enter to continue / ↑↓ to pick another",
   "home_resume_none": "No past sessions yet",
   "home_resume_none_hint": "start a new one",

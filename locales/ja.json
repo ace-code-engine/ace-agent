@@ -593,7 +593,7 @@
   "home_sec_start": "開始",
   "home_sec_ability": "能力（ここで変更、すぐ反映）",
   "home_sec_feature": "ACE ならでは",
-  "home_resume_last": "続きから：{when}（{turns} ターン）",
+  "home_resume_last": "続きから：{when}{turns} ターン",
   "home_resume_last_hint": "Enter で続行 / ↑↓ で別のを選ぶ",
   "home_resume_none": "過去のセッションはまだありません",
   "home_resume_none_hint": "まず新しく始める",

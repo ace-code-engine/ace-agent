@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from ui.ace_text import display_width, pad_width
+
 __all__ = ["HomeItem", "HomeSection", "build_home", "render_home", "selectable",
            "move_selection", "HOME_KEYS", "action_for_key", "SECTIONS_ORDER",
            "title_line", "hint_line"]
@@ -103,11 +105,15 @@ def build_home(state: Dict[str, object],
     resume_items: List[HomeItem] = []
     if sess:
         newest = sess[0]
+        _when = str(newest.get("when") or "").strip()
+        _turns = int(newest.get("turns") or 0)
         resume_items.append(HomeItem(
-            "resume_last", "home_resume_last", str(newest.get("label") or ""),
+            "resume_last", "home_resume_last", "",
             "home_resume_last_hint", "resume",
-            fmt={"when": str(newest.get("when") or ""),
-                 "turns": int(newest.get("turns") or 0)}))
+            # 时间拿不到时**不留空括号**：`继续上次：（3 轮）` 比 `继续上次： （3 轮）` 干净
+            fmt={"when": (_when + " · ") if _when else "",
+                 "turns": _turns,
+                 "label": str(newest.get("label") or "")[:40]}))
     else:
         resume_items.append(HomeItem(
             "resume_last", "home_resume_none", "", "home_resume_none_hint",
@@ -117,9 +123,8 @@ def build_home(state: Dict[str, object],
     # ② 开始：新对话 / 历史对话
     out.append(HomeSection("start", "home_sec_start", [
         HomeItem("new", "home_new", "", "home_new_hint", "start"),
-        HomeItem("history", "home_history", str(len(sess)), "home_history_hint",
-                 "start", enabled=bool(sess),
-                 fmt={"n": len(sess)}),
+        HomeItem("history", "home_history", "", "home_history_hint",
+                 "start", enabled=bool(sess), fmt={"n": len(sess)}),
         HomeItem("help", "home_help", "", "home_help_hint", "start"),
     ]))
 
@@ -140,7 +145,7 @@ def build_home(state: Dict[str, object],
     # ④ 特色：回溯是这一版的重点
     snaps = int(st.get("snapshots") or 0)
     out.append(HomeSection("feature", "home_sec_feature", [
-        HomeItem("rewind", "home_rewind", str(snaps), "home_rewind_hint", "feature",
+        HomeItem("rewind", "home_rewind", "", "home_rewind_hint", "feature",
                  fmt={"n": snaps}),
         HomeItem("tasks", "home_tasks", "", "home_tasks_hint", "feature"),
         HomeItem("report", "home_report", "", "home_report_hint", "feature"),
@@ -205,21 +210,27 @@ def render_home(sections: Sequence[HomeSection],
         lines.append("")
     cursor = 0
     for sec in sections:
+        # 标签列宽：同一个分区里对齐（值/说明排成一列才好扫）。太宽也不好，
+        # 会把人眼从标签拽到空白上 —— 所以封顶 20 列。
+        labels = [it.label(translate) for it in sec.items]
+        pad = min(20, max([display_width(x) for x in labels] + [10])) + 2
+        # 值列也要对齐：`auto` / `on` / `zh` 宽度不同，不对齐的话说明列会参差
+        vals = [it.value for it in sec.items if it.value]
+        vpad = (min(12, max([display_width(x) for x in vals])) + 2) if vals else 0
         rows: List[str] = []
-        for item in sec.items:
+        for item, label in zip(sec.items, labels):
             take = item.enabled
             if take:
                 mark = st("accent", "▶") if cursor == selected else " "
                 cursor += 1
             else:
                 mark = st("dim", "·")
-            label = item.label(translate)
-            text = f"  {mark} {label}"
+            text = f"  {mark} {pad_width(label, pad)}"
             if item.value:
-                text += f"   {st('value', item.value)}"
+                text += st("value", pad_width(item.value, vpad))
             if item.hint_key:
-                text += f"   {st('dim', translate(item.hint_key))}"
-            rows.append(text)
+                text += st("dim", translate(item.hint_key))
+            rows.append(text.rstrip())
         if not rows:
             continue
         lines.append(st("head", f"  {translate(sec.title_key)}"))

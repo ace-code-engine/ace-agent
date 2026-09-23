@@ -40,7 +40,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from tui.bridge import EngineBridge
 from ui import ace_keys, ace_menu, ace_turn
@@ -52,6 +52,36 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
+
+
+def clipboard_image_path() -> str:
+    """剪贴板里的图 → 一个临时 PNG 路径；没有图/平台不支持就返回空串。
+
+    为什么单独一个模块级函数：这样测试能替换它（CI 里没有剪贴板，也没有 X11/Windows
+    API），同时"拿不到图"这件事在界面上必须**明说**，而不是静默什么都不发生。
+    只在 Windows 上实现（用 .NET 的剪贴板）；其它平台返回空串 —— 诚实降级，
+    不假装支持。
+    """
+    import os as _os
+    if _os.name != "nt":
+        return ""
+    import subprocess as _sp
+    import tempfile as _tf
+    out = _tf.mktemp(suffix=".png")
+    ps = ("Add-Type -AssemblyName System.Windows.Forms;"
+          "$i=[System.Windows.Forms.Clipboard]::GetImage();"
+          f"if($i){{$i.Save('{out.replace(chr(92), '/')}')}}")
+    try:
+        _sp.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                capture_output=True, timeout=20)
+    except Exception:      # noqa: BLE001 —— 拿不到就当没有图
+        return ""
+    try:
+        if _os.path.exists(out) and _os.path.getsize(out) > 0:
+            return out
+    except OSError:
+        return ""
+    return ""
 
 
 def _bindings(tr: Callable[[str], str]) -> List[Binding]:
@@ -72,10 +102,11 @@ def _bindings(tr: Callable[[str], str]) -> List[Binding]:
         # - `Shift+Tab`：Screen 会拿它去**反向轮转焦点**（实测：按下去焦点跑到会话区、
         #   权限档一动不动 —— 用户只会说"这个键没用"）；
         # - `Ctrl+X`：输入框把它绑成了"剪切"；
+        # - `Ctrl+F`：输入框把它绑成了"删掉右侧一个词"（`delete_right_word`）；
         # - `Ctrl+C`：输入框把它绑成了"复制"。聊天里 `Ctrl+C` 必须是中断/取消
         #   （这是所有人的肌肉记忆；复制仍可用鼠标选中 + Ctrl+Shift+C）。
         _prio = b.action in ("complete", "cycle_permission", "chord_prefix",
-                             "interrupt")
+                             "interrupt", "find")
         out.append(Binding(b.key, b.action, tr(b.desc_key),
                            show=(b.scope == "global"), priority=_prio))
     return out
@@ -95,17 +126,127 @@ class ChordInput(Input):
     字母 —— 这也是"按了没反应"和"打字被吃"两种事故的分界线。
     """
 
-    CHORDS = {"e": "expand_all", "t": "tasks", "d": "diff"}
+    # 和弦第二段的键 → 动作（键名用 Textual 的写法；可打印字符就是字符本身）
+    CHORDS = {"e": "expand_all", "t": "tasks", "d": "diff",
+              "enter": "queue_submit", "ctrl+s": "send_now",
+              "ctrl+e": "external_editor"}
+
+    def vim_editor(self):
+        """vim 模式的行编辑器（`/vim on` 之后生效）。"""
+        ed = getattr(self, "_vim", None)
+        if ed is None:
+            from ui.ace_vim import VimLineEditor
+            ed = VimLineEditor(self.value or "", self.cursor_position, enabled=False)
+            self._vim = ed
+        host = getattr(self.app, "ui_host", None)
+        cfg = getattr(host, "cfg", None)
+        want = bool(isinstance(cfg, dict) and cfg.get("vim_mode"))
+        ed.enabled = want
+        if not want and ed.mode != "insert":
+            ed.state = ed.state.copy(mode="insert")
+        return ed
 
     def chord_action(self, key: str) -> Optional[str]:
         """这个键此刻该触发什么动作（没挂起 / 没登记 → None）。"""
         chords = getattr(self.app, "chords", None)
         if chords is None or not chords.armed:
             return None
-        return self.CHORDS.get(str(key or ""))
+        k = str(key or "")
+        if k in self.CHORDS:
+            return self.CHORDS[k]
+        return self.CHORDS.get(k[:1])
+
+    def _sync_vim(self, ed) -> None:
+        """把 vim 编辑器的文本/光标写回输入框（两处状态不许漂）。"""
+        try:
+            self.value = ed.text
+            self.cursor_position = max(0, min(ed.cursor, len(ed.text)))
+        except Exception:      # noqa: BLE001
+            pass
+        try:
+            self.app._refresh_status()
+        except Exception:      # noqa: BLE001
+            pass
 
     async def _on_key(self, event) -> None:
-        action = self.chord_action(getattr(event, "character", "") or "")
+        key = str(getattr(event, "key", "") or "")
+        char = getattr(event, "character", "") or ""
+
+        # vim 模式（`/vim on`）：普通模式下所有键都归编辑器，插入模式才走输入框
+        ed = self.vim_editor()
+        if ed.enabled:
+            if key == "escape":
+                ed.set_text(self.value or "", self.cursor_position)
+                ed.feed("Escape")
+                self._sync_vim(ed)
+                event.stop()
+                event.prevent_default()
+                return
+            if ed.mode != "insert":
+                ed.set_text(self.value or "", self.cursor_position)
+                self._sync_vim(ed)
+                if ed.feed(key) or ed.last_note:
+                    event.stop()
+                    event.prevent_default()
+                    self._sync_vim(ed)
+                return
+
+        # 行编辑三兄弟：Input 自带 ctrl+w/u/k，但**它不填 kill ring**，而且词边界口径
+        # 与 readline 不一致（`Ctrl+W` 该按空白切）。所以在这里自己接。
+        if key == "ctrl+w":
+            event.stop()
+            event.prevent_default()
+            self.app.action_delete_word_back()
+            return
+        if key == "ctrl+u":
+            event.stop()
+            event.prevent_default()
+            self.app.action_delete_to_start()
+            return
+        if key == "ctrl+k":
+            event.stop()
+            event.prevent_default()
+            self.app.action_delete_to_end()
+            return
+
+        # `Ctrl+D`：空输入退出（有内容时是 Input 自己的"删右侧字符"，不抢）
+        if key == "ctrl+d" and not (self.value or ""):
+            event.stop()
+            event.prevent_default()
+            self.app.exit()
+            return
+
+        # 行尾反斜杠 + 回车 = 续行（有些终端送不出 Alt+Enter，这是通用退路）
+        if key == "enter" and (self.value or "").endswith("\\"):
+            event.stop()
+            event.prevent_default()
+            self.value = (self.value or "")[:-1] + "\n"
+            try:
+                self.cursor_position = len(self.value)
+            except Exception:      # noqa: BLE001
+                pass
+            return
+
+        # `?` 在空输入上 = 帮助面板（有字时就是普通问号 —— 不抢用户要打的东西）
+        if char == "?" and not (self.value or ""):
+            event.stop()
+            event.prevent_default()
+            handler = getattr(self.app, "action_help", None)
+            if callable(handler):
+                handler()
+            return
+
+        # 剪贴板图片：Ctrl+V / Alt+V。有图就挂上；没有图 → 交回默认粘贴（别吞掉粘贴）
+        if key in ("ctrl+v", "alt+v"):
+            if clipboard_image_path():
+                event.stop()
+                event.prevent_default()
+                handler = getattr(self.app, "action_paste_image", None)
+                if callable(handler):
+                    handler()
+                return
+
+        action = self.chord_action(key)
         if action:
             event.stop()
             event.prevent_default()
@@ -121,6 +262,8 @@ class ChordInput(Input):
                 pass
             return
         await super()._on_key(event)
+        if ed.enabled:
+            ed.set_text(self.value or "", self.cursor_position)
 
 
 class ChoiceScreen(ModalScreen):
@@ -318,6 +461,9 @@ class PermissionScreen(ModalScreen):
         Binding("j", "move(1)", "", show=False),
         Binding("enter", "choose", "确认"),
         Binding("escape", "deny", "拒绝"),
+        # `Tab` = 给这次决定加一句话。拒绝时这句话会成为**回传模型的原因**，
+        # 于是"不行"不再是一堵墙，而是一次可执行的纠偏（Claude 那边也是这个设计）。
+        Binding("tab", "toggle_comment", "备注", show=False),
         Binding("1", "pick(0)", "", show=False),
         Binding("2", "pick(1)", "", show=False),
         Binding("3", "pick(2)", "", show=False),
@@ -332,6 +478,8 @@ class PermissionScreen(ModalScreen):
         self.t = t
         self.on_done = on_done
         self.sel = 0
+        self.comment = ""
+        self.comment_open = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="perm_box"):
@@ -341,10 +489,37 @@ class PermissionScreen(ModalScreen):
             for i, (_v, desc_key, danger) in enumerate(self.options):
                 cls = "perm_opt" + (" perm_danger" if danger else "")
                 yield Static(f"  {i + 1}) {self.t(desc_key)}", classes=cls, id=f"opt{i}")
+            yield Input(placeholder=self.t("perm_comment_placeholder"),
+                        id="perm_comment")
             yield Static(self.t("perm_hint_keys"), classes="dim")
 
     def on_mount(self) -> None:
         self._paint()
+        try:
+            self.query_one("#perm_comment", Input).styles.display = "none"
+        except Exception:      # noqa: BLE001
+            pass
+
+    def on_input_changed(self, event) -> None:
+        self.comment = event.value or ""
+
+    def on_input_submitted(self, event) -> None:
+        """在备注里回车 = 带着这句话做决定。"""
+        self.comment = event.value or ""
+        self.action_choose()
+
+    def action_toggle_comment(self) -> None:
+        """`Tab`：开/关备注输入框（开着时焦点进去，Esc 仍等于拒绝）。"""
+        self.comment_open = not self.comment_open
+        try:
+            box = self.query_one("#perm_comment", Input)
+            box.styles.display = "block" if self.comment_open else "none"
+            if self.comment_open:
+                box.focus()
+            else:
+                self.focus_next()
+        except Exception:      # noqa: BLE001
+            pass
 
     def _paint(self) -> None:
         for i in range(len(self.options)):
@@ -435,6 +610,11 @@ class AceTuiApp(App):
         self._quit_armed = False
         self._mode_armed = False
         self._chord_deadline = 0.0
+        self._esc_at = 0.0
+        self._kill = ""              # kill ring（Ctrl+K/U/W/Alt+D 删掉的东西）
+        self._undo: List[Tuple[str, int]] = []
+        self._last_prompt: Tuple[str, int] = ("", 0)
+        self._undo_guard = False
         self._find_query = ""
         self._find_ready = False
         self._find_idx = -1
@@ -498,6 +678,15 @@ class AceTuiApp(App):
         if snap["busy"]:
             parts.append(self._msg("tui_status_busy", s=f"{float(snap['elapsed']):.0f}"))
         parts.append(" " + self.turn.hint(self.t) + " ")
+        try:
+            _inp = self._prompt()
+            _ed = getattr(_inp, "vim_editor", None)
+            if callable(_ed):
+                _v = _ed()
+                if getattr(_v, "enabled", False):
+                    parts.append(" " + _v.status() + " ")
+        except Exception:      # noqa: BLE001
+            pass
         if self.chords.armed:
             parts.append(self._msg("tui_status_chord", k=self.chords.armed))
         return "".join(parts).strip()
@@ -576,9 +765,6 @@ class AceTuiApp(App):
         self.append_lines([text], "notice")
 
     # ================= 输入 =================
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """输入变化 → 刷新补全浮层（命令/参数/@ 提及同一套模型）。"""
-        self._refresh_palette(event.value or "")
 
     def _refresh_palette(self, text: str) -> None:
         try:
@@ -594,8 +780,31 @@ class AceTuiApp(App):
         except Exception:      # noqa: BLE001 —— 菜单画不出来不该拦着打字
             self._menu = None
 
+    @staticmethod
+    def _strip_invisible(text: str) -> Tuple[str, int]:
+        """去掉零宽/双向控制/标签字符（粘贴来的提示注入最爱藏这儿）。
+
+        返回 `(净化后文本, 去掉几个)`。只去"人看不见但模型看得见"的那类字符；
+        波斯语/印度语的连接符与 emoji 变体选择符**保留**（它们是正常文字的一部分）。
+        """
+        bad = []
+        for ch in text:
+            cp = ord(ch)
+            if (cp == 0x200B or cp == 0x200C and False or cp in (0x200B, 0x200E, 0x200F,
+                                                                0x202A, 0x202B, 0x202C,
+                                                                0x202D, 0x202E, 0x2066,
+                                                                0x2067, 0x2068, 0x2069,
+                                                                0xFEFF)
+                    or 0xE0000 <= cp <= 0xE007F):
+                bad.append(ch)
+        clean = "".join(c for c in text if c not in bad)
+        return clean, len(bad)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = (event.value or "").strip()
+        text, _hidden = self._strip_invisible(text)
+        if _hidden:
+            self.notice(self._msg("tui_invisible_stripped", n=_hidden))
         event.input.value = ""
         self._refresh_palette("")
         if not text:
@@ -645,6 +854,15 @@ class AceTuiApp(App):
     def _turn_done(self, counted: bool = True) -> None:
         """一轮结束（主线程）：先看有没有排队的输入，有就立刻接着跑。"""
         if not counted:
+            # 宿主命令可能把"待填进输入框的东西"放在这里（`/history` 就是）
+            host = self.ui_host
+            pending = str(getattr(host, "_pending_input", "") or "")
+            if pending:
+                try:
+                    host._pending_input = ""
+                except Exception:      # noqa: BLE001
+                    pass
+                self._set_prompt(pending)
             self._refresh_status()
             return
         nxt = self.turn.finish()
@@ -750,22 +968,321 @@ class AceTuiApp(App):
             opts = self.turn.ask_permission(tool, reason, options)
             values = [str(o[0]) for o in opts]
 
+            _screen: dict = {}
+
             def _done(value: str) -> None:
                 self._perm_slot.append(value)
+                _screen["comment"] = str(
+                    getattr(_screen.get("widget"), "comment", "") or "")
                 self._perm_event.set()
 
-            self.call_from_thread(self.push_screen,
-                                  PermissionScreen(tool, reason, opts, self._msg, _done))
+            _scr = PermissionScreen(tool, reason, opts, self._msg, _done)
+            _screen["widget"] = _scr
+            self.call_from_thread(self.push_screen, _scr)
             self._perm_event.wait(timeout=600)
             self._refresh_status()
             value = self._perm_slot[0] if self._perm_slot else "deny"
             idx = values.index(value) if value in values else len(values) - 1
             resolved = self.turn.answer_permission(idx, opts)
+            _comment = str(_screen.get("comment") or "").strip()
+            if _comment and resolved is not None:
+                # 拒绝的理由要回传模型；允许的备注则当成一句补充说明打出来
+                host = self.ui_host
+                if resolved == "deny" and host is not None:
+                    try:
+                        host._deny_feedback = _comment[:400]
+                    except Exception:      # noqa: BLE001
+                        pass
+                else:
+                    self.call_from_thread(
+                        self.notice, self._msg("perm_comment_sent", text=_comment[:60]))
             if resolved is None:
                 # 宽限期内飞过来的答案：不采纳（方向永远收紧）
                 self.call_from_thread(self.notice, self.t("grace_inflight"))
                 return "deny"
             return resolved
+
+    # ================= 动作 =================
+    def _prompt(self):
+        try:
+            return self.query_one("#prompt", Input)
+        except Exception:      # noqa: BLE001
+            return None
+
+    def _set_prompt(self, value: str, cursor=None, record: bool = True) -> None:
+        inp = self._prompt()
+        if inp is None:
+            return
+        if record:
+            self._push_undo()
+        self._undo_guard = True
+        try:
+            inp.value = value
+            inp.cursor_position = len(value) if cursor is None else int(cursor)
+            self._last_prompt = (str(value), int(inp.cursor_position or 0))
+        finally:
+            self._undo_guard = False
+
+    def _push_undo(self) -> None:
+        """记一个撤销点（`Ctrl+_` 用）。逐键也记 —— 那就是 readline 的 undo 粒度。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        state = (inp.value or "", int(inp.cursor_position or 0))
+        if self._undo and self._undo[-1] == state:
+            return
+        self._undo.append(state)
+        del self._undo[:-200]
+
+    def on_input_changed(self, event) -> None:
+        """输入框内容变了：把**变化前**的状态记成撤销点 + 刷新补全浮层。
+
+        为什么记"变化前"：`Input.Changed` 是**事后**通知，这时 `value` 已经是新值；
+        照它记撤销点，`Ctrl+_` 只会把"当前值"再设一遍（看起来就是"撤销没反应"）。
+        """
+        if not self._undo_guard:
+            prev = getattr(self, "_last_prompt", None)
+            if prev is not None and (not self._undo or self._undo[-1] != prev):
+                self._undo.append(prev)
+                del self._undo[:-200]
+        try:
+            self._last_prompt = ((event.value or ""), int(event.input.cursor_position or 0))
+        except Exception:      # noqa: BLE001
+            self._last_prompt = ((event.value or ""), 0)
+        self._refresh_palette(event.value or "")
+
+
+    @staticmethod
+    def _word_bounds(text: str, pos: int, alnum: bool = False):
+        """光标前的那个词 `(start, end)`。
+
+        两种口径都要有，因为终端里的习惯就是两种（readline 也一样）：
+        - `Ctrl+W`／`Alt+Backspace`：**以空白为界** —— 一下删掉整个 `src/utils/foo.ts`；
+        - `Alt+B`／`Alt+F`：**以字母数字为界**（`_ . /` 都算分隔）—— 在
+          `src/utils/foo.ts` 里是 `ts` → `foo` → `utils` → `src` 一步步走。
+        """
+        i = max(0, min(int(pos), len(text)))
+
+        def is_sep(ch: str) -> bool:
+            return ch.isspace() or (alnum and not (ch.isalnum() or ch == "_"))
+
+        while i > 0 and is_sep(text[i - 1]):
+            i -= 1
+        end = i
+        while i > 0 and not is_sep(text[i - 1]):
+            i -= 1
+        return i, end
+
+    def action_delete_word_back(self) -> None:
+        """`Ctrl+W` / `Alt+Backspace`：删掉光标前一个词（readline 手感）。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        s, e = self._word_bounds(val, inp.cursor_position)
+        if s == e:
+            return
+        self._kill = val[s:e]
+        self._set_prompt(val[:s] + val[e:], s)
+
+    def action_delete_to_start(self) -> None:
+        """`Ctrl+U`：删到行首（readline 的老规矩；已在行首就不做）。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        pos = inp.cursor_position
+        if pos <= 0:
+            return
+        self._kill = val[:pos]
+        self._set_prompt(val[pos:], 0)
+
+    def action_word_left(self) -> None:
+        """`Alt+B`：光标退一个词。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        s, _e = self._word_bounds(val, inp.cursor_position, alnum=True)
+        self._set_prompt(val, s)
+
+    def action_word_right(self) -> None:
+        """`Alt+F`：光标前进一个词（停在词尾）。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        i = max(0, min(inp.cursor_position, len(val)))
+
+        def is_sep(ch: str) -> bool:
+            return ch.isspace() or not (ch.isalnum() or ch == "_")
+
+        while i < len(val) and is_sep(val[i]):
+            i += 1
+        while i < len(val) and not is_sep(val[i]):
+            i += 1
+        self._set_prompt(val, i)
+
+    def action_delete_word_end(self) -> None:
+        """`Alt+D`：删到词尾（字母数字口径，与 Alt+F 同一套边界）。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        i = max(0, min(inp.cursor_position, len(val)))
+        j = i
+        while j < len(val) and (val[j].isspace() or not (val[j].isalnum() or val[j] == "_")):
+            j += 1
+        while j < len(val) and (val[j].isalnum() or val[j] == "_"):
+            j += 1
+        if j == i:
+            return
+        self._kill = val[i:j]
+        self._set_prompt(val[:i] + val[j:], i)
+
+    def action_delete_to_end(self) -> None:
+        """`Ctrl+K`：删到行尾（存进 kill ring，`Ctrl+Y` 能粘回来）。"""
+        inp = self._prompt()
+        if inp is None:
+            return
+        val = inp.value or ""
+        pos = max(0, min(inp.cursor_position, len(val)))
+        if pos >= len(val):
+            return
+        self._kill = val[pos:]
+        self._set_prompt(val[:pos], pos)
+
+    def action_paste_killed(self) -> None:
+        """`Ctrl+Y`：把上次删掉的（Ctrl+K/U/W、Alt+D）粘回来。"""
+        inp = self._prompt()
+        if inp is None or not self._kill:
+            return
+        val = inp.value or ""
+        pos = max(0, min(inp.cursor_position, len(val)))
+        self._set_prompt(val[:pos] + self._kill + val[pos:], pos + len(self._kill))
+
+    def action_undo(self) -> None:
+        """`Ctrl+_` / `Ctrl+Shift+-`：撤销上一次输入编辑（含逐键输入）。
+
+        为什么不是 `Ctrl+Z`：那是终端的挂起键（Unix 上是 SIGTSTP），抢它等于抢掉
+        用户"把进程丢到后台"的能力 —— 上游也是这么选的。
+        """
+        if not self._undo:
+            return
+        val, pos = self._undo.pop()
+        self._set_prompt(val, pos, record=False)
+
+    def action_stash_prompt(self) -> None:
+        """`Ctrl+S`：暂存草稿 / 空输入时取回（与 `/stash` 同一份状态）。"""
+        self._host_command("/stash")
+
+    def action_queue_submit(self) -> None:
+        """`Ctrl+X Enter`：排队发送，**不打断**当前这一轮。"""
+        inp = self._prompt()
+        text = (inp.value or "").strip() if inp is not None else ""
+        if not text:
+            return
+        self._set_prompt("")
+        res = self.turn.submit(text)
+        self.append_lines([f"❯ {text}"], "user")
+        if res.action == "run":
+            self._run_engine(text)
+        else:
+            self.notice(self._msg("tui_queued_no_interrupt", n=res.queued))
+
+    def action_send_now(self) -> None:
+        """`Ctrl+X Ctrl+S` / `Ctrl+Enter`：立刻发送（打断当前轮，草稿与队列一起发）。"""
+        inp = self._prompt()
+        text = (inp.value or "").strip() if inp is not None else ""
+        if self.turn.busy():
+            self.turn.interrupt()
+            self.turn.interrupt()          # 请求 → 放弃：界面立刻可用
+            self.notice(self._msg("tui_send_now"))
+        if text:
+            self._set_prompt("")
+            res = self.turn.submit(text)
+            self.append_lines([f"❯ {text}"], "user")
+            if res.action == "run":
+                self._run_engine(text)
+            self.notice(self._msg("tui_sent_now"))
+
+    def action_external_editor(self) -> None:
+        """`Ctrl+G` / `Ctrl+X Ctrl+E`：把输入丢进 `$EDITOR` 编辑，存盘读回来。
+
+        长提示词（一大段需求、一次贴十个文件路径）在单行输入框里改是折磨；
+        这是 readline 的老办法，也是唯一"用你熟悉的编辑器"的出口。
+        """
+        inp = self._prompt()
+        if inp is None:
+            return
+        import os as _os
+        import subprocess as _sp
+        import tempfile as _tf
+        editor = (_os.environ.get("VISUAL") or _os.environ.get("EDITOR")
+                  or ("notepad" if _os.name == "nt" else "vi"))
+        draft = inp.value or ""
+        path = _tf.mktemp(suffix=".md")
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(draft)
+            with self.suspend():
+                _sp.call([editor, path])
+            with open(path, "r", encoding="utf-8") as fh:
+                new = fh.read()
+        except Exception as e:      # noqa: BLE001 —— 编辑器起不来就如实说，别丢草稿
+            self.notice(self._msg("tui_editor_failed", err=type(e).__name__))
+            return
+        finally:
+            try:
+                _os.unlink(path)
+            except OSError:
+                pass
+        if new.strip() != draft.strip():
+            self._set_prompt(new.rstrip("\n"))
+            self.notice(self._msg("tui_editor_loaded", editor=editor))
+
+    def action_paste_image(self) -> None:
+        """`Ctrl+V` / `Alt+V`：把剪贴板里的图挂进下一轮（拿不到就什么都不做）。
+
+        边界写清楚：图会被**原样发给模型提供商**（和 `@image` 同一条路），
+        所以成功时会明说一句"将随下一条消息发出"。
+        """
+        path = clipboard_image_path()
+        host = self.ui_host
+        if not path:
+            self.notice(self._msg("tui_image_none"))
+            return
+        try:
+            host._at_image(path)
+        except Exception:      # noqa: BLE001
+            self.notice(self._msg("tui_image_failed"))
+            return
+        self.notice(self._msg("tui_image_attached"))
+
+    def action_quit_if_empty(self) -> None:
+        """`Ctrl+D`：输入框空着时退出；有内容时那是 `Input` 自己的"删右侧字符"，不动它。"""
+        inp = self._prompt()
+        if inp is not None and (inp.value or ""):
+            return
+        self.exit()
+
+    def action_prev(self) -> None:
+        """`Ctrl+P`：查找模式里跳上一处；否则等于"历史里上一条"。"""
+        if getattr(self, "_find_ready", False) and self._find_query:
+            self._find_advance(-1)
+            return
+        self.action_nav(-1)
+
+    def action_next(self) -> None:
+        """`Ctrl+N`：查找模式里跳下一处；否则等于"历史里下一条"。"""
+        if getattr(self, "_find_ready", False) and self._find_query:
+            self._find_advance(1)
+            return
+        self.action_nav(1)
+
+    def action_model_pick(self) -> None:
+        """`Alt+M`：模型选择器（与 `/model` 同一个界面入口）。"""
+        self._host_command("/model")
 
     # ================= 和弦与输入细节 =================
     def action_chord_prefix(self) -> None:
@@ -826,16 +1343,70 @@ class AceTuiApp(App):
 
     # ================= 动作 =================
     def action_cancel(self) -> None:
-        """Esc：先收菜单，菜单没开就当中断（正在跑）或清提示。"""
+        """Esc：先收菜单；再按一次（双击）召回上一条消息；正在跑就当中断；否则清输入。
+
+        `Esc Esc` 是 Claude 那边的"改上一条"：一条消息发出去才发现打错了，
+        不该逼用户重新打一遍。
+        """
         state = getattr(self, "_menu", None)
         if state is not None and state.open:
             self._refresh_palette("")
+            self._esc_at = 0.0
             return
         if self.turn.busy():
             self.action_interrupt()
             return
+        inp = self._prompt()
+        draft = (inp.value or "") if inp is not None else ""
+        now = self._now()
+        if draft.strip():
+            # 有草稿：清空，但**存进历史**（↑ 能召回）——清空不等于丢掉
+            if draft.strip() not in self._history:
+                self._history.append(draft)
+            self._hist_idx = len(self._history)
+            self._set_prompt("")
+            self._esc_at = now
+            self.notice(self._msg("tui_draft_cleared"))
+            return
+        if (now - float(getattr(self, "_esc_at", 0.0))) <= 1.2:
+            self._esc_at = 0.0
+            self._open_rewind()
+            return
+        self._esc_at = now
+
+    def _open_rewind(self) -> None:
+        """`Esc Esc`（空输入）：回退菜单 —— 退对话（/rewind）或回退文件（/rollback）。
+
+        与 Claude 的 rewind 菜单同一件事：**退一步**是高频需求（方向错了、想重来），
+        而"退什么"必须让用户选：只退对话、只退文件，是两种完全不同的后果。
+        """
+        options: List[Tuple[str, str]] = []
+        host = self.ui_host
+        guardian = getattr(getattr(host, "el", None), "guardian", None)
         try:
-            self.query_one("#prompt", Input).value = ""
+            snaps = list(guardian.list_snapshots()) if guardian is not None else []
+        except Exception:      # noqa: BLE001
+            snaps = []
+        for sn in snaps[:8]:
+            options.append((self._msg("rewind_files", id=sn.get("id", "?"),
+                                      tag=str(sn.get("tag") or "")[:24]),
+                            f"/rollback {sn.get('id')}"))
+        options.append((self._msg("rewind_talk"), "/rewind"))
+        if not options:
+            return
+
+        def _done(value) -> None:
+            if not value:
+                return
+            for label, cmd in options:
+                if label == value:
+                    self._host_command(cmd)
+                    return
+
+        try:
+            self.push_screen(ChoiceScreen(self._msg("rewind_title"),
+                                          [o[0] for o in options], self._msg, _done,
+                                          filterable=False))
         except Exception:      # noqa: BLE001
             pass
 
@@ -900,8 +1471,8 @@ class AceTuiApp(App):
         self._find_idx = -1
         self._find_advance()
 
-    def _find_advance(self) -> None:
-        """跳到下一处命中（到尾回头），并把命中的那条滚进视野。"""
+    def _find_advance(self, delta: int = 1) -> None:
+        """跳到下一处命中（到尾回头 / 反向同理），并把命中的那条滚进视野。"""
         q = str(getattr(self, "_find_query", "") or "").lower()
         if not q:
             return
@@ -921,7 +1492,10 @@ class AceTuiApp(App):
             self.notice(self._msg("find_none", q=self._find_query))
             self._find_ready = False
             return
-        nxt = next((i for i in hits if i > self._find_idx), hits[0])
+        if int(delta) >= 0:
+            nxt = next((i for i in hits if i > self._find_idx), hits[0])
+        else:
+            nxt = next((i for i in reversed(hits) if i < self._find_idx), hits[-1])
         self._find_idx = nxt
         try:
             kids[nxt].scroll_visible(animate=False)
@@ -941,7 +1515,28 @@ class AceTuiApp(App):
         self._host_command("/thinking")
 
     def action_search_history(self) -> None:
-        self.action_nav(-1)
+        """`Ctrl+R`：模糊搜历史（跨会话），选中就填进输入框。
+
+        为什么不是"直接往回填一条"：历史长了以后一条条翻是折磨，`/history` 那套
+        模糊匹配 + 选择框才是这个键该有的样子（Claude 的 Ctrl+R 也是搜索）。
+        """
+        if self._history:
+            self._history_picker()
+            return
+        self._host_command("/history")
+
+    def _history_picker(self) -> None:
+        items = list(dict.fromkeys(reversed(self._history)))     # 去重、最近的在前
+
+        def _done(value) -> None:
+            if value:
+                self._set_prompt(str(value))
+
+        try:
+            self.push_screen(ChoiceScreen(self._msg("history_pick"), items,
+                                          self._msg, _done))
+        except Exception:      # noqa: BLE001
+            self.action_nav(-1)
 
     def action_history_prev(self) -> None:
         self.action_nav(-1)

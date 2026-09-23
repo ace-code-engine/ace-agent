@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62", "63"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9859,8 +9859,8 @@ if _want("62"):
     _acts62 = {b.action for b in _keys62.APP_KEYMAP}
     check("[62] 帮助是**生成**的：键位表里每一条都在帮助里（加了键位忘写帮助=用户当它不存在）",
           len(_rows62) == len(_keys62.APP_KEYMAP)
-          and {r[2] for r in _rows62} == {b.desc_key for b in _keys62.APP_KEYMAP}
-          and len(_acts62) == len(_keys62.APP_KEYMAP), len(_rows62))
+          and [r[2] for r in _rows62] == [b.desc_key for b in _keys62.APP_KEYMAP]
+          and _acts62 == {b.action for b in _keys62.APP_KEYMAP}, len(_rows62))
     _chord62 = _keys62.ChordMap()
     check("[62] 和弦：第一段吃下后是「待续」，第二段才出动作",
           _chord62.feed("ctrl+x", 0.0) == ("", True) and _chord62.armed == "ctrl+x"
@@ -10121,7 +10121,8 @@ if _want("63"):
           and "async def _on_key(self, event) -> None:" in _src63
           and "def chord_action(self, key: str)" in _src63
           and "if chords is None or not chords.armed:" in _src63
-          and 'CHORDS = {"e": "expand_all", "t": "tasks", "d": "diff"}' in _src63, "")
+          and '"e": "expand_all", "t": "tasks", "d": "diff"' in _src63
+          and '"enter": "queue_submit"' in _src63, "")
     check("[63] 源码级：四个会被人抢的键都是优先级（Tab/Shift+Tab 归 Screen，"
           "Ctrl+X/Ctrl+C 归输入框）",
           "priority=_prio" in _src63
@@ -10423,6 +10424,268 @@ if _want("63"):
               _res63["find1"] >= 0 and _res63["find2"] > _res63["find1"]
               and _res63["find_none"] is False,
               (_res63["find1"], _res63["find2"], _res63["find_none"]))
+
+    # ============================================================
+
+if _want("64"):
+    # ── [64] ────
+    print("[64] 与 Claude 对齐的键位：行编辑 · 撤销/kill ring · Esc 语义 · 队列语义 · 备注 · 图片")
+    # ============================================================
+    from ui import ace_keys as _keys64  # noqa: E402
+
+    _src64 = (FOLDER / "tui" / "app.py").read_text(encoding="utf-8")
+
+    # —— 键位表：这一批新键都在，而且都能生成帮助 ——
+    _acts64 = {b.action for b in _keys64.APP_KEYMAP}
+    _keys64_set = {b.key for b in _keys64.APP_KEYMAP}
+    check("[64] 键位表补齐 readline 那一套（Ctrl+W/U/K/Y、Alt+B/F/D、Ctrl+_ 撤销）",
+          {"delete_word_back", "delete_word_end", "delete_to_start", "paste_killed",
+           "undo", "word_left", "word_right"} <= _acts64
+          and {"ctrl+w", "ctrl+u", "ctrl+k", "ctrl+y", "alt+b", "alt+f", "alt+d",
+               "ctrl+_"} <= _keys64_set, sorted(_keys64_set))
+    check("[64] 键位表补上队列语义与外部编辑器（Ctrl+X Enter / Ctrl+X Ctrl+S / Ctrl+G）",
+          {"queue_submit", "send_now", "external_editor"} <= _acts64
+          and "ctrl+g" in _keys64_set, "")
+    check("[64] 换行三件套：Ctrl+J / Alt+Enter / Shift+Enter（终端支持哪个用哪个）",
+          sum(1 for b in _keys64.APP_KEYMAP if b.action == "newline") >= 3, "")
+    _rows64 = _keys64.help_rows(translate=lambda k: k)
+    check("[64] 帮助是生成的：新键自动出现在帮助里（不用手写一遍）",
+          any("ctrl+w" == k for _s, k, _d in _rows64)
+          and any("alt+d" == k for _s, k, _d in _rows64), len(_rows64))
+
+    # —— 源码级：被 Textual 抢走的键必须优先 ——
+    check("[64] 源码级：`Ctrl+F` 也是优先级键位（Input 把它绑成了「删掉右侧一个词」）",
+          '"find")' in _src64 and "_prio = b.action in (" in _src64, "")
+    check("[64] 源码级：Ctrl+W/U/K 自己接（Input 自带这三个，但它不填 kill ring、边界也不同）",
+          'if key == "ctrl+w":' in _src64 and 'if key == "ctrl+u":' in _src64
+          and 'if key == "ctrl+k":' in _src64, "")
+    check("[64] 源码级：撤销点记的是「变化前」（`Input.Changed` 是事后通知，记新值=撤销没反应）",
+          'prev = getattr(self, "_last_prompt", None)' in _src64, "")
+
+    try:
+        from tui import tui_available as _avail64
+        _TUI64 = bool(_avail64())
+    except Exception:  # noqa: BLE001
+        _TUI64 = False
+    if not _TUI64:
+        skip("键位真按键（行编辑 / 撤销 / Esc / 队列 / 备注 / 图片 / 净化）",
+             "未安装 textual（python setup_env.py --ensure）")
+    else:
+        import asyncio as _aio64  # noqa: E402
+        import threading as _th64  # noqa: E402
+        from tui import app as _tapp64  # noqa: E402
+
+        class _Host64:
+            def __init__(self) -> None:
+                from ui import ace_tools
+                self.perm = "readonly"
+                self._board = ace_tools.ToolBoard()
+                self.cfg = {"vim_mode": False}
+                self._pending_input = ""
+                self._deny_feedback = ""
+                self.images: list = []
+
+            def attach_ui(self, host) -> None:
+                self.ui = host
+
+            def get_permission(self) -> str:
+                return self.perm
+
+            def set_permission(self, mode: str) -> str:
+                self.perm = mode
+                return mode
+
+            def request_stop(self) -> None:
+                pass
+
+            def _at_image(self, path: str) -> None:
+                self.images.append(path)
+
+        async def _drive64():
+            _host = _Host64()
+            _cmds: list = []
+
+            def _engine(line: str) -> None:
+                _cmds.append(line)
+
+            _a = _tapp64.AceTuiApp(
+                engine=_engine, status_provider=lambda: [],
+                translate=lambda k, **kw: (k.format(**kw) if kw else k),
+                command_table={}, on_stop=_host.request_stop, ui_host=_host)
+            _out: dict = {}
+            async with _a.run_test(size=(100, 30)) as _p:
+                _inp = _a.query_one("#prompt")
+
+                # 行编辑：两种词边界
+                _inp.value = "src/utils/foo.ts"
+                _inp.cursor_position = len(_inp.value)
+                await _p.press("alt+b")
+                _out["alt_b"] = _inp.cursor_position
+                await _p.press("alt+f")
+                _out["alt_f"] = _inp.cursor_position
+                _inp.value = "one two three"
+                _inp.cursor_position = len(_inp.value)
+                await _p.press("ctrl+w")
+                _out["ctrl_w"] = (_inp.value, _a._kill)
+                await _p.press("ctrl+y")
+                _out["ctrl_y"] = _inp.value
+                _inp.value = "keep this drop that"
+                _inp.cursor_position = 10
+                await _p.press("ctrl+k")
+                _out["ctrl_k"] = (_inp.value, _a._kill)
+                _inp.value = "delete from here"
+                _inp.cursor_position = 7
+                await _p.press("alt+d")
+                _out["alt_d"] = _inp.value
+                _inp.value = "abc"
+                _inp.cursor_position = len(_inp.value)
+                await _p.press("ctrl+u")
+                _out["ctrl_u"] = (_inp.value, _a._kill)
+                _inp.value = "abc"
+                _inp.cursor_position = 0
+                await _p.press("ctrl+u")
+                _out["ctrl_u_at_start"] = _inp.value
+
+                # 撤销（逐键）
+                _inp.value = ""
+                _a._undo.clear()
+                await _p.press(*"hello")
+                await _p.press("ctrl+_")
+                await _p.pause(0.1)
+                _out["undo"] = _inp.value
+
+                # Ctrl+F 优先级：不被 Input 的「删右侧词」抢走
+                _inp.value = "alpha beta gamma"
+                _inp.cursor_position = 6
+                await _p.press("ctrl+f")
+                await _p.pause(0.2)
+                _out["find_screen"] = type(_a.screen).__name__
+                await _p.press("escape")
+                await _p.pause(0.1)
+                _out["find_text"] = _inp.value
+
+                # `?` 空输入 → 帮助；有字时是普通问号
+                _inp.value = ""
+                await _p.press("?")
+                await _p.pause(0.2)
+                _out["help_screen"] = type(_a.screen).__name__
+                await _p.press("escape")
+                await _p.pause(0.1)
+                _inp.value = ""
+                await _p.press(*"a")
+                await _p.press("?")
+                _out["question_typed"] = _inp.value
+
+                # 队列语义：Ctrl+X Enter 排队（忙时不打断）
+                _a.turn.begin()
+                _inp.value = "排队这条"
+                await _p.press("ctrl+x")
+                await _p.pause(0.05)
+                await _p.press("enter")
+                await _p.pause(0.2)
+                _out["queued"] = (list(_a.turn.queue), _a.turn.interrupt_state)
+                # Ctrl+X Ctrl+S：打断 + 立刻发
+                _inp.value = "插队"
+                await _p.press("ctrl+x")
+                await _p.press("ctrl+s")
+                await _p.pause(0.3)
+                _out["send_now"] = (list(_cmds), _a.turn.queue)
+                _a.turn.finish()
+
+                # Esc：有草稿 → 清空并存历史；空输入双击 → 回退菜单
+                _a._history = []
+                _inp.value = "打了一半"
+                await _p.press("escape")
+                await _p.pause(0.1)
+                _out["esc_draft"] = (_inp.value, list(_a._history))
+                await _p.press("escape")
+                await _p.pause(0.3)
+                _out["esc_rewind"] = type(_a.screen).__name__
+                await _p.press("escape")
+                await _p.pause(0.2)
+
+                # 图片：有图才挂；没图不吞粘贴
+                _orig_clip = _tapp64.clipboard_image_path
+                try:
+                    _tapp64.clipboard_image_path = lambda: "/tmp/x.png"
+                    await _p.press("ctrl+v")
+                    await _p.pause(0.2)
+                    _out["image"] = list(_host.images)
+                    _tapp64.clipboard_image_path = lambda: ""
+                    _inp.value = ""
+                    await _p.press("ctrl+v")
+                    await _p.pause(0.1)
+                    _out["image_none"] = _inp.value
+                finally:
+                    _tapp64.clipboard_image_path = _orig_clip
+
+                # 不可见字符净化
+                _inp.value = "看这里\u200b\u202e被藏了"
+                await _p.press("enter")
+                await _p.pause(0.3)
+                _out["sanitized"] = _cmds[-1] if _cmds else ""
+
+                # 授权备注：Tab 开备注 → Esc 拒绝 → 理由回传
+                _ans: dict = {}
+
+                def _ask() -> None:
+                    _ans["v"] = _a.ask_permission("terminal_exec", "要跑命令", None)
+
+                _t = _th64.Thread(target=_ask, daemon=True)
+                _t.start()
+                await _p.pause(0.3)
+                _out["perm_screen"] = type(_a.screen).__name__
+                await _p.press("tab")
+                await _p.pause(0.1)
+                await _p.press(*"别动")
+                await _p.press("escape")
+                await _p.pause(0.3)
+                _t.join(timeout=3)
+                _out["perm"] = (_ans.get("v"), _host._deny_feedback)
+                return _out
+
+        _res64 = _aio64.run(_drive64())
+        check("[64] Alt+B/F 用字母数字边界（`src/utils/foo.ts` 一步步走，不是整段跳过）",
+              _res64["alt_b"] == 14 and _res64["alt_f"] == 16,
+              (_res64["alt_b"], _res64["alt_f"]))
+        check("[64] Ctrl+W 按空白切并进 kill ring（一下删掉整个词）",
+              _res64["ctrl_w"] == ("one two ", "three"), _res64["ctrl_w"])
+        check("[64] Ctrl+Y 把刚删掉的粘回来",
+              _res64["ctrl_y"] == "one two three", _res64["ctrl_y"])
+        check("[64] Ctrl+K 删到行尾也进 kill ring（readline 的老手感）",
+              _res64["ctrl_k"] == ("keep this ", "drop that"), _res64["ctrl_k"])
+        check("[64] Ctrl+U 删到行首并进 kill ring；已在行首就什么都不做",
+              _res64["ctrl_u"] == ("", "abc") and _res64["ctrl_u_at_start"] == "abc",
+              _res64["ctrl_u"])
+        check("[64] Alt+D 删到词尾", _res64["alt_d"] == "delete  here", _res64["alt_d"])
+        check("[64] Ctrl+_ 撤销逐键输入（记的是变化前，不是当前值）",
+              _res64["undo"] == "hell", _res64["undo"])
+        check("[64] Ctrl+F 是查找（没被输入框的「删右侧词」抢走）",
+              _res64["find_screen"] == "TextScreen"
+              and _res64["find_text"] == "alpha beta gamma",
+              (_res64["find_screen"], _res64["find_text"]))
+        check("[64] `?` 在空输入上开帮助；有字时就是普通问号",
+              _res64["help_screen"] == "HelpScreen"
+              and _res64["question_typed"] == "a?", _res64["question_typed"])
+        check("[64] `Ctrl+X Enter` 排队且**不打断**当前轮（队列语义的另一半）",
+              _res64["queued"][0] == ["排队这条"] and _res64["queued"][1] == "",
+              _res64["queued"])
+        check("[64] `Ctrl+X Ctrl+S` 打断当前轮并立刻把草稿发出去",
+              "插队" in _res64["send_now"][0], _res64["send_now"])
+        check("[64] Esc 有草稿：清空但存进历史（↑ 能召回，不是丢掉）",
+              _res64["esc_draft"] == ("", ["打了一半"]), _res64["esc_draft"])
+        check("[64] Esc Esc（空输入）：打开回退菜单（退对话 / 回退文件二选一）",
+              _res64["esc_rewind"] == "ChoiceScreen", _res64["esc_rewind"])
+        check("[64] Ctrl+V 有图才挂（挂上时说明会随消息发给提供商）",
+              _res64["image"] == ["/tmp/x.png"], _res64["image"])
+        check("[64] Ctrl+V 没图时不吞掉粘贴（输入框照常，不报假成功）",
+              _res64["image_none"] == "", repr(_res64["image_none"]))
+        check("[64] 提交时去掉不可见字符（零宽/双向控制是提示注入最爱）",
+              "\u200b" not in _res64["sanitized"] and "被藏了" in _res64["sanitized"],
+              repr(_res64["sanitized"]))
+        check("[64] 授权对话框：Tab 加备注，Esc 拒绝时**理由回传模型**",
+              _res64["perm_screen"] == "PermissionScreen"
+              and _res64["perm"] == ("deny", "别动"), _res64["perm"])
 
     # ============================================================
 

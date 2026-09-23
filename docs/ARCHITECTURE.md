@@ -131,7 +131,9 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.37.0.md #  本版更新介绍（可直接贴进 GitHub Release；入口一律走界面/键位真有实现）
+│   ├── RELEASE-NOTES-v3.38.0.md #  本版更新介绍（可直接贴进 GitHub Release；与 Claude 对齐的键位）
+│   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由）
+│   ├── RELEASE-NOTES-v3.37.0.md #  v3.37 更新介绍（入口一律走界面/键位真有实现）
 │   ├── RELEASE-NOTES-v3.36.0.md #  v3.36 更新介绍（交互重构：排队/中断/模态/键位）
 │   ├── RELEASE-NOTES-v3.35.1.md #  v3.35.1 更新介绍（演示图不再随采集时机漂移）
 │   ├── RELEASE-NOTES-v3.35.0.md #  v3.35 更新介绍（防误触宽限期/工具看板）

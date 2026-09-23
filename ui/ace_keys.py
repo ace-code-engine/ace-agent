@@ -200,7 +200,7 @@ def render_key_table(bindings: Sequence[KeyBinding], width: int = 0,
 # `Ctrl+字母` 本来就没剩几个能用的）。
 
 SCOPES: Tuple[str, ...] = ("global", "prompt", "overlay", "dialog", "transcript")
-CHORD_TIMEOUT = 1.2                    # 和弦第一段的有效期（秒）
+CHORD_TIMEOUT = 1.0                    # 和弦第一段的有效期（秒）
 
 
 class ActionBinding:
@@ -240,6 +240,7 @@ APP_KEYMAP: Tuple[ActionBinding, ...] = (
     ActionBinding("ctrl+k", "delete_to_end", "key_del_line_end", "prompt"),
     ActionBinding("ctrl+u", "delete_to_start", "key_del_line", "prompt"),
     ActionBinding("ctrl+y", "paste_killed", "key_paste_killed", "prompt"),
+    ActionBinding("alt+y", "yank_pop", "key_yank_pop", "prompt"),
     ActionBinding("ctrl+_", "undo", "key_undo", "prompt"),
     ActionBinding("ctrl+shift+-", "undo", "key_undo", "prompt"),
     ActionBinding("alt+b", "word_left", "key_word_left", "prompt"),
@@ -254,6 +255,13 @@ APP_KEYMAP: Tuple[ActionBinding, ...] = (
     ActionBinding("ctrl+t", "tasks", "key_tasks", "global"),
     ActionBinding("ctrl+g", "external_editor", "key_editor", "global"),
     ActionBinding("alt+m", "model_pick", "key_model", "global"),
+    ActionBinding("alt+n", "new_chat", "key_new", "global"),
+    ActionBinding("alt+h", "history", "key_history_pick", "global"),
+    ActionBinding("alt+t", "effort", "key_effort", "global"),
+    ActionBinding("alt+w", "net_toggle", "key_net", "global"),
+    ActionBinding("alt+l", "lang", "key_lang", "global"),
+    ActionBinding("alt+1", "home", "key_home", "global"),
+    ActionBinding("alt+k", "tasks", "key_tasks", "global"),
     ActionBinding("alt+t", "toggle_thinking", "key_thinking", "global"),
     ActionBinding("ctrl+l", "clear_transcript", "key_clear", "global"),
     ActionBinding("ctrl+c", "interrupt", "key_interrupt", "global"),

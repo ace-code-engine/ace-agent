@@ -52,6 +52,7 @@ ace-agent/
 │   ├── ace_grace.py            #   危险对话框的防误触宽限期：飞行按键不算放行（纯逻辑，时钟可注入）
 │   ├── ace_tools.py            #   工具看板：四态点（排队/在跑/完成/失败）+ 同帧同步 + 只重画变化行
 │   ├── ace_turn.py             #   一轮的交互状态机：忙时入队、两段式中断、授权选项、档位环（纯逻辑）
+│   ├── ace_home.py             #   主页模型：分区顺序（接着上次→开始→能力→特色）+ 条目 + 渲染（纯逻辑）
 │   ├── ace_keys.py             #   键位系统（内置语义键 + 用户覆盖 + 冲突警告 + **作用域/和弦/生成的帮助**）
 │   ├── ace_prompt.py           #   无依赖输入行：菜单 + 历史 + 行编辑（按键来源可注入，可端到端测）
 │   ├── ace_keys.py             #   键位系统：内置语义键 + 用户覆盖 + 冲突警告 + 键位表（纯函数）
@@ -90,6 +91,7 @@ ace-agent/
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
 │   ├── ace_styles.py           #   输出风格预设：提示词片段 + 界面旗标（一份预设两个面）
+│   ├── ace_effort.py           #   思考强度：auto/low/medium/high 四档 + 提示词增量 + 关键词逃生门（纯逻辑）
 │   ├── ace_rules.py            #   持久授权规则：匹配/优先级/三档作用域（deny 优先，纯函数）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
@@ -131,7 +133,9 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.38.0.md #  本版更新介绍（可直接贴进 GitHub Release；与 Claude 对齐的键位）
+│   ├── RELEASE-NOTES-v3.39.0.md #  本版更新介绍（可直接贴进 GitHub Release；主页与功能面板）
+│   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置
+│   ├── RELEASE-NOTES-v3.38.0.md #  v3.38 更新介绍（与 Claude 对齐的键位）
 │   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由）
 │   ├── RELEASE-NOTES-v3.37.0.md #  v3.37 更新介绍（入口一律走界面/键位真有实现）
 │   ├── RELEASE-NOTES-v3.36.0.md #  v3.36 更新介绍（交互重构：排队/中断/模态/键位）

@@ -402,7 +402,9 @@ def main() -> None:
             # 首屏图里版本号出现在两处（右侧标题栏 + 面板右上角），格式是 `vX.Y.Z`；
             # 聊天图里是横幅 `X.Y.Z · AI Code Engine`。两种都认。
             shown = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", old_svg)
-                     or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", old_svg))
+                     or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", old_svg)
+                     # 主页首屏的顶行是 `ACE 3.39.0 · 模型 · 权限`（没有 v 前缀）
+                     or re.search(r"ACE\s+v?([0-9]+\.[0-9]+\.[0-9]+)", old_svg))
             if not shown:
                 raise SystemExit(f"{OUT_SVG.name} 里找不到版本号横幅，录制格式可能变了")
             if shown.group(1) != project_version():

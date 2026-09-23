@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65"]
 _SEEN_SECTIONS: list = []
 
 
@@ -1363,8 +1363,10 @@ if _want("9"):
         with contextlib.redirect_stdout(buf):
             ai_code._print_preview(cli_real, width=_lw)
         _pv = buf.getvalue()
-        check("--preview 打出首屏 + 状态栏示例 + 提示",
-              "当前会话" in _pv and "状态栏" in _pv
+        check("--preview 打出首屏（现在是主页）+ 状态栏示例 + 提示",
+              ai_code.t("home_sec_start") in _pv
+              and ai_code.t("home_sec_ability") in _pv
+              and "状态栏" in _pv
               and ai_code.t("preview_hint")[:8] in _pv, _pv[-200:])
         check("--preview 的状态栏示例里带上下文占比（底栏内容可评审）",
               "%" in _pv.split("状态栏")[-1], _pv[-160:])
@@ -10686,6 +10688,128 @@ if _want("64"):
         check("[64] 授权对话框：Tab 加备注，Esc 拒绝时**理由回传模型**",
               _res64["perm_screen"] == "PermissionScreen"
               and _res64["perm"] == ("deny", "别动"), _res64["perm"])
+
+    # ============================================================
+
+if _want("65"):
+    # ── [65] ────
+    print("[65] 主页与功能面板：思考强度 · 联网思考 · 回答语言 · 新对话 · 历史对话 · 两段式回溯")
+    # ============================================================
+    from core import ace_effort as _eff65  # noqa: E402
+    from ui import ace_home as _home65  # noqa: E402
+
+    # —— 思考强度：档位 / 环 / 提示词 ——
+    check("[65] 强度：四档 auto→low→medium→high，**默认 auto**（不替模型做决定）",
+          _eff65.EFFORT_ORDER == ("auto", "low", "medium", "high")
+          and _eff65.DEFAULT_EFFORT == "auto", _eff65.EFFORT_ORDER)
+    check("[65] 强度：auto 不加任何提示词（默认行为不被我们的偏好污染）",
+          _eff65.prompt_hint("auto") == "" and _eff65.prompt_hint("") == "", "")
+    check("[65] 强度：三档各有明确增量，且都要求「先说清再动手」而不是「想久一点」",
+          all(_eff65.prompt_hint(lv) for lv in ("low", "medium", "high"))
+          and "备选" in _eff65.prompt_hint("high"), _eff65.prompt_hint("high")[:40])
+    check("[65] 强度：环能转回来（high → auto），也能倒着转",
+          _eff65.cycle("auto") == "low" and _eff65.cycle("high") == "auto"
+          and _eff65.cycle("auto", -1) == "high", "")
+    check("[65] 强度：写坏的档位落回 auto（不抛异常、不静默变高）",
+          _eff65.normalize("banana") == "auto" and _eff65.normalize("MAX") == "high", "")
+    check("[65] 强度：符号一眼可辨（○ ◐ ● ◉），且短标记自带「怎么改」",
+          _eff65.symbol("high") == "◉" and "/effort" in _eff65.badge("high", lambda k: k), "")
+    check("[65] 强度：关键词逃生门 —— 输入里写了 ultrathink/认真想 → 这一轮最高档",
+          _eff65.keyword_level("帮我 ultrathink 一下") == "high"
+          and _eff65.keyword_level("认真想：这个架构怎么拆") == "high"
+          and _eff65.keyword_level("普通提问") is None, "")
+    check("[65] 强度：`/effort` 的解析（空=看、next/prev=转、list=列、档名=设）",
+          _eff65.parse_command(["/effort"])[0] is None
+          and _eff65.parse_command(["/effort", "next"], "auto")[0] == "low"
+          and _eff65.parse_command(["/effort", "prev"], "auto")[0] == "high"
+          and _eff65.parse_command(["/effort", "list"])[1] == "effort_list"
+          and _eff65.parse_command(["/effort", "HIGH"])[0] == "high", "")
+
+    # —— 主页：分区顺序就是信息层级 ——
+    _st65 = {"version": "9.9.9", "model": "m1", "permission": "readonly",
+             "sandbox": "off", "effort": "medium", "net": True, "lang": "zh",
+             "snapshots": 2}
+    _sess65 = [{"when": "昨天", "turns": 4, "label": "重构 UI"},
+               {"when": "前天", "turns": 9, "label": "修 CI"}]
+    _sec65 = _home65.build_home(_st65, _sess65)
+    check("[65] 主页：分区顺序 = 接着上次 → 开始 → 能力 → 特色（绝大多数人打开就是想接着上次）",
+          [s.key for s in _sec65] == ["resume", "start", "ability", "feature"],
+          [s.key for s in _sec65])
+    _flat65 = _home65.selectable(_sec65)
+    check("[65] 主页：最近一条会话直接摆在「继续」那一行（时间 + 轮数）",
+          _flat65[0].action == "resume_last" and "昨天" in _flat65[0].fmt.get("when", ""),
+          _flat65[0])
+    check("[65] 主页：能力区把**当前值**直接写在行里（主页一半的价值在「现在是什么」）",
+          {i.action: i.value for i in _flat65 if i.section == "ability"}
+          == {"effort": "medium", "net": "on", "lang": "zh", "permission": "readonly",
+              "model": "m1"},
+          {i.action: i.value for i in _flat65 if i.section == "ability"})
+    check("[65] 主页：没有历史会话时「继续」是禁用行（不假装能点）",
+          [i.enabled for i in _home65.build_home(_st65, [])[0].items] == [False], "")
+    _lines65 = _home65.render_home(_sec65, lambda k: k, width=90,
+                                   header="HEAD", footer="FOOT")
+    check("[65] 主页：渲染出选中标记与分区标题，且能选中项数 == 可点条目数",
+          any("▶" in x for x in _lines65) and _lines65[0] == "HEAD"
+          and _lines65[-1] == "FOOT"
+          and sum(1 for x in _lines65 if "▶" in x) == 1, _lines65[:4])
+    check("[65] 主页：选中项循环移动（↑ 到底再按一下回到开头）",
+          _home65.move_selection(_flat65, 0, -1) == len(_flat65) - 1
+          and _home65.move_selection(_flat65, len(_flat65) - 1, 1) == 0, "")
+    check("[65] 主页：快捷键表能查到动作（Alt+N 新对话 / Alt+H 历史 / Esc Esc 回溯）",
+          _home65.action_for_key("alt+n") == "new"
+          and _home65.action_for_key("alt+h") == "history"
+          and _home65.action_for_key("escape escape") == "rewind"
+          and _home65.action_for_key("alt+z") == "", "")
+    check("[65] 主页：顶行只放「一眼要确认的三件事」（版本/模型/权限），沙箱非 off 才露面",
+          "ACE 9.9.9" in _home65.title_line("9.9.9", "m1", "readonly", "off")
+          and "沙箱" not in _home65.title_line("9.9.9", "m1", "readonly", "off")
+          and "沙箱" in _home65.title_line("9.9.9", "m1", "readonly", "job"), "")
+
+    # —— 联网思考提示 ——
+    import ai_code as _ai65  # noqa: E402
+    _net65 = _ai65._net_thinking_hint()
+    check("[65] 联网思考：开了联网就要求「先搜再答 + 列来源」，并注入当前年月",
+          "先搜再答" in _net65 and "来源" in _net65 and "当前时间" in _net65, _net65[:60])
+
+    # —— CLI 侧：命令表与接线 ——
+    _cli65 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("[65] 源码级：四个新命令都在两张表里（COMMANDS / COMMAND_HANDLERS 键集一致）",
+          all(f'"{c}": "' in _cli65 for c in ("/effort", "/lang", "/new", "/home"))
+          and _cli65.count('"/effort": (') == 1 and _cli65.count('"/home": (') == 1, "")
+    check("[65] 源码级：提示词里注入了三样（思考强度 · 联网思考 · 回答语言）",
+          "ace_effort.prompt_hint(" in _cli65 and "_net_thinking_hint()" in _cli65
+          and "【语言指令】" in _cli65, "")
+    check("[65] 源码级：`/new` 会换一个新会话文件（不是只清上下文）",
+          "def _cmd_new(self, parts" in _cli65 and "ace_sessionlog" in _cli65
+          and "session_log = _SL(new_path)" in _cli65, "")
+    check("[65] 源码级：主页数据一处组装（home_state）供命令/首屏/预览共用",
+          "def home_state(self)" in _cli65 and "def home_lines(self" in _cli65
+          and "_sessions_brief" in _cli65, "")
+
+    # —— 组件界面：首屏是主页 + 新键位 + 两段式回溯 ——
+    _tui65 = (FOLDER / "tui" / "app.py").read_text(encoding="utf-8")
+    check("[65] 源码级：首屏把主页挂进会话区（不是独立的第二个屏幕）",
+          "def _show_home(self)" in _tui65 and "host.home_lines(" in _tui65
+          and "self._show_home()" in _tui65, "")
+    check("[65] 源码级：回溯是两段式（先选回到哪一条，再选退什么）",
+          "def _open_rewind(self)" in _tui65 and "rewind_action_title" in _tui65
+          and "def _stage2(" in _tui65, "")
+    check("[65] 源码级：没有快照就不提供「回退文件」（能力门控，不给点了就报错的项）",
+          "if snapshots:" in _tui65 and "rewind_files_latest" in _tui65, "")
+    check("[65] 源码级：kill ring 是 10 格且连续删累积（readline 的老规矩）",
+          "self._kill_ring: List[str] = []" in _tui65 and "del ring[:-10]" in _tui65
+          and "def action_yank_pop" in _tui65, "")
+    check("[65] 源码级：CJK 逐字走词（汉字不特判就会被当成一个超长词）",
+          "def _is_cjk(ch: str)" in _tui65 and "_is_cjk(text[i])" in _tui65, "")
+
+    # —— 键位表：新键都在，且能生成帮助 ——
+    from ui import ace_keys as _keys65  # noqa: E402
+    _keyset65 = {b.key for b in _keys65.APP_KEYMAP}
+    check("[65] 键位表：主页那一组键都在（Alt+N/H/T/W/L/1/K）",
+          {"alt+n", "alt+h", "alt+t", "alt+w", "alt+l", "alt+1", "alt+k"} <= _keyset65,
+          sorted(_keyset65))
+    check("[65] 键位表：和弦超时对齐 1 秒（上游也是 1s；太长会让「待续」状态碍事）",
+          _keys65.CHORD_TIMEOUT == 1.0, _keys65.CHORD_TIMEOUT)
 
     # ============================================================
 

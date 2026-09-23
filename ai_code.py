@@ -77,7 +77,9 @@ from ui import ace_spinner  # noqa: E402  （等待指示器状态机：阶段�
 from ui import ace_notify  # noqa: E402  （通知排队 + 终端标题/桌面通知通道）
 from ui import ace_tools  # noqa: E402  （工具看板：四态点 + 同帧同步 + 只重画变化行）
 from ui import ace_turn  # noqa: E402  （一轮的交互状态机：排队/两段式中断/授权选项）
+from ui import ace_home  # noqa: E402  （主页模型：分区/条目/渲染，纯逻辑）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
+from core import ace_effort  # noqa: E402  （思考强度：档位 + 提示词增量，纯逻辑）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
@@ -1399,9 +1401,17 @@ class _AtCommands:
             print(c("red", t("at_lang_unsupported", arg=arg,
                              names=", ".join(LANG_NAMES))))
             return
-        self.lang = key
-        set_language(key)  # 界面语言同步切换
+        self._set_lang(key)
         print(c("green", t("at_lang_switched", name=LANG_NAMES[key])))
+
+    def _set_lang(self, key: str) -> str:
+        """切界面语言（`@lang` 与 `/lang` 共用这一处，避免两条路各切一半）。"""
+        code = str(key or "").lower()
+        if code not in LANG_NAMES:
+            return self.lang
+        self.lang = code
+        set_language(code)
+        return code
 
     def _at_skill(self, arg: str) -> None:
         if not arg:
@@ -1514,9 +1524,9 @@ class _SlashCommands:
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking",
                          "/style"]),
-        ("group_tools", ["/open", "/edit", "/review", "/diff", "/search", "/memory",
+        ("group_tools", ["/home", "/new", "/open", "/edit", "/review", "/diff", "/search", "/memory",
                         "/report", "/goal"]),
-        ("group_extend", ["/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term",
+        ("group_extend", ["/effort", "/lang", "/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term",
                           "/rules"]),
     ]
     GROUP_FALLBACK = "group_more"
@@ -1577,6 +1587,10 @@ class _SlashCommands:
         "/net": "cmd_net",
         "/sandbox": "cmd_sandbox",
         "/thinking": "cmd_thinking",
+        "/effort": "cmd_effort",
+        "/lang": "cmd_lang",
+        "/new": "cmd_new",
+        "/home": "cmd_home",
         "/history": "cmd_history",
         "/mcp": "cmd_mcp",
         "/todo": "cmd_todo",
@@ -1630,6 +1644,10 @@ class _SlashCommands:
         "/net": ("_toggle_net", True),
         "/sandbox": ("_handle_sandbox", True),
         "/thinking": ("_cmd_thinking", True),
+        "/effort": ("_cmd_effort", True),
+        "/lang": ("_cmd_lang", True),
+        "/new": ("_cmd_new", True),
+        "/home": ("_cmd_home", True),
         "/history": ("_cmd_history", True),
         "/mcp": ("_cmd_mcp", True),
         "/todo": ("_cmd_todo", True),
@@ -3297,6 +3315,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 没有界面（普通 REPL）时这两个都不存在，一切照旧走终端问答。
         self._stop_event = threading.Event()
         self._ui = None
+        # 思考强度：常驻档在 cfg["effort"]，"这一轮"的临时档在这里（关键词逃生门）
+        self._turn_effort = ""
+        self.cfg.setdefault("effort", ace_effort.DEFAULT_EFFORT)
         try:
             ask_grant.on_deny_feedback = self._record_deny_feedback
         except Exception:  # noqa: BLE001 —— 登记不上也不该影响启动
@@ -3667,10 +3688,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             title += f" · {suffix}"
         self.term.set_title(title)
 
+    def _clear_turn_effort(self) -> None:
+        """清掉"这一轮"的临时思考强度（关键词逃生门用完即焚）。"""
+        self._turn_effort = ""
+
     def _maybe_notify_done(self, secs: float) -> None:
         """跑完一轮：长任务才发系统通知（坐在终端前的人不需要被通知打断）。"""
         self._set_title(f"就绪 · {self.session['rounds']} 轮")
         if float(secs) >= 30.0:
+            self._clear_turn_effort()
             self.term.notify(t("notify_turn_done", sec=round(secs)),
                              title="ACE")
 
@@ -4020,6 +4046,158 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                   else c("dim" if _ln.startswith("  ") else "bold", _ln))
         for _w in self._key_warning_lines():
             print(c("yellow", "  ⚠ " + _w))
+        return True
+
+    # ---------- 主页 / 新对话 / 思考强度 / 输出语言 ----------
+
+    def _cmd_effort(self, parts: List[str]) -> bool:
+        """`/effort [auto|low|medium|high|next|prev|list]`：调"想多深"。
+
+        它和 `/thinking` 是两条轴：那条管**显示不显示**思考过程，这条管**想多深**。
+        默认 `auto` = 什么都不加，不替模型做决定。
+        """
+        cur = ace_effort.normalize(self.cfg.get("effort") or ace_effort.DEFAULT_EFFORT)
+        new, code = ace_effort.parse_command(parts, cur)
+        if code == "effort_list":
+            print(c("bold", "\n  " + t("effort_title")))
+            for lv, sym, what in ace_effort.describe(t):
+                mark = "▶" if lv == cur else " "
+                print(f"   {mark} {sym} {lv:<7}{what}")
+            print(c("dim", "  " + t("effort_usage")))
+            return True
+        if new is None:
+            print(f"  {ace_effort.symbol(cur)} {t('effort_now', level=cur)}\n"
+                  f"  {c('dim', t('effort_usage'))}")
+            return True
+        self.cfg["effort"] = new
+        _save = globals().get("save_cli_config")
+        if callable(_save):
+            try:
+                _save(self.cfg)
+            except Exception:      # noqa: BLE001 —— 存不下也先把当前会话改好
+                pass
+        print(c("green", "  " + t("effort_set", level=new,
+                                  what=t(ace_effort.labels(new)[1]))))
+        print(c("dim", "  " + t("effort_hint_added") if ace_effort.prompt_hint(new)
+                else "  " + t("effort_hint_none")))
+        return True
+
+    def _cmd_lang(self, parts: List[str]) -> bool:
+        """`/lang [zh|en|ja]`：回答用什么语言（顺带把界面语言一起切）。
+
+        为什么绑定在一起：用户说"用英文回答"时，几乎总是也想让界面说英文 ——
+        拆成两个开关的结果是"模型说英文、界面说中文"这种半拉状态。
+        """
+        _NAMES = LANG_NAMES          # 模块级常量（ai_code 自己的那张表）
+        cur = str(self.cfg.get("reply_lang") or self.lang or "zh")
+        if len(parts) < 2:
+            print(f"  {t('lang_now', name=_NAMES.get(cur, cur), code=cur)}")
+            print(c("dim", "  " + t("lang_usage", names=", ".join(_NAMES))))
+            return True
+        want = parts[1].lower()
+        if want not in _NAMES:
+            print(c("yellow", "  " + t("at_lang_unsupported", arg=parts[1],
+                                       names=", ".join(_NAMES))))
+            return True
+        self._set_lang(want)             # UI 语言（与 @lang 同一条路）
+        self.cfg["reply_lang"] = want
+        _save = globals().get("save_cli_config")
+        if callable(_save):
+            try:
+                _save(self.cfg)
+            except Exception:      # noqa: BLE001
+                pass
+        print(c("green", "  " + t("lang_set", name=_NAMES[want])))
+        return True
+
+    def _cmd_new(self, parts: List[str]) -> bool:
+        """`/new`：开一段**新会话**（新日志文件 + 清空上下文）。
+
+        与 `/clear` 的区别：`/clear` 只是把上下文清掉，会话文件还是同一个（历史里
+        仍然算同一次会话）；`/new` 换一个新文件 —— 于是"新对话 / 历史对话"这套
+        东西才有意义：列表里能看到它是一条独立记录。
+        """
+        from cli.ace_sessionlog import SessionLog as _SL
+        base = Path(self.cfg.get("project_root", ".")) / ".ace_sessions"
+        old_path = str(self.cfg.get("session_log") or "")
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            new_path = base / f"{time.strftime('%Y%m%d_%H%M%S')}_new.jsonl"
+            self.session_log = _SL(new_path)
+            self.cfg["session_log"] = str(new_path)
+            if hasattr(self.el, "session_log"):
+                self.el.session_log = self.session_log
+        except Exception as e:      # noqa: BLE001 —— 建不了新文件就至少把上下文清掉
+            print(c("yellow", "  " + t("new_session_failed", err=type(e).__name__)))
+        self.messages.clear()
+        self.context_refs = []
+        self._pending_images = []
+        self._init_execution_layer()
+        self.session.update(rounds=0, tools=0, violations=0, start=time.time())
+        self._ctx_warn_band = 0
+        print(c("green", "  " + t("new_session_done")))
+        if old_path:
+            print(c("dim", "  " + t("new_session_prev", path=os.path.basename(old_path))))
+        return True
+
+    def _sessions_brief(self, limit: int = 5) -> List[Dict[str, object]]:
+        """最近会话的摘要（主页与 `/sessions` 共用一份口径）。
+
+        为什么不复用 `/sessions` 的打印：主页要的是**数据**（时间/轮数/首句），
+        打印路径要的是**给人看的行**。同一份摘要喂两个消费者，才不会出现
+        "主页说 3 条、历史里却有 5 条"这种事。
+        """
+        from cli import ace_sessions as _sess
+        rows: List[Dict[str, object]] = []
+        try:
+            files = self._session_files()
+        except Exception:      # noqa: BLE001
+            return rows
+        for path in files[:max(1, int(limit))]:
+            try:
+                info = _sess.summarize(self._load_session_events(path))
+            except Exception:      # noqa: BLE001 —— 坏文件跳过，不让主页崩
+                continue
+            rows.append({"path": str(path), "when": str(info.get("when") or ""),
+                         "turns": int(info.get("turns") or 0),
+                         "label": str(info.get("first") or info.get("label") or "")[:60]})
+        return rows
+
+    def home_state(self) -> Dict[str, object]:
+        """主页要的一份只读快照（配置 + 执行层 + 会话记录，一处组装）。"""
+        model = "mock" if self.client.mock else (self.client.model or "?")
+        net = bool(getattr(self.el.executor, "network_enabled", True))
+        snaps = 0
+        try:
+            g = getattr(self.el, "guardian", None)
+            snaps = len(g.list_snapshots()) if g is not None else 0
+        except Exception:      # noqa: BLE001
+            snaps = 0
+        return {
+            "model": str(model).split("/")[-1], "permission": self.get_permission(),
+            "sandbox": str(self.cfg.get("sandbox", "off") or "off"),
+            "effort": ace_effort.normalize(self.cfg.get("effort")),
+            "net": net,
+            "lang": str(self.cfg.get("reply_lang") or self.lang or "zh"),
+            "snapshots": snaps,
+            "version": version.__version__,
+        }
+
+    def home_lines(self, width: int = 0) -> List[str]:
+        """主页 → 待打印行（`/home`、启动首屏、`--preview` 共用同一份渲染）。"""
+        st = self.home_state()
+        sections = ace_home.build_home(st, self._sessions_brief())
+        w = int(width) if int(width or 0) > 0 else self._panel_width()
+        return ace_home.render_home(
+            sections, t, width=w,
+            header=ace_home.title_line(str(st["version"]), str(st["model"]),
+                                       str(st["permission"]), str(st["sandbox"]), c),
+            footer=ace_home.hint_line(t, c))
+
+    def _cmd_home(self, parts: List[str]) -> bool:
+        """`/home`：把主页再打一遍（会话滚上去之后想再看一眼）。"""
+        for line in self.home_lines():
+            print(line)
         return True
 
     def _cmd_style(self, parts: List[str]) -> bool:
@@ -4586,8 +4764,19 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """组装系统提示词：基础提示词 + 语言指令 + 技能 + 已引用文件/文件夹"""
         base = load_system_prompt(tools_mode=bool(self.client.tools_ok))
         parts = [base]
-        if self.lang != "zh":
-            parts.append(f"【语言指令】请始终使用 {LANG_NAMES.get(self.lang, self.lang)} 回答用户。")
+        _reply_lang = str(self.cfg.get("reply_lang") or self.lang or "zh")
+        if _reply_lang != "zh":
+            parts.append(f"【语言指令】请始终使用 "
+                         f"{LANG_NAMES.get(_reply_lang, _reply_lang)} 回答用户；"
+                         f"代码标识符、命令、路径、报错原文保持原样，不要翻译。")
+        # 思考强度：**默认档不加任何话** —— 不替模型做决定
+        _effort_hint = ace_effort.prompt_hint(
+            self._turn_effort or self.cfg.get("effort"))
+        if _effort_hint:
+            parts.append(_effort_hint)
+        # 联网思考：开了联网就要求"先查再答 + 列出来源 + 知道今天是几号"
+        if bool(getattr(self.el.executor, "network_enabled", True)):
+            parts.append(_net_thinking_hint())
         parts.append(f"【工作目录】{os.path.abspath(self.cfg['project_root'])}。"
                      f"文件操作请使用该目录下的相对路径或该绝对路径，不要臆造路径。")
         # 用户环境：让模型知道"桌面/主目录"在哪，避免把工作目录当成用户桌面
@@ -4893,6 +5082,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if self.json_mode:
             self.events.emit("user_message", text=user_input)
         # 记忆预注入：模型生成前把相关历史记忆放进 prompt（无记忆时原样返回）
+        # 关键词逃生门（`ultrathink` / `认真想`）：**这一轮**按最高档走，用完就清。
+        # 零 UI 成本：想让它多想一会儿时敲一个词就行，不必先去改设置。
+        _kw = ace_effort.keyword_level(user_input)
+        self._turn_effort = _kw
+        if _kw:
+            print(c("cyan", "  " + t("effort_turn_override",
+                                     level=_kw, what=t(ace_effort.labels(_kw)[0]))))
         next_user = self.el.prepare_context(user_input)
         # user_prompt 钩子：进模型**之前**的最后一道用户规矩。
         # 拦下就整轮不发（省一次调用，也让"这条不许问"真的成立）；
@@ -5776,7 +5972,9 @@ def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
     不开交互终端时先看一眼长什么样 —— 预览只画界面，不读按键、不进对话。
     """
     w = int(width) if int(width or 0) > 0 else cli._panel_width()
-    for line in cli.landing_lines(0, width=w):
+    # 预览画的就是**启动首屏**：以前画的是旧横幅，现在画主页 —— 两处必须是同一个东西，
+    # 否则"预览看着挺好、真跑起来不是这样"就是最坏的一种不一致。
+    for line in cli.home_lines(w):
         print(line)
     print()
     # 状态栏示例：底栏是 prompt_toolkit 的画布，这里按同一份数据渲染成一行，
@@ -5786,6 +5984,22 @@ def _print_preview(cli: "AgentCLI", width: int = 0) -> None:
     print("".join(seg for _cls, seg in ftr).strip())
     print()
     print(c("dim", t("preview_hint")))
+
+
+def _net_thinking_hint(now: Optional[float] = None) -> str:
+    """联网开着时要加的那段话：先查再答、列出来源、别拿旧知识答新问题。
+
+    为什么要明写当前年月：模型的知识有个截止点，而"最新版本是多少""这个库现在还维护吗"
+    这类问题**必须**靠搜索 —— 不把日期告诉它，它会自信地拿两年前的答案回复。
+    """
+    import time as _time
+    stamp = _time.strftime("%Y-%m", _time.localtime(now)) if now else _time.strftime("%Y-%m")
+    return ("【联网思考】你现在有联网搜索工具。规则：\n"
+            "1) 凡是可能已经变化的事实（版本号、发布时间、价格、API 现状、库是否还维护、"
+            "新闻与人物动态），**先搜再答**，不要凭记忆回答；\n"
+            "2) 结论后面列出你实际用到的来源（标题或域名 + 链接）；\n"
+            f"3) 当前时间是 {stamp}，涉及「最新/现在」的问题以搜索结果为准；\n"
+            "4) 搜不到就如实说搜不到，也不要用旧知识补一个「应该差不多」的答案。")
 
 
 def _tui_off_reason(args) -> str:

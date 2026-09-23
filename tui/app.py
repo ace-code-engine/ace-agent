@@ -611,7 +611,9 @@ class AceTuiApp(App):
         self._mode_armed = False
         self._chord_deadline = 0.0
         self._esc_at = 0.0
-        self._kill = ""              # kill ring（Ctrl+K/U/W/Alt+D 删掉的东西）
+        self._kill_ring: List[str] = []   # kill ring：Ctrl+K/U/W/Alt+D 删掉的东西
+        self._kill_pos = -1
+        self._kill_accum = False          # 连续删是否还在累积（readline 的老规矩）
         self._undo: List[Tuple[str, int]] = []
         self._last_prompt: Tuple[str, int] = ("", 0)
         self._undo_guard = False
@@ -627,6 +629,11 @@ class AceTuiApp(App):
                 pass
 
     # ================= 布局 =================
+    def _cfg(self) -> dict:
+        """宿主的配置字典（读当前档位/开关用）；没有就返回空字典。"""
+        cfg = getattr(self.ui_host, "cfg", None)
+        return cfg if isinstance(cfg, dict) else {}
+
     def _msg(self, key: str, **kw) -> str:
         """翻译 + 填值。`translate` 只吃一个键的调用方（测试里常用）也照样能用。"""
         try:
@@ -651,6 +658,7 @@ class AceTuiApp(App):
 
     def on_mount(self) -> None:
         self.title = self.app_title
+        self._show_home()
         self.sub_title = self.t("tui_subtitle")
         self.query_one("#prompt", Input).focus()
         self._refresh_status()
@@ -662,6 +670,22 @@ class AceTuiApp(App):
                 self.ui_host.attach_ui(self)     # 引擎侧以后从这条路问界面
             except Exception:                    # noqa: BLE001
                 pass
+
+    def _show_home(self) -> None:
+        """首屏 = 主页（会话区的第一块，打字之后它自然滚上去）。
+
+        为什么不做成独立全屏页：独立页要"进去—出来"两次切换，滚动还会丢；
+        而"聊天记录是主线"这件事，靠"主页就是第一块记录"最自然地表达出来。
+        """
+        host = self.ui_host
+        lines: List[str] = []
+        try:
+            if callable(getattr(host, "home_lines", None)):
+                lines = list(host.home_lines(self.size.width - 2) or [])
+        except Exception:      # noqa: BLE001 —— 主页画不出来不该拦着启动
+            lines = []
+        if lines:
+            self.append_lines(lines)
 
     # ================= 状态行 / 看板 =================
     def _status_text(self) -> str:
@@ -677,6 +701,14 @@ class AceTuiApp(App):
             parts.append(self._msg("tui_status_queue", n=str(snap["queued"])))
         if snap["busy"]:
             parts.append(self._msg("tui_status_busy", s=f"{float(snap['elapsed']):.0f}"))
+        # 思考强度：非 auto 才显示（auto 是默认，天天挂在底栏只会变成噪音）
+        try:
+            from core import ace_effort as _eff
+            _lv = _eff.normalize(self._cfg().get("effort"))
+            if not _eff.is_auto(_lv):
+                parts.append(" " + _eff.symbol(_lv) + _eff.normalize(_lv) + " ")
+        except Exception:      # noqa: BLE001
+            pass
         parts.append(" " + self.turn.hint(self.t) + " ")
         try:
             _inp = self._prompt()
@@ -1040,6 +1072,7 @@ class AceTuiApp(App):
         为什么记"变化前"：`Input.Changed` 是**事后**通知，这时 `value` 已经是新值；
         照它记撤销点，`Ctrl+_` 只会把"当前值"再设一遍（看起来就是"撤销没反应"）。
         """
+        self._kill_accum = False      # 打字/别的改动 → 下一次删是新的一格
         if not self._undo_guard:
             prev = getattr(self, "_last_prompt", None)
             if prev is not None and (not self._undo or self._undo[-1] != prev):
@@ -1051,6 +1084,18 @@ class AceTuiApp(App):
             self._last_prompt = ((event.value or ""), 0)
         self._refresh_palette(event.value or "")
 
+
+    @staticmethod
+    def _is_cjk(ch: str) -> bool:
+        """中日韩字符：**每个字自己算一个词**（与 readline/上游的分词口径一致）。
+
+        为什么单独判：`str.isalnum()` 对汉字返回 True，若不特判，`Alt+B` 会把一整句
+        中文当成一个词跳过去 —— 而中文用户期望的是"一个字一个字地退"。
+        """
+        cp = ord(ch)
+        return (0x3040 <= cp <= 0x30FF or 0x3400 <= cp <= 0x4DBF
+                or 0x4E00 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF
+                or 0xAC00 <= cp <= 0xD7AF)
 
     @staticmethod
     def _word_bounds(text: str, pos: int, alnum: bool = False):
@@ -1071,7 +1116,50 @@ class AceTuiApp(App):
         end = i
         while i > 0 and not is_sep(text[i - 1]):
             i -= 1
+            if alnum and AceTuiApp._is_cjk(text[i]):
+                break                     # CJK：一个字就算一个词
         return i, end
+
+    def _push_kill(self, text: str, append: bool = False) -> None:
+        """把删掉的文本放进 kill ring（10 格）。
+
+        两条 readline 的老规矩：
+        - 连续删（中间没有别的操作）**攒进同一格** —— 于是 `Ctrl+W` 三次之后一个
+          `Ctrl+Y` 能把三个词一起粘回来；
+        - 超过 10 格丢最旧的。留 10 格是为了 `Alt+Y` 能往回翻几手，再多也没人翻。
+        """
+        if not text:
+            return
+        ring = self._kill_ring
+        if append and ring and self._kill_accum:
+            ring[-1] = str(ring[-1]) + text      # 连续删：攒进同一格
+        else:
+            ring.append(text)
+        del ring[:-10]
+        self._kill_accum = True
+        self._kill_pos = len(ring) - 1
+
+    @property
+    def _kill(self) -> str:
+        """最近一次被删掉的文本（兼容旧的读取点）。"""
+        return self._kill_ring[-1] if self._kill_ring else ""
+
+    def action_yank_pop(self) -> None:
+        """`Alt+Y`：在 kill ring 里往回翻一格（粘上更早删掉的内容）。"""
+        ring = self._kill_ring
+        if len(ring) < 2:
+            return
+        self._kill_pos = (self._kill_pos - 1) % len(ring)
+        self._insert_text(str(ring[self._kill_pos]))
+
+    def _insert_text(self, text: str) -> None:
+        """在光标处插入文本（不改 kill ring）。"""
+        inp = self._prompt()
+        if inp is None or not text:
+            return
+        val = inp.value or ""
+        pos = max(0, min(inp.cursor_position, len(val)))
+        self._set_prompt(val[:pos] + text + val[pos:], pos + len(text))
 
     def action_delete_word_back(self) -> None:
         """`Ctrl+W` / `Alt+Backspace`：删掉光标前一个词（readline 手感）。"""
@@ -1082,7 +1170,7 @@ class AceTuiApp(App):
         s, e = self._word_bounds(val, inp.cursor_position)
         if s == e:
             return
-        self._kill = val[s:e]
+        self._push_kill(val[s:e], append=True)
         self._set_prompt(val[:s] + val[e:], s)
 
     def action_delete_to_start(self) -> None:
@@ -1094,7 +1182,7 @@ class AceTuiApp(App):
         pos = inp.cursor_position
         if pos <= 0:
             return
-        self._kill = val[:pos]
+        self._push_kill(val[:pos], append=True)
         self._set_prompt(val[pos:], 0)
 
     def action_word_left(self) -> None:
@@ -1121,6 +1209,8 @@ class AceTuiApp(App):
             i += 1
         while i < len(val) and not is_sep(val[i]):
             i += 1
+            if self._is_cjk(val[i - 1]):
+                break
         self._set_prompt(val, i)
 
     def action_delete_word_end(self) -> None:
@@ -1135,9 +1225,11 @@ class AceTuiApp(App):
             j += 1
         while j < len(val) and (val[j].isalnum() or val[j] == "_"):
             j += 1
+            if self._is_cjk(val[j - 1]):
+                break
         if j == i:
             return
-        self._kill = val[i:j]
+        self._push_kill(val[i:j], append=True)
         self._set_prompt(val[:i] + val[j:], i)
 
     def action_delete_to_end(self) -> None:
@@ -1149,17 +1241,12 @@ class AceTuiApp(App):
         pos = max(0, min(inp.cursor_position, len(val)))
         if pos >= len(val):
             return
-        self._kill = val[pos:]
+        self._push_kill(val[pos:], append=True)
         self._set_prompt(val[:pos], pos)
 
     def action_paste_killed(self) -> None:
-        """`Ctrl+Y`：把上次删掉的（Ctrl+K/U/W、Alt+D）粘回来。"""
-        inp = self._prompt()
-        if inp is None or not self._kill:
-            return
-        val = inp.value or ""
-        pos = max(0, min(inp.cursor_position, len(val)))
-        self._set_prompt(val[:pos] + self._kill + val[pos:], pos + len(self._kill))
+        """`Ctrl+Y`：把上次删掉的（Ctrl+K/U/W、Alt+D）粘回来；`Alt+Y` 往回翻。"""
+        self._insert_text(self._kill)
 
     def action_undo(self) -> None:
         """`Ctrl+_` / `Ctrl+Shift+-`：撤销上一次输入编辑（含逐键输入）。
@@ -1374,41 +1461,91 @@ class AceTuiApp(App):
             return
         self._esc_at = now
 
-    def _open_rewind(self) -> None:
-        """`Esc Esc`（空输入）：回退菜单 —— 退对话（/rewind）或回退文件（/rollback）。
-
-        与 Claude 的 rewind 菜单同一件事：**退一步**是高频需求（方向错了、想重来），
-        而"退什么"必须让用户选：只退对话、只退文件，是两种完全不同的后果。
-        """
-        options: List[Tuple[str, str]] = []
-        host = self.ui_host
-        guardian = getattr(getattr(host, "el", None), "guardian", None)
+    def _snapshots(self) -> List[dict]:
+        """当前项目的文件快照（拿不到就空列表）。"""
+        guardian = getattr(getattr(self.ui_host, "el", None), "guardian", None)
         try:
-            snaps = list(guardian.list_snapshots()) if guardian is not None else []
+            return list(guardian.list_snapshots()) if guardian is not None else []
         except Exception:      # noqa: BLE001
-            snaps = []
-        for sn in snaps[:8]:
-            options.append((self._msg("rewind_files", id=sn.get("id", "?"),
-                                      tag=str(sn.get("tag") or "")[:24]),
-                            f"/rollback {sn.get('id')}"))
-        options.append((self._msg("rewind_talk"), "/rewind"))
-        if not options:
-            return
+            return []
 
-        def _done(value) -> None:
-            if not value:
+    def _open_rewind(self) -> None:
+        """`Esc Esc`（空输入）：**两段式**回溯 —— 先选回到哪一条，再选退什么。
+
+        为什么分两段（抄的是上游的做法，理由也确实成立）："退到哪"和"退什么"是两个
+        独立的决定，挤在一个列表里会出现"回退文件到快照 3"和"退对话两轮"这种无法比较
+        的选项并排 —— 用户只能靠读完整句判断。分开之后每一步都只有一类东西可比。
+
+        能力门控：没有快照就不给"回退文件"这一项（给了也只会报错）。
+        """
+        picks = list(dict.fromkeys(reversed(self._history)))[:20]
+        if not picks:
+            self.notice(self._msg("rewind_no_turns"))
+            return
+        snapshots = self._snapshots()
+
+        def _stage2(choice) -> None:
+            if not choice:
                 return
-            for label, cmd in options:
-                if label == value:
-                    self._host_command(cmd)
+            try:
+                idx = picks.index(choice)
+            except ValueError:
+                return
+            turns = idx + 1                     # 从这条开始（含它）一共要退几轮
+            actions: List[Tuple[str, str]] = [
+                (self._msg("rewind_both", n=turns), f"/rewind {turns}"),
+                (self._msg("rewind_talk_only", n=turns), f"/rewind {turns}"),
+            ]
+            if snapshots:
+                sid = snapshots[0].get("id", "?")
+                actions.append((self._msg("rewind_files_latest", id=sid),
+                                f"/rollback {sid}"))
+            actions.append((self._msg("rewind_cancel"), ""))
+
+            def _apply(value) -> None:
+                if not value:
                     return
+                for label, cmd in actions:
+                    if label == value and cmd:
+                        self._host_command(cmd)
+                        return
+
+            try:
+                self.push_screen(ChoiceScreen(self._msg("rewind_action_title"),
+                                              [a[0] for a in actions], self._msg,
+                                              _apply, filterable=False))
+            except Exception:      # noqa: BLE001
+                pass
 
         try:
-            self.push_screen(ChoiceScreen(self._msg("rewind_title"),
-                                          [o[0] for o in options], self._msg, _done,
-                                          filterable=False))
+            self.push_screen(ChoiceScreen(self._msg("rewind_title"), picks,
+                                          self._msg, _stage2))
         except Exception:      # noqa: BLE001
             pass
+
+    def action_new_chat(self) -> None:
+        """`Alt+N`：开一段新对话（与 `/new` 同一条路）。"""
+        self._host_command("/new")
+
+    def action_history(self) -> None:
+        """`Alt+H`：历史对话 —— 走 `/sessions` 的选择框。"""
+        self._host_command("/sessions")
+
+    def action_effort(self) -> None:
+        """`Alt+T`：思考强度环（auto → low → medium → high）。"""
+        self._host_command("/effort next")
+
+    def action_net_toggle(self) -> None:
+        """`Alt+W`：联网思考开关。"""
+        self._host_command("/net")
+
+    def action_lang(self) -> None:
+        """`Alt+L`：回答语言环（中文 → English → 日本語）。"""
+        self._host_command("/lang next")
+
+    def action_home(self) -> None:
+        """`Alt+1` / `/home`：把主页再打一遍（会话滚上去之后想再看一眼）。"""
+        self._show_home()
 
     def action_clear_transcript(self) -> None:
         self.query_one("#body", VerticalScroll).remove_children()

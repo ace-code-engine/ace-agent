@@ -127,7 +127,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.33.0.md #  本版更新介绍（可直接贴进 GitHub Release；指示器状态机/通知通道）
+│   ├── RELEASE-NOTES-v3.34.0.md #  本版更新介绍（可直接贴进 GitHub Release；组件化界面/环境自带）
+│   ├── RELEASE-NOTES-v3.33.0.md #  v3.33 更新介绍（指示器状态机/通知通道）
 │   ├── RELEASE-NOTES-v3.32.0.md #  v3.32 更新介绍（运行环境一键准备）
 │   ├── RELEASE-NOTES-v3.31.0.md #  v3.31 更新介绍（授权时顺手记规则）
 │   ├── RELEASE-NOTES-v3.30.0.md #  v3.30 更新介绍（持久授权规则）

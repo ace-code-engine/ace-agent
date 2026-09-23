@@ -121,7 +121,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.31.0.md #  本版更新介绍（可直接贴进 GitHub Release；授权时顺手记规则）
+│   ├── RELEASE-NOTES-v3.32.0.md #  本版更新介绍（可直接贴进 GitHub Release；运行环境一键准备）
+│   ├── RELEASE-NOTES-v3.31.0.md #  v3.31 更新介绍（授权时顺手记规则）
 │   ├── RELEASE-NOTES-v3.30.0.md #  v3.30 更新介绍（持久授权规则）
 │   ├── RELEASE-NOTES-v3.29.0.md #  v3.29 更新介绍（Esc 分层/防抖/Ctrl+T）
 │   ├── RELEASE-NOTES-v3.28.0.md #  v3.28 更新介绍（授权三态/全部展开）
@@ -175,7 +176,9 @@ ace-agent/
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── SECURITY.md                 # 安全策略：漏洞报告流程 / 承诺 / 已知边界
 ├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
-├── ace.cmd                     # Windows 启动器（PATH 探测 python/py，防商店占位）
+├── setup_env.py                # 运行环境一键准备：多环境发现 + 真的 import 一次 + 离线 wheel
+├── vendor/                     # 离线依赖落点（放 wheel 即可离线安装；README 说明口径）
+├── ace.cmd                     # Windows 启动器（向 setup_env 问路挑解释器，防商店占位）
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
 ├── docker-compose.yml          # 整体镜像一键起停编排
 ├── .gitignore                  # 忽略规则：生成物 / 缓存 / 密钥

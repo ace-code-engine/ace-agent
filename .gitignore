@@ -39,3 +39,7 @@ benchmarks/results/
 # 示例场景：用户自己丢进去的文档不入库，只保留占位说明
 examples/02_document_parsing/drop_docs_here/*
 !examples/02_document_parsing/drop_docs_here/README.md
+
+# 本地虚拟环境与离线依赖（setup_env.py 建的 / 你放进来的 wheel）
+.ace_env/
+vendor/*.whl

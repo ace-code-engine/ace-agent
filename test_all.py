@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57"]
+             "55", "56", "57", "58"]
 _SEEN_SECTIONS: list = []
 
 
@@ -9180,6 +9180,98 @@ if _want("57"):
     check("落地：回答里写了坏作用域时如实报错且不写文件",
           "不能用" in _persist57("y x nope") or "作用域" in _persist57("y x nope"), "")
     _cli57.close()
+
+    # ============================================================
+
+if _want("58"):
+    # ── [58] ────
+    print("[58] 运行环境 —— 多环境发现 · 真的 import 一次 · 离线 wheel · 启动器接线")
+    # ============================================================
+    import json as _json58  # noqa: E402
+    import subprocess as _sp58  # noqa: E402
+    import sys as _sys58  # noqa: E402
+    from pathlib import Path as _P58  # noqa: E402
+    import setup_env as _se58  # noqa: E402
+
+    # —— 候选顺序与"真的验证过一次" ——
+    _cands58 = _se58.candidate_interpreters(FOLDER)
+    check("候选解释器：至少有一个，且每项都带来源说明",
+          bool(_cands58) and all(isinstance(s, str) and p for s, p in _cands58),
+          _cands58[:3])
+    check("候选解释器：ACE_PYTHON 优先级最高（用户显式指定就该听他的）",
+          (lambda: (os.environ.__setitem__("ACE_PYTHON", "X:/explicit/python.exe"),
+                    _se58.candidate_interpreters(FOLDER)[0][1] == "X:/explicit/python.exe",
+                    os.environ.pop("ACE_PYTHON"))[1])(), "")
+    check("候选解释器：不重复同一个解释器",
+          len({p for _s, p in _cands58}) == len(_cands58), _cands58)
+    check("探针：不存在的模块 → False（不是靠猜）",
+          _se58.probe(_sys58.executable, ("definitely_not_a_module_xyz",)) is False, "")
+    check("探针：解释器本身跑不起来 → False（不是抛异常）",
+          _se58.probe("X:/definitely/not/python.exe") is False, "")
+    check("探针：不要求任何模块时，当前解释器可用 → True",
+          _se58.probe(_sys58.executable, ()) is True, "")
+
+    # —— 虚拟环境布局与目录解析 ——
+    _tmp58 = _P58(mktemp())
+    check("虚拟环境：空目录里找不到解释器（返回 None 而不是编一个路径）",
+          _se58.venv_python(_tmp58) is None, "")
+    (_tmp58 / "Scripts").mkdir(parents=True, exist_ok=True)
+    (_tmp58 / "Scripts" / "python.exe").write_bytes(b"")
+    check("虚拟环境：认识 Windows 布局（Scripts/python.exe）",
+          _se58.venv_python(_tmp58) is not None, "")
+    check("环境目录：ACE_ENV_DIR 可把本地环境放到别处（支持多套并存）",
+          (lambda: (os.environ.__setitem__("ACE_ENV_DIR", str(_tmp58)),
+                    _se58.env_dir(FOLDER) == _tmp58,
+                    os.environ.pop("ACE_ENV_DIR"))[1])(), "")
+
+    # —— 离线 wheel 与 ensure 的返回结构 ——
+    check("离线 wheel：vendor/*.whl 被识别（没有就是空列表）",
+          isinstance(_se58.vendor_wheels(_tmp58), list)
+          and _se58.vendor_wheels(_tmp58) == [], "")
+    _res58 = _se58.ensure(FOLDER, allow_create=False, log=lambda *_a: None)
+    check("ensure：返回机器可读结构（python/source/created/note/candidates）",
+          set(_res58) >= {"python", "source", "created", "note", "candidates"}, _res58)
+    check("ensure：不允许创建时绝不悄悄建环境（created 必为 False）",
+          _res58["created"] is False, _res58["created"])
+    check("ensure：找到的解释器是真实存在的文件（不是猜出来的名字）",
+          (not _res58["python"]) or os.path.isfile(str(_res58["python"])), _res58["python"])
+
+    # —— 命令行契约（启动器读的就是它）——
+    _p58 = _sp58.run([_sys58.executable, "setup_env.py", "--print-python"],
+                     cwd=str(FOLDER), capture_output=True, text=True, encoding="utf-8",
+                     timeout=180)
+    _line58 = [x for x in (_p58.stdout or "").strip().splitlines() if x]
+    check("--print-python：最多打印一行（启动器 for /f 直接消费）",
+          len(_line58) <= 1, _line58)
+    check("--print-python：退出码与「有没有找到」一致（脚本据此判成败）",
+          (_p58.returncode == 0) == bool(_line58), _p58.returncode)
+    _p58b = _sp58.run([_sys58.executable, "setup_env.py", "--check", "--json"],
+                      cwd=str(FOLDER), capture_output=True, text=True, encoding="utf-8",
+                      timeout=180)
+    _data58 = _json58.loads((_p58b.stdout or "{}").strip() or "{}")
+    check("--check --json：输出可被解析，且含 candidates（看出这台机器上有哪些环境）",
+          "candidates" in _data58 and isinstance(_data58["candidates"], list), _data58)
+
+    # —— 启动器与 --install-ui 的接线 ——
+    _cmd58 = (FOLDER / "ace.cmd").read_bytes()
+    _cmd_text58 = _cmd58.decode("utf-8", "replace")
+    check("启动器：走 setup_env --print-python 挑解释器（不再靠猜哪个装了依赖）",
+          "setup_env.py" in _cmd_text58 and "--print-python" in _cmd_text58, "")
+    check("启动器：仍是纯 CRLF（cmd.exe 重读错位的老坑）",
+          _cmd58.count(b"\r\n") == _cmd58.count(b"\n"), "")
+    check("启动器：--setup / --install-ui 先准备环境再启动",
+          "--setup" in _cmd_text58 and "--install-ui" in _cmd_text58
+          and "setup_env.py --ensure" in _cmd_text58, "")
+    _src58 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("--install-ui 接的是同一套环境逻辑（不是另一条 pip 路子）",
+          "setup_env.ensure(FOLDER, allow_create=True)" in _src58, "")
+    check("离线说明：vendor/README.md 写清离线安装与多环境开关",
+          (FOLDER / "vendor" / "README.md").is_file()
+          and "vendor/*.whl" in (FOLDER / "vendor" / "README.md").read_text(
+              encoding="utf-8"), "")
+    check(".gitignore：本地环境与 wheel 不入库",
+          ".ace_env/" in (FOLDER / ".gitignore").read_text(encoding="utf-8")
+          and "vendor/*.whl" in (FOLDER / ".gitignore").read_text(encoding="utf-8"), "")
 
     # ============================================================
 

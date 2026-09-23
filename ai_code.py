@@ -5567,7 +5567,10 @@ def main() -> None:
                         help="配合 --preview：按指定列宽渲染（默认按当前终端，取不到用 100）")
     parser.add_argument("--save-config", action="store_true", help="把当前参数保存到 ~/.ai_code.json")
     parser.add_argument("--install-ui", action="store_true",
-                        help="一键安装实时补全依赖（prompt_toolkit，Claude Code 同款 / 弹窗菜单）")
+                        help="准备界面依赖（prompt_toolkit）：先看当前解释器有没有，"
+                             "没有就建 .ace_env 并安装（离线可把 wheel 放进 vendor/）")
+    parser.add_argument("--setup", action="store_true",
+                        help="同 --install-ui（别名）：把运行环境准备好再启动")
     parser.add_argument("--install-executor", action="store_true",
                         help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
                              "下载后跑 --version 自校验）")
@@ -5580,13 +5583,22 @@ def main() -> None:
         level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    if args.install_ui:
-        print("正在安装 prompt_toolkit（自动检测已装状态 + 多镜像回退）...")
-        if _pip_install_with_fallbacks("prompt_toolkit"):
-            print("✅ 安装完成，重新启动 ace 即可享受 / 实时自动补全菜单")
+    if args.install_ui or getattr(args, "setup", False):
+        # 走 setup_env：它会先看**当前解释器**到底能不能 import（而不是假设），
+        # 不能就就地建 .ace_env 并安装（本地 wheel 优先，其次在线），
+        # 最后如实报告找到/建好的是哪一个解释器 —— 启动器也读同一个答案。
+        import setup_env
+        print("正在准备界面依赖（prompt_toolkit）...")
+        _res = setup_env.ensure(FOLDER, allow_create=True)
+        if _res["python"]:
+            print(f"✅ 环境就绪: {_res['python']}")
+            print(f"   ({_res['source']} · {_res['note']})")
+            if str(_res["python"]) != sys.executable:
+                print(f"   注意：当前解释器是 {sys.executable}，"
+                      f"下次请用 ace 启动器（它会自动挑这个）。")
         else:
-            print("❌ 安装失败，请手动运行: "
-                  "pip install prompt_toolkit -i https://pypi.tuna.tsinghua.edu.cn/simple")
+            print(f"❌ 没能准备好环境: {_res['note']}")
+            print("   离线环境可把 wheel 放进 vendor/ 再重试（见 vendor/README.md）。")
         return
 
     if args.install_executor:

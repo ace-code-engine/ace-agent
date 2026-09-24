@@ -123,12 +123,22 @@ jobs:
       - name: Check the three agree
         run: |
           V=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"',open('core/version.py',encoding='utf-8').read()).group(1))")
-          echo "core/version.py = $V"
-          if ! grep -q "## \[$V\]" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md 里没有 v$V 的条目 —— 版本单源与变更记录对不上，先补条目再发布"
+          # core/version.py holds a BARE version ("3.41.0"); CHANGELOG headings and
+          # git tags carry the "v" prefix ("## [v3.41.0]", tag v3.41.0). Define the
+          # prefixed form ONCE and use it everywhere -- the first version of this
+          # check grepped for "## [3.41.0]" (no v) and so failed on a release whose
+          # changelog entry was perfectly fine. Getting this wrong is exactly the
+          # class of inconsistency this step exists to catch.
+          TAG="v$V"
+          echo "core/version.py = $V   ->   tag = $TAG"
+          if ! grep -qF "## [$TAG]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md 里没有 ## [$TAG] 条目 —— 版本单源与变更记录对不上，先补条目再发布"
             exit 1
           fi
-          echo "CHANGELOG.md 有 v$V 条目"
-          echo "已存在的 tag（含本次）:"
-          git tag -l "v$V" | sed 's/^/  /'
-          git tag -l "v$V" | grep -q . || echo "  （v$V 还没有 tag —— release-executor 会创建它）"
+          echo "CHANGELOG.md 有 $TAG 条目"
+          if git tag -l "$TAG" | grep -q .; then
+            echo "tag $TAG 已存在:"
+            git tag -l "$TAG" | sed 's/^/  /'
+          else
+            echo "  （$TAG 还没有 tag —— release-executor 会创建它）"
+          fi

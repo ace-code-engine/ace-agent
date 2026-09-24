@@ -127,6 +127,36 @@ if (-not $py) {
 }
 
 Write-Host ""
+Write-Host "  -- version single-source vs CHANGELOG vs tag --"
+
+# The release workflow asserts that core/version.py, the CHANGELOG heading and the
+# tag name all agree. That assertion exists because they drift in practice -- and
+# its FIRST version was itself wrong: it grepped for "## [3.41.0]" while the
+# changelog heading is "## [v3.41.0]", so it failed a release whose entry was
+# perfectly fine. Checking it here means the next mistake of that shape is caught
+# on the dev machine instead of in a release run.
+$versionFile = Join-Path $Repo 'core\version.py'
+$changelog = Join-Path $Repo 'CHANGELOG.md'
+if ((Test-Path $versionFile) -and (Test-Path $changelog)) {
+    $v = ([regex]::Match([System.IO.File]::ReadAllText($versionFile, [System.Text.Encoding]::UTF8),
+                         '__version__ = "([^"]+)"')).Groups[1].Value
+    Check "core/version.py holds a bare version (no leading v)" ($v -and -not $v.StartsWith('v')) "got '$v'"
+    $tag = "v$v"
+    $cl = [System.IO.File]::ReadAllText($changelog, [System.Text.Encoding]::UTF8)
+    # -qF semantics: a plain substring, and the "## [$tag]" text also appears in
+    # the table-of-contents line as a markdown LINK, so match the heading form.
+    $heading = "## [$tag]"
+    Check ("CHANGELOG has a heading '$heading' (what the release step greps for)") ($cl.Contains($heading))
+    # And every heading in the file should follow the same shape, so this cannot
+    # quietly become "mostly v-prefixed".
+    $headings = [regex]::Matches($cl, '(?m)^## \[([^\]]+)\]') | ForEach-Object { $_.Groups[1].Value }
+    $odd = @($headings | Where-Object { $_ -notmatch '^v\d' -and $_ -ne 'v1.0' })
+    Check "every CHANGELOG heading uses the v-prefixed form" ($odd.Count -eq 0) (($odd | Select-Object -First 4) -join ', ')
+} else {
+    Write-Host "  SKIP  version.py or CHANGELOG.md not found"
+}
+
+Write-Host ""
 if ($failures.Count -gt 0) {
     Write-Host ("FAIL: {0} check(s) failed -- do not hand this to CI" -f $failures.Count)
     exit 1

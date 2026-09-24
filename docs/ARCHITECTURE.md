@@ -185,6 +185,7 @@ ace-agent/
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
 │   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
+│   ├── PACKAGING-EXE.md        #   Windows 发行包：PyInstaller 单目录 + 冒烟门禁 + 冻结后能力表
 │   ├── design/                 #   已闭环立项卡（历史设计决策）
 │   │   ├── EXECUTOR-RELEASE.md     #   执行器发布通道（预编译二进制 + ace --install-executor）
 │   │   ├── README-RESTRUCTURE.md   #   README 瘦身两轮立项（本结构由此演进）

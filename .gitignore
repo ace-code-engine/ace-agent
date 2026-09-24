@@ -36,6 +36,11 @@ executor/executor.exe
 # 冒烟脚本的原始证据：每次跑都重写，属于本机产物（脚本自己会重建目录）
 e2e/_rel03_evidence/
 
+# 打包产物（packaging/build_exe.ps1 生成；要发布的是 dist/ace 整个目录，不入库）
+build/
+dist/
+packaging/_smoke/
+
 # 基准报告本机生成、不入库（CI bench 任务在工作区自产自销）
 benchmarks/results/
 

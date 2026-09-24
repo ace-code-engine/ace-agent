@@ -117,7 +117,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [], "66": [], "67": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [], "66": [], "67": [], "68": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -196,7 +196,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68"]
 _SEEN_SECTIONS: list = []
 
 
@@ -11127,6 +11127,85 @@ if _want("67"):
                          "--preview-width", "80"], cwd=str(FOLDER), capture_output=True,
                         timeout=180, env=_env67).stdout.decode("utf-8", "replace")
               if True else ""), "")
+
+    # ============================================================
+
+if _want("68"):
+    # ── [68] ────
+    print("[68] 文档编码：不许带乱码（mojibake）· README 徽章与版本单源一致")
+    # ============================================================
+    import re as _re68  # noqa: E402
+    import subprocess as _sp68  # noqa: E402
+
+    # 乱码特征字符：这些字在简体技术文档里正常不会成串出现，而"UTF-8 被按 GBK 读"必然成串
+    _MARK68 = "鈥锟鈽鏄鐨涓€锛銆浣杩鍐鑳妯瀷閲屾€鏈涓庯紙绛夌"
+    # 讲乱码这件事本身的文档会引用乱码样例，豁免（豁免名单写死，加一个要说明理由）
+    # 豁免：讲乱码本身的文档会**引用样例**；本文件定义特征字符表（自指）。
+    # 豁免给的是"最多允许几行"而不是"完全跳过" —— 整文件被写坏时行数会爆掉，照样能抓到。
+    _ALLOW68 = {"docs/RELEASE-NOTES-v3.40.1.md": 6, "docs/RELEASE-NOTES-v3.40.2.md": 6,
+                "docs/RELEASE-NOTES-v3.38.0.md": 2, "CHANGELOG.md": 6,
+                "test_all.py": 3}
+
+    def _lines_with_mojibake(text: str):
+        out = []
+        for i, line in enumerate(str(text or "").split("\n"), 1):
+            marks = sum(1 for c in line if c in _MARK68)
+            if marks >= 2 or "\ufffd" in line:
+                out.append((i, line))
+        return out
+
+    _files68 = _sp68.run(["git", "ls-files"], cwd=str(FOLDER), capture_output=True,
+                         encoding="utf-8", errors="replace").stdout.split("\n")
+    _bad68 = []
+    for _f in _files68:
+        if not _f.strip():
+            continue
+        _budget68 = _ALLOW68.get(_f, 0)
+        _p = FOLDER / _f
+        try:
+            _data = _p.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in _data[:4000]:          # wheel/图片等二进制跳过
+            continue
+        try:
+            _txt = _data.decode("utf-8")
+        except UnicodeDecodeError:
+            _bad68.append((_f, "<不是合法 UTF-8>"))
+            continue
+        _hit = _lines_with_mojibake(_txt)
+        if len(_hit) > _budget68:
+            _bad68.append((_f, f"{len(_hit)} 行乱码（允许 {_budget68}）"
+                               f" L{_hit[0][0]}: {_hit[0][1][:50]}"))
+    check("[68] 全仓文本文件都不含乱码（这次的 README 事故不会再悄悄回来）",
+          _bad68 == [], _bad68[:6])
+
+    # 两个 README 单独再查一遍：这次坏的就是它们
+    _readme_bad68 = []
+    for _n68 in ("README.md", "README.zh-CN.md"):
+        _t68 = (FOLDER / _n68).read_text(encoding="utf-8")
+        if _lines_with_mojibake(_t68):
+            _readme_bad68.append(_n68)
+        if "\ufeff" in _t68:                  # BOM 会让首行渲染出多余字符
+            _readme_bad68.append(_n68 + "(BOM)")
+    check("[68] 两个 README 干净且不带 BOM", _readme_bad68 == [], _readme_bad68)
+
+    # 徽章版本 ↔ 版本单源（README 是"介绍文件"，版本写错比乱码更常见）
+    _ver68 = _re68.search(r'__version__ = "([^"]+)"',
+                          (FOLDER / "core" / "version.py").read_text(encoding="utf-8")).group(1)
+    _badge68 = {}
+    for _n68 in ("README.md", "README.zh-CN.md"):
+        _m68 = _re68.search(r"latest-v([\d.]+)%20",
+                            (FOLDER / _n68).read_text(encoding="utf-8"))
+        _badge68[_n68] = _m68.group(1) if _m68 else "?"
+    check("[68] README 徽章版本 == core/version.py（介绍文件不能挂着旧版本号）",
+          all(v == _ver68 for v in _badge68.values()), (_badge68, _ver68))
+
+    # 这一版是怎么修的也要留个痕：不许有人再"顺手重写"整个 README
+    _cli68 = (FOLDER / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    check("[68] 恢复依据写在文档里（从最后一个干净版本还原 + 补徽章，而不是逐字猜）",
+          "0301352a" in (FOLDER / "CHANGELOG.md").read_text(encoding="utf-8")
+          or "编码" in _cli68, "")
 
     # ============================================================
 

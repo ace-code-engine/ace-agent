@@ -1788,6 +1788,29 @@ if _want("10"):
                   code="from pathlib import Path\nPath('x.txt').write_text('y')")
     check("code_execute 拦 pathlib（绕过 open() 的写入路径）", r["status"] == "403", r.get("message"))
 
+    # —— 冻结发行（打包 exe）下 code_execute 必须如实报 501 ——
+    #   为什么：真正执行代码的是 `[sys.executable, tmp_file]`；冻结后 sys.executable 是
+    #   ace.exe 自己，而 PATH 又被洗成最小集，找不到第二个解释器。不显式分支的话，
+    #   用户看到的会是一个"拿 exe 去跑 .py"的启动错误，而不是一句人话。
+    #   这里注入判据而不是真打包：_is_frozen() 读 sys.frozen / _MEIPASS，可被 mock。
+    from tools import code_tools as _ct_fz  # noqa: E402
+    import unittest.mock as _mock_fz  # noqa: E402
+    check("冻结判据：正常运行时 _is_frozen() 为假（不误伤源码运行）",
+          _ct_fz._is_frozen() is False, _ct_fz._is_frozen())
+    _frozen_msg = ""
+    with _mock_fz.patch.object(_ct_fz.sys, "frozen", True, create=True):
+        check("冻结判据：sys.frozen 为真时 _is_frozen() 为真",
+              _ct_fz._is_frozen() is True, _ct_fz._is_frozen())
+        _fr = run_agent(el_h, "code_execute", language="python", code="print(1)")
+        _frozen_msg = str(_fr.get("message", ""))
+    check("冻结发行下 code_execute 返回 501（而不是拿 exe 去跑 .py）",
+          _fr["status"] == "501", _fr)
+    check("501 的说明是人话：点名发行形态与替代做法",
+          "发行形态" in _frozen_msg and "terminal_exec" in _frozen_msg, _frozen_msg)
+    check("冻结判据只在 code_execute 生效（其余工具不受影响）",
+          run_agent(el_h, "math_calc", expression="1+1")["status"] == "SUCCESS",
+          run_agent(el_h, "math_calc", expression="1+1"))
+
 
     if hasattr(os, "startfile"):
         import unittest.mock as _mock

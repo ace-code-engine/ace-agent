@@ -65,7 +65,35 @@
 
 > 这一轮把 README「Known gaps」里最后两件**承认过、但一直没人做**的事推进了：
 > **R-03 双前端引擎合并**（代码）与 **REL-03 真机冒烟**（验证）。而真机冒烟顺手抓出
-> 一个**一直藏在测试盲区里的真缺陷**。
+> 一个**一直藏在测试盲区里的真缺陷**。随后补上了 **Windows 发行包**。
+
+### ✨ 新增：Windows 单目录发行包（`packaging/`）
+
+- ✨ `packaging/ace.spec` —— PyInstaller **单目录**构建（不是单文件：单文件每次冷启动都要
+  解包，而 ACE 启动要读 `prompts/` 与 `locales/`，那几秒会落在每一次启动上）。资源按
+  `prompts/ locales/ assets/ vendor/ README.md SECURITY.md LICENSE` 入包，`executor/` 有
+  就带上、没有也不影响打包；`core/tools/ui/cli/tui/gateway_v2` 用 `collect_submodules`
+  防隐式导入漏项；`tkinter/numpy/pandas/...` 明确排除（拖进来只会让包从几十 MB 涨到几百 MB）。
+- ✨ `packaging/build_exe.ps1` —— 构建 **+ 冒烟门禁**。**没跑过打包产物就不算成功**：
+  把 `dist\ace\ace.exe` 真跑四个场景（`--version` / `--preview` / `--mock` 工具往返 /
+  `code_execute` 的 501 路径），每个都要求退出码 0、无 Traceback、无 `UnicodeEncodeError`、
+  无 `U+FFFD`，**且输出里真的出现预期内容**——只看"能启动"抓不到"资源没打进包"。
+  任一失败即非零退出，不发布。脚本刻意纯 ASCII（PowerShell 5.1 按 ANSI 读无 BOM 脚本，
+  本仓库已被这条坑过两次）。
+- ✨ `.github/workflows/release-exe.yml` —— 在 `windows-latest` 上构建：先跑**源码全量测试**
+  （打包不该掩盖一个本来就红的仓库）→ 构建 + 冒烟门禁 → 压缩上传 artifact → 挂到 tag
+  `v<版本>` 的 Release。与 `release-executor.yml` **共用同一 tag**，谁先跑都行。
+- 🛡️ `tools/code_tools.py` 新增 `_is_frozen()`：冻结包下 `code_execute` **如实返回 501**。
+  原因不是"懒得做"——它靠 `subprocess.run([sys.executable, tmp_file])` 跑 Python 代码，
+  而冻结后 `sys.executable` 是 `ace.exe` 自己，最小环境又把 PATH 洗掉，找不到第二个解释器；
+  不显式分支的话，用户看到的会是"拿 exe 去跑 .py"的启动错误。**不悄悄退回"找系统 Python"**
+  是刻意的：那会让"宿主机装没装 Python"变成行为差异。`test_all [10]` 新增 5 条断言
+  （含"正常运行时判据为假，不误伤源码运行"）。
+- 📄 新增 `docs/PACKAGING-EXE.md`：讲清 exe 这条路为什么走得通、而 `docs/PACKAGING.md`
+  拒绝的 wheel 为什么走不通（同一份资源解析，PyInstaller 会设 `sys._MEIPASS` 所以成立），
+  以及冻结后逐项成立/不成立的能力表。
+- 📌 两个 README 各加一节「预编译 Windows 发行包」：下载、`--mock` 自检、SmartScreen 提示、
+  "它是目录不是单文件"、以及那张能力表。**没有承诺任何我未实测过的构建产物**。
 
 ### ✅ 补记（2026-09-25）：R-03 验收的厂商那一半也过了
 

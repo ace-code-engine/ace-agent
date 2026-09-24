@@ -93,6 +93,38 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 
 </details>
 
+## 预编译 Windows 发行包（不用装 Python）
+
+到 [Releases 页面](https://github.com/ace-code-engine/ace-agent/releases) 下载 `ace-<版本>-windows-amd64.zip`，解压到任意目录，运行 `ace\ace.exe` 即可。**没有安装程序，也不会往你选的目录之外写东西**——它是自带解释器的完整包，那台机器上**不需要装 Python**。
+
+```powershell
+# 离线：不需要账号也不需要密钥，先确认这个包是完整的
+.\ace\ace.exe --mock
+
+# 接真实模型：进首页选 2 走配置向导（选提供商 → 输入 API Key → 选模型）
+.\ace\ace.exe
+```
+
+跑之前有两件事值得先知道：
+
+- **Windows SmartScreen 会拦一下。** 这个构建没有代码签名，新下载的 exe 会弹"Windows 已保护你的电脑"——点 *更多信息* → *仍要运行*，或者先自己核对 zip。这是**未签名二进制**的正常样子，不代表这个包有问题。
+- **它是一整个目录，不是单个文件。** `ace.exe` 必须和旁边的 `_internal\` 待在一起；只把 exe 拷出去用不了。
+
+**冻结发行里有几项能力不成立**，而 exe 会**明说**，不会悄悄失败：
+
+| 能力 | 预编译 exe | 原因 |
+|---|---|---|
+| 对话、工具、文件、终端、权限裁决、快照回滚 | ✅ | 纯 stdlib 核心，资源已随包带上 |
+| `code_execute` | ❌ 如实返回 **501** | 它靠 `sys.executable` 去跑 Python，而冻结后那就是 `ace.exe` 自己，机器上再没有第二个解释器；需要它请用[源码运行](#快速开始) |
+| `--install-ui` / `--setup` | ❌ 无意义 | 包里已经自带解释器与界面依赖 |
+| `--install-executor` | ⚠️ 取决于包里带没带 Go 二进制 | 没带就去下载，这一步需要联网 |
+
+构建脚本是 `packaging/build_exe.ps1`，**它不在打包产物上跑过就不算成功**——发布前会把 exe 真的跑一遍 `--version`、`--preview`、mock 工具往返、以及 `code_execute` 的 501 路径。GitHub Actions 每次 `release-exe` 都会走这道门禁；本机也可以自己跑：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
+```
+
 ## 看它跑起来
 
 <p align="center">
@@ -250,6 +282,7 @@ ruff check . --select E9,F63,F7,F82   # CI 硬错误子集
 
 ## 最近更新
 
+- **v3.41.0** (2026-09-25)：README 里一直承认"没做完"的那两件事都做完了，**而且其中一件在做验证的过程中抓出了一个真缺陷**。**R-03** 把两个前端合并到同一份模型 HTTP 客户端（`core/ace_client.py`）：唯一出网点、唯一拼 `/chat/completions` 的地方，CLI 走 `chat_stream`、无头走 `chat_once`——`ai_code.py` −307 行、`agent_runner.py` −44 行。验收两侧都有证据：无凭证（真监听 socket 的假端点、两种线格式、两个前端真跑，**7/7**，见 `e2e/r03_contract_smoke.py`）与真实厂商（DeepSeek，**exit 0**，`🤖 Agent:` 单行契约成立，模型先调 `datetime_now` 再作答）。**REL-03** 把 `ace.cmd` → 真实控制台整条链路在 Windows 上走通（`e2e/rel03_native_smoke.ps1`，三档）。而正是这次真机跑，暴露出 `_generate_text`：不带 `--tools` 的那条文本回退把模型的裸文本直接交给了执行层，而执行层要的是协议文本——于是 `agent_runner.py --base-url …` 永远到不了最终回复，只打印"达到最大轮数"。mock 分支与 `--tools` 分支都会包装，所以此前**没有任何测试覆盖到它**。已修，`[8]` 补两条断言。再往后是合并本身：`git merge-tree` 预演报 0 冲突、实做冲突 6 个文件；合并后第一次全量 **1977/1980**，因为三条 R-03 之前的出网守卫**从未与 R-03 后的代码一起跑过**。两处都已修好，现在全绿。新增 `packaging/` 构建 Windows 发行包（见上文）。
 - **v3.25.0** (2026-09-19)：「全套 UI 与交互」第四批——**布局与状态行**。`--fullscreen` / `/fullscreen` 把会话搬进备用屏幕，固定四块（头部 / 可滚动会话区 / 可配置状态行 / 输入行）：会话有自己的视口（`PageUp`/`↑` 回看、`End` 回底），不再把终端回滚缓冲当历史；`F5` 退回普通 REPL。状态行变成数据：分段带优先级，窄终端先丢装饰（轮数/工具数）而不是丢掉上下文占用，`/statusline model,context,-turns` 可改顺序或去掉某段（写错名字会如实报错，不静默忽略）。等待动画会显示已等多久，并且**没有新进展时明说可 Ctrl+C 中断**；`/tasks` 把目标、逐项待办、正在跑的工具画成一棵多行任务树；`/status` 多一条上下文度量条；首屏标题在真终端里播一次浮现动画（管道/CI 里直接跳过）
 - **v3.24.0** (2026-09-19)：「全套 UI 与交互」第三批——**对话框**。同一个模型（`ui/ace_dialog.py`）渲染应用里所有提问：单选/多选、分组、进度条、页签、脚注按键提示，且每行宽度严格对齐（中文也算两列）。多选复用同一个模糊搜索浮层（Space 勾选、Enter 确认）。`/permission rules` 把"一次性授权"变成可见可改的清单：勾选 = 本次会话不再逐次确认，取消勾选立刻收回；**按设计拒绝会话级授权的工具（terminal_exec、外发工具）照样列出来但标成不可选** —— 不悄悄放行。`/config` 向导改成真正的状态机（`b` 后退、输错当场重问），并且**答案先攒着、跑完才落库**：取消就是真的什么都没改（此前是边问边改内存里的配置，嘴说"没保存"）
 - **v3.23.0** (2026-09-19)：「全套 UI 与交互」第二批——**模型吐出来的那段字**。回答按 Markdown 渲染：标题/列表/引用/分隔线、画边框并标注语言的代码块（块内**不做行内解析**）、按显示列宽对齐的表格、行内粗斜体与代码链接；**认不出的语法原样保留**。渲染**按完整行**进行，所以流式输出与整篇渲染逐行一致。符号标出谁在说话（`❯` 你 / `◈` 模型 / `⚙` 工具），工具汇总里**连续同名调用合并**（`file_read ×2 ✓`），思考过程加框并限行。`/diff` 改成两级：先看动过哪些文件，再看某一处的逐行（`/diff <序号>`）。Ctrl+O —— `/keys` 从 v3.22.0 就写着它、但一直没绑上 —— 现在能展开最近一次被折叠的输出
@@ -290,7 +323,8 @@ ace-agent/
 ├── execution_layer.py             # 执行层：安全裁决的强制边界所在
 ├── ui/  cli/  core/               # 终端表现层 / 操作者工具 / 引擎支撑
 ├── tools/  gateway_v2/  executor/ # 工具集 / 网关策略 / Go 沙箱执行器
-├── test_all.py  benchmarks/  e2e/ # 测试 / 基准 / 真实模型冒烟
+├── test_all.py  benchmarks/  e2e/ # 测试 / 基准 / 冒烟（假端点 + 真实厂商 + 真机控制台）
+├── packaging/                     # 发行打包：PyInstaller spec + 带冒烟门禁的构建脚本
 ├── docker/  docs/  demo/          # 容器编排 / 文档（见下）/ 演示
 ├── examples/                      # 场景剧本：安全实验室 · 文档解析 · 多轮任务
 └── SECURITY.md  CHANGELOG.md  LICENSE
@@ -313,6 +347,7 @@ ace-agent/
 | 配置全项与机制 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 | 命令与启动参数 | [docs/COMMANDS.md](docs/COMMANDS.md) |
 | 测试与 CI | [docs/TESTING.md](docs/TESTING.md) |
+| **打包与 Windows 发行包**（exe 能做与不能做什么） | [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md) · [docs/PACKAGING.md](docs/PACKAGING.md)（为什么不出 wheel） |
 | 开发流程 / 契约 / 待办 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [docs/INTERFACES.md](docs/INTERFACES.md) · [docs/BACKLOG.md](docs/BACKLOG.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 | 历史立项卡 / 会话纪要 / 调研 / 提示词规范 | [docs/design/](docs/design/) · [docs/history/](docs/history/) |

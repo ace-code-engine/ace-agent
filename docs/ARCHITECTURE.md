@@ -206,6 +206,7 @@ ace-agent/
 ├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
 ├── setup_env.py                # 运行环境一键准备：多环境发现 + 真的 import 一次 + 离线 wheel
 ├── vendor/                     # 离线依赖落点（放 wheel 即可离线安装；README 说明口径）
+├── packaging/                  # 发行打包：ace.spec（PyInstaller 单目录）+ build_exe.ps1（构建 + 冒烟门禁）
 ├── ace.cmd                     # Windows 启动器（向 setup_env 问路挑解释器，防商店占位）
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
 ├── docker-compose.yml          # 整体镜像一键起停编排
@@ -214,7 +215,7 @@ ace-agent/
 ├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
 └── .github/                    # 仓库协作配置
-    ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）
+    ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
     └── pull_request_template.md#   PR 模板
 ```

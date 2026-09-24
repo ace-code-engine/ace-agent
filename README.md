@@ -56,6 +56,38 @@ On Windows the repo ships `ace.cmd` — add it to `PATH` and just type `ace`.
 
 Prefer to read before running? [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) has the 5-minute path, the three-axis matrix (`permission` / `sandbox` / `approval_policy`) and the ten classic traps. Three hands-on scenarios live in [`examples/`](examples/README.md).
 
+## Prebuilt Windows build (no Python needed)
+
+Grab `ace-<version>-windows-amd64.zip` from the [Releases page](https://github.com/ace-code-engine/ace-agent/releases), unzip it anywhere, and run `ace\ace.exe`. There is no installer and nothing is written outside the folder you pick — it is a self-contained bundle, so `python` is **not** required on the machine.
+
+```powershell
+# offline: prove the bundle is intact without any account or key
+.\ace\ace.exe --mock
+
+# or point it at a real model from the landing screen (see Configuration below)
+.\ace\ace.exe
+```
+
+Two things worth knowing before you run it:
+
+- **Windows SmartScreen will warn you.** The build is not code-signed, so a fresh download shows "Windows protected your PC" — choose *More info* → *Run anyway*, or verify the zip yourself first. This is what an unsigned binary looks like, not a sign that something is wrong with it.
+- **It is a folder, not a single file.** Keep `ace.exe` next to its `_internal\` directory; copying the exe out on its own will not work.
+
+**Not everything works in the frozen build**, and the exe says so instead of failing quietly:
+
+| Capability | In the prebuilt exe | Why |
+|---|---|---|
+| Chat, tools, files, terminal, permissions, snapshots | ✅ | pure-stdlib core, resources are bundled |
+| `code_execute` | ❌ returns **501**, stated plainly | it runs Python via `sys.executable`, which is `ace.exe` itself when frozen — no interpreter left to run; [use the source build](#run-it-in-30-seconds-no-api-key) if you need it |
+| `--install-ui` / `--setup` | ❌ meaningless | the bundle already contains its interpreter and UI deps |
+| `--install-executor` | ✅ only if the bundle shipped the Go binary | otherwise it downloads it, which needs network |
+
+The build is produced by `packaging/build_exe.ps1`, which **will not report success without smoke-testing the packaged exe** — the bundle is run through `--version`, `--preview`, a mock tool round trip and the `code_execute` 501 path before anything is published. GitHub Actions does this on every `release-exe` run; locally:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
+```
+
 ## See it run
 
 <p align="center">
@@ -209,6 +241,7 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 
 ## Recent changes
 
+- **v3.41.0** (2026-09-25): the two items this README had been admitting were unfinished are now done, **and one of them found a real bug while being verified**. **R-03** merged the two frontends onto one model HTTP client (`core/ace_client.py`): a single egress point, a single place that builds `/chat/completions`, `chat_stream` for the CLI and `chat_once` for the headless runner — `ai_code.py` −307 lines, `agent_runner.py` −44. It is verified both without credentials (a fake endpoint on a real socket, both wire formats, both frontends, **7/7** — `e2e/r03_contract_smoke.py`) and against a real vendor (DeepSeek, **exit 0**, the `🤖 Agent:` contract held, the model called `datetime_now` before answering). **REL-03** walked `ace.cmd` → real console all the way through on Windows (`e2e/rel03_native_smoke.ps1`, three scenarios). And that real-machine run exposed `_generate_text`: the no-`--tools` fallback handed the model's plain text straight to the execution layer, which expects protocol text, so `agent_runner.py --base-url …` never reached a final reply and printed "max rounds reached" instead. Mock mode and `--tools` both wrap — which is why no test caught it. Fixed, with two assertions in `[8]`. Then the merge itself: 6 files conflicted even though `git merge-tree` had reported zero, and the first full run after it came back 1977/1980 because three pre-R-03 egress guards had never once run against post-R-03 code. Both are now fixed and the suite is green. New: `packaging/` builds a Windows bundle (see above).
 - **v3.25.0** (2026-09-19): the fourth batch of the full UI/interaction pass covers **layout and the status line**. `--fullscreen` / `/fullscreen` puts the session on the alternate screen with four fixed regions (header, a scrollable transcript, a configurable status line, the input line) — the transcript has its own viewport (`PageUp`/`↑` to look back, `End` to return to the bottom) instead of scrolling your terminal buffer away, and `F5` drops back to the plain REPL. The status line became data: segments carry priorities, so a narrow terminal drops decoration (turn/tool counts) instead of the context meter, and `/statusline model,context,-turns` reorders or removes them (unknown names are reported, never silently ignored). Waiting now shows how long it has been and says "no progress for Ns · Ctrl+C to interrupt" when nothing changes; `/tasks` draws the goal, the checklist and the running tool as one multi-line tree; `/status` got a context meter; the banner animates once on a real terminal (skipped in pipes and CI).
 - **v3.24.0** (2026-09-19): the third batch of the full UI/interaction pass covers **dialogs**. One model (`ui/ace_dialog.py`) now renders every question the app asks — single/multi select, groups, progress bar, tabs, footer key hints — and all lines are width-exact, CJK included. Multi-select rides the same fuzzy-search overlay (`Space` to check, `Enter` to confirm). `/permission rules` turns one-off grants into an editable, visible list: checking a tool stops the prompts for this session, unchecking revokes immediately, and tools that refuse session grants by design (terminal_exec, outbound tools) are listed but marked — nothing is silently allowed. The `/config` wizard is now a real state machine (step back with `b`, re-ask on invalid input) and **collects answers before applying them**, so cancelling changes nothing — previously it mutated the in-memory config while saying "not saved".
 - **v3.23.0** (2026-09-19): the second batch of the full UI/interaction pass covers the **text the model produces**. Replies render as Markdown — headings, lists, quotes, rules, fenced code with a border and language label (nothing inside is parsed inline), display-width-aligned tables, inline bold/italic/code/links; anything unrecognised passes through unchanged. Rendering is **per completed line**, so streamed output matches whole-document layout line for line. Glyphs mark who is speaking (`❯` you / `◈` model / `⚙` tools), consecutive repeats in a tool summary merge (`file_read ×2 ✓`), and thinking gets a framed, capped block. `/diff` is now two-level: which files changed first, then the lines of one entry (`/diff <n>`). Ctrl+O — listed in `/keys` since v3.22.0 but never bound — now expands the last folded output
@@ -249,7 +282,8 @@ ace-agent/
 ├── execution_layer.py             # the layer where safety is actually enforced
 ├── ui/  cli/  core/               # terminal presentation / operator tools / engine support
 ├── tools/  gateway_v2/  executor/ # tool registry / gateway policy / Go sandbox executor
-├── test_all.py  benchmarks/  e2e/ # tests / benchmarks / real-model smoke
+├── test_all.py  benchmarks/  e2e/ # tests / benchmarks / smoke tests (fake endpoint + real vendor + native console)
+├── packaging/                     # release build: PyInstaller spec + smoke-gated build script
 ├── examples/  docker/  docs/  demo/
 └── SECURITY.md  CHANGELOG.md  LICENSE
 ```
@@ -271,6 +305,7 @@ Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first; the standard workflow lives in 
 | Every configuration key | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) |
 | Commands and startup flags | [`docs/COMMANDS.md`](docs/COMMANDS.md) |
 | Tests and CI | [`docs/TESTING.md`](docs/TESTING.md) |
+| **Packaging and the Windows build** (what the exe can and cannot do) | [`docs/PACKAGING-EXE.md`](docs/PACKAGING-EXE.md) · [`docs/PACKAGING.md`](docs/PACKAGING.md) (why no wheel) |
 | Development / contracts / backlog | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) · [`docs/INTERFACES.md`](docs/INTERFACES.md) · [`docs/BACKLOG.md`](docs/BACKLOG.md) |
 | Version history | [`CHANGELOG.md`](CHANGELOG.md) |
 | Design cards / session notes / research | [`docs/design/`](docs/design/) · [`docs/history/`](docs/history/) |

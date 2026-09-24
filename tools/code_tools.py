@@ -17,6 +17,17 @@ from tools.docker_sandbox import DockerUnavailable
 from tools.result import ExecutionResult
 
 
+def _is_frozen() -> bool:
+    """当前进程是否来自 PyInstaller 冻结包（单目录 / 单文件）。
+
+    为什么要有这个判断：冻结后 `sys.executable` 是 ace.exe 自己，**不是** Python
+    解释器。凡是"拿 sys.executable 去跑一段 Python"的地方都会静默变味，必须显式分支。
+    `sys.frozen` 由 PyInstaller 的引导代码设置；`_MEIPASS` 是它的解包目录，两者取或
+    即可覆盖单文件与单目录两种形态。抽成函数是为了让测试能注入判据，不必真的打包。
+    """
+    return bool(getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"))
+
+
 
 class CodeTools:
     DANGEROUS_CALLS = {
@@ -106,6 +117,21 @@ class CodeTools:
             return ExecutionResult(status="error", error_code="400", message="code 参数为空")
         if len(code) > MAX_CODE_LENGTH:
             return ExecutionResult(status="error", error_code="400", message="代码过长（上限 100KB）")
+
+        # 冻结发行（PyInstaller 单目录/单文件）下这条能力**必然**不可用，如实报 501。
+        # 为什么：真正执行代码的是下面那句 `subprocess.run([sys.executable, tmp_file])`。
+        # 冻结后 sys.executable 指向 ace.exe 自己，它不是一个 Python 解释器；而 minimize
+        # env 又把 PATH 洗成最小集，PATH 上也找不到第二个解释器。结果会是"拿 ace.exe 去
+        # 跑一个 .py" —— 表现为一个看不懂的启动错误，而不是一句人话。
+        # 这里不悄悄退回"找系统 Python"：那会把"宿主机装没装 Python"变成行为差异，
+        # 同一份发行版在两台机器上能力不同，比明确禁用更难排查（与 ACE 其余"不静默降级"一致）。
+        if _is_frozen():
+            return ExecutionResult(
+                status="error", error_code="501",
+                message="此发行形态（打包 exe）不提供 code_execute："
+                        "冻结后 sys.executable 不是 Python 解释器，无法安全地跑代码。"
+                        "需要它请用源码运行（git clone + python ai_code.py），"
+                        "或改用 terminal_exec 执行外部命令。")
 
         # 沙箱 1：AST 危险调用拦截
         denied = self._scan_dangerous_calls(code)

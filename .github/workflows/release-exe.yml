@@ -1,0 +1,92 @@
+name: release-exe
+
+# 打包 Windows 单目录发行包（PyInstaller）并冒烟，然后挂到同一个 GitHub Release 上。
+# 为什么在 runner 上构建而不是本机：PyInstaller 不从索引装的话没法用，而本仓库
+# 的离线纪律（vendor/*.whl）只覆盖界面依赖，没有 PyInstaller 的 wheel。
+#
+# 与 release-executor 的关系：两者**共用同一个 tag `v{version}`**。先跑 executor，
+# 再跑这个；第二个会因为 Release 已存在而走 `gh release upload` 追加资产。
+# 反过来跑也行 —— 先跑这个（创建 Release），executor 再追加。
+#
+# 手动触发：留空 version 时自动读 core/version.py。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本(如 3.41.0;留空自动读 core/version.py)"
+        required: false
+        type: string
+
+permissions:
+  contents: write   # gh release create / upload 需要
+
+concurrency:
+  group: release-exe
+  cancel-in-progress: false   # 并发的第二次等第一次跑完，避免半成品 Release
+
+jobs:
+  windows-exe:
+    name: Build + smoke (windows-amd64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 界面依赖进包才需要装；核心是零依赖的，但 --preview/首屏要 prompt_toolkit。
+      # 官方源优先、镜像兜底 —— 与 setup_env.py 的立场一致。
+      - name: Install build deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller prompt_toolkit rich textual
+
+      - name: Read version
+        id: v
+        shell: pwsh
+        run: |
+          $v = "${{ inputs.version }}"
+          if (-not $v) {
+            $v = (Select-String -Path core/version.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+          }
+          Write-Host "version=$v"
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      # 先用源码跑一遍全量：打包不该掩盖一个本来就红的仓库。
+      - name: Full test suite (source)
+        shell: pwsh
+        run: python test_all.py
+
+      # 构建 + 冒烟都在脚本里；冒烟不过脚本就非零退出，这一步红，就不会发布。
+      - name: Build exe and run smoke gate
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1 -Python python
+
+      - name: Zip the folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Compress-Archive -Path dist/ace/* -DestinationPath "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" -Force
+          Get-ChildItem release-assets | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ace-exe-windows-amd64
+          path: release-assets/ace-*-windows-amd64.zip
+          if-no-files-found: error
+
+      - name: Attach to release (create it if the executor job has not yet)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v${{ steps.v.outputs.version }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag --notes "见 CHANGELOG.md 的 $tag 条目。"
+          }
+          gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" --clobber

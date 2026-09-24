@@ -11084,26 +11084,42 @@ if _want("67"):
     check("[67] 入口全覆盖：每个能独立跑的入口都调了 harden_streams()（漏一个就有一个会崩）",
           _missing67 == [], _missing67)
 
+
     # —— 真跑一遍：GBK 环境下重定向输出，绝不许出 Traceback ——
     _env67 = dict(os.environ)
     _env67["PYTHONIOENCODING"] = "gbk"
+    # `setup_env.py --check` 的**退出码**含义是"本机有没有可用的界面环境"——
+    # CI 上没装 prompt_toolkit/textual，它非零是**正确**的。所以只要求它别因为编码崩。
+    _se67 = _sp67.run([_sys67.executable, "setup_env.py", "--check"], cwd=str(FOLDER),
+                      capture_output=True, timeout=180, env=_env67)
+    check("[67] GBK 环境真跑：setup_env --check 不因编码而崩（退出码不参与判定）",
+          b"UnicodeEncodeError" not in _se67.stdout + _se67.stderr
+          and b"Traceback" not in _se67.stdout + _se67.stderr,
+          (_se67.returncode, (_se67.stderr or b"")[-200:].decode("utf-8", "replace")))
+
     _env67.pop("PYTHONUTF8", None)
     _runs67 = []
+    # 三个"必须退出码 0"的入口：都是纯 CLI 路径，不依赖本机装没装界面依赖
     for _args67 in (["ai_code.py", "--mock", "--preview", "--preview-width", "80"],
-                    ["agent_runner.py", "--mock", "--input", "现在几点了"],
-                    ["setup_env.py", "--check"]):
+                    ["ai_code.py", "--mock", "--input", "现在几点了"],
+                    ["agent_runner.py", "--mock", "--input", "现在几点了"]):
         try:
             _p67 = _sp67.run([_sys67.executable] + _args67, cwd=str(FOLDER),
                              capture_output=True, timeout=180, env=_env67)
+            _tail67 = (_p67.stderr or _p67.stdout or b"")[-300:].decode("utf-8", "replace")
             _runs67.append((_args67[0], _p67.returncode,
                             b"Traceback" in _p67.stdout + _p67.stderr,
-                            b"UnicodeEncodeError" in _p67.stdout + _p67.stderr))
+                            b"UnicodeEncodeError" in _p67.stdout + _p67.stderr,
+                            _tail67.replace("\n", " / ")))
         except Exception as _e67:      # noqa: BLE001
-            _runs67.append((_args67[0], f"EXC {type(_e67).__name__}", True, True))
+            _runs67.append((_args67[0], f"EXC {type(_e67).__name__}", True, True, ""))
     # 硬要求：**退出码 0**（不崩）+ 没有 UnicodeEncodeError（就是用户报的那类）。
     # 不断言"输出里没有 Traceback"：setup_env 会把 pip 的告警原样带出来，那与本次修复无关。
+    # 失败时把**子进程的尾巴**带进断言详情：CI 上只能读注解（job 日志要 admin），
+    # 不带原因的话这条红只会告诉我们"它红了"，不告诉我们"为什么红"。
     check("[67] GBK 环境真跑：三个入口退出码 0 且没有 UnicodeEncodeError",
-          all(code == 0 and not ue for _n, code, _tb, ue in _runs67), _runs67)
+          all(code == 0 and not ue for _n, code, _tb, ue, _t in _runs67),
+          [(n, c, ue, t) for n, c, _tb, ue, t in _runs67 if c != 0 or ue])
     check("[67] GBK 环境真跑：--preview 的顶行是文字标签（不是 emoji 乱码）",
           (lambda out: ("ACE " in out and "目录" in out or "dir " in out)
            if out else False)(

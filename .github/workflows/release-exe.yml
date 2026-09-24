@@ -4,11 +4,11 @@ name: release-exe
 # 为什么在 runner 上构建而不是本机：PyInstaller 不从索引装的话没法用，而本仓库
 # 的离线纪律（vendor/*.whl）只覆盖界面依赖，没有 PyInstaller 的 wheel。
 #
-# 与 release-executor 的关系：两者**共用同一个 tag `v{version}`**。先跑 executor，
-# 再跑这个；第二个会因为 Release 已存在而走 `gh release upload` 追加资产。
-# 反过来跑也行 —— 先跑这个（创建 Release），executor 再追加。
-#
-# 手动触发：留空 version 时自动读 core/version.py。
+# 与 release-executor 的关系：两者**共用同一个 tag `v{version}`**。
+# 推荐顺序：先手动跑 release-executor（它会创建 Release 并把 5 平台执行器挂上去），
+# 它打的 tag 会**自动触发本工作流**（见下面的 push.tags），于是同一个 Release 上
+# 又多出一个 exe 附件——一次发布，两样产物都齐。
+# 也可以单独手动跑本工作流（Release 不存在就自己建）。
 on:
   workflow_dispatch:
     inputs:
@@ -16,6 +16,9 @@ on:
         description: "版本(如 3.41.0;留空自动读 core/version.py)"
         required: false
         type: string
+  push:
+    tags:
+      - "v*"      # release-executor 打完 tag 后自动接手，避免"忘了跑第二个"
 
 permissions:
   contents: write   # gh release create / upload 需要
@@ -79,7 +82,10 @@ jobs:
           path: release-assets/ace-*-windows-amd64.zip
           if-no-files-found: error
 
-      - name: Attach to release (create it if the executor job has not yet)
+      - name: Attach to release
+        # 由 tag 触发时不碰 Release：那是 release-executor 的职责（它创建 tag 与 Release），
+        # 两个工作流同时去 create 会互相打架（一个成功、另一个 422 红掉整条流水线）。
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,3 +96,29 @@ jobs:
             gh release create $tag --title $tag --notes "见 CHANGELOG.md 的 $tag 条目。"
           }
           gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" --clobber
+
+  # tag 推送触发时，Release 由 release-executor 建、exe 附件由上面的 job 负责。
+  # 这个 job 只做一件轻量的事：确认"版本单源 / CHANGELOG 条目 / tag"三者对得上。
+  # 为什么值得单列：发布事故里最常见的一类就是三者不一致——tag 打了 v3.41.0，
+  # CHANGELOG 里却没有这一条，于是用户点进 Release 看不到任何变更说明。
+  verify-release-tuple:
+    name: version == CHANGELOG == tag
+    runs-on: ubuntu-latest
+    needs: [windows-exe]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Check the three agree
+        run: |
+          V=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"',open('core/version.py',encoding='utf-8').read()).group(1))")
+          echo "core/version.py = $V"
+          if ! grep -q "## \[$V\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md 里没有 v$V 的条目 —— 版本单源与变更记录对不上，先补条目再发布"
+            exit 1
+          fi
+          echo "CHANGELOG.md 有 v$V 条目"
+          echo "已存在的 tag（含本次）:"
+          git tag -l "v$V" | sed 's/^/  /'
+          git tag -l "v$V" | grep -q . || echo "  （v$V 还没有 tag —— release-executor 会创建它）"

@@ -67,6 +67,17 @@
 > **R-03 双前端引擎合并**（代码）与 **REL-03 真机冒烟**（验证）。而真机冒烟顺手抓出
 > 一个**一直藏在测试盲区里的真缺陷**。随后补上了 **Windows 发行包**。
 
+### 📦 本版发布物（两样一起上，同一个 tag `v3.41.0`）
+
+| 产物 | 由谁构建 | 说明 |
+|---|---|---|
+| `ace-executor-{windows-amd64, linux-amd64, linux-arm64, darwin-amd64, darwin-arm64}` | `release-executor` 工作流 | 5 平台 Go 沙箱执行器（自 v3.7.0 起的既有发布物）。**它同时负责创建 tag 与 Release** |
+| `ace-3.41.0-windows-amd64.zip` | `release-exe` 工作流 | 新的 Windows 单目录发行包（自带解释器，用户机器不需要 Python） |
+
+**发布顺序**：先手动跑 `release-executor`（打 tag `v3.41.0` + 建 Release + 挂 5 个执行器）→
+它打的 tag 会**自动触发 `release-exe`** → 同一个 Release 上多出 exe 附件。一次发布，两样都齐。
+两个工作流都保留 `workflow_dispatch`，任一步失败都能单独重跑。
+
 ### ✨ 新增：Windows 单目录发行包（`packaging/`）
 
 - ✨ `packaging/ace.spec` —— PyInstaller **单目录**构建（不是单文件：单文件每次冷启动都要

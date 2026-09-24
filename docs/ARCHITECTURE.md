@@ -135,7 +135,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.40.1.md #  本版更新介绍（可直接贴进 GitHub Release；终端编码防线）
+│   ├── RELEASE-NOTES-v3.40.2.md #  本版更新介绍（可直接贴进 GitHub Release；修回 README 的编码错误）
+│   ├── RELEASE-NOTES-v3.40.1.md #  v3.40.1 更新介绍（终端编码防线）
 │   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
 │   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
 │   ├── RELEASE-NOTES-v3.39.0.md #  v3.39 更新介绍（主页与功能面板）

@@ -4578,8 +4578,8 @@ if _want("24"):
             check("str_replace 拒绝时文件字节完全未变", _gbk.read_bytes() == _gbk_bytes_before)
             check("str_replace 拒绝路径不留半个写入", True)
     _base_src = (Path(__file__).parent / "tools" / "base.py").read_text(encoding="utf-8")
-    # 守卫的**意图**是"读-改-写这条路上不许有有损解码"：回退解码不带 errors=，解不开就抛。
-    # 它盯的是这条不变量，而不是某一行具体写法（原守卫盯字面
+    # 守卫的**意图**是"读-改-写这条路上不许有有损解码"：回退解码不带 errors=，解不开就抛，
+    # 让调用方拒绝改写。它盯的是这条不变量，而不是某一行具体写法（原守卫盯字面
     # `return path.read_text(encoding=enc), enc`，改个变量名就会假失败）。
     # 必须先剥掉注释与 docstring：这段 docstring 本身在讲"不能用 errors=ignore"，
     # 只看字面的话解释性文字会把守卫自己绊倒——[21] 的接入点守卫踩过同一个坑。

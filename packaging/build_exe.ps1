@@ -8,21 +8,30 @@
 #   was never run is how you find those out from users. So this script will not
 #   report success without running the packaged ace.exe through real checks.
 #
-# ASCII-ONLY ON PURPOSE. Windows PowerShell 5.1 reads a BOM-less script as ANSI;
-#   this repository has already been bitten twice by that (see CHANGELOG
-#   v3.40.2 and the REL-03 note). Keep it ASCII, comments included.
+# ASCII-ONLY ON PURPOSE. Windows PowerShell 5.1 reads a BOM-less script as ANSI,
+#   and this repository has been bitten by that more than once (CHANGELOG
+#   v3.40.2, the REL-03 smoke script, and this very file once). Non-ASCII here
+#   does not degrade gracefully: it turns into mojibake, which breaks quoting,
+#   which breaks the whole parse. Keep every byte ASCII, comments included.
 #
 # USAGE
 #   powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
-#   ... -Python C:\path\to\python.exe     pick the interpreter to freeze with
-#   ... -Clean                            wipe build/ and dist/ first
-#   ... -SkipSmoke                        build only (prints a loud warning)
+#   ... -Python C:\path\to\python.exe   pick the interpreter to freeze with
+#   ... -Python python                  a command name is fine too (Get-Command)
+#   ... -Clean                          wipe build/ and dist/ first
+#   ... -SkipSmoke                      build only (prints a loud warning)
 #
 # REQUIREMENTS
 #   PyInstaller must be importable by the chosen interpreter:
 #       <python> -m pip install pyinstaller
-#   Freezing with a 3.10-3.12 interpreter is safer than 3.13 for third-party
-#   wheels, but the core is pure stdlib so any 3.10+ should work.
+#   **requests must be installed too.** In a source run ace_net/ace_http import
+#   requests lazily and degrade without it, so --mock works fine; but freezing
+#   decides which modules get bundled AT BUILD TIME, and once frozen ace_net
+#   requires requests with no fallback left in the vendor layer. Leave it out of
+#   the build env and the --preview smoke fails looking like "missing requests"
+#   rather than "the package is wrong", which is a confusing trail to follow.
+#   Freezing with 3.10-3.12 is safer than 3.13 for third-party wheels, but the
+#   core is pure stdlib so any 3.10+ should work.
 #
 # EXIT: 0 = built AND every smoke scenario passed. 1 = anything failed.
 # ============================================================================
@@ -39,21 +48,69 @@ $Repo  = Split-Path -Parent $Here                # .../ace
 $Dist  = Join-Path $Repo 'dist'
 $Build = Join-Path $Repo 'build'
 $Spec  = Join-Path $Here 'ace.spec'
+$Requested = $Python
 
 Write-Host "repo      : $Repo"
 Write-Host "spec      : $Spec"
 
 # -- 1. interpreter ----------------------------------------------------------
-if (-not $Python) {
+# -Python / ACE_PYTHON may be EITHER a path OR a command name (e.g. "python").
+# Testing only with Test-Path is not enough, in two different ways:
+#   1) `Test-Path 'python'` is False for a command name -- that is exactly how CI
+#      failed with `-Python python` -> "FAIL: no usable interpreter";
+#   2) a path that EXISTS may still not be runnable: Windows puts a zero-byte
+#      App Execution Alias for the Store Python on PATH, and Test-Path reports it
+#      as a file while invoking it fails with 9009. Picking it would look like a
+#      resolved interpreter and then die later at the PyInstaller probe.
+# So the rule here is: resolve to a real file AND actually run it once.
+function Test-PythonRuns([string]$Exe) {
+    if (-not $Exe) { return $false }
+    try {
+        $out = & $Exe -c "import sys; print('ok')" 2>$null
+    } catch { return $false }
+    return ($LASTEXITCODE -eq 0) -and ("$out".Trim() -eq 'ok')
+}
+
+function Resolve-PythonPath([string]$Candidate) {
+    if (-not $Candidate) { return $null }
+    $paths = @()
+    if (Test-Path -LiteralPath $Candidate -PathType Leaf) {
+        $paths += (Resolve-Path -LiteralPath $Candidate).Path
+    } else {
+        $paths += (Get-Command $Candidate -ErrorAction SilentlyContinue |
+                   Where-Object { $_.CommandType -eq 'Application' } |
+                   ForEach-Object { $_.Source })
+    }
+    foreach ($p in $paths) {
+        if ((Test-Path -LiteralPath $p -PathType Leaf) -and (Test-PythonRuns $p)) { return $p }
+    }
+    return $null
+}
+
+if ($Requested) {
+    $Python = Resolve-PythonPath $Requested
+    if (-not $Python) {
+        Write-Host "FAIL: -Python '$Requested' is neither an existing file nor a runnable command."
+        Write-Host "      (A file that exists but cannot be executed counts as neither --"
+        Write-Host "       this is what the Store's zero-byte python.exe stub looks like.)"
+        exit 1
+    }
+} else {
     $cands = @()
     if ($env:ACE_PYTHON) { $cands += $env:ACE_PYTHON }
     $cands += 'C:\aider_env\Scripts\python.exe'
     $cands += (Join-Path $Repo '.ace_env\Scripts\python.exe')
-    $cands += (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
-    $Python = $cands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    $cands += 'python'
+    $cands += 'python3'
+    $cands += 'py'
+    $Python = $null
+    foreach ($c in $cands) {
+        $Python = Resolve-PythonPath $c
+        if ($Python) { break }
+    }
 }
-if (-not $Python -or -not (Test-Path $Python)) {
-    Write-Host "FAIL: no usable interpreter. Pass -Python <path> or set ACE_PYTHON."
+if (-not $Python) {
+    Write-Host "FAIL: no usable interpreter. Pass -Python <path or command>, or set ACE_PYTHON."
     exit 1
 }
 Write-Host "interpreter: $Python"
@@ -64,7 +121,7 @@ if ($pyi.Trim() -ne 'yes') {
     Write-Host ""
     Write-Host "FAIL: PyInstaller is not importable by this interpreter."
     Write-Host "      Install it, then re-run:"
-    Write-Host "        `"$Python`" -m pip install pyinstaller"
+    Write-Host ("        `"" + $Python + "`" -m pip install pyinstaller")
     Write-Host ""
     Write-Host "      If pip cannot reach an index, this machine is offline for PyPI and"
     Write-Host "      the build must run where the network works (or from a local wheel)."
@@ -73,14 +130,28 @@ if ($pyi.Trim() -ne 'yes') {
 $pyiVer = (& $Python -c "import PyInstaller; print(PyInstaller.__version__)" 2>&1) -join ''
 Write-Host "PyInstaller: $($pyiVer.Trim())"
 
-# -- 3. clean ----------------------------------------------------------------
+# -- 3. requests present? ----------------------------------------------------
+# Not a hard requirement for the CORE, but it is for the frozen build: see the
+# header note. Checked here so the failure names the real cause.
+$req = (& $Python -c "import importlib.util as u; print('yes' if u.find_spec('requests') else 'no')" 2>&1) -join ''
+if ($req.Trim() -ne 'yes') {
+    Write-Host ""
+    Write-Host "FAIL: 'requests' is not importable by this interpreter."
+    Write-Host "      The frozen bundle needs it (ace_net imports it at runtime with no"
+    Write-Host "      fallback once frozen). Install it and re-run:"
+    Write-Host ("        `"" + $Python + "`" -m pip install requests")
+    exit 1
+}
+Write-Host "requests   : present"
+
+# -- 4. clean ----------------------------------------------------------------
 if ($Clean) {
     foreach ($d in @($Dist, $Build)) {
         if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue; Write-Host "removed $d" }
     }
 }
 
-# -- 4. build ----------------------------------------------------------------
+# -- 5. build ----------------------------------------------------------------
 # --noconfirm: the spec drives the layout; we do not want an interactive prompt
 # in a script. --clean: drop PyInstaller's own cache so a stale hook cannot
 # silently keep a removed module in the bundle.
@@ -109,7 +180,7 @@ if ($SkipSmoke) {
     exit 0
 }
 
-# -- 5. smoke ----------------------------------------------------------------
+# -- 6. smoke ----------------------------------------------------------------
 # Every scenario is judged on: exit code 0, no traceback, no UnicodeEncodeError,
 # no wrong glyphs, and the expected user-visible text actually present. A frozen
 # build can pass "it starts" while failing to find prompts/ or locales/, so the

@@ -107,11 +107,12 @@ def build_home(state: Dict[str, object],
         newest = sess[0]
         _when = str(newest.get("when") or "").strip()
         _turns = int(newest.get("turns") or 0)
+        _proj = str(newest.get("project") or "").strip()
         resume_items.append(HomeItem(
             "resume_last", "home_resume_last", "",
             "home_resume_last_hint", "resume",
-            # 时间拿不到时**不留空括号**：`继续上次：（3 轮）` 比 `继续上次： （3 轮）` 干净
-            fmt={"when": (_when + " · ") if _when else "",
+            # 时间拿不到时**不留空括号**；有项目名就先报项目名（比时间更能认出是哪一段）
+            fmt={"when": ((_proj + " · ") if _proj else "") + ((_when + " · ") if _when else ""),
                  "turns": _turns,
                  "label": str(newest.get("label") or "")[:40]}))
     else:
@@ -171,14 +172,17 @@ def action_for_key(key: str) -> str:
 
 
 def title_line(version: str, model: str, permission: str, sandbox: str = "",
-               styler: Optional[Callable[[str, str], str]] = None) -> str:
+               styler: Optional[Callable[[str, str], str]] = None,
+               folder: str = "") -> str:
     """主页顶行：`ACE 3.39.0 · 模型 · 权限 · 沙箱`。
 
     顶行只放"一眼要确认的三件事"，其余状态归底栏 —— 主页不该是仪表盘。
     """
     st = styler or (lambda _k, x: x)
-    bits = [st("bold", f"ACE {version}"), st("dim", str(model or "?")),
-            st("dim", str(permission or "?"))]
+    bits = [st("bold", f"ACE {version}")]
+    if folder:
+        bits.append(st("cyan", f"📁 {folder}"))     # 在哪个文件夹里 —— 一眼要确认的第四件事
+    bits.extend([st("dim", str(model or "?")), st("dim", str(permission or "?"))])
     if sandbox and sandbox != "off":
         bits.append(st("warn", f"沙箱 {sandbox}"))
     return " · ".join(bits)
@@ -221,19 +225,19 @@ def render_home(sections: Sequence[HomeSection],
         for item, label in zip(sec.items, labels):
             take = item.enabled
             if take:
-                mark = st("accent", "▶") if cursor == selected else " "
+                mark = st("cyan", "▶") if cursor == selected else " "
                 cursor += 1
             else:
                 mark = st("dim", "·")
             text = f"  {mark} {pad_width(label, pad)}"
             if item.value:
-                text += st("value", pad_width(item.value, vpad))
+                text += st("cyan", pad_width(item.value, vpad))
             if item.hint_key:
                 text += st("dim", translate(item.hint_key))
             rows.append(text.rstrip())
         if not rows:
             continue
-        lines.append(st("head", f"  {translate(sec.title_key)}"))
+        lines.append(st("bold", f"  {translate(sec.title_key)}"))
         lines.extend(rows)
         lines.append("")
     if footer:

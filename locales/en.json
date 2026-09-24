@@ -660,5 +660,10 @@
   "cmd_effort": "thinking effort: auto/low/medium/high (separate from /thinking)",
   "cmd_lang": "reply language: 中文/English/日本語 (switches the UI too)",
   "cmd_new": "start a new conversation (fresh session file + cleared context)",
-  "cmd_home": "show the home panel again (sections and current state)"
+  "cmd_home": "show the home panel again (sections and current state)",
+  "home_icon_tip": "Back to home (click here)",
+  "menu_more_above": "  ↑ {n} more above",
+  "choose_effort_hint": "{badge} effort · ←/→ to adjust",
+  "effort_max": "max",
+  "effort_max_what": "beyond high: restate the problem, say how you will verify, name what is uncertain"
 }

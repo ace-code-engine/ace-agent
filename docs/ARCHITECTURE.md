@@ -133,7 +133,9 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.39.0.md #  本版更新介绍（可直接贴进 GitHub Release；主页与功能面板）
+│   ├── RELEASE-NOTES-v3.40.0.md #  本版更新介绍（可直接贴进 GitHub Release；界面手感修复）
+│   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
+│   ├── RELEASE-NOTES-v3.39.0.md #  v3.39 更新介绍（主页与功能面板）
 │   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置
 │   ├── RELEASE-NOTES-v3.38.0.md #  v3.38 更新介绍（与 Claude 对齐的键位）
 │   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由）

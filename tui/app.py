@@ -52,6 +52,8 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
+from textual.widgets._header import (HeaderClock, HeaderClockSpace,  # noqa: E402
+                                     HeaderIcon, HeaderTitle)
 
 
 def clipboard_image_path() -> str:
@@ -110,6 +112,73 @@ def _bindings(tr: Callable[[str], str]) -> List[Binding]:
         out.append(Binding(b.key, b.action, tr(b.desc_key),
                            show=(b.scope == "global"), priority=_prio))
     return out
+
+
+class HomeIcon(HeaderIcon):
+    """左上角那个圆圈：点它**回到主页**。
+
+    Textual 默认让这个图标去开"命令面板"；我们没开命令面板（也没那个必要），
+    所以把它改成"回主页" —— 主页在会话区里会被顶上去，得有个随时能回去的入口。
+    """
+
+    def on_mount(self) -> None:
+        try:
+            self.tooltip = self.app._msg("home_icon_tip")
+        except Exception:      # noqa: BLE001
+            pass
+
+    async def on_click(self, event) -> None:
+        event.stop()
+        handler = getattr(self.app, "action_home", None)
+        if callable(handler):
+            handler()
+
+    def on_mouse_down(self, event) -> None:
+        """按下就走（不等抬手）：终端的鼠标事件在部分环境里只报按下。
+
+        上游那个图标是自己处理 Click；我们这里把"按下"也算数 —— 用户的心智是
+        "点那个圈就回家"，不该因为终端只报了 mouse-down 就没反应。
+        """
+        event.stop()
+        handler = getattr(self.app, "action_home", None)
+        if callable(handler):
+            handler()
+
+
+class AceHeader(Header):
+    """顶栏：把左边的图标换成"回主页"那一颗，其余照旧。
+
+    点左上角那一块（含图标及其右侧留白）都回主页：终端的命中测试在 dock 布局里
+    偶尔会把点击报给父控件，所以**两层都接**：图标自己一层，顶栏左侧一块再兜一层。
+    """
+
+    #: 左上角多宽算"那一颗圈"（图标 8 列 + 一点留白）
+    HOME_ZONE = 10
+
+    def _hit_home(self, event) -> bool:
+        try:
+            return int(getattr(event, "x", 999)) < self.HOME_ZONE
+        except Exception:      # noqa: BLE001
+            return False
+
+    def on_click(self, event) -> None:
+        if self._hit_home(event):
+            event.stop()
+            handler = getattr(self.app, "action_home", None)
+            if callable(handler):
+                handler()
+
+    def on_mouse_down(self, event) -> None:
+        if self._hit_home(event):
+            event.stop()
+            handler = getattr(self.app, "action_home", None)
+            if callable(handler):
+                handler()
+
+    def compose(self) -> ComposeResult:
+        yield HomeIcon().data_bind(Header.icon)
+        yield HeaderTitle()
+        yield HeaderClockSpace() if not self._show_clock else HeaderClock()
 
 
 class ChordInput(Input):
@@ -285,11 +354,17 @@ class ChoiceScreen(ModalScreen):
     BINDINGS = [
         Binding("up", "move(-1)", "", show=False),
         Binding("down", "move(1)", "", show=False),
+        # 强度行：←/→ 就地调（上游把"想多深"放在模型选择框里，理由是不必为了改强度
+        # 再进一层菜单 —— 换模型和调强度本来就是同一件事："这次要它多用力"）。
+        # **必须 priority**：过滤输入框有焦点时，←/→ 会被它吃成"移动光标"。
+        Binding("left", "effort(-1)", "", show=False, priority=True),
+        Binding("right", "effort(1)", "", show=False, priority=True),
         Binding("enter", "choose", "确认"),
         Binding("escape", "cancel", "取消"),
     ]
 
-    def __init__(self, title: str, items, t, on_done, filterable: bool = True) -> None:
+    def __init__(self, title: str, items, t, on_done, filterable: bool = True,
+                 effort_get=None, effort_set=None) -> None:
         super().__init__()
         self.title_text = title
         self.items = list(items)
@@ -298,6 +373,8 @@ class ChoiceScreen(ModalScreen):
         self.on_done = on_done
         self.filterable = bool(filterable)
         self.sel = 0
+        self.effort_get = effort_get
+        self.effort_set = effort_set
 
     def compose(self) -> ComposeResult:
         with Vertical(id="choice_box"):
@@ -305,12 +382,38 @@ class ChoiceScreen(ModalScreen):
             if self.filterable:
                 yield Input(placeholder=self.t("choose_filter"), id="choice_filter")
             yield Static("", id="choice_list")
+            if callable(self.effort_get):
+                yield Static("", id="choice_effort")
             yield Static(self.t("choose_hint_keys"), classes="dim")
 
     def on_mount(self) -> None:
         self._repaint()
+        self._paint_effort()
         if self.filterable:
             self.query_one("#choice_filter", Input).focus()
+
+    def _paint_effort(self) -> None:
+        if not callable(self.effort_get):
+            return
+        try:
+            from core import ace_effort as _eff
+            lv = _eff.normalize(self.effort_get())
+            self.query_one("#choice_effort", Static).update(
+                "  " + self.t("choose_effort_hint").replace(
+                    "{badge}", _eff.badge(lv, self.t)))
+        except Exception:      # noqa: BLE001
+            pass
+
+    def action_effort(self, step: int) -> None:
+        """←/→：就地调思考强度（不关框、不丢选择）。"""
+        if not (callable(self.effort_get) and callable(self.effort_set)):
+            return
+        try:
+            from core import ace_effort as _eff
+            self.effort_set(_eff.cycle(self.effort_get(), int(step)))
+        except Exception:      # noqa: BLE001
+            return
+        self._paint_effort()
 
     def _repaint(self) -> None:
         rows = []
@@ -562,7 +665,9 @@ class AceTuiApp(App):
     #status { dock: bottom; height: 1; background: $panel; color: $text-muted; }
     #board  { dock: bottom; height: auto; max-height: 6; color: $text-muted; }
     #prompt { dock: bottom; height: 1; }
-    #palette { dock: bottom; height: auto; max-height: 10; display: none;
+    /* 补全浮层：固定在输入框**正上方**，高度由内容决定（最多 9 行）。
+       `height: auto` + 显式设高度：太少会截掉按键提示，太多会把转写区挤没。*/
+    #palette { dock: bottom; height: auto; max-height: 11; display: none;
                background: $surface; border-top: solid $accent; }
     #palette.open { display: block; }
     #live { color: $text; }
@@ -645,7 +750,7 @@ class AceTuiApp(App):
             return base
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield AceHeader(show_clock=False, icon="⌂")
         with VerticalScroll(id="body"):
             yield Static("", id="seed")
         yield Static("", id="live")
@@ -659,7 +764,8 @@ class AceTuiApp(App):
     def on_mount(self) -> None:
         self.title = self.app_title
         self._show_home()
-        self.sub_title = self.t("tui_subtitle")
+        _folder = self._folder()
+        self.sub_title = (self._msg("tui_subtitle") + (f" · {_folder}" if _folder else ""))
         self.query_one("#prompt", Input).focus()
         self._refresh_status()
         self.set_interval(0.2, self._drain_queue)
@@ -670,6 +776,21 @@ class AceTuiApp(App):
                 self.ui_host.attach_ui(self)     # 引擎侧以后从这条路问界面
             except Exception:                    # noqa: BLE001
                 pass
+
+    def _folder(self) -> str:
+        """当前工作目录的显示名（像 dsh 那样把"在哪个文件夹里"摆在明面上）。"""
+        host = self.ui_host
+        cfg = self._cfg()
+        root = str(cfg.get("project_root") or "")
+        if not root and host is not None:
+            root = str(getattr(host, "cfg", {}).get("project_root") or "")
+        if not root:
+            return ""
+        try:
+            import os as _os
+            return _os.path.basename(_os.path.normpath(root)) or root
+        except Exception:      # noqa: BLE001
+            return root
 
     def _show_home(self) -> None:
         """首屏 = 主页（会话区的第一块，打字之后它自然滚上去）。
@@ -798,17 +919,41 @@ class AceTuiApp(App):
 
     # ================= 输入 =================
 
+    #: 补全浮层最多显示多少行候选（不含分组标题/提示行）
+    PALETTE_ROWS = 7
+
+    def _paint_palette(self) -> None:
+        """把当前菜单状态画到浮层上，并把浮层高度设成**内容高度**。
+
+        为什么显式设高度：`height: auto` 在 dock 布局里会让浮层按内容撑开，
+        但超过 `max-height` 之后**最后一行（按键提示）被裁掉** —— 用户报的
+        "提示看不到尽头"就是这个。这里按实际行数设高度，保证提示恒在窗口内。
+        """
+        state = self._menu
+        if state is None or not state.open:
+            return
+        rows = ace_menu.render_menu(state, self.size.width - 2,
+                                    max_rows=self.PALETTE_ROWS, translate=self.t)
+        # 转写区不能被浮层吃掉：最多占屏幕的四成
+        cap = max(3, int(self.size.height * 0.4))
+        if len(rows) > cap:
+            rows = rows[:cap - 1] + [rows[-1]]          # 保住最后那行提示
+        panel = self.query_one("#palette", Vertical)
+        self.query_one("#palette_inner", Static).update("\n".join(rows))
+        try:
+            panel.styles.height = len(rows) + 1         # +1 给上边框留一行
+        except Exception:      # noqa: BLE001
+            pass
+        panel.scroll_end(animate=False)
+
     def _refresh_palette(self, text: str) -> None:
         try:
             state = ace_menu.build_menu(text, len(text), self.commands,
                                         translate=self.t)
             panel = self.query_one("#palette", Vertical)
             panel.set_class(state.open, "open")
-            if state.open:
-                self.query_one("#palette_inner", Static).update(
-                    "\n".join(ace_menu.render_menu(state, self.size.width - 2,
-                                                   translate=self.t)))
             self._menu = state
+            self._paint_palette()
         except Exception:      # noqa: BLE001 —— 菜单画不出来不该拦着打字
             self._menu = None
 
@@ -965,13 +1110,32 @@ class AceTuiApp(App):
             self._perm_event.wait(timeout=900)
             return self._perm_slot[0] if self._perm_slot else default
 
-    def choose(self, title: str, options: Sequence[str]) -> Optional[str]:
-        """列表选择（`/model`、`/provider`、`/sessions`、`/permission` 档位…）。"""
+    def choose(self, title: str, options: Sequence[str],
+               with_effort: bool = False) -> Optional[str]:
+        """列表选择（`/model`、`/provider`、`/sessions`、`/permission` 档位…）。
+
+        `with_effort=True` 时多一行"思考强度"并支持 ←/→ 就地调 —— 只在模型选择框里开，
+        因为那正是"这次要它多用力"的决策点。
+        """
         items = [str(o) for o in options]
         if not items:
             return None
-        return self._modal(lambda done: ChoiceScreen(title, items, self._msg, done),
-                           title, None)
+        get = self._cfg_effort if with_effort else None
+        setr = self._set_cfg_effort if with_effort else None
+        return self._modal(
+            lambda done: ChoiceScreen(title, items, self._msg, done,
+                                      effort_get=get, effort_set=setr),
+            title, None)
+
+    def _cfg_effort(self) -> str:
+        from core import ace_effort as _eff
+        return _eff.normalize(self._cfg().get("effort"))
+
+    def _set_cfg_effort(self, level: str) -> None:
+        cfg = self._cfg()
+        if cfg is not None:
+            cfg["effort"] = str(level)
+        self._host_command("/effort " + str(level))
 
     def ask_text(self, prompt: str, default: str = "") -> Optional[str]:
         """文本输入（向导步骤、拒绝理由、确认语句…）。"""
@@ -1392,6 +1556,38 @@ class AceTuiApp(App):
             return False
         return True
 
+    def on_click(self, event) -> None:
+        """点到左上角那颗圆圈（或它内部的子控件）→ 回主页。
+
+        为什么要 App 级兜底：HeaderIcon 的点击在大多数终端里会落在外层 widget 上，
+        只靠子类自己的 `on_click` 会漏掉一部分点击；用户的心智是"点那个圈就回家"，
+        不该因为点在了它内部哪个像素上而不一样。
+        """
+        try:
+            node = getattr(event, "widget", None)
+        except Exception:      # noqa: BLE001
+            node = None
+        seen = 0
+        while node is not None and seen < 6:
+            if isinstance(node, HomeIcon):
+                event.stop()
+                self.action_home()
+                return
+            node = getattr(node, "parent", None)
+            seen += 1
+        # 兜底：命中测试把点击报给了别的控件（或无终端测试台直接报给 Screen）时，
+        # 按**事件自带的屏幕坐标**判一次（顶栏左侧那一块）。
+        # 为什么不用 `self.mouse_position`：它靠 MouseMove 更新，而点击事件不一定
+        # 带一次移动 —— 拿它判会时灵时不灵。
+        try:
+            x = int(getattr(event, "screen_x", getattr(event, "x", 999)))
+            y = int(getattr(event, "screen_y", getattr(event, "y", 999)))
+        except Exception:      # noqa: BLE001
+            return
+        if y == 0 and 0 <= x < AceHeader.HOME_ZONE:
+            event.stop()
+            self.action_home()
+
     def on_key(self, event) -> None:
         """和弦兜底：挂起时按了**没登记**的键（比如功能键），把状态撤掉。
 
@@ -1686,12 +1882,8 @@ class AceTuiApp(App):
         state = getattr(self, "_menu", None)
         if state is not None and state.open:
             state.move(int(delta))
-            try:
-                self.query_one("#palette_inner", Static).update(
-                    "\n".join(ace_menu.render_menu(state, self.size.width - 2,
-                                                   translate=self.t)))
-            except Exception:      # noqa: BLE001
-                pass
+            # 重画走同一条路（含窗口滚动与高度重算）—— 两处各画一份迟早会漂
+            self._paint_palette()
             return
         if not self._history:
             return

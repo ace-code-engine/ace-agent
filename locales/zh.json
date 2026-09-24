@@ -655,5 +655,10 @@
   "cmd_effort": "思考强度：auto/低/中/高（和 /thinking 是两条轴）",
   "cmd_lang": "回答语言：中文/English/日本語（界面语言一起切）",
   "cmd_new": "开一段新对话（新会话文件 + 清空上下文）",
-  "cmd_home": "再看一眼主页（分区与当前状态）"
+  "cmd_home": "再看一眼主页（分区与当前状态）",
+  "home_icon_tip": "回到主页（点这里）",
+  "menu_more_above": "  ↑ 还有 {n} 项",
+  "choose_effort_hint": "{badge} 强度 · ←/→ 就地调",
+  "effort_max": "最高",
+  "effort_max_what": "在高的基础上：先重述问题、说清怎么验证、点明不确定处"
 }

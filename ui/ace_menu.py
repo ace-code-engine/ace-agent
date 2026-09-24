@@ -24,7 +24,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 __all__ = ["MenuItem", "MenuState", "command_items", "mention_items",
            "argument_items", "build_menu", "render_menu", "menu_hint",
-           "MENTION_TRIGGERS", "ARGUMENT_HINTS"]
+           "window_bounds", "MENTION_TRIGGERS", "ARGUMENT_HINTS"]
 
 # `@` 提及的四类（顺序 = 菜单里的展示顺序）
 MENTION_TRIGGERS: Tuple[Tuple[str, str], ...] = (
@@ -257,11 +257,34 @@ def _ranked(items: Sequence[MenuItem], query: str, start: int, end: int,
 # 渲染
 # ============================================================
 
+def window_bounds(total: int, selected: int, rows: int) -> Tuple[int, int]:
+    """可见窗口 `(start, end)`：**选中项永远在窗口里**，并且尽量让它居中。
+
+    这一条是"按 ↓ 菜单不动"的根因修复：原来只渲染前 N 条，选中项走到第 N+1 条之后
+    光标就跑到看不见的地方去了 —— 用户看到的是"我按了键，什么都没发生"。
+
+    窗口规则（与分页器一致）：
+    - 选中项在窗口内时尽量不移动窗口（滚动要"黏"，否则每按一下整屏都在跳）；
+    - 只在选中项越过上/下边界时把窗口挪一格；
+    - 到顶/到底时不循环（列表有头有尾，转圈会让人分不清自己走到哪了）。
+    """
+    rows = max(1, int(rows))
+    total = max(0, int(total))
+    if total <= rows:
+        return 0, total
+    sel = max(0, min(int(selected), total - 1))
+    if sel < rows:
+        return 0, rows                     # 第一屏：窗口不动（越靠上越不该跳）
+    start = max(0, min(sel - rows + 1, total - rows))
+    return start, start + rows
+
+
 def render_menu(state: MenuState, width: int = 80, max_rows: int = 8,
                 styler: Optional[Callable[[str, str], str]] = None,
                 translate: Optional[Callable[[str], str]] = None) -> List[str]:
-    """菜单 → 待打印行（纯文本；带分组标题与滚动窗口的省略说明）。
+    """菜单 → 待打印行（纯文本；带分组标题、滚动窗口与上下省略说明）。
 
+    渲染的是**窗口**（`window_bounds`），所以 `↓` 到底会滚动，而不是让光标消失。
     `styler(kind, text)` 可注入（测试传 no-op 就能断言纯文本）。
     """
     st = styler or (lambda _k, x: x)
@@ -269,10 +292,14 @@ def render_menu(state: MenuState, width: int = 80, max_rows: int = 8,
     if not state.items:
         return []
     rows: List[str] = []
-    shown = state.items[:max(1, int(max_rows))]
-    last_group = None
     sel = min(state.selected, len(state.items) - 1)
-    for i, item in enumerate(shown):
+    start, end = window_bounds(len(state.items), sel, max(1, int(max_rows)))
+    shown = state.items[start:end]
+    if start > 0:
+        rows.append(st("dim", tr("menu_more_above").replace("{n}", str(start))))
+    last_group = None
+    for offset, item in enumerate(shown):
+        i = start + offset
         if item.group and item.group != last_group:
             rows.append(st("dim", f"  {item.group}"))
             last_group = item.group
@@ -281,9 +308,11 @@ def render_menu(state: MenuState, width: int = 80, max_rows: int = 8,
         if i == sel:
             line = st("bold", line)
         rows.append(f"{mark}{line}")
-    hidden = len(state.items) - len(shown)
+    hidden = len(state.items) - end
     if hidden > 0:
         rows.append(st("dim", tr("menu_more").replace("{n}", str(hidden))))
+    # 提示行**永远最后一行、永远在窗口里**：它是"这里怎么操作"的唯一说明，
+    # 被截掉等于把说明书撕了一半（用户报的"提示看不到尽头"就是这个）。
     rows.append(st("dim", menu_hint(state, tr)))
     return rows
 

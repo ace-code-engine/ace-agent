@@ -125,6 +125,20 @@ class SessionLog:
 
     # ---------- 便捷记录方法（会话层调用） ----------
 
+    def record_session_start(self, project_root: str = "", cwd: str = "",
+                             model: str = "") -> int:
+        """写一条会话头：**这段会话是在哪个文件夹里开的**。
+
+        为什么要记：`/sessions` 与主页要把"继续哪一段"讲清楚，而"在哪个项目里"
+        是比时间更有用的线索（同一天可能在三个项目里各聊过一段）。不记的话，
+        列表只能显示"昨天 · 3 轮 · 帮我改一下 X"，用户根本认不出是哪一段。
+        """
+        return self.append("session/start", {
+            "project_root": str(project_root or ""),
+            "cwd": str(cwd or ""),
+            "model": str(model or ""),
+        })
+
     def record_user(self, content: str) -> int:
         return self.append(K_USER_MESSAGE, {"content": content})
 

@@ -38,13 +38,14 @@ __all__ = ["EFFORTS", "EFFORT_ORDER", "DEFAULT_EFFORT", "SYMBOLS", "EFFORT_KEYS"
            "normalize", "cycle", "prompt_hint", "labels", "symbol", "describe",
            "parse_command", "keyword_level", "KEYWORDS", "badge", "is_auto"]
 
-EFFORT_ORDER: Tuple[str, ...] = ("auto", "low", "medium", "high")
+EFFORT_ORDER: Tuple[str, ...] = ("auto", "low", "medium", "high", "max")
 EFFORTS = EFFORT_ORDER
 DEFAULT_EFFORT = "auto"
-TOP_EFFORT = "high"
+TOP_EFFORT = "max"        # 关键词逃生门落在最高档
 
 #: 显示符号：一个字形就能看出档位（底栏/主页都用它，省列宽）
-SYMBOLS: Dict[str, str] = {"auto": "○", "low": "◐", "medium": "●", "high": "◉"}
+SYMBOLS: Dict[str, str] = {"auto": "○", "low": "◐", "medium": "●",
+                         "high": "◉", "max": "◆"}
 
 #: 档位 → (名字 i18n 键, 说明 i18n 键)
 EFFORT_KEYS: Dict[str, Tuple[str, str]] = {
@@ -52,6 +53,7 @@ EFFORT_KEYS: Dict[str, Tuple[str, str]] = {
     "low": ("effort_low", "effort_low_what"),
     "medium": ("effort_medium", "effort_medium_what"),
     "high": ("effort_high", "effort_high_what"),
+    "max": ("effort_max", "effort_max_what"),
 }
 
 #: 每档的提示词增量。空串 = 什么都不加（默认行为不该被我们的偏好污染）
@@ -64,6 +66,10 @@ _HINTS: Dict[str, str] = {
     "high": ("【思考强度：高】先列出你的假设与约束，再给出至少两个备选方案并逐条权衡"
              "（代价、风险、回退难度），明确说明为什么否掉其它方案，最后才动手；"
              "结论要能被别人复核。"),
+    "max": ("【思考强度：最高】在「高」的基础上再加三条：①先把问题**重述一遍**，"
+            "确认我们要解决的是同一件事；②列出你打算怎么**验证**结论（测试、复现步骤、"
+            "反例）；③明确说出你不确定的地方与它会影响什么。宁可多花时间，不要给一个"
+            "看起来完整但没验证过的答案。"),
 }
 
 #: 关键词逃生门：出现即"这一轮按最高档"，不必先去改设置
@@ -78,8 +84,9 @@ def normalize(name: str) -> str:
              "自动": "auto", "默认": "auto", "-": "auto",
              "low": "low", "min": "low", "低": "low", "quick": "low", "1": "low",
              "medium": "medium", "mid": "medium", "中": "medium", "2": "medium",
-             "high": "high", "max": "high", "deep": "high", "高": "high", "3": "high",
-             "最高": "high", "ultra": "high"}
+             "high": "high", "深": "high", "3": "high",
+             "max": "max", "maximum": "max", "ultra": "max", "高": "high",
+             "最高": "max", "4": "max"}
     return alias.get(key, DEFAULT_EFFORT)
 
 

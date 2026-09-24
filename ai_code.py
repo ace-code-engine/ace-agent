@@ -2744,7 +2744,7 @@ class _SlashCommands:
                 _models = prov.get("models") or []
                 if _models:
                     idx = self._select_index(
-                        t("model_pick"), [str(m) for m in _models])
+                        t("model_pick"), [str(m) for m in _models], with_effort=True)
                     if idx is not None and 0 <= idx < len(_models):
                         self.cfg["model"] = _models[idx]
                         save_cli_config(self.cfg)
@@ -3332,6 +3332,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._resumed_from: Optional[str] = None
         self._init_execution_layer()
         self.session_log = self.el.session_log
+        self._write_session_header()
         # session_start 钩子：会话真的建起来了才跑（执行层构造失败时不该跑）
         _hk_start = self._fire_hook("session_start")
         if _hk_start is not None and _hk_start.additional_context:
@@ -3367,6 +3368,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         try:
             self.el.goal_store.disarm()
         except Exception:
+            pass
+
+    def _write_session_header(self) -> None:
+        """给这段会话写一条头事件：**它是在哪个文件夹里开的**。
+
+        失败不吭声：会话头只是"给人看列表用的线索"，写不进去不该拦住聊天。
+        """
+        try:
+            log = self.session_log
+            if log is None or not hasattr(log, "record_session_start"):
+                return
+            log.record_session_start(
+                project_root=os.path.abspath(str(self.cfg.get("project_root") or ".")),
+                cwd=os.getcwd(),
+                model=("mock" if self.client.mock else str(self.client.model or "")))
+        except Exception:      # noqa: BLE001
             pass
 
     def _resume_previous_session(self) -> None:
@@ -3804,12 +3821,25 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         return (run_selector is not None and sys.stdin.isatty()
                 and sys.stdout.isatty())
 
-    def _select_index(self, title: str, items: List[str]) -> Optional[int]:
-        """从一串文本里选一个，返回下标；取消返回 None。界面优先。"""
+    def _select_index(self, title: str, items: List[str],
+                      with_effort: bool = False) -> Optional[int]:
+        """从一串文本里选一个，返回下标；取消返回 None。界面优先。
+
+        `with_effort=True`：选择框里多一行思考强度（接口老一点的宿主不认识这个参数，
+        自动退回两参数调用 —— 不为一个新装饰把兼容性弄坏）。
+        """
         ui = self._ui
         if self._ui_can_prompt():
             try:
-                picked = ui.choose(title, list(items))
+                if with_effort:
+                    picked = ui.choose(title, list(items), with_effort=True)
+                else:
+                    picked = ui.choose(title, list(items))
+            except TypeError:
+                try:
+                    picked = ui.choose(title, list(items))
+                except Exception:      # noqa: BLE001
+                    picked = None
             except Exception:  # noqa: BLE001
                 picked = None
             if picked is None:
@@ -4127,6 +4157,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             self.cfg["session_log"] = str(new_path)
             if hasattr(self.el, "session_log"):
                 self.el.session_log = self.session_log
+            self._write_session_header()      # 新文件也要有"这是哪个文件夹"这一条
         except Exception as e:      # noqa: BLE001 —— 建不了新文件就至少把上下文清掉
             print(c("yellow", "  " + t("new_session_failed", err=type(e).__name__)))
         self.messages.clear()
@@ -4160,6 +4191,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 continue
             rows.append({"path": str(path), "when": str(info.get("when") or ""),
                          "turns": int(info.get("turns") or 0),
+                         "project": str(info.get("project") or ""),
+                         "root": str(info.get("root") or ""),
                          "label": str(info.get("first") or info.get("label") or "")[:60]})
         return rows
 
@@ -4174,6 +4207,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         except Exception:      # noqa: BLE001
             snaps = 0
         return {
+            "folder": os.path.basename(os.path.abspath(
+                str(self.cfg.get("project_root") or "."))),
             "model": str(model).split("/")[-1], "permission": self.get_permission(),
             "sandbox": str(self.cfg.get("sandbox", "off") or "off"),
             "effort": ace_effort.normalize(self.cfg.get("effort")),
@@ -4191,7 +4226,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         return ace_home.render_home(
             sections, t, width=w,
             header=ace_home.title_line(str(st["version"]), str(st["model"]),
-                                       str(st["permission"]), str(st["sandbox"]), c),
+                                       str(st["permission"]), str(st["sandbox"]), c,
+                                       folder=str(st.get("folder") or "")),
             footer=ace_home.hint_line(t, c))
 
     def _cmd_home(self, parts: List[str]) -> bool:
@@ -4446,7 +4482,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         else:
             idx = self._select_index(
                 t("sessions_pick"),
-                [f"{i}. {r['when']} {r['label']}" for i, r in enumerate(rows, 1)])
+                # 每行把"哪个文件夹 · 什么时候 · 几轮 · 开头写了什么"讲全 ——
+                # 只给时间和首句，同一天在三个项目里聊过就完全认不出来
+                [f"{i}. [{r.get('project') or '?'}] {r['when']} · "
+                 f"{r.get('turns', 0)} 轮 · {r['label']}"
+                 for i, r in enumerate(rows, 1)])
             if idx is not None and 0 <= idx < len(rows):
                 pick = rows[idx]
         print(c("dim", t("sessions_hint")))

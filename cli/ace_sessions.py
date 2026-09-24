@@ -93,6 +93,12 @@ def replay_messages(events: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return msgs
 
 
+def _basename(path: str) -> str:
+    """路径 → 末级目录名（跨平台，末端斜杠也认）。"""
+    s = str(path or "").replace("\\", "/").rstrip("/")
+    return s.rsplit("/", 1)[-1] if s else ""
+
+
 def summarize(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     """列表用的摘要。
 
@@ -105,8 +111,11 @@ def summarize(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     tools = 0
     compactions = 0
     security = 0
+    root = ""
     for ev in evs:
         k = _kind(ev)
+        if k == "session/start" and not root:
+            root = str(ev.get("project_root") or ev.get("cwd") or "")
         if k == "user/message" and not first_user:
             first_user = str(ev.get("content") or "")
         elif k == "assistant/message":
@@ -124,6 +133,9 @@ def summarize(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         "security_denied": security,
         "first_user": first_user,
         "last_assistant": last_assistant,
+        # 项目根目录（会话头事件里记的）：列表要能回答"这是哪个文件夹里的一段"
+        "root": root,
+        "project": _basename(root),
     }
 
 

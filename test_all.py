@@ -110,7 +110,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [], "66": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +189,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66"]
 _SEEN_SECTIONS: list = []
 
 
@@ -8439,11 +8439,11 @@ if _want("52"):
           _vim52("hello world", "d2w").text == "", "")
     check("vim：cw 删词后进插入模式（c 的语义）",
           (lambda s: s.text == "world" and s.mode == "insert")(_vim52("hello world", "cw")), "")
-    check("vim：文本对象 di\" 只删引号内（光标在引号内）",
+    check("vim：文本对象 di\「 只删引号内（光标在引号内）",
           _vim52('say "hi there" ok', 'di"', cursor=6).text == 'say "" ok', "")
-    check("vim：文本对象 da\" 连同引号一起删",
+    check("vim：文本对象 da\「 连同引号一起删",
           _vim52('say "hi there" ok', 'da"', cursor=6).text == "say  ok", "")
-    check("vim：光标在引号外时 di\" 不猜、不动文本，只留说明",
+    check("vim：光标在引号外时 di\「 不猜、不动文本，只留说明",
           (lambda s: s.text == 'say "hi" ok' and s.note.startswith("no-target"))(
               _vim52('say "hi" ok', 'di"', cursor=0)), "")
     check("vim：单键 x / D 自成命令（不必先按 d）",
@@ -10699,31 +10699,32 @@ if _want("65"):
     from ui import ace_home as _home65  # noqa: E402
 
     # —— 思考强度：档位 / 环 / 提示词 ——
-    check("[65] 强度：四档 auto→low→medium→high，**默认 auto**（不替模型做决定）",
-          _eff65.EFFORT_ORDER == ("auto", "low", "medium", "high")
+    check("[65] 强度：五档 auto→low→medium→high→max，**默认 auto**（不替模型做决定）",
+          _eff65.EFFORT_ORDER == ("auto", "low", "medium", "high", "max")
           and _eff65.DEFAULT_EFFORT == "auto", _eff65.EFFORT_ORDER)
     check("[65] 强度：auto 不加任何提示词（默认行为不被我们的偏好污染）",
           _eff65.prompt_hint("auto") == "" and _eff65.prompt_hint("") == "", "")
     check("[65] 强度：三档各有明确增量，且都要求「先说清再动手」而不是「想久一点」",
-          all(_eff65.prompt_hint(lv) for lv in ("low", "medium", "high"))
+          all(_eff65.prompt_hint(lv) for lv in ("low", "medium", "high", "max"))
           and "备选" in _eff65.prompt_hint("high"), _eff65.prompt_hint("high")[:40])
-    check("[65] 强度：环能转回来（high → auto），也能倒着转",
-          _eff65.cycle("auto") == "low" and _eff65.cycle("high") == "auto"
-          and _eff65.cycle("auto", -1) == "high", "")
+    check("[65] 强度：环能转回来（max → auto），也能倒着转",
+          _eff65.cycle("auto") == "low" and _eff65.cycle("max") == "auto"
+          and _eff65.cycle("auto", -1) == "max", "")
     check("[65] 强度：写坏的档位落回 auto（不抛异常、不静默变高）",
-          _eff65.normalize("banana") == "auto" and _eff65.normalize("MAX") == "high", "")
+          _eff65.normalize("banana") == "auto" and _eff65.normalize("MAX") == "max", "")
     check("[65] 强度：符号一眼可辨（○ ◐ ● ◉），且短标记自带「怎么改」",
           _eff65.symbol("high") == "◉" and "/effort" in _eff65.badge("high", lambda k: k), "")
     check("[65] 强度：关键词逃生门 —— 输入里写了 ultrathink/认真想 → 这一轮最高档",
-          _eff65.keyword_level("帮我 ultrathink 一下") == "high"
-          and _eff65.keyword_level("认真想：这个架构怎么拆") == "high"
+          _eff65.keyword_level("帮我 ultrathink 一下") == "max"
+          and _eff65.keyword_level("认真想：这个架构怎么拆") == "max"
           and _eff65.keyword_level("普通提问") is None, "")
     check("[65] 强度：`/effort` 的解析（空=看、next/prev=转、list=列、档名=设）",
           _eff65.parse_command(["/effort"])[0] is None
           and _eff65.parse_command(["/effort", "next"], "auto")[0] == "low"
-          and _eff65.parse_command(["/effort", "prev"], "auto")[0] == "high"
+          and _eff65.parse_command(["/effort", "prev"], "auto")[0] == "max"
           and _eff65.parse_command(["/effort", "list"])[1] == "effort_list"
-          and _eff65.parse_command(["/effort", "HIGH"])[0] == "high", "")
+          and _eff65.parse_command(["/effort", "HIGH"])[0] == "high"
+          and _eff65.parse_command(["/effort", "MAX"])[0] == "max", "")
 
     # —— 主页：分区顺序就是信息层级 ——
     _st65 = {"version": "9.9.9", "model": "m1", "permission": "readonly",
@@ -10810,6 +10811,209 @@ if _want("65"):
           sorted(_keyset65))
     check("[65] 键位表：和弦超时对齐 1 秒（上游也是 1s；太长会让「待续」状态碍事）",
           _keys65.CHORD_TIMEOUT == 1.0, _keys65.CHORD_TIMEOUT)
+
+    # ============================================================
+
+if _want("66"):
+    # ── [66] ────
+    print("[66] 界面手感修复：补全浮层会跟着滚 · 左上角回主页 · 会话带文件夹 · 选择框里的强度行")
+    # ============================================================
+    from ui import ace_menu as _menu66  # noqa: E402
+    from core import ace_effort as _eff66  # noqa: E402
+
+    # —— 补全浮层的窗口滚动（用户报的「按 ↓ 文字不动」）——
+    _w66 = [_menu66.window_bounds(12, sel, 5) for sel in (0, 3, 6, 9, 11)]
+    check("[66] 补全：选中项**永远在可见窗口里**（按 ↓ 到底会滚动，而不是光标跑没影）",
+          all(st <= sel < en for (st, en), sel in zip(_w66, (0, 3, 6, 9, 11))), _w66)
+    check("[66] 补全：窗口是「黏」的（选中项没越过边界时窗口不动，不会每按一下整屏跳）",
+          _menu66.window_bounds(12, 4, 5)[0] == 0
+          and _menu66.window_bounds(12, 5, 5)[0] == 1, "")
+    check("[66] 补全：列表短于窗口时窗口就是全表（不出现多余的省略行）",
+          _menu66.window_bounds(3, 2, 8) == (0, 3), _menu66.window_bounds(3, 2, 8))
+    _items66 = [_menu66.MenuItem(f"/cmd{i}", desc=f"第{i}条") for i in range(12)]
+    _st66 = _menu66.MenuState(_items66, selected=9, open_=True, kind="command")
+    _rows66 = _menu66.render_menu(_st66, 80, max_rows=5, translate=lambda k: k)
+    check("[66] 补全：渲染的是窗口（含选中项），且**最后一行一定是按键提示**",
+          any("▶" in r for r in _rows66)
+          and _rows66[-1] == "menu_hint_command", _rows66)
+    _rows_up66 = _menu66.render_menu(
+        _menu66.MenuState(_items66, selected=9, open_=True, kind="command"),
+        80, max_rows=5, translate=lambda k: k)
+    check("[66] 补全：窗口上面还有内容时给出「↑ 还有 N 项」（不然用户以为列表就这么长）",
+          _rows_up66[0] == "menu_more_above", _rows_up66[0])
+
+    # —— 左上角回主页：三层接法（图标自己 / 顶栏左侧 / App 坐标兜底）——
+    _tui66 = (FOLDER / "tui" / "app.py").read_text(encoding="utf-8")
+    check("[66] 左上角：图标自己接 on_click/on_mouse_down → 回主页",
+          "class HomeIcon(HeaderIcon)" in _tui66
+          and "async def on_click(self, event) -> None:" in _tui66
+          and "def on_mouse_down(self, event) -> None:" in _tui66, "")
+    check("[66] 左上角：顶栏左侧一块（HOME_ZONE）再兜一层，且 App 级按**事件坐标**兜底",
+          "HOME_ZONE = 10" in _tui66 and "def on_click(self, event) -> None:" in _tui66
+          and 'getattr(event, "screen_x"' in _tui66, "")
+    check("[66] 左上角：不用 `mouse_position` 判（它靠 MouseMove 更新，点击不一定带移动）",
+          "x, y = self.mouse_position" not in _tui66, "")
+
+    # —— 强度：加 max 档，与上游四档对齐 ——
+    check("[66] 强度：五档 auto→low→medium→high→max，符号 ○◐●◉◆",
+          _eff66.EFFORT_ORDER == ("auto", "low", "medium", "high", "max")
+          and _eff66.symbol("max") == "◆", _eff66.EFFORT_ORDER)
+    check("[66] 强度：关键词逃生门落到**最高**档（不是「高」就完事）",
+          _eff66.TOP_EFFORT == "max" and _eff66.keyword_level("ultrathink") == "max", "")
+    check("[66] 强度：`max` 的提示词比 `high` 更狠（重述问题 + 说清怎么验证 + 点明不确定处）",
+          "验证" in _eff66.prompt_hint("max")
+          and _eff66.prompt_hint("max") != _eff66.prompt_hint("high"), "")
+    check("[66] 强度：`最高` 这类中文写法能认（不认的话用户写了也没用）",
+          _eff66.normalize("最高") == "max" and _eff66.normalize("max") == "max", "")
+
+    # —— 会话：文件夹 ——
+    _slog66 = (FOLDER / "cli" / "ace_sessionlog.py").read_text(encoding="utf-8")
+    _sess66 = (FOLDER / "cli" / "ace_sessions.py").read_text(encoding="utf-8")
+    _cli66 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("[66] 会话：日志头记下「在哪个文件夹里开的「（列表才能回答」这是哪一段」）",
+          "def record_session_start" in _slog66 and "session/start" in _slog66, "")
+    check("[66] 会话：摘要里暴露 project/root（列表与主页共用同一份口径）",
+          '"project": _basename(root)' in _sess66 and '"root": root' in _sess66, "")
+    check("[66] 会话：列表行是「文件夹 · 时间 · 轮数 · 首句「（只给时间认不出是哪段）",
+          "f\"{i}. [{r.get('project') or '?'}]" in _cli66, "")
+    check("[66] 主页：顶行带当前文件夹（像 dsh 那样把「在哪个文件夹」摆明面上）",
+          'folder=str(st.get("folder") or "")' in _cli66
+          and "def _folder(self)" in _tui66
+          and "📁 {folder}" in (FOLDER / "ui" / "ace_home.py").read_text(encoding="utf-8"), "")
+
+    # —— 选择框里的强度行 ——
+    check("[66] 强度行：`/model` 的选择框多一行强度，且 ←/→ 是**优先级**键位"
+          "（过滤输入框会把 ←/→ 吃成移光标）",
+          "with_effort=True" in _cli66
+          and 'Binding("left", "effort(-1)", "", show=False, priority=True)' in _tui66, "")
+    check("[66] 强度行：老宿主不认识 `with_effort` 时退回两参数调用（不为装饰弄坏兼容）",
+          "except TypeError:" in _cli66, "")
+
+    # —— 真按键：浮层跟着滚动 + 左上角（无终端测试台点不到顶栏，用事件桩验逻辑）——
+    try:
+        from tui import tui_available as _avail66
+        _TUI66 = bool(_avail66())
+    except Exception:  # noqa: BLE001
+        _TUI66 = False
+    if not _TUI66:
+        skip("补全浮层滚动 · 左上角回主页 · 强度行真按键",
+             "未安装 textual（python setup_env.py --ensure）")
+    else:
+        import asyncio as _aio66  # noqa: E402
+        import threading as _th66  # noqa: E402
+        from tui import app as _tapp66  # noqa: E402
+
+        class _Ev66:
+            """事件桩：只带 handler 真正会读的那几个字段。"""
+            def __init__(self, **kw) -> None:
+                self.stopped = False
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+            def stop(self) -> None:
+                self.stopped = True
+
+        async def _drive66():
+            _host = _tapp66.__dict__  # 只为拿类；宿主用下面这个假的
+            class _H66:
+                cfg = {"project_root": "C:/work/ace", "effort": "auto"}
+
+                def attach_ui(self, host):
+                    self.ui = host
+
+                def home_lines(self, width=0):
+                    return ["HOME-LINE-1", "HOME-LINE-2"]
+
+                def choose(self, title, options, with_effort=False):
+                    return None
+
+                def get_permission(self):
+                    return "write"
+
+                def set_permission(self, m):
+                    return m
+
+                def request_stop(self):
+                    pass
+
+                def _at_image(self, p):
+                    pass
+
+            _h66 = _H66()
+            _a66 = _tapp66.AceTuiApp(engine=lambda line: None,
+                                     translate=lambda k, **kw: (k.format(**kw) if kw else k),
+                                     command_table={"/a": "cmd_a", "/b": "cmd_b"},
+                                     ui_host=_h66)
+            _out: dict = {}
+            async with _a66.run_test(size=(100, 30)) as _p:
+                # ① 浮层：/ 之后连按 ↓，选中项必须始终可见，高度必须容纳提示行
+                _inp = _a66.query_one("#prompt")
+                _inp.value = "/"
+                _a66._refresh_palette("/")
+                await _p.pause(0.2)
+                _vis66 = []
+                for _ in range(8):
+                    await _p.press("down")
+                    await _p.pause(0.05)
+                    _rows = str(_a66.query_one("#palette_inner").render()).splitlines()
+                    _vis66.append(any(r.strip().startswith("▶") for r in _rows))
+                _out["palette_all_visible"] = all(_vis66)
+                _panel66 = _a66.query_one("#palette")
+                _out["height_set"] = str(_panel66.styles.height) not in ("", "auto", "None")
+                _rows66b = str(_a66.query_one("#palette_inner").render()).splitlines()
+                _out["hint_last"] = _rows66b[-1].strip().startswith("menu_hint")
+                _inp.value = ""
+                _a66._refresh_palette("")
+
+                # ② 左上角：图标 handler（真终端里 Textual 会把点击送给它）+ App 坐标兜底
+                _icon66 = _a66.query_one(_tapp66.HomeIcon)
+                _before66 = len(_a66.query_one("#body").children)
+                _ev = _Ev66()
+                await _icon66.on_click(_ev)
+                await _p.pause(0.2)
+                _out["icon_click"] = (len(_a66.query_one("#body").children) - _before66,
+                                      _ev.stopped)
+                _before66 = len(_a66.query_one("#body").children)
+                _a66.on_click(_Ev66(screen_x=4, screen_y=0))
+                await _p.pause(0.2)
+                _out["coord_click"] = len(_a66.query_one("#body").children) - _before66
+                _before66 = len(_a66.query_one("#body").children)
+                _a66.on_click(_Ev66(screen_x=40, screen_y=0))
+                await _p.pause(0.1)
+                _out["coord_miss"] = len(_a66.query_one("#body").children) - _before66
+
+                # ③ 选择框强度行：←/→ 改的是宿主的 cfg
+                _box66: dict = {}
+
+                def _ask66():
+                    _box66["v"] = _a66.choose("选择模型", ["m1", "m2"], with_effort=True)
+
+                _t66 = _th66.Thread(target=_ask66, daemon=True)
+                _t66.start()
+                await _p.pause(0.4)
+                _scr66 = _a66.screen
+                _out["effort_row"] = hasattr(_scr66, "effort_get") and callable(_scr66.effort_get)
+                await _p.press("right")
+                await _p.pause(0.2)
+                _out["effort_after"] = _h66.cfg.get("effort")
+                await _p.press("escape")
+                await _p.pause(0.2)
+                _t66.join(timeout=3)
+            return _out
+
+        _res66 = _aio66.run(_drive66())
+        check("[66] 浮层真按键：连按 8 次 ↓ 选中项**始终可见**（不是文字不动）",
+              _res66["palette_all_visible"], _res66)
+        check("[66] 浮层：高度是**按内容设的**（不是 auto 撑破），且提示行是最后一行",
+              _res66["height_set"] and _res66["hint_last"], _res66)
+        check("[66] 左上角：图标 handler 真的调到了回主页（并 consume 掉这次点击）",
+              _res66["icon_click"][0] > 0 and _res66["icon_click"][1] is True,
+              _res66["icon_click"])
+        check("[66] 左上角：App 级坐标兜底也回主页；点顶栏中间**不**回主页（不误触发）",
+              _res66["coord_click"] > 0 and _res66["coord_miss"] == 0, _res66)
+        check("[66] 强度行：←/→ 直接改宿主的 cfg（选择框不用关、选择不丢）",
+              _res66["effort_row"] and _res66["effort_after"] == "low",
+              (_res66["effort_row"], _res66["effort_after"]))
 
     # ============================================================
 

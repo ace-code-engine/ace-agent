@@ -660,5 +660,10 @@
   "cmd_effort": "思考の強度：auto/低/中/高（/thinking とは別軸）",
   "cmd_lang": "回答の言語：中文/English/日本語（UI 言語も切替）",
   "cmd_new": "新しい会話を開始（新セッションファイル＋文脈消去）",
-  "cmd_home": "ホームをもう一度表示（区分と現在の状態）"
+  "cmd_home": "ホームをもう一度表示（区分と現在の状態）",
+  "home_icon_tip": "ホームに戻る（ここをクリック）",
+  "menu_more_above": "  ↑ 上に {n} 件",
+  "choose_effort_hint": "{badge} 強度 · ←/→ で調整",
+  "effort_max": "最高",
+  "effort_max_what": "「高」に加えて：問題を言い直し、検証方法を述べ、不確かな点を明示"
 }

@@ -218,6 +218,7 @@ ace-agent/
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    ├── RELEASE-ANNOUNCEMENT-v3.41.0.md  #   中英双语发布公告（可直接当 Release 说明）
     └── pull_request_template.md#   PR 模板
 ```
 

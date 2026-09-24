@@ -265,14 +265,22 @@ Three sections exist purely to keep **promises** honest: `[38]` the authoritativ
 - **v3.9.0** (2026-09-18): section-level test runner (0.3s for a targeted section instead of a full run), `tools/file_tools.py` split along its three execution paths (method bodies verified byte-identical), `run_command` 125→25 lines, `converse` 234→175 lines, shared model-layer helpers in `core/ace_model.py`
 - **v3.8** (2026-09-18): promise guards (`[38]/[39]/[40]`), the full 19-item security-audit reconciliation, the egress gate, snapshot/audit hardening, and the `examples/` scenarios. Same-day tags are merged into one entry — see [`CHANGELOG.md`](CHANGELOG.md)
 
-## Known gaps and unverified items
+## Done and still unverified
 
-To be explicit about what is **not** done or **not** verified — don't read these as "probably fine":
+Both halves of this section are here on purpose: the README used to say "not done" about
+things that are now finished, and a stale admission is its own kind of lie. Read the second
+half as the actual warning — don't read it as "probably fine":
+
+**Recently closed** (recorded so the older text does not linger):
 
 - **R-03 engine merge: done — both halves of its verification now have evidence.** `core/ace_client.py` is the single model HTTP client (one `ace_http` egress point, one place that builds `/chat/completions`; the two frontends keep only their own contract, `chat_stream` for the CLI and `chat_once` for the headless runner). Merged into `main`. The **credential-free half**: `python e2e/r03_contract_smoke.py` stands up a real listening socket, answers **both wire formats**, and drives **both frontends** through it (**7/7**). The **vendor half**: `python e2e/real_model_smoke.py` with `ACE_E2E_*` set, **run green against DeepSeek on 2026-09-25** — exit 0, the single `🤖 Agent:` line contract held, and the model called `datetime_now` first and then answered from the real result rather than inventing one. Order and rationale: [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md) §3/§5.
-- **REL-03 native smoke: walked through (Windows).** `ace.cmd` → interpreter self-resolution → a real console conversation, offline `--mock`, exit 0, Chinese and emoji both intact. `e2e/rel03_native_smoke.ps1` reproduces it in three scenarios (launcher / direct entry / legacy `chcp 936`) and is ASCII-only on purpose — Windows PowerShell 5.1 reads a BOM-less script as ANSI, and the first version of that file died on its own Chinese comments. Still unverified: the **Textual full-screen UI under a real TTY** (sections `[60]/[62]/[63]/[64]/[66]` skip without `textual` installed), and any non-Windows console.
+- **REL-03 native smoke: walked through (Windows).** `ace.cmd` → interpreter self-resolution → a real console conversation, offline `--mock`, exit 0, Chinese and emoji both intact. `e2e/rel03_native_smoke.ps1` reproduces it in three scenarios (launcher / direct entry / legacy `chcp 936`) and is ASCII-only on purpose — Windows PowerShell 5.1 reads a BOM-less script as ANSI, and the first version of that file died on its own Chinese comments.
 - **Found by that smoke and fixed:** `_generate_text` (the no-`--tools` fallback) used to hand the model's plain text straight to the execution layer, which expects protocol text — so `agent_runner.py --base-url …` never reached a final reply and printed "max rounds reached" instead. Mock mode and `--tools` both wrap, which is why no test caught it. Now wrapped like `_generate_tools`, with two assertions in `[8]`. The real-vendor run above exercises exactly this path (`原生工具: 关`) and now reaches the final reply.
-- Same class: the **darwin/amd64 executor artifact has no native smoke test** — it cross-compiles, but no Intel Mac has ever run it. See the REL section of [`docs/BACKLOG.md`](docs/BACKLOG.md).
+
+**Still unverified:**
+
+- The **Textual full-screen UI under a real TTY** (sections `[60]/[62]/[63]/[64]/[66]` skip without `textual` installed), and any **non-Windows console**.
+- The **darwin/amd64 executor artifact has no native smoke test** — it cross-compiles, but no Intel Mac has ever run it. See the REL section of [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Project layout
 

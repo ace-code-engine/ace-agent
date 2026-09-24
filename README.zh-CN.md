@@ -59,7 +59,7 @@ v3.8 起，**执行层的承诺有断言守着**：数据发往模型指定的�
 - [项目结构](#项目结构)
 - [开发与贡献](#开发与贡献)
 - [文档地图](#文档地图)
-- [已知未完成与未验证](#已知未完成与未验证)
+- [已完成与仍未验证](#已完成与仍未验证)
 - [许可](#许可)
 - [设计参考](#设计参考)
 
@@ -352,15 +352,20 @@ ace-agent/
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 | 历史立项卡 / 会话纪要 / 调研 / 提示词规范 | [docs/design/](docs/design/) · [docs/history/](docs/history/) |
 
-## 已知未完成与未验证
+## 已完成与仍未验证
 
-诚实起见，以下两件事**没有做完 / 没有验证过**，别把它们当成"应该没问题"：
+这一节两半都留着是有意的：README 曾经把**已经做完**的事写成"未完成"，而过期的坦白本身也是一种不实。**真正需要警惕的是后半段** —— 别把它当成"应该没问题"。
+
+**最近收口**（写在这里，免得旧说法继续挂着）：
 
 - **R-03 双前端引擎合并：已完成，两侧验收都有证据** —— `core/ace_client.py` 就是唯一一份模型 HTTP 客户端（唯一出网点、唯一拼 `/chat/completions` 的地方；两个前端只保留各自的调用契约：CLI 走 `chat_stream`，无头走 `chat_once`）。已并入 `main`。**无凭证那一半**：`python e2e/r03_contract_smoke.py` 起真监听 socket、**两种线格式**都答、**两个前端**都真跑一遍（**7/7**）。**厂商那一半**：`python e2e/real_model_smoke.py` + `ACE_E2E_*`，**2026-09-25 在 DeepSeek 真实端点上跑通**——exit 0、命中 `🤖 Agent:` 单行契约、模型先调 `datetime_now` 再依据真实结果作答（不是编的）。顺序与理由见 [`docs/design/STRUCT-REFACTOR.md`](docs/design/STRUCT-REFACTOR.md) §3/§5。
-- **REL-03 真机冒烟：已在 Windows 真机走通** —— `ace.cmd` → 解释器自解析 → 真实控制台对话，离线 `--mock`，退出码 0，中文与 emoji 都正常。`e2e/rel03_native_smoke.ps1` 把它固化成三档（启动器 / 直接入口 / `chcp 936` 老终端），脚本刻意只用 ASCII——Windows PowerShell 5.1 会把无 BOM 的脚本按 ANSI 读，这文件的第一版就是被自己的中文注释弄崩的。仍未验证：**真 TTY 下的 Textual 全屏界面**（没装 `textual` 时 `[60]/[62]/[63]/[64]/[66]` 会跳过）、以及任何非 Windows 控制台。
+- **REL-03 真机冒烟：已在 Windows 真机走通** —— `ace.cmd` → 解释器自解析 → 真实控制台对话，离线 `--mock`，退出码 0，中文与 emoji 都正常。`e2e/rel03_native_smoke.ps1` 把它固化成三档（启动器 / 直接入口 / `chcp 936` 老终端），脚本刻意只用 ASCII——Windows PowerShell 5.1 会把无 BOM 的脚本按 ANSI 读，这文件的第一版就是被自己的中文注释弄崩的。
 - **这次冒烟抓出并修掉的缺陷** —— `_generate_text`（不带 `--tools` 的文本协议回退）过去把模型的纯文本直接交给执行层，而执行层的契约是协议文本；于是 `agent_runner.py --base-url …` 永远走不到最终回复，只打印"达到最大轮数"。mock 分支与 `--tools` 分支都会包装，所以此前没有任何测试覆盖到它。现已与 `_generate_tools` 同口径，并在 `[8]` 补了两条断言。上面那次真实模型冒烟走的正是这条路径（`原生工具: 关`），它现在真的到得了最终回复。
 
-（另一条同类未验证：**darwin/amd64 执行器产物没有原生冒烟**——交叉编译出来了，但没有 Intel Mac 实机跑过，本机也没有 Go 工具链，无法在此交叉编译复现。见 [`docs/BACKLOG.md`](docs/BACKLOG.md) 的 REL 段与 `docs/design/EXECUTOR-RELEASE.md` 的验收备注。）
+**仍未验证：**
+
+- **真 TTY 下的 Textual 全屏界面**（没装 `textual` 时 `[60]/[62]/[63]/[64]/[66]` 会跳过）、以及任何**非 Windows 控制台**。
+- **darwin/amd64 执行器产物没有原生冒烟**——交叉编译出来了，但没有 Intel Mac 实机跑过，本机也没有 Go 工具链，无法在此交叉编译复现。见 [`docs/BACKLOG.md`](docs/BACKLOG.md) 的 REL 段与 [`docs/design/EXECUTOR-RELEASE.md`](docs/design/EXECUTOR-RELEASE.md) 的验收备注。
 
 ## 许可
 

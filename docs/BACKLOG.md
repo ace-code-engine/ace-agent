@@ -39,7 +39,7 @@
 |---|---|---|---|
 | ✅ R-01 | `process_agent_output` 拆状态机 | 已完成：`process_agent_output` **288 → 17 行**（解析 → RoundCtx → `_run_round` → finally 回收），单轮逻辑落在 `_run_round`(52) 与 14 个 `_stage_*`；断言覆盖「阶段可脱离整轮单测 / 顺序守卫 / 轮末回收」。剩余：`_stage_permission` 103 行可再拆（外发闸门 / 项目外确认 / 逐次确认）。见 `docs/design/STRUCT-REFACTOR.md` | L |
 | ✅ R-02 | FileTools 拆 FileOps/TerminalView/TerminalExec | 已完成(v3.9)：拆成 `file_common`(共享常量) + `file_ops` + `terminal_view` + `terminal_exec`，`file_tools.py` 只留 25 行兼容层；**25 个方法体经脚本逐字节校验未改**，`registry` 的 handler 名与 `FileTools` 组合一个没动。过程中被测试抓到「脚本只切方法、漏了 3 个类属性」 | M-L |
-| ✅ R-03 | 双前端对话引擎合并 | **合并完成**：`core/ace_client.py` 是唯一一份模型 HTTP 客户端（唯一 `ace_http` 出网点、唯一拼 `/chat/completions` 的地方），CLI 走 `chat_stream`、无头走 `chat_once`，降级判据由前端注入而循环只此一份；`core/ace_model.py` 继续管共用纯逻辑（`trim_history` / `error_hint`）。落点：本地验证分支 `r03-verify` 的合并提交（与 `main` 零冲突，`core/ace_client.py` 493 行），**尚未进 `main`**；全量测试 1976→1979 项通过、零回归。**验收的语言半边已自动化**：`e2e/r03_contract_smoke.py` 用真监听 socket + 两种线格式驱动两个前端（7/7），钉住请求权与输出契约。**厂商半边仍未做**：本机无任何 API Key、Ollama 未运行，须用 `e2e/real_model_smoke.py` + `ACE_E2E_*` 补 | M |
+| ✅ R-03 | 双前端对话引擎合并 | **合并完成并已并入 `main`**：`core/ace_client.py` 是唯一一份模型 HTTP 客户端（唯一 `ace_http` 出网点、唯一拼 `/chat/completions` 的地方），CLI 走 `chat_stream`、无头走 `chat_once`，降级判据由前端注入而循环只此一份；`core/ace_model.py` 继续管共用纯逻辑（`trim_history` / `error_hint`）。**两侧验收都有证据**：① 无凭证——`e2e/r03_contract_smoke.py` 用真监听 socket + 两种线格式驱动两个前端（**7/7**）；② 厂商——`e2e/real_model_smoke.py` + `ACE_E2E_*`，**2026-09-25 在 DeepSeek 真实端点跑通**（exit 0，命中 `🤖 Agent:` 单行契约）。合并时 6 个文件冲突（`git merge-tree` 预演却报 0，预演不能当验收），决议与理由写在合并提交里；合并后第一次全量 1977/1980，暴露 3 条 R-03 之前的接入点守卫从未与新代码一起跑过，已按新架构改写 | M |
 | ✅ R-04 | ai_code.py slash 表驱动 + 会话状态对象 | 已完成(v3.9)：`COMMAND_HANDLERS` 与 `COMMANDS` 分离，`run_command` **125 → 25 行**（前缀补全抽成 `_resolve_command`）；`converse` **234 → 175 行**（`_model_turn` 46 + `_note_round_progress` 25）；3 条表一致性断言 + 2 条语义顺序断言。「会话状态对象」仍未抽（并入 R-03 的推进顺序） | M |
 | ✅ R-05 | test_all.py 拆 [N] 段 + runner(`--only/--skip`) | 已完成(v3.9)：35 段各自包进 `if _want(N)`（脚本整体缩进 + 行数守恒校验），新增 `--only/--skip/--upto/--list` 与显式依赖表；`--only 40` **14s → 0.3s**；`[41]` 运行器自检 + 段注册表覆盖断言。**没做的**：把段搬进 `tests/` 模块（依赖声明已够用） | M |
 | ✅ R-06 | 命名/检索索引(INTERFACES §11)+ 新模块 ace_ 前缀约定;深层改名不强制 | | 新模块统一 ace_ 前缀;旧模块补导流 docstring | S |
@@ -57,5 +57,5 @@
 
 1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试
 2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-18 的 v3.8 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
-3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**R-03 的引擎合并也已落地**（唯一客户端 `core/ace_client.py` + 无凭证契约冒烟 7/7），只剩"真实厂商端点"这一半验证要用 `ACE_E2E_*` 补。详见 `docs/design/STRUCT-REFACTOR.md`
+3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**R-03 的引擎合并也已落地并两侧验收通过**（唯一客户端 `core/ace_client.py` + 无凭证契约冒烟 7/7 + **2026-09-25 在真实厂商端点 DeepSeek 上跑通**）。详见 `docs/design/STRUCT-REFACTOR.md`
 4. ✅ **REL-03 真机冒烟已走通**（Windows，三档全过），并因此抓出并修掉一处真缺陷：`_generate_text` 把裸文本直接递给执行层，导致不带 `--tools` 时永远到不了最终回复（见 `CHANGELOG`）。剩余人工项：v3.7.0 Release 上那个多余的 `logo.svg` 资产（非必需）；darwin/amd64 执行器仍无 Intel Mac 原生冒烟（本机无 Go 工具链，无法在此复现）

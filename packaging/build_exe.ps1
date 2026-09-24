@@ -190,13 +190,18 @@ New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $results = @()
 
 function Invoke-Smoke {
-    param([string]$Name, [string[]]$Args, [string]$Mark)
+    # NOTE: the parameter is $ExeArgs, NOT $Args. "$Args" is a PowerShell
+    # automatic variable (the unbound arguments of the enclosing script), so
+    # using it as a parameter name collides with it: the parameter ends up
+    # empty and Start-Process rejects the null ArgumentList. That is exactly how
+    # all four scenarios failed on CI while still reporting "clean=True".
+    param([string]$Name, [string[]]$ExeArgs, [string]$Mark)
     $outFile = Join-Path $evidence ("{0}.txt" -f ($Name -replace '[^A-Za-z0-9]', '_'))
     if (Test-Path $outFile) { Remove-Item $outFile -Force }
     Write-Host ""
     Write-Host "[smoke] $Name"
-    Write-Host "        $ExePath $($Args -join ' ')"
-    $p = Start-Process -FilePath $ExePath -ArgumentList $Args -NoNewWindow -Wait -PassThru `
+    Write-Host "        $ExePath $($ExeArgs -join ' ')"
+    $p = Start-Process -FilePath $ExePath -ArgumentList $ExeArgs -NoNewWindow -Wait -PassThru `
          -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err"
     $code = $p.ExitCode
     $raw = ''
@@ -222,22 +227,22 @@ function Invoke-Smoke {
 }
 
 # 1) --version: proves the exe starts at all (no resource access yet).
-Invoke-Smoke -Name 'version' -Args @('--version') -Mark 'v3.'
+Invoke-Smoke -Name 'version' -ExeArgs @('--version') -Mark 'v3.'
 
 # 2) --preview: draws the landing screen. This is the one that catches MISSING
 #    RESOURCES - it reads locales/ for every label and assets/ for the logo.
-Invoke-Smoke -Name 'preview' -Args @('--preview', '--preview-width', '80') -Mark 'ACE'
+Invoke-Smoke -Name 'preview' -ExeArgs @('--preview', '--preview-width', '80') -Mark 'ACE'
 
 # 3) offline end-to-end with the scripted model, a real tool round trip.
 $ws = Join-Path $evidence 'agent_ws'
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
-Invoke-Smoke -Name 'mock_turn' -Args @('--mock', '--no-tui', '--permission', 'readonly',
+Invoke-Smoke -Name 'mock_turn' -ExeArgs @('--mock', '--no-tui', '--permission', 'readonly',
                                       '--project-root', $ws, '--input', 'what time is it') `
              -Mark 'Agent'
 
 # 4) the honest 501: code_execute must SAY it is unavailable in this form,
 #    instead of trying to run ace.exe as a Python interpreter.
-Invoke-Smoke -Name 'code_execute_501' -Args @('--mock', '--no-tui', '--tools',
+Invoke-Smoke -Name 'code_execute_501' -ExeArgs @('--mock', '--no-tui', '--tools',
                                               '--permission', 'full',
                                               '--project-root', $ws,
                                               '--input', 'run this python code: print(1+1)') `

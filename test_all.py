@@ -887,6 +887,38 @@ if _want("8"):
     check("runner mock 第二轮最终回复", r2["status"] == "FINAL_REPLY"
           and "当前时间" in r2["message"], r2)
 
+    # —— 文本协议回退（不带 --tools）也必须是执行层能解析的协议文本 ——
+    #   真实事故（R-03 真机验证时抓到）：mock 分支与 _generate_tools 分支都保证
+    #   "纯文本回答 → 模式 B 最终回复"，唯独 _generate_text 把裸文本直接返回。
+    #   于是 `agent_runner.py --base-url …`（不带 --tools）下模型答什么都进不了
+    #   FINAL_REPLY：执行层把它当格式错误回喂，循环到最大轮数后打印
+    #   "达到最大轮数，Agent 未给出最终回复"。测试此前只走 mock 与 --tools 两条，
+    #   所以这条路径从未被覆盖。断言直接盯最终状态，而不是盯字符串长相。
+    from unittest import mock as _mock8  # noqa: E402
+
+    class _ArgsApi:
+        mock = False
+        base_url = "http://127.0.0.1:1/v1"     # 不会被真的访问：_post_chat 被替换
+        api_key = "sk-test-only"
+        model = "test-plain-text"
+
+    _p8 = ModelProvider(_ArgsApi())
+    _p8.tools_ok = False                        # 端点不支持原生工具调用 → 走文本回退
+    _plain8 = "R03-PLAIN-TEXT-PONG"
+    with _mock8.patch.object(sys.modules["agent_runner"], "_post_chat",
+                             lambda *a, **k: {"choices": [{"index": 0, "message": {
+                                 "role": "assistant", "content": _plain8}}]}):
+        _out8 = _p8.generate("ping")
+    check("[8] 文本回退返回协议文本（裸文本不再直接递给执行层）",
+          _out8 != _plain8 and "<EXTERNAL>" in _out8, repr(_out8)[:200])
+
+    _elr8 = ExecutionLayer(project_root=str(mktemp()), permission_level="readonly",
+                           config={"bait": {"enabled": False},
+                                   "sandbox_base": str(TEST_TMP)})
+    _r8 = _elr8.process_agent_output(_out8, "ping")
+    check("[8] 文本回退的纯文本回答真能到达最终回复（不再空转到最大轮数）",
+          _r8.get("status") == "FINAL_REPLY" and _plain8 in str(_r8.get("message", "")), _r8)
+
     # —— R-03：出网那一层归 core/ace_client 一份，runner 只 retain 自己的调用契约 ——
     #   （模型 HTTP 客户端合并后，"runner 怎么发请求"必须只有一条路；这条守卫
     #    盯的是它没有偷偷长出第二套 payload/URL/重试。）
@@ -11251,8 +11283,11 @@ if _want("68"):
     _MARK68 = "鈥锟鈽鏄鐨涓€锛銆浣杩鍐鑳妯瀷閲屾€鏈涓庯紙绛夌"
     # 讲乱码这件事本身的文档会引用乱码样例，豁免（豁免名单写死，加一个要说明理由）
     # 豁免：讲乱码本身的文档会引用样例；本文件**定义**了特征字符表（自指，必须豁免）
+    # 豁免 CHANGELOG.md：v3.40.2 那条修复记录必须逐字引用坏掉的字符（`鈥?`/`路`/`涓枃`）
+    #   才能说清"UTF-8 被按 GBK 读"这件事 —— 把样例改写成转义只会让记录读不懂。
+    #   代价是 CHANGELOG 从此不再被这条守卫覆盖；所以改动 CHANGELOG 时要自己看一遍编码。
     _ALLOW68 = {"docs/RELEASE-NOTES-v3.40.1.md", "docs/RELEASE-NOTES-v3.38.0.md",
-                "test_all.py"}
+                "CHANGELOG.md", "test_all.py"}
 
     def _lines_with_mojibake(text: str):
         out = []

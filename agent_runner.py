@@ -494,13 +494,31 @@ class ModelProvider:
         return final_reply_protocol(content)
 
     def _generate_text(self, prompt: str) -> str:
-        """文本协议回退：模型按 <INTERNAL>/<EXTERNAL> 格式输出"""
+        """文本协议回退：模型按 <INTERNAL>/<EXTERNAL> 格式输出
+
+        `generate()` 的契约是"返回执行层能解析的协议文本"，三条路径都要满足：
+        mock 分支自带完整协议；`_generate_tools` 把纯文本包成模式 B；这里过去是
+        **直接把裸文本返回** —— 于是不带 `--tools` 时模型答什么都进不了
+        FINAL_REPLY：执行层按格式错误回喂，循环到最大轮数后打印
+        "达到最大轮数，Agent 未给出最终回复"。R-03 真机验证才暴露出来（mock 与
+        --tools 两条都有覆盖，唯独这条没有）。现在与 `_generate_tools` 同口径：
+        清洗协议残片 → 能当工具调用就当工具调用 → 否则包装成最终回复。
+        """
         logger.debug("LLM 请求 model=%s tools=off", self.model)
         messages = ([{"role": "system",
                       "content": load_system_prompt() + self.system_suffix}]
                     + self.history + [{"role": "user", "content": prompt}])
         data = _post_chat(self.base_url, self.api_key, self.model, messages)
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"] or ""
+        if content.strip():
+            # 清洗模型残留的协议标签残片（如 </EXTERNAL>），避免污染解析
+            content = sanitize_plain_content(content)
+        converted = content_to_tool_protocol(content)
+        if converted:
+            return converted
+        if not content.strip():
+            raise RuntimeError("模型返回空内容")
+        return final_reply_protocol(content)
 
     def _trim_history(self) -> None:
         """限制对话历史长度（保留最近 N 轮）——口径与 ai_code 共用 ace_model"""

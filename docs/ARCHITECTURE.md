@@ -124,7 +124,7 @@ ace-agent/
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
-├── e2e/                        # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
+├── e2e/                        # 端到端冒烟三件：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么

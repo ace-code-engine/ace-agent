@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.41.0 · 2026-09-24 · R-03 收口：两个前端共用唯一一份模型客户端 · REL-03 真机冒烟走通 · 修掉文本回退到不了最终回复](#v3410-2026-09-24)
 - [v3.40.2 · 2026-09-19 · 修回 README 的编码错误（从最后一个干净版本还原）+ 乱码守卫](#v3402-2026-09-19)
 - [v3.40.1 · 2026-09-19 · 终端编码防线：不崩（UTF-8+replace）· 不乱（字形按控制台代码页降级）](#v3401-2026-09-19)
 - [v3.40.0 · 2026-09-19 · 界面手感修复：浮层会跟着滚 · 左上角回主页 · 会话带文件夹 · 强度加 max](#v3400-2026-09-19)
@@ -59,6 +60,74 @@
 - [v1.2 · 2026-08-21 ~ 08-24 · CLI 体验与工具体系](#v12-2026-08-21-08-24)
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
+
+## [v3.41.0] · 2026-09-24
+
+> 这一轮把 README「Known gaps」里最后两件**承认过、但一直没人做**的事推进了：
+> **R-03 双前端引擎合并**（代码）与 **REL-03 真机冒烟**（验证）。而真机冒烟顺手抓出
+> 一个**一直藏在测试盲区里的真缺陷**。
+
+### ✨ R-03 收口：唯一一份模型 HTTP 客户端
+
+- ✨ 新增 `core/ace_client.py`（493 行）：唯一一份客户端 —— `chat_stream`（流式，CLI 用）/
+  `chat_once`（一次性，无头用）、OpenAI 与 Anthropic **两种线格式**、`ChatHTTPError` 错误规范化、
+  `openai_payload` / `anthropic_payload(_variants)`。全仓只剩**一处** `ace_http` 出网点、
+  **一处**拼 `/chat/completions`。
+- ⚙️ `ai_code.py` **−307 行**、`agent_runner.py` **−44 行**：两个前端只保留自己的**调用契约**
+  （`on_delta` 回调控件归 CLI，"拿整段"归无头），不再各自持有请求/重试/降级实现。
+- ⚙️ 契约留在前端、循环只有一份：tools 降级判据由调用方注入（两家判据不同），但"判据成立 →
+  关掉 tools 重发一次 → 仍失败就如实抛"这段只写一遍。
+- 🧪 `test_all` 新增 17 条守卫：唯一出网点、唯一拼端点处、两个前端都不再直接出网、
+  `tools` 模式的 payload 必须是非流式（流式会丢 `tool_calls` 增量）、不带 tools 时 payload
+  里不许出现 `tools` 键。
+- 📌 落点是**本地验证分支**的合并提交（与 `main` 零冲突，`git merge-tree` 预演过）；
+  **是否进 `main` 由仓库主人决定**，本轮不替它做主。
+
+### ✨ 无凭证也能量出契约：`e2e/r03_contract_smoke.py`
+
+- ✨ 起一个**真监听 socket** 的假端点，**照请求的 `stream` 标志**答（`stream=false` → JSON 体，
+  `stream=true` → SSE 帧），**两种线格式**都实现，然后让**两个前端真的各打一遍**：
+  无头走 `chat_once`、CLI 走 `chat_stream`，外加"429 必须退避重试后如实报错"。
+- ✅ 7/7 通过；请求日志确认无头发的是 `stream=false`、CLI 发的是 `stream=true`、
+  `--tools` 确实进了 payload、429 会退避重试。
+- 📌 这是 R-03 验收里**不需要密钥的那一半**。厂商那一半仍是 `e2e/real_model_smoke.py`
+  + `ACE_E2E_BASE_URL/API_KEY/MODEL`（缺变量时它如实打 `SKIP`）。
+
+### ✨ REL-03 真机冒烟：`ace.cmd` 已在真实 Windows 控制台走通
+
+- ✨ 新增 `e2e/rel03_native_smoke.ps1`，三档：**启动器**（`cmd /c ace.cmd`，用户实际敲的那条）/
+  **直接入口**（`python ai_code.py`）/ **老终端**（`chcp 936` + `PYTHONIOENCODING=gbk`）。
+  断言：退出码 0、无 Traceback、无 `UnicodeEncodeError`、输出里真有最终答复。
+- ✅ 3/3 通过：解释器自解析走到 `C:\aider_env\Scripts\python.exe`（3.13.14），
+  中文与 emoji 在真控制台下都正常，管道里也不崩。
+- 📌 脚本**刻意只用 ASCII**：Windows PowerShell 5.1 会把无 BOM 的脚本按 ANSI 读，
+  这文件的第一版就是被自己的中文注释弄崩的（`Missing ')' in function parameter list`）。
+  执行策略为 Undefined 时需显式 `-ExecutionPolicy Bypass`，脚本头注释里写了原因。
+
+### 🐛 真机冒烟抓出的缺陷：不带 `--tools` 时永远到不了最终回复
+
+- 🐛 **症状**：`agent_runner.py --base-url … --input "…"`（不带 `--tools`）下，无论模型答什么，
+  都是 `⚠️ 达到最大轮数，Agent 未给出最终回复。`
+- 🐛 **病因**：`ModelProvider._generate_text`（文本协议回退）把模型的**裸文本**直接交给执行层，
+  而 `generate()` 的契约是"返回执行层能解析的协议文本"。执行层把它当格式错误回喂 →
+  模型再答一遍同样的话 → 循环到轮数上限。mock 分支自带完整协议、`_generate_tools`
+  会把纯文本包成模式 B，**唯独这条路径没有**——所以此前没有任何测试覆盖到它。
+- ✅ **修法**：与 `_generate_tools` 同口径 —— 清洗协议残片（`sanitize_plain_content`）→
+  能当工具调用就当工具调用（`content_to_tool_protocol`）→ 否则包装成最终回复
+  （`final_reply_protocol`）；空内容仍如实抛错。
+- 🧪 新增 2 条断言（先看着它红，再修）：一条盯"不再把裸文本递出去"，一条**盯最终状态** ——
+  把返回文本喂给执行层，必须得到 `FINAL_REPLY` 且正文含那句回答。
+- 🔍 为什么它现在才露出来：`e2e/real_model_smoke.py` 与 CI 走的是 `--tools`，`test_all` 的
+  `[8]` 走的是 mock，两边的形状都是对的。**"两条路都对"不等于"第三条路也对"。**
+
+### ⚙️ 验收与文档
+
+- ✅ 全量回归：`main` 基线 **1979 / 1980**（唯一失败是新增 `e2e/*` 作为未跟踪文件时的
+  权威树条目检查），合并后 **1976 / 1976 全绿**、零回归。
+- 📄 `README.md` / `README.zh-CN.md` 的「Known gaps」按事实重写：R-03 改为"合并已做、
+  厂商半边未做"，REL-03 改为"已走通"。`docs/BACKLOG.md`、`docs/design/STRUCT-REFACTOR.md`
+  同步（后者新增 §5：改动规模、验收证据、方法论坑）。
+- 📄 `docs/ARCHITECTURE.md` 的权威树登记新文件（`[38]` 会查已展开目录的子项）。
 
 ## [v3.40.2] · 2026-09-19
 

@@ -76,6 +76,7 @@ class _FakeEndpoint(BaseHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
     requests_seen: list = []          # (path, model, stream_flag, had_tools)
+    per_model: dict = {}              # model -> how many requests it has answered
     lock = threading.Lock()
 
     def log_message(self, *_a) -> None:      # keep the console readable
@@ -165,18 +166,28 @@ class _FakeEndpoint(BaseHTTPRequestHandler):
         anthropic = self._is_anthropic()
         with _FakeEndpoint.lock:
             _FakeEndpoint.requests_seen.append((self.path, model, stream_flag, had_tools))
+            _FakeEndpoint.per_model[model] = _FakeEndpoint.per_model.get(model, 0) + 1
+            nth = _FakeEndpoint.per_model[model]
 
         if "r03-http-429" in model:
             self._send_json({"error": {"message": "synthetic 429 for the retry path"}}, 429)
             return
 
-        toolcall = "toolcall" in model
-        want_stream = "stream" in model
+        # A tool call only on the FIRST request for that model. Answering every
+        # request with another tool call would drive the frontend's tool loop
+        # into its round cap ("达到最大轮数") -- which is what the previous
+        # version of this file did, and it looked like a frontend bug.
+        toolcall = ("toolcall" in model) and nth == 1
 
+        # SHAPE FOLLOWS `stream`, and that is the whole point of this harness:
+        #   agent_runner -> chat_once   -> stream=False -> a JSON body
+        #   ai_code      -> chat_stream -> stream=True  -> SSE frames
+        # Answering SSE to a non-stream request makes the client json.loads()
+        # a "data: ..." line and fail with "Expecting value: line 1 column 1"
+        # -- exactly what this file did before it mirrored the request.
         if anthropic:
-            text = ANSWER
-            self._send_sse(self._anthropic_stream(text))
-        elif want_stream:
+            self._send_sse(self._anthropic_stream(ANSWER))
+        elif stream_flag:
             self._send_sse(self._openai_stream(ANSWER, toolcall))
         else:
             self._send_json(self._openai_once(ANSWER, toolcall))
@@ -194,9 +205,10 @@ def run_case(name: str, argv: list, py: str, mark: str, timeout: int = 240,
              expect_fail: bool = False) -> dict:
     """Run one frontend against the fake endpoint and judge its contract.
 
-    expect_fail=True inverts the exit-code expectation and additionally demands
-    *retry evidence*, which is how the 429 case proves the shared retry path
-    without pretending a rate-limited run is a success.
+    expect_fail=True is for the rate-limited case: the assertion becomes
+    "retry evidence is present and nothing crashed", and exit 0 stays
+    acceptable because agent_runner reports a model failure and returns
+    normally rather than exiting non-zero.
     """
     printable = " ".join(argv)
     print(f"[case] {name}")
@@ -214,16 +226,24 @@ def run_case(name: str, argv: list, py: str, mark: str, timeout: int = 240,
     ok_mark = (mark in out) or (mark in err)
     ok_clean = "Traceback (most recent call last)" not in out + err
     if expect_fail:
-        # A failing run is the expected shape; what must hold is that the
-        # failure came back as a reported error, not as a crash.
-        retry_evidence = bool(re.search(r"429|retry|重试|backoff", out + err, re.I))
-        verdict = "PASS" if (retry_evidence and ok_clean and code != 0) else "FAIL"
-        ok_exit = code != 0
+        # This case models "the endpoint is rate-limited": what must hold is
+        # that the shared retry path actually retried and then reported the
+        # failure. It is NOT an exit-code assertion, and getting that wrong is
+        # the trap this file walked into once: agent_runner prints
+        # "⚠ 模型调用失败: …" and then `return`s, so its exit code is 0 even
+        # though the turn failed. Asserting `code != 0` here would have been
+        # testing the harness, not the product.
+        retry_evidence = bool(re.search(r"429|retry|重试|退避", out + err, re.I))
+        verdict = "PASS" if (retry_evidence and ok_clean) else "FAIL"
+        ok_exit = (code == 0)
+        note = "reported, exit 0 by design" if ok_exit else "reported"
     else:
         ok_exit = code == 0
         verdict = "PASS" if (ok_mark and ok_exit and ok_clean) else "FAIL"
+        note = ""
 
-    print(f"       exit={code}  mark({mark})={ok_mark}  clean={ok_clean}  -> {verdict}")
+    print(f"       exit={code}  mark({mark})={ok_mark}  clean={ok_clean}  -> {verdict}"
+          + (f"  ({note})" if note else ""))
     if verdict == "FAIL":
         tail = (out + "\n--- stderr ---\n" + err)[-1200:]
         print("       --- captured tail ---")
@@ -263,11 +283,13 @@ def main() -> int:
              *common, "--input", "ping", "--permission", "readonly"],
             py, ANSWER))
 
-        # 2) headless, streamed body: the client must still deliver the text
+        # 2) same frontend, second shape: the endpoint mirrors the request's
+        #    stream flag, so this pins that the headless path keeps asking for
+        #    a non-stream body no matter what the model is called.
         results.append(run_case(
-            "headless openai (chat_once consuming a streamed body)",
-            ["agent_runner.py", "--base-url", base_openai, "--model", "r03-answer-stream",
-             *common, "--input", "ping", "--permission", "readonly"],
+            "headless openai with --tools (chat_once / native tool call)",
+            ["agent_runner.py", "--base-url", base_openai, "--model", "r03-toolcall",
+             *common, "--input", "ping", "--permission", "readonly", "--tools"],
             py, ANSWER))
 
         # 3) CLI frontend: real SSE, streamed rendering ------------------------

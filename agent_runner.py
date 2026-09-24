@@ -29,8 +29,6 @@ import os
 import shutil
 import re
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -57,7 +55,7 @@ except Exception:  # noqa: BLE001 —— 加固失败也要能跑
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from core.ace_isolation import untrusted_source, wrap_untrusted  # noqa: E402
-from core import ace_http  # noqa: E402
+from core import ace_client  # noqa: E402  （模型 HTTP 客户端：与 ai_code 共用唯一一份）
 from core import ace_model  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
 from tools.registry import openai_tools  # noqa: E402
@@ -99,25 +97,18 @@ def retry_notice(decision, attempt: int) -> None:
 
 def _post_chat(base_url: str, api_key: str, model: str, messages: List[Dict],
                tools: Optional[List[Dict]] = None, timeout: int = 120) -> Dict:
-    """OpenAI 兼容 /chat/completions（纯标准库 urllib，无 requests 依赖）
+    """OpenAI 兼容的对话补全端点 —— 实现在 core/ace_client.py，与 ai_code 共用一份。
 
-    429 / 5xx / 连接抖动由 ace_http 退避重试；4xx 原样抛 urllib.error.HTTPError，
-    _generate_tools 的 tools 降级判断（读 e.read() 里的错误正文）因此还能照常工作 ——
-    ace_http 只碰 e.headers 取 Retry-After，不会把响应体读掉。
+    这里只留"这次请求长什么样"：一次性（非流式）、把 system 提示词拼进 messages、
+    温度 0.2。URL/头/重试/错误规范化都在 ace_client 里，两个前端不会再各写一遍。
+
+    429 / 5xx / 连接抖动由 ace_http（在 ace_client 里面）退避重试；4xx 抛
+    `ace_client.ChatHTTPError`，它带的 `.body` 就是错误正文 —— _generate_tools 的
+    tools 降级判断靠它照常工作。
     """
-    payload = {"model": model, "messages": messages, "temperature": 0.2}
-    if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}",
-                 "Content-Type": "application/json"},
-        method="POST",
-    )
-    return ace_http.urlopen_json_with_retry(req, timeout=timeout,
-                                            on_retry=retry_notice)
+    return ace_client.chat_once(base_url, api_key, model, "openai",
+                                "", messages, tools=tools, timeout=timeout,
+                                on_retry=retry_notice)
 
 
 # ============================================================
@@ -481,14 +472,11 @@ class ModelProvider:
         try:
             data = _post_chat(self.base_url, self.api_key, self.model,
                               messages, tools=tools_for_permission(self.permission_level))
-        except urllib.error.HTTPError as e:
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="ignore").lower()
-            except Exception:
-                pass
-            if e.code in (400, 404) and "tool" in body:
-                raise ToolsUnsupported(f"端点不支持 tools 参数: HTTP {e.code}") from e
+        except ace_client.ChatHTTPError as e:
+            # 端点不认 tools 参数（400/404）→ 降级到文本协议。判据里的 "tool"
+            # 是对着错误正文看的：同样报 400，参数写错和"不认识 tools"要分开。
+            if e.status in (400, 404) and "tool" in (e.body or "").lower():
+                raise ToolsUnsupported(f"端点不支持 tools 参数: HTTP {e.status}") from e
             raise
         message = data["choices"][0]["message"]
         tool_calls = message.get("tool_calls") or []
@@ -506,13 +494,31 @@ class ModelProvider:
         return final_reply_protocol(content)
 
     def _generate_text(self, prompt: str) -> str:
-        """文本协议回退：模型按 <INTERNAL>/<EXTERNAL> 格式输出"""
+        """文本协议回退：模型按 <INTERNAL>/<EXTERNAL> 格式输出
+
+        `generate()` 的契约是"返回执行层能解析的协议文本"，三条路径都要满足：
+        mock 分支自带完整协议；`_generate_tools` 把纯文本包成模式 B；这里过去是
+        **直接把裸文本返回** —— 于是不带 `--tools` 时模型答什么都进不了
+        FINAL_REPLY：执行层按格式错误回喂，循环到最大轮数后打印
+        "达到最大轮数，Agent 未给出最终回复"。R-03 真机验证才暴露出来（mock 与
+        --tools 两条都有覆盖，唯独这条没有）。现在与 `_generate_tools` 同口径：
+        清洗协议残片 → 能当工具调用就当工具调用 → 否则包装成最终回复。
+        """
         logger.debug("LLM 请求 model=%s tools=off", self.model)
         messages = ([{"role": "system",
                       "content": load_system_prompt() + self.system_suffix}]
                     + self.history + [{"role": "user", "content": prompt}])
         data = _post_chat(self.base_url, self.api_key, self.model, messages)
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"] or ""
+        if content.strip():
+            # 清洗模型残留的协议标签残片（如 </EXTERNAL>），避免污染解析
+            content = sanitize_plain_content(content)
+        converted = content_to_tool_protocol(content)
+        if converted:
+            return converted
+        if not content.strip():
+            raise RuntimeError("模型返回空内容")
+        return final_reply_protocol(content)
 
     def _trim_history(self) -> None:
         """限制对话历史长度（保留最近 N 轮）——口径与 ai_code 共用 ace_model"""

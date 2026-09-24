@@ -76,6 +76,7 @@ ace-agent/
 │   ├── ace_net.py              #   出站请求闸门：全记录校验 + pin-to-IP + 逐跳复检（SSRF）
 │   ├── ace_isolation.py        #   外部内容定界与来源标注（SEC-011）
 │   ├── ace_http.py             #   模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
+│   ├── ace_client.py           #   模型 HTTP 客户端：唯一的出网实现（OpenAI/Anthropic 两种格式 + tools 降级，两个前端共用，R-03）
 │   ├── ace_executor.py         #   Go 执行器客户端（NDJSON 协议，纯 stdlib）
 │   ├── ace_model.py            #   模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
 │   ├── work.py                 #   诱饵工厂 + AST 行为检测（ASTDetector）
@@ -123,7 +124,7 @@ ace-agent/
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
-├── e2e/                        # 真实模型端到端冒烟（real_model_smoke.py，OpenAI 兼容端点）
+├── e2e/                        # 端到端冒烟三件：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么

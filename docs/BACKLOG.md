@@ -39,7 +39,7 @@
 |---|---|---|---|
 | ✅ R-01 | `process_agent_output` 拆状态机 | 已完成：`process_agent_output` **288 → 17 行**（解析 → RoundCtx → `_run_round` → finally 回收），单轮逻辑落在 `_run_round`(52) 与 14 个 `_stage_*`；断言覆盖「阶段可脱离整轮单测 / 顺序守卫 / 轮末回收」。剩余：`_stage_permission` 103 行可再拆（外发闸门 / 项目外确认 / 逐次确认）。见 `docs/design/STRUCT-REFACTOR.md` | L |
 | ✅ R-02 | FileTools 拆 FileOps/TerminalView/TerminalExec | 已完成(v3.9)：拆成 `file_common`(共享常量) + `file_ops` + `terminal_view` + `terminal_exec`，`file_tools.py` 只留 25 行兼容层；**25 个方法体经脚本逐字节校验未改**，`registry` 的 handler 名与 `FileTools` 组合一个没动。过程中被测试抓到「脚本只切方法、漏了 3 个类属性」 | M-L |
-| ◐ R-03 | 双前端对话引擎合并 | **安全半边完成**(v3.9)：`core/ace_model.py` 收拢两边重复的纯逻辑（`trim_history` / `error_hint`）。**客户端合并未做**：两者形态（流式+requests+重试 vs urllib 一次性）与输出契约（边流边渲染 vs `🤖 Agent:` 单行）都不同，而现有测试只覆盖 mock 路径——属「改行为」，须单独立项 + 真机验证，卡片里写了推进顺序 | M |
+| ✅ R-03 | 双前端对话引擎合并 | **合并完成**：`core/ace_client.py` 是唯一一份模型 HTTP 客户端（唯一 `ace_http` 出网点、唯一拼 `/chat/completions` 的地方），CLI 走 `chat_stream`、无头走 `chat_once`，降级判据由前端注入而循环只此一份；`core/ace_model.py` 继续管共用纯逻辑（`trim_history` / `error_hint`）。落点：本地验证分支 `r03-verify` 的合并提交（与 `main` 零冲突，`core/ace_client.py` 493 行），**尚未进 `main`**；全量测试 1976→1979 项通过、零回归。**验收的语言半边已自动化**：`e2e/r03_contract_smoke.py` 用真监听 socket + 两种线格式驱动两个前端（7/7），钉住请求权与输出契约。**厂商半边仍未做**：本机无任何 API Key、Ollama 未运行，须用 `e2e/real_model_smoke.py` + `ACE_E2E_*` 补 | M |
 | ✅ R-04 | ai_code.py slash 表驱动 + 会话状态对象 | 已完成(v3.9)：`COMMAND_HANDLERS` 与 `COMMANDS` 分离，`run_command` **125 → 25 行**（前缀补全抽成 `_resolve_command`）；`converse` **234 → 175 行**（`_model_turn` 46 + `_note_round_progress` 25）；3 条表一致性断言 + 2 条语义顺序断言。「会话状态对象」仍未抽（并入 R-03 的推进顺序） | M |
 | ✅ R-05 | test_all.py 拆 [N] 段 + runner(`--only/--skip`) | 已完成(v3.9)：35 段各自包进 `if _want(N)`（脚本整体缩进 + 行数守恒校验），新增 `--only/--skip/--upto/--list` 与显式依赖表；`--only 40` **14s → 0.3s**；`[41]` 运行器自检 + 段注册表覆盖断言。**没做的**：把段搬进 `tests/` 模块（依赖声明已够用） | M |
 | ✅ R-06 | 命名/检索索引(INTERFACES §11)+ 新模块 ace_ 前缀约定;深层改名不强制 | | 新模块统一 ace_ 前缀;旧模块补导流 docstring | S |
@@ -49,7 +49,7 @@
 
 - ✅ REL-01 已建 `SECURITY.md` + Issue/PR 模板（`v3.3`）；GitHub topics/主页属仓库设置，需人工在网页维护
 - ✅ REL-02 已处理：README 顶部"生产级"表述在二轮重构时对齐；关键数字动态化由 `test_all [39]`（Q-04）自动校验，文档里不再写死
-- ⏳ REL-03 真实 Windows 冒烟：`ace.cmd` 与真机对话需人在有控制台的机器上走一遍（本仓库的自动化只覆盖 `--mock` 与无头链路）
+- ✅ REL-03 真实 Windows 冒烟：**已走通**（`ace.cmd` → 解释器自解析 → 真实控制台对话，离线 `--mock`，退出码 0，中文与 emoji 正常）。固化为 `e2e/rel03_native_smoke.ps1` 三档（启动器 / 直接入口 / `chcp 936` 老终端），脚本纯 ASCII（PowerShell 5.1 按 ANSI 读无 BOM 脚本，第一版被自己的中文注释弄崩）。仍缺：真 TTY 下的 Textual 全屏（缺 `textual` 依赖时相关段跳过）与非 Windows 控制台
 - ✅ REL-04 云端 e2e 激活说明已落文档(README secrets 指引 + e2e 头注释);配置 ACE_E2E_* 后 CI 自动启用
 - ✅ REL-05 仓库落到组织名下（2026-09-18）：新建组织 **`ace-code-engine`**（个人号保留不动 —— 著作权署名仍是它），仓库过继为 `github.com/ace-code-engine/ace-agent`。实测过继后 **Issues / PR / Releases（v3.7.0 六件产物）、全部 tag、Actions 运行历史与两个 workflow 状态（active）都跟过来了**，旧地址 302 到新地址。仓库内 9 处"仓库地址"意义上的硬编码已换（`README.md`×3、`README.zh-CN.md`×3、`docs/GETTING-STARTED.md`、`docs/design/EXECUTOR-RELEASE.md`、`ai_code.py:194` 的 `_EXECUTOR_REPO` —— 最后一个不是装饰，`ace --install-executor` 就照它下载 Release 资产）；署名行（`LICENSE`、两份 README 页脚）与 `docs/history/**` 按纪律**不换**。遗留：组织侧 Actions 权限策略若日后收紧，注意 `release-executor.yml` 依赖 `permissions: contents: write`（workflow 内已显式声明）
 
@@ -57,5 +57,5 @@
 
 1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试
 2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-18 的 v3.8 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
-3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**只剩 R-03 的引擎合并**（安全半边已完成，剩下的属"改行为"需真机验证）。详见 `docs/design/STRUCT-REFACTOR.md`
-4. ⏳ 剩余（都需人工，各一两分钟）：`REL-03` 真机冒烟（`ace.cmd` + 真实终端对话，需人在有控制台的机器上走一遍）；`REL-05` 已闭环（仓库现挂在组织 `ace-code-engine` 下），可顺手做的只有 v3.7.0 Release 上那个多余的 `logo.svg` 资产（非必需，删不删都不影响 `ace --install-executor`）
+3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**R-03 的引擎合并也已落地**（唯一客户端 `core/ace_client.py` + 无凭证契约冒烟 7/7），只剩"真实厂商端点"这一半验证要用 `ACE_E2E_*` 补。详见 `docs/design/STRUCT-REFACTOR.md`
+4. ✅ **REL-03 真机冒烟已走通**（Windows，三档全过），并因此抓出并修掉一处真缺陷：`_generate_text` 把裸文本直接递给执行层，导致不带 `--tools` 时永远到不了最终回复（见 `CHANGELOG`）。剩余人工项：v3.7.0 Release 上那个多余的 `logo.svg` 资产（非必需）；darwin/amd64 执行器仍无 Intel Mac 原生冒烟（本机无 Go 工具链，无法在此复现）

@@ -1,6 +1,6 @@
 # 立项卡：结构重构 R-01 ~ R-07（进行中）
 
-> 状态：**R-01 / R-02 / R-04 / R-05 / R-07 已闭环 · R-03 完成安全半边（引擎合并仍开放）**
+> 状态：**R-01 / R-02 / R-04 / R-05 / R-07 已闭环 · R-03 客户端合并已落地（验收的厂商半边仍开放）**
 > 来源：`docs/BACKLOG.md` P2「结构级（择机）」。P1 已在 v3.8 全清；本卡记录 P2 的实测规模、做法与验收。
 
 ## 0. 收口结果（v3.9 一轮做完的部分）
@@ -12,7 +12,7 @@
 | **R-04** 斜杠表驱动 + 前端瘦身 | ✅ 完成 | `run_command` **125 → 25 行**（`_resolve_command` 再抽 32 行）；`converse` **234 → 175 行**（`_model_turn` 46 + `_note_round_progress` 25） |
 | **R-05** 分段运行 | ✅ 完成 | 35 个段包进 `if _want(N)`；`--only/--skip/--upto/--list`；`--only 40` 从 14s → **0.3s**；`[41]` 运行器自检 |
 | **R-07** 根目录瘦身 | ✅ 完成 | 根级 `.py` **24 → 4**（`ai_code.py` / `agent_runner.py` / `execution_layer.py` / `test_all.py`）；20 个模块下沉 `ui/` `cli/` `core/`；导入改写 **77 处 / 19 文件** |
-| **R-03** 双前端引擎合并 | ◐ **安全半边完成**：`core/ace_model.py`（历史裁剪 + 错误码提示，两边共用）；**流式客户端合并仍开放**，理由见 §3 | `_trim_history` 口径统一到 2N 条 |
+| **R-03** 双前端引擎合并 | ✅ **客户端合并已落地**：`core/ace_client.py`（493 行）是唯一一份模型 HTTP 客户端；`core/ace_model.py` 继续管共用纯逻辑 | 见 §5 |
 
 ### 这一轮踩到的两个"重构陷阱"（都写进代码注释了）
 
@@ -87,23 +87,27 @@
 - 风险：`registry.py` 的 handler 名是**字符串**（`"_exec_terminal_view"`），拆文件后要保证方法仍挂在组合类上；`_exec_via_go` 与沙箱判定是三条路径共用的，先抽到 `base.py` 再拆。
 - 验收：`test_all` 全绿（无新增跳过）；`tools/__init__.py` 的组合类不变；`registry.py` 零改动（handler 名不变）。
 
-### R-03 · 双引擎合并 —— ◐ 只做了安全半边（见下）
+### R-03 · 双引擎合并 —— ✅ 客户端已合一（验收的厂商半边另计，见 §5）
 
 `ai_code.AgentCLI.converse` 原先 234 行；两个前端各有一份模型调用（`ai_code` 的 `ModelClient` ↔ `agent_runner` 的 `ModelProvider`）。
 
-**已完成的安全半边（v3.9）**：新增 `core/ace_model.py`——把两边**确实重复、且是纯函数**的部分收拢：
+**第一步：安全半边（v3.9）**——新增 `core/ace_model.py`，把两边**确实重复、且是纯函数**的部分收拢：
 
 - `trim_history(messages, max_history)`：口径统一在"最近 N 轮 = 2N 条消息"。原先 ai_code 的 `trim_messages` 与 agent_runner 的 `_trim_history` 各写一份，而后者是就地改 `self.history`；现在两边都调它。
 - `error_hint(exc, translate)`：HTTP 错误码 → i18n 键（原先只在 ai_code 里）。
 - 这个模块**不 import 项目内任何模块**（与 `ace_isolation` 同一取态），谁都能安全引它；i18n 的 `t` 由调用方注入，它自己不认识界面语言。
 
-**未做、且不建议硬做的部分**：把两个客户端合成一个。原因不是"没时间"，是**风险与收益不成比例**：
+**第二步：客户端合一（本轮，见 §5）**——`core/ace_client.py` 成为唯一一份模型 HTTP 客户端。原先"不建议硬做"的三条理由，逐条被**契约**而不是被"反正能跑"化解：
 
-- 两者形态不同：`ModelClient` 是"流式 + requests + 重试 + Anthropic 兼容"，`ModelProvider` 是 urllib 一次性调用；
-- 输出契约不同：交互式前端边流边渲染，无头前端只认 `🤖 Agent:` 那一行（`e2e/real_model_smoke.py` 与 CI 都依赖它）；
-- 现有测试**只覆盖 mock 路径**，真机行为要靠真实模型才能验证——合并等于重写无头前端的行为，属于"改行为"，按本卡纪律（重构不夹带行为变更）必须先单独立项 + 真机验证。
+| 当初的顾虑 | 现在怎么处理 |
+|---|---|
+| 两者形态不同（流式+requests+重试+Anthropic vs urllib 一次性） | 客户端同时提供 `chat_stream`（流式，CLI 用）与 `chat_once`（一次性，无头用），**两种线格式**都在同一份实现里；重试与错误规范化只写一遍（`ace_http`） |
+| 输出契约不同（边流边渲染 vs `🤖 Agent:` 单行） | 契约**留在前端**：`on_delta` 回调由 CLI 提供，无头前端拿整段。客户端不认识"谁在渲染" |
+| 现有测试只覆盖 mock 路径 | 补 `e2e/r03_contract_smoke.py`：真监听 socket + 两种线格式驱动两个前端（7/7），钉住请求形状与输出契约；`[8]`/`[42]` 另有 17 条静态守卫（唯一出网点、唯一拼端点处、降级循环只一份） |
 
-要推进它，建议顺序：① 先给无头前端补一个"真实模型下的输出契约"冒烟（已有 `e2e/real_model_smoke.py` 可扩展）→ ② 抽 `session_state`（把会话状态从 `AgentCLI` 里拿出来）→ ③ 最后才合并客户端。
+**剩下的那一半是验证、不是代码**：本机没有任何厂商 API Key、也没跑 Ollama，所以"真实厂商端点"这条路仍未走过。有凭证时跑 `python e2e/real_model_smoke.py`（`ACE_E2E_BASE_URL` / `ACE_E2E_API_KEY` / `ACE_E2E_MODEL`），它就是无头前端那句 `🤖 Agent:` 的守门人。
+
+**顺带抓到的真缺陷（本轮真机冒烟）**：`_generate_text` 过去把模型的纯文本直接返回，而 `generate()` 的契约是"返回执行层能解析的协议文本"——于是不带 `--tools` 时永远到不了 `FINAL_REPLY`，只打印"达到最大轮数，Agent 未给出最终回复"。mock 分支与 `_generate_tools` 都会包装，所以此前无测试覆盖。已按同口径修好，`[8]` 补两条断言（先看着它红，再修）。
 
 ## 4. 纪律（沿用本仓库既有约定）
 
@@ -111,3 +115,30 @@
 - 改动前跑 `python test_all.py` 取基线（本机 9 项环境性失败是基线，别把它们当新问题）。
 - 重构后 `ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811` 必须零命中。
 - 不为了"看起来整齐"改公开接口：`registry.py` 的 handler 名、`COMMANDS`/`COMMAND_HANDLERS` 的键、`INTERFACES.md` 里的契约都算对外。
+
+## 5. R-03 收口的实测与验收（本轮）
+
+**改动规模**（合并提交 `refactor(model): R-03 收口 —— 两个前端共用唯一一份模型 HTTP 客户端`）：
+
+| 文件 | 变化 |
+|---|---|
+| `core/ace_client.py` | **新增 493 行** —— 唯一一份客户端：`chat_stream` / `chat_once`、OpenAI 与 Anthropic 两种线格式、`ChatHTTPError` 规范化、`resolve_error`、`openai_payload` / `anthropic_payload(_variants)` |
+| `ai_code.py` | **−307 行**（自有请求/重试/降级实现移除） |
+| `agent_runner.py` | −44 行（`_post_chat` 改为一行委托） |
+| `core/ace_model.py` | 微调（与客户端的职责边界写清） |
+| `test_all.py` | +136 行断言 |
+
+**与 `main` 的合并**：`git merge-tree` 预演零冲突；实做 `--no-ff` 合并后仅 6 个文件变化（`core/ace_client.py` 新增 + 上述），没有一处需要人工裁决。
+
+**验收证据**（都在本机实跑，不是读代码得出的）：
+
+| 项目 | 命令 | 结果 |
+|---|---|---|
+| 全量回归（合并前基线，`main`） | `python test_all.py` | **1979 / 1980** —— 唯一失败是 `[38] 树中路径全部存在`，因为新加的 `e2e/*` 在权威树里已登记、在这个分支上还是未跟踪文件 |
+| 全量回归（合并后） | `python test_all.py` | **1993 / 1993 全绿 · 跳过 13**（跳过=缺 `requests` / 缺 `textual` 的能力探测） |
+| 双前端输出契约（无凭证） | `python e2e/r03_contract_smoke.py` | **7 / 7** —— 真监听 socket、两种线格式、两个前端；请求日志确认无头走 `stream=false`、CLI 走 `stream=true`，`--tools` 确实出现在 payload 里，429 会退避重试 |
+| 真机启动器冒烟（REL-03） | `powershell -ExecutionPolicy Bypass -File e2e/rel03_native_smoke.ps1` | **3 / 3** —— 启动器 / 直接入口 / `chcp 936` |
+
+**没做的**：真实厂商端点（本机无 Key、无 Ollama）→ `e2e/real_model_smoke.py` + `ACE_E2E_*`；`session_state` 抽取（`R-04` 遗留，与本卡解耦，属独立重构）。
+
+**方法论上值得留一句的坑**：`e2e/r03_contract_smoke.py` 的第一版对**每个**请求都回 SSE、对工具调用模型**每次**都回工具调用，于是两个前端都被逼到轮数上限——看起来像前端的 bug，其实是手具的形状错了。假端点必须**照着请求的 `stream` 标志**回答，且工具调用只在第一轮给。手具本身也会说谎，先怀疑它。

@@ -10886,7 +10886,8 @@ if _want("66"):
     check("[66] 主页：顶行带当前文件夹（像 dsh 那样把「在哪个文件夹」摆明面上）",
           'folder=str(st.get("folder") or "")' in _cli66
           and "def _folder(self)" in _tui66
-          and "📁 {folder}" in (FOLDER / "ui" / "ace_home.py").read_text(encoding="utf-8"), "")
+          and "folder_label=t(" in _cli66
+          and "{label}{folder}" in (FOLDER / "ui" / "ace_home.py").read_text(encoding="utf-8"), "")
 
     # —— 选择框里的强度行 ——
     check("[66] 强度行：`/model` 的选择框多一行强度，且 ←/→ 是**优先级**键位"

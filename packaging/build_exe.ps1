@@ -190,24 +190,41 @@ New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $results = @()
 
 function Invoke-Smoke {
-    # NOTE: the parameter is $ExeArgs, NOT $Args. "$Args" is a PowerShell
-    # automatic variable (the unbound arguments of the enclosing script), so
-    # using it as a parameter name collides with it: the parameter ends up
-    # empty and Start-Process rejects the null ArgumentList. That is exactly how
-    # all four scenarios failed on CI while still reporting "clean=True".
+    # NOTE on the parameter name: it is $ExeArgs, NOT $Args. "$Args" is a
+    # PowerShell automatic variable, so a parameter called that stays EMPTY --
+    # every scenario then ran the exe with no arguments at all and reported
+    # "Cannot validate argument on parameter 'ArgumentList'". The call sites use
+    # -ExeArgs for the same reason: binding to "-Args" is swallowed even when the
+    # declared parameter is named something else.
     param([string]$Name, [string[]]$ExeArgs, [string]$Mark)
     $outFile = Join-Path $evidence ("{0}.txt" -f ($Name -replace '[^A-Za-z0-9]', '_'))
-    if (Test-Path $outFile) { Remove-Item $outFile -Force }
+    $errFile = "$outFile.err"
+    foreach ($f in @($outFile, $errFile)) { if (Test-Path $f) { Remove-Item $f -Force } }
     Write-Host ""
     Write-Host "[smoke] $Name"
     Write-Host "        $ExePath $($ExeArgs -join ' ')"
-    $p = Start-Process -FilePath $ExePath -ArgumentList $ExeArgs -NoNewWindow -Wait -PassThru `
-         -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err"
-    $code = $p.ExitCode
+
+    # Invoked with the call operator, NOT Start-Process. Start-Process joins
+    # -ArgumentList into a single command line using C-runtime quoting rules, and
+    # an argument containing spaces ("what time is it") reaches the child split
+    # into separate words -- argparse then fails with "unrecognized arguments:
+    # time is it". The call operator passes the argument vector to the process
+    # directly, so quoting stays PowerShell's job, not ours.
+    #
+    # Exit code: for a native command $LASTEXITCODE holds it -- but only if the
+    # command actually ran, so reset it first; otherwise a launch failure would
+    # be read as the previous scenario's success.
+    $global:LASTEXITCODE = 0
+    & $ExePath @ExeArgs > $outFile 2> $errFile
+    $code = $LASTEXITCODE
+    if ($null -eq $code) { $code = 1 }
+    # ReadAllText (not Get-Content -Raw): it always returns a string -- an empty
+    # file makes Get-Content -Raw return an array, and BOM handling is then left
+    # to Encoding.UTF8 rather than to PowerShell's own guesswork.
     $raw = ''
-    if (Test-Path $outFile) { $raw = Get-Content $outFile -Raw -Encoding UTF8 }
+    if (Test-Path $outFile) { $raw = [System.IO.File]::ReadAllText($outFile, [System.Text.Encoding]::UTF8) }
     $err = ''
-    if (Test-Path "$outFile.err") { $err = Get-Content "$outFile.err" -Raw -Encoding UTF8 }
+    if (Test-Path $errFile) { $err = [System.IO.File]::ReadAllText($errFile, [System.Text.Encoding]::UTF8) }
     $all = "$raw`n$err"
     $okMark   = $all -match [regex]::Escape($Mark)
     $okClean  = -not ($all -match 'Traceback \(most recent call last\)')
@@ -226,27 +243,41 @@ function Invoke-Smoke {
     }
 }
 
+# Every mark below is text the scenario ALWAYS produces -- checked against a real
+# run first, not assumed. The earlier set included a mark ('code_execute') for a
+# tool the scripted mock model never calls, so that assertion could never pass
+# no matter how correct the package was.
+
 # 1) --version: proves the exe starts at all (no resource access yet).
-Invoke-Smoke -Name 'version' -ExeArgs @('--version') -Mark 'v3.'
+#    Mark is 'ACE ' and not 'v3.': ai_code.py prints "ACE 3.41.0" -- the version
+#    number carries no "v" prefix, and the earlier mark never matched.
+Invoke-Smoke -Name 'version' -ExeArgs @('--version') -Mark 'ACE '
 
 # 2) --preview: draws the landing screen. This is the one that catches MISSING
 #    RESOURCES - it reads locales/ for every label and assets/ for the logo.
-Invoke-Smoke -Name 'preview' -ExeArgs @('--preview', '--preview-width', '80') -Mark 'ACE'
+Invoke-Smoke -Name 'preview' -ExeArgs @('--preview', '--preview-width', '80') -Mark 'ACE '
 
-# 3) offline end-to-end with the scripted model, a real tool round trip.
+# 3) offline end-to-end with the scripted model: a real tool round trip, and a
+#    real answer rendered from the bundled prompts/locales.
 $ws = Join-Path $evidence 'agent_ws'
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
 Invoke-Smoke -Name 'mock_turn' -ExeArgs @('--mock', '--no-tui', '--permission', 'readonly',
-                                      '--project-root', $ws, '--input', 'what time is it') `
-             -Mark 'Agent'
+                                          '--project-root', $ws, '--input', 'what time is it') `
+             -Mark '当前时间'
 
-# 4) the honest 501: code_execute must SAY it is unavailable in this form,
-#    instead of trying to run ace.exe as a Python interpreter.
-Invoke-Smoke -Name 'code_execute_501' -ExeArgs @('--mock', '--no-tui', '--tools',
-                                              '--permission', 'full',
-                                              '--project-root', $ws,
-                                              '--input', 'run this python code: print(1+1)') `
-             -Mark 'code_execute'
+# 4) the native tool-call path in the frozen bundle (--tools + full permission).
+#    Same mock flow, but through function calling rather than the text protocol.
+Invoke-Smoke -Name 'native_tools' -ExeArgs @('--mock', '--no-tui', '--tools',
+                                             '--permission', 'full',
+                                             '--project-root', $ws, '--input', '现在几点了') `
+             -Mark '当前时间'
+
+# NOTE: "code_execute returns 501 when frozen" is deliberately NOT a smoke
+# scenario. The scripted mock model never calls code_execute, so there is no CLI
+# invocation that reaches it from the exe. That behaviour is asserted directly in
+# test_all [10] instead (patching sys.frozen and driving the tool), which is the
+# right place for it -- a smoke gate should only assert things it can actually
+# observe.
 
 Write-Host ""
 Write-Host "==================== smoke summary ===================="

@@ -1601,8 +1601,15 @@ if _want("10"):
     check("terminal_view 外部命令的项目外路径参数 403", r["status"] == "403", r.get("message"))
 
     if os.name == "nt":
-        r = run_agent(el_h, "terminal_view", command="dir C:\\Users\\69215\\Desktop")
-        check("terminal_view Windows 反斜杠路径", r["status"] == "SUCCESS", r.get("message"))
+        # 用**本机一定存在**的绝对路径。别写死某台机器的桌面路径：CI 的 runner 上
+        # 没有 C:\Users\69215\Desktop，那条断言会在别处红（本机却永远绿）。
+        # temp 的父目录就是 Windows 上的 %LOCALAPPDATA%（C:\Users\<user>\AppData\Local），
+        # 任何 Windows 用户下都存在，且通常带空格——顺带把带空格的绝对路径也压上了。
+        _win_abs = Path(tempfile.gettempdir()).parent
+        r = run_agent(el_h, "terminal_view",
+                      command='dir "' + str(_win_abs) + '"')
+        check("terminal_view Windows 反斜杠路径",
+              r["status"] == "SUCCESS", (str(_win_abs), r.get("message")))
     r = run_agent(el_h, "file_write", path="ok.txt", content="in-project")
     check("项目内写入正常", r["status"] == "SUCCESS", r)
 
@@ -4502,25 +4509,66 @@ if _want("24"):
           _err_ok is None and _p_ok is not None)
 
     # —— str_replace：读-改-写不做有损重编码 ——
+    # 这条用例**不能假设回退编码是 gbk**，也不能假设它会拒绝。`_read_text_exact` 在 utf-8
+    # 失败后取的是 `locale.getpreferredencoding(False)`：
+    #   中文 Windows → cp936  → GBK 源码解得开，按原编码安全改写（走 success 分支）
+    #   英文 Windows / GitHub runner → cp1252 → 实测**也解得开**且字节无损
+    #     （CPython 单字节编解码器要么无损往返、要么直接解码失败；cp1252 的
+    #      0x81/0x8D/0x8F/0x90/0x9D 属于后者）
+    #   本机（locale 报 utf-8）→ 回退编码仍是 utf-8 → 解不开 → 明确拒绝（走 else 分支）
+    # CI 那次红，就是因为原断言把"回报编码必须是 gbk"写死了——那只是中文 Windows 才成立的
+    # 巧合。所以这里按**两种合法结局**断言：成功则必须按原编码安全改写，拒绝则文件必须一字节未动。
     _gbk = _h_root / "gbk_src.py"
+    _gbk_src = "# 中文注释：不要被重编码\nVALUE = 1\n"
     try:
-        _gbk.write_text("# 中文注释：不要被重编码\nVALUE = 1\n", encoding="gbk")
+        _gbk.write_text(_gbk_src, encoding="gbk")
+    except LookupError:
+        # 环境没有 gbk 编码器：这几条无从验证，标记为通过而不是假装测了
+        for _n in ("str_replace 成功时保持原编码（不偷偷转成 UTF-8）", "str_replace 不丢中文字符",
+                   "str_replace 确实改到了内容", "str_replace 回报实际编码"):
+            check(_n + "（本环境无 gbk 编码器，跳过）", True)
+        _gbk = None
+    if _gbk is not None:
         _gbk_bytes_before = _gbk.read_bytes()
         _sr = _h_te.execute({"tool": "str_replace", "path": str(_gbk),
                              "old_string": "VALUE = 1", "new_string": "VALUE = 2"})
+        assert _sr.status in ("success", "error"), _sr
         if _sr.status == "success":
-            # 成功就必须还是原编码，且中文一个字都不能少
-            _still_gbk = True
+            _enc = (_sr.data or {}).get("encoding")
+            # 判据是"回报的编码能解开原字节"，而不是"编码名必须是 gbk"——回退编码取的是
+            # 本机 locale，中文 Windows 是 cp936、英文环境是 cp1252，写死编码名只是
+            # 中文 Windows 才成立的巧合（CI 就是这么红的）。cp1252 若解得开，它的字节
+            # 往返是无损的（实测：CPython 单字节编解码器要么无损、要么解码即失败），
+            # 所以"解得开"就足以说明没被有损重编码。
+            _decodable = False
             try:
-                _txt = _gbk.read_text(encoding="gbk")
-            except UnicodeDecodeError:
-                _still_gbk = False
+                _gbk_bytes_before.decode(_enc)
+                _decodable = True
+            except (UnicodeDecodeError, LookupError, TypeError):
+                _decodable = False
+            check("str_replace 回报实际编码（且该编码能解开原字节）",
+                  bool(_enc) and _decodable, {"encoding": _enc, "decodable": _decodable})
+            _still_ok = True
+            try:
+                _txt = _gbk.read_text(encoding=_enc)
+            except (UnicodeDecodeError, LookupError, TypeError):
+                _still_ok = False
                 _txt = ""
-            check("str_replace 成功时保持原编码（不偷偷转成 UTF-8）", _still_gbk)
-            check("str_replace 不丢中文字符", "不要被重编码" in _txt, _txt[:60])
-            check("str_replace 确实改到了内容", "VALUE = 2" in _txt)
-            check("str_replace 回报实际编码", (_sr.data or {}).get("encoding") in ("gbk", "cp936"),
-                  (_sr.data or {}).get("encoding"))
+            check("str_replace 成功时保持原编码（不偷偷转成 UTF-8）", _still_ok, _enc)
+            if _enc in ("gbk", "cp936"):
+                # 只有在回退编码确实是 GBK 一族时，中文才必须原样还在。
+                check("str_replace 不丢中文字符", "不要被重编码" in _txt, _txt[:60])
+            else:
+                # 非 GBK 回退（如 cp1252）：解得开就说明是单字节无损编码，中文已成 mojibake，
+                # 但文件**没有被有损重编码**。最硬的判据是逐字节比：把"原字节 + 那一段替换"
+                # 拼出来，必须与写回后的字节完全相同（行尾差异由 splitlines 吸收）。
+                _expect = _gbk_bytes_before.replace(b"VALUE = 1", b"VALUE = 2")
+                _after = _gbk.read_bytes()
+                _norm = lambda b: b.replace(b"\r\n", b"\n")  # noqa: E731
+                check("str_replace 不丢中文字符（本机 locale 非 GBK，改判字节级未被有损重编码）",
+                      _norm(_after) == _norm(_expect),
+                      {"encoding": _enc, "len_before": len(_expect), "len_after": len(_after)})
+            check("str_replace 确实改到了内容", "VALUE = 2" in _txt, _txt[:60])
         else:
             # 解不开就必须拒绝，而不是"成功"地把文件毁掉
             check("str_replace 解不开编码时拒绝改写（400，文件不动）",
@@ -4529,14 +4577,36 @@ if _want("24"):
             check("str_replace 拒绝时说清是编码问题", "编码" in (_sr.message or ""), _sr.message)
             check("str_replace 拒绝时文件字节完全未变", _gbk.read_bytes() == _gbk_bytes_before)
             check("str_replace 拒绝路径不留半个写入", True)
-    except LookupError:
-        # 环境没有 gbk 编码器：这三条就无从验证，直接标记为通过而不是假装测了
-        for _n in ("str_replace 成功时保持原编码（不偷偷转成 UTF-8）", "str_replace 不丢中文字符",
-                   "str_replace 确实改到了内容", "str_replace 回报实际编码"):
-            check(_n + "（本环境无 gbk 编码器，跳过）", True)
     _base_src = (Path(__file__).parent / "tools" / "base.py").read_text(encoding="utf-8")
+    # 守卫的**意图**是"读-改-写这条路上不许有有损解码"：回退解码不带 errors=，解不开就抛。
+    # 它盯的是这条不变量，而不是某一行具体写法（原守卫盯字面
+    # `return path.read_text(encoding=enc), enc`，改个变量名就会假失败）。
+    # 必须先剥掉注释与 docstring：这段 docstring 本身在讲"不能用 errors=ignore"，
+    # 只看字面的话解释性文字会把守卫自己绊倒——[21] 的接入点守卫踩过同一个坑。
+    _reexact = _base_src.split("def _read_text_exact", 1)[-1]
+
+    def _code_only(src: str) -> str:
+        """去掉 docstring 与 # 注释之后剩下的代码行。"""
+        out, in_doc, quote = [], False, ""
+        for line in src.split("\n"):
+            s = line.strip()
+            if in_doc:
+                if quote in s:
+                    in_doc = False
+                continue
+            if s.startswith(('"""', "'''")):
+                quote = s[:3]
+                if s.count(quote) < 2:
+                    in_doc = True
+                continue
+            out.append(line.split("#", 1)[0])
+        return "\n".join(out)
+
+    _reexact_code = _code_only(_reexact)
     check("_read_text_exact 的兜底解码不带 errors=（读-改-写不许有损）",
-          "return path.read_text(encoding=enc), enc" in _base_src)
+          "read_text(encoding=enc)" in _reexact_code
+          and "errors=" not in _reexact_code,
+          [l.strip() for l in _reexact_code.split("\n") if "read_text(encoding=enc" in l])
     check("str_replace 用严格解码而不是 _read_text_any",
           "content, src_encoding = self._read_text_exact(path)" in _ft_src)
     check("str_replace 按读进来的编码写回（不硬写 utf-8）",

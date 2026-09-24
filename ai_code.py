@@ -43,13 +43,12 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-# Windows GBK 控制台兼容：强制 UTF-8 输出（否则 emoji 会 UnicodeEncodeError）
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        if _stream.encoding and _stream.encoding.lower() not in ("utf-8", "utf8"):
-            _stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        pass
+# Windows GBK 控制台兼容：统一走 core/ace_io.harden_streams()
+# （不崩：UTF-8 + errors="replace"；不乱：随后用 glyph()/safe() 主动降级字形）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from core import ace_io  # noqa: E402
+
+ace_io.harden_streams()
 
 FOLDER = Path(__file__).resolve().parent
 
@@ -4227,7 +4226,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             sections, t, width=w,
             header=ace_home.title_line(str(st["version"]), str(st["model"]),
                                        str(st["permission"]), str(st["sandbox"]), c,
-                                       folder=str(st.get("folder") or "")),
+                                       folder=str(st.get("folder") or ""),
+                                       folder_label=t("home_folder_label")),
             footer=ace_home.hint_line(t, c))
 
     def _cmd_home(self, parts: List[str]) -> bool:

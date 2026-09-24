@@ -27,6 +27,14 @@ import uuid
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+# 终端编码防线：绝不因为一个字符把一次运行打断（见 core/ace_io.py）
+try:
+    from core import ace_io as _ace_io
+    _ace_io.harden_streams()
+except Exception:  # noqa: BLE001 —— 加固失败也要能跑
+    pass
+
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 OUT_SVG = HERE / "demo.svg"

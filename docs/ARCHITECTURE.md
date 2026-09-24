@@ -91,7 +91,8 @@ ace-agent/
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
 │   ├── ace_styles.py           #   输出风格预设：提示词片段 + 界面旗标（一份预设两个面）
-│   ├── ace_effort.py           #   思考强度：auto/low/medium/high 四档 + 提示词增量 + 关键词逃生门（纯逻辑）
+│   ├── ace_effort.py           #   思考强度：auto/low/medium/high/max + 提示词增量 + 关键词逃生门（纯逻辑）
+│   ├── ace_io.py               #   终端编码两道防线：不崩（UTF-8+replace）· 不乱（按控制台代码页降级字形）
 │   ├── ace_rules.py            #   持久授权规则：匹配/优先级/三档作用域（deny 优先，纯函数）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
@@ -133,7 +134,8 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
-│   ├── RELEASE-NOTES-v3.40.0.md #  本版更新介绍（可直接贴进 GitHub Release；界面手感修复）
+│   ├── RELEASE-NOTES-v3.40.1.md #  本版更新介绍（可直接贴进 GitHub Release；终端编码防线）
+│   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
 │   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
 │   ├── RELEASE-NOTES-v3.39.0.md #  v3.39 更新介绍（主页与功能面板）
 │   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置

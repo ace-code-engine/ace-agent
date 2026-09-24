@@ -107,7 +107,13 @@ def prompt_hint(level: str) -> str:
 
 
 def symbol(level: str) -> str:
-    return SYMBOLS.get(normalize(level), SYMBOLS[DEFAULT_EFFORT])
+    """档位符号。**终端印不出来就降级成 ASCII**（cp936 下 ◐/◉ 会变问号）。
+
+    降级方向：`○→o`、`◐→o`、`●→*`、`◉→O`、`◆→*`（见 core/ace_io.ASCII_FALLBACK）。
+    """
+    from core import ace_io
+    raw = SYMBOLS.get(normalize(level), SYMBOLS[DEFAULT_EFFORT])
+    return ace_io.glyph(raw)
 
 
 def labels(level: str) -> Tuple[str, str]:

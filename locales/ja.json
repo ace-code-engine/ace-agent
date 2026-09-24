@@ -665,5 +665,6 @@
   "menu_more_above": "  ↑ 上に {n} 件",
   "choose_effort_hint": "{badge} 強度 · ←/→ で調整",
   "effort_max": "最高",
-  "effort_max_what": "「高」に加えて：問題を言い直し、検証方法を述べ、不確かな点を明示"
+  "effort_max_what": "「高」に加えて：問題を言い直し、検証方法を述べ、不確かな点を明示",
+  "home_folder_label": "フォルダ"
 }

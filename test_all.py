@@ -31,6 +31,13 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
 
 FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(FOLDER))
+# 终端编码防线：绝不因为一个字符把一次运行打断（见 core/ace_io.py）
+try:
+    from core import ace_io as _ace_io
+    _ace_io.harden_streams()
+except Exception:  # noqa: BLE001 —— 加固失败也要能跑
+    pass
+
 
 # 测试临时目录统一放在工作区（部分受限环境禁止写系统临时区 / mkdtemp 目录）
 import uuid  # noqa: E402
@@ -110,7 +117,7 @@ def run_confirmed(el, tool: str, user: str = "测试输入", **params):
 # 拿不准依赖的段保守声明为 `["*"]`（= 跑到它为止的全部前置段），宁可慢也不假。
 _SECTION_DEPS = {
     # 自包含（自建 EL / 自己的 import），可单独跑
-    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [], "66": [],
+    "38": [], "39": ["38"], "40": [], "41": [], "42": [], "43": [], "44": [], "45": [], "46": [], "47": [], "48": [], "49": [], "50": [], "51": [], "52": [], "53": [], "54": [], "55": [], "56": [], "57": [], "58": [], "59": [], "60": [], "61": [], "62": [], "63": [], "64": [], "65": [], "66": [], "67": [],
     # 依赖前面所有段（保守声明；实测能秒级跑完的那些不在此列）
     "23": ["*"], "35": ["*"], "36": ["*"], "37": ["*"],
 }
@@ -189,7 +196,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
-             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66"]
+             "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67"]
 _SEEN_SECTIONS: list = []
 
 
@@ -11014,6 +11021,93 @@ if _want("66"):
         check("[66] 强度行：←/→ 直接改宿主的 cfg（选择框不用关、选择不丢）",
               _res66["effort_row"] and _res66["effort_after"] == "low",
               (_res66["effort_row"], _res66["effort_after"]))
+
+    # ============================================================
+
+if _want("67"):
+    # ── [67] ────
+    print("[67] 终端编码防线：不崩（UTF-8+replace）· 不乱（字形主动降级）· 入口全覆盖")
+    # ============================================================
+    import subprocess as _sp67  # noqa: E402
+    import sys as _sys67  # noqa: E402
+    from core import ace_io as _io67  # noqa: E402
+
+    # —— 第一道防线：不崩 ——
+    _io67.harden_streams()
+    _enc67 = (_sys67.stdout.encoding or "").lower()
+    check("[67] 加固：stdout 被设成 UTF-8（cp936 控制台下 emoji 不再抛 UnicodeEncodeError）",
+          _enc67 in ("utf-8", "utf8", "cp65001"), _sys67.stdout.encoding)
+    check("[67] 加固：errors=replace（最坏也只是显示成 ?，不该打断一次对话）",
+          (_sys67.stdout.errors or "") == "replace", _sys67.stdout.errors)
+    _before67 = (_sys67.stdout.encoding, _sys67.stdout.errors)
+    _io67.harden_streams()                     # 幂等：再调一次不该有任何变化
+    check("[67] 加固是幂等的（入口可能被调两次：自己的 + 被 import 的）",
+          (_sys67.stdout.encoding, _sys67.stdout.errors) == _before67, _before67)
+
+    # —— 第二道防线：不乱（按**控制台代码页**判，而不是按我们改过的 stdout 编码）——
+    check("[67] 判定编码优先看控制台代码页（stdout 被我们改成 UTF-8 之后仍要能识别 cp936 终端）",
+          "def console_codepage()" in (FOLDER / "core" / "ace_io.py").read_text(encoding="utf-8")
+          and "def display_encoding()" in (FOLDER / "core" / "ace_io.py").read_text(encoding="utf-8"),
+          "")
+    check("[67] 字形降级：cp936 下 ▶ ◐ ◉ ✗ ✓ 换成 ASCII 兜底；◆ 本来就印得出来（不乱换）",
+          _io67.glyph("▶", encoding="cp936") == ">"
+          and _io67.glyph("◐", encoding="cp936") == "o"
+          and _io67.glyph("◉", encoding="cp936") == "O"
+          and _io67.glyph("✗", encoding="cp936") == "x"
+          and _io67.glyph("✓", encoding="cp936") == "v"
+          and _io67.glyph("◆", encoding="cp936") == "◆",
+          [(c, _io67.glyph(c, encoding="cp936")) for c in "▶◐◉✗✓◆"])
+    check("[67] 字形降级：UTF-8 终端保持原样（不为了老终端把好看的符号全砍掉）",
+          _io67.glyph("▶", encoding="utf-8") == "▶"
+          and _io67.glyph("◐", encoding="utf-8") == "◐", "")
+    check("[67] safe()：中文**原样保留**（cp936 能编码汉字），只换掉印不出来的符号",
+          _io67.safe("中文 ok ▶", encoding="cp936") == "中文 ok >"
+          and _io67.safe("中文 ok", encoding="cp936") == "中文 ok", "")
+    from ui import ace_home as _home67  # noqa: E402
+    _title67 = _home67.title_line("9.9.9", "m", "readonly", "off", None,
+                                  folder="ace", folder_label="目录")
+    check("[67] 顶行是文字标签、**不含 emoji**（📁 印不出来；emoji 只在兜底表里当键存在）",
+          "目录 ace" in _title67
+          and all(ord(c) < 0x1F000 for c in _title67)
+          and "home_folder_label" in (FOLDER / "ai_code.py").read_text(encoding="utf-8"),
+          _title67)
+    check("[67] 强度符号走降级（CLI 底栏/提示条在 cp936 下不会变成问号）",
+          "from core import ace_io" in (FOLDER / "core" / "ace_effort.py").read_text(encoding="utf-8")
+          and "ace_io.glyph(raw)" in (FOLDER / "core" / "ace_effort.py").read_text(encoding="utf-8"), "")
+
+    # —— 入口全覆盖：每个能独立跑起来的入口都要加固 ——
+    _entries67 = ["ai_code.py", "agent_runner.py", "test_all.py", "setup_env.py",
+                  "demo/record_demo.py"]
+    _missing67 = [e for e in _entries67
+                  if "harden_streams()" not in (FOLDER / e).read_text(encoding="utf-8")]
+    check("[67] 入口全覆盖：每个能独立跑的入口都调了 harden_streams()（漏一个就有一个会崩）",
+          _missing67 == [], _missing67)
+
+    # —— 真跑一遍：GBK 环境下重定向输出，绝不许出 Traceback ——
+    _env67 = dict(os.environ)
+    _env67["PYTHONIOENCODING"] = "gbk"
+    _env67.pop("PYTHONUTF8", None)
+    _runs67 = []
+    for _args67 in (["ai_code.py", "--mock", "--preview", "--preview-width", "80"],
+                    ["agent_runner.py", "--mock", "--input", "现在几点了"],
+                    ["setup_env.py", "--check"]):
+        try:
+            _p67 = _sp67.run([_sys67.executable] + _args67, cwd=str(FOLDER),
+                             capture_output=True, timeout=180, env=_env67)
+            _runs67.append((_args67[0], _p67.returncode,
+                            b"Traceback" in _p67.stdout + _p67.stderr,
+                            b"UnicodeEncodeError" in _p67.stdout + _p67.stderr))
+        except Exception as _e67:      # noqa: BLE001
+            _runs67.append((_args67[0], f"EXC {type(_e67).__name__}", True, True))
+    check("[67] GBK 环境真跑：三个入口都不崩、都不出 Traceback/UnicodeEncodeError",
+          all(code == 0 and not tb and not ue for _n, code, tb, ue in _runs67), _runs67)
+    check("[67] GBK 环境真跑：--preview 的顶行是文字标签（不是 emoji 乱码）",
+          (lambda out: ("ACE " in out and "目录" in out or "dir " in out)
+           if out else False)(
+              _sp67.run([_sys67.executable, "ai_code.py", "--mock", "--preview",
+                         "--preview-width", "80"], cwd=str(FOLDER), capture_output=True,
+                        timeout=180, env=_env67).stdout.decode("utf-8", "replace")
+              if True else ""), "")
 
     # ============================================================
 

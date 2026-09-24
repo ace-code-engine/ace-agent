@@ -303,7 +303,9 @@ def render_menu(state: MenuState, width: int = 80, max_rows: int = 8,
         if item.group and item.group != last_group:
             rows.append(st("dim", f"  {item.group}"))
             last_group = item.group
-        mark = st("cyan", "▶ ") if i == sel else "  "
+        # 选中标记：老终端（cp936）印不出 ▶，降级成 `>`（见 core/ace_io.py）
+        from core import ace_io as _io
+        mark = st("cyan", _io.glyph("▶") + " ") if i == sel else "  "
         line = item.line("", 0)
         if i == sel:
             line = st("bold", line)

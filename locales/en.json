@@ -665,5 +665,6 @@
   "menu_more_above": "  ↑ {n} more above",
   "choose_effort_hint": "{badge} effort · ←/→ to adjust",
   "effort_max": "max",
-  "effort_max_what": "beyond high: restate the problem, say how you will verify, name what is uncertain"
+  "effort_max_what": "beyond high: restate the problem, say how you will verify, name what is uncertain",
+  "home_folder_label": "dir"
 }

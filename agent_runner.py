@@ -46,6 +46,13 @@ for _stream in (sys.stdout, sys.stderr):
 
 FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(FOLDER))
+# 终端编码防线：绝不因为一个字符把一次运行打断（见 core/ace_io.py）
+try:
+    from core import ace_io as _ace_io
+    _ace_io.harden_streams()
+except Exception:  # noqa: BLE001 —— 加固失败也要能跑
+    pass
+
 
 from execution_layer import ExecutionLayer  # noqa: E402
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）

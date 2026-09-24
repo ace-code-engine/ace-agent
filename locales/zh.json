@@ -660,5 +660,6 @@
   "menu_more_above": "  ↑ 还有 {n} 项",
   "choose_effort_hint": "{badge} 强度 · ←/→ 就地调",
   "effort_max": "最高",
-  "effort_max_what": "在高的基础上：先重述问题、说清怎么验证、点明不确定处"
+  "effort_max_what": "在高的基础上：先重述问题、说清怎么验证、点明不确定处",
+  "home_folder_label": "目录"
 }

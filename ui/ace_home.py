@@ -173,7 +173,7 @@ def action_for_key(key: str) -> str:
 
 def title_line(version: str, model: str, permission: str, sandbox: str = "",
                styler: Optional[Callable[[str, str], str]] = None,
-               folder: str = "") -> str:
+               folder: str = "", folder_label: str = "") -> str:
     """主页顶行：`ACE 3.39.0 · 模型 · 权限 · 沙箱`。
 
     顶行只放"一眼要确认的三件事"，其余状态归底栏 —— 主页不该是仪表盘。
@@ -181,7 +181,10 @@ def title_line(version: str, model: str, permission: str, sandbox: str = "",
     st = styler or (lambda _k, x: x)
     bits = [st("bold", f"ACE {version}")]
     if folder:
-        bits.append(st("cyan", f"📁 {folder}"))     # 在哪个文件夹里 —— 一眼要确认的第四件事
+        # **不用 emoji**：中文 Windows 控制台是 cp936，📁 印不出来会变成乱码
+        # （这正是本项目早期就写下的纪律："刻意不用 emoji"）。用文字标签代替。
+        label = f"{folder_label} " if folder_label else ""
+        bits.append(st("cyan", f"{label}{folder}"))   # 在哪个文件夹里 —— 一眼要确认的第四件事
     bits.extend([st("dim", str(model or "?")), st("dim", str(permission or "?"))])
     if sandbox and sandbox != "off":
         bits.append(st("warn", f"沙箱 {sandbox}"))
@@ -224,11 +227,13 @@ def render_home(sections: Sequence[HomeSection],
         rows: List[str] = []
         for item, label in zip(sec.items, labels):
             take = item.enabled
+            # 标记也走降级：cp936 印不出 ▶/·，换 `>`/`.`（同 core/ace_io.py 的表）
+            from core import ace_io as _io
             if take:
-                mark = st("cyan", "▶") if cursor == selected else " "
+                mark = st("cyan", _io.glyph("▶")) if cursor == selected else " "
                 cursor += 1
             else:
-                mark = st("dim", "·")
+                mark = st("dim", _io.glyph("·"))
             text = f"  {mark} {pad_width(label, pad)}"
             if item.value:
                 text += st("cyan", pad_width(item.value, vpad))

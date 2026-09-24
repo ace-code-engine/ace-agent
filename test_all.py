@@ -3989,19 +3989,70 @@ if _want("21"):
     finally:
         _hur.urlopen = _orig_urlopen
 
-    # —— 接入点源码守卫：四个出网点都必须走 ace_http ——
+    # —— 接入点源码守卫：出网点只剩一处，就在 core/ace_client.py ——
+    # R-03 把模型 HTTP 客户端合并成一份之后，这两条守卫的**形状**必须跟着改：
+    # 原先断言"ai_code 里恰好有 3 处 ace_http.request_with_retry"、"runner 里用
+    # ace_http.urlopen_json_with_retry 且不直接 urllib"——那是合并前的架构。合并后
+    # 两个前端各自的直连实现被删掉（这正是 R-03 要的结果），旧守卫于是报"旧架构不见了"，
+    # 而它想守的东西（出网必须走带重试的那一层）反而更强了：只剩一处出网点。
+    # 所以这里改为盯**新架构的两条不变量**：前端委托给共用客户端 + 全仓只有一个出网点。
+    _ai_src = (Path(__file__).parent / "ai_code.py").read_text(encoding="utf-8")
     _ar_src = (Path(__file__).parent / "agent_runner.py").read_text(encoding="utf-8")
-    check("ai_code 的三处出网都走 ace_http",
-          _ai_src.count("ace_http.request_with_retry(") == 3,
-          _ai_src.count("ace_http.request_with_retry("))
-    check("ai_code 不再直接 requests.post 打模型", "requests.post(" not in _ai_src)
-    check("agent_runner 走 urllib 版重试",
-          "ace_http.urlopen_json_with_retry(" in _ar_src
-          and "urllib.request.urlopen(" not in _ar_src)
+    _ac_src = (Path(__file__).parent / "core" / "ace_client.py").read_text(encoding="utf-8")
+
+    def _code_lines(src):
+        """去掉注释与 docstring 之后的行 —— 代码里不许有，注释里解释架构是正当的。
+
+        为什么需要它：ai_code.py 第 882 行那段注释在讲"tools 降级与网络重试是两层"，
+        里面必然要提 ace_client / ace_http 这两个名字。只看"字符串是否出现"会把
+        解释性文字判成违规实现。
+        """
+        out, in_doc, quote = [], False, ""
+        for line in src.split("\n"):
+            stripped = line.strip()
+            if in_doc:
+                if quote in stripped:
+                    in_doc = False
+                continue
+            if stripped.startswith(('"""', "'''")):
+                quote = stripped[:3]
+                if stripped.count(quote) < 2:
+                    in_doc = True
+                continue
+            out.append(line.split("#", 1)[0])
+        return "\n".join(out)
+
+    _ai_code = _code_lines(_ai_src)
+    _ar_code = _code_lines(_ar_src)
+    check("ai_code 的模型请求委托给共用客户端（不再自己出网）",
+          "ace_client.chat_stream(" in _ai_code
+          and "ace_http." not in _ai_code
+          and "requests.post(" not in _ai_code,
+          {"chat_stream": "ace_client.chat_stream(" in _ai_code,
+           "ace_http": "ace_http." in _ai_code,
+           "requests.post": "requests.post(" in _ai_code})
+    check("agent_runner 的模型请求委托给共用客户端（不再自己出网）",
+          "ace_client.chat_once(" in _ar_code
+          and "ace_http." not in _ar_code
+          and "urllib.request.urlopen(" not in _ar_code,
+          {"chat_once": "ace_client.chat_once(" in _ar_code,
+           "ace_http": "ace_http." in _ar_code,
+           "urlopen": "urllib.request.urlopen(" in _ar_code})
+    check("全仓唯一出网点在 ace_client 里（重试仍走 ace_http 那一层）",
+          _ac_src.count("ace_http.request_with_retry(") == 1,
+          _ac_src.count("ace_http.request_with_retry("))
     # 两层循环各管一件事：tools 协议降级 vs 网络重试。叠成一个的后果是一次 429
-    # 也会把 tools 永久关掉。
+    # 也会把 tools 永久关掉。R-03 之后**降级循环搬到了 ace_client**，判据仍由前端注入
+    # （两家端点认不认 tools 的判据不同），所以这条也按新位置断言。
     check("tools 降级循环仍然独立存在（没有和重试叠成一层）",
-          "for _attempt in (1, 2):" in _ai_src and "self.tools_ok = False" in _ai_src)
+          "for _attempt in range(attempts):" in _ac_src
+          and "use_tools = False" in _ac_src
+          and "should_degrade" in _ai_src
+          and "self.tools_ok = False" in _ai_src,
+          {"loop_in_client": "for _attempt in range(attempts):" in _ac_src,
+           "client_disables_tools": "use_tools = False" in _ac_src,
+           "predicate_in_frontend": "should_degrade" in _ai_src,
+           "frontend_flips_tools_ok": "self.tools_ok = False" in _ai_src})
     check("退避提示走 stderr（stdout 被流式渲染器占着）",
           "def retry_notice" in _ar_src and "file=sys.stderr" in _ar_src)
 

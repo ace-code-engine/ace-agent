@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ace_model —— 两个前端共用的模型层纯逻辑（R-03 的安全半边）
+"""ace_model —— 两个前端共用的模型层纯逻辑（R-03）
 
-为什么只抽"纯逻辑"而不是把两个客户端合成一个：`ai_code.ModelClient` 是
-**流式 + requests + 重试 + Anthropic 兼容**的交互式客户端，`agent_runner.ModelProvider`
-是 urllib 一次性调用；两者的输出契约也不同（前者边流边渲染，后者只认
-`🤖 Agent:` 那一行）。把两条路径合成一条，等于重写无头前端的行为，而现有测试
-只能覆盖 mock 路径——那属于"改行为"，不是"重构"，得先在真实模型上跑通再说。
+R-03 分两半落地：这一半先收**纯逻辑**（不碰网络、不碰 i18n 的具体实现），
+另一半收**出网那一层**（`core/ace_client.py`：唯一的 HTTP 客户端）。
+
+为什么先收纯逻辑：`ai_code.ModelClient` 与 `agent_runner.ModelProvider` 的输出契约
+本来就不同（前者边流边渲染，后者只认 `🤖 Agent:` 那一行），把"怎么发请求"合起来
+之前，先把"与契约无关的计算"合起来风险最低 —— 那些部分两边各写过一份，
+语义还悄悄不一致。
 
 所以这里只放**两边确实重复、且是纯函数**的部分：
 
   · `trim_history(messages, max_history)` —— 历史裁剪（两边各写过一份，语义还不一致）
   · `error_hint(exc, translate)` —— HTTP 错误码 → 排查提示（原先只在 ai_code 里有）
+  · 图片输入的 payload 组装（`build_image_block` / `compose_user_message`）
 
 `translate` 由调用方注入 i18n 的 `t`：这个模块不认识界面语言，也不 import 项目内
 任何模块（与 ace_isolation 同一取态，谁都能安全地引它）。

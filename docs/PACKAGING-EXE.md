@@ -32,14 +32,38 @@
 
 ## 怎么构建
 
+**先跑自检**，再构建。这道自检是在 `build_exe.ps1` 连续三次弄红 CI 之后加的，它盯的正是那三次
+的共同根因——**runner 用 Windows PowerShell 5.1 跑这个脚本，而本机用 pwsh 7，5.1 会把无 BOM
+的脚本按 ANSI 读**，所以脚本里出现任何一个非 ASCII 字节（连注释里的中文都算）都会让它在 CI 上
+**解析失败**，而本机完全看不出来：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/check_packaging.ps1
+```
+
+它检查五件事：
+
+| 检查 | 对应踩过的坑 |
+|---|---|
+| `build_exe.ps1` 是纯 ASCII（并点名是哪几行） | 注释里写中文 → CI 解析崩 |
+| 无 BOM | 一条规则，不留特例 |
+| 能被当前 PowerShell 解析 | 同上 |
+| 没用 `$Args`/`$Input`/`$Matches` 当参数名 | 自动变量会把参数值吞掉，脚本静默以空参数运行 |
+| 冒烟用调用运算符而非 `Start-Process` | `-ArgumentList` 按 C 运行时规则拼行，带空格的参数被拆开 |
+
+它还会**真跑一遍源码**，确认每个冒烟 mark 都是场景确实会输出的文本——断言一条永不出现的文本，
+无论包多正确都不可能通过。
+
+## 构建
+
 ```powershell
 # 需要先把 PyInstaller 装进用来冻结的那个解释器
-<python> -m pip install pyinstaller
+<python> -m pip install pyinstaller requests
 
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
-#   -Python <路径>   指定冻结用的解释器（默认依次试 ACE_PYTHON / C:\aider_env / .ace_env / PATH）
-#   -Clean           先清掉 build/ 与 dist/
-#   -SkipSmoke       只构建（会打一条醒目的"这个包没跑过"警告）
+#   -Python <路径或命令名>   指定冻结用的解释器（`python` 这种命令名也行，会真跑一次验证）
+#   -Clean                   先清掉 build/ 与 dist/
+#   -SkipSmoke               只构建（会打一条醒目的"这个包没跑过"警告）
 ```
 
 产物：`dist\ace\`（整个目录就是要发布的包，压缩后挂 Release）。脚本最后会打印体积。

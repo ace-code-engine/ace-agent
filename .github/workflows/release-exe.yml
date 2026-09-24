@@ -65,6 +65,14 @@ jobs:
         shell: pwsh
         run: python test_all.py
 
+      # 打包脚本自身的约束（纯 ASCII / 能被 PS 5.1 解析 / 不撞自动变量 /
+      # 冒烟 mark 真的会出现）。这一步在 runner 上才有意义：本机是 pwsh 7，
+      # 看不出"无 BOM 的 UTF-8 被 5.1 按 ANSI 读"那类问题——它已经弄红过 CI 三次。
+      # 不加 if: always()：全量测试红了就该停在那里，而不是再叠一层误导性的报错。
+      - name: Packaging self-check (ASCII purity and smoke marks)
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/check_packaging.ps1
+
       # 构建 + 冒烟都在脚本里；冒烟不过脚本就非零退出，这一步红，就不会发布。
       - name: Build exe and run smoke gate
         shell: pwsh

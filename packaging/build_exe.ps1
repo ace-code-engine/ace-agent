@@ -259,18 +259,35 @@ Invoke-Smoke -Name 'preview' -ExeArgs @('--preview', '--preview-width', '80') -M
 
 # 3) offline end-to-end with the scripted model: a real tool round trip, and a
 #    real answer rendered from the bundled prompts/locales.
+#
+#    The expected text is BUILT FROM CODE POINTS instead of being written
+#    literally. Reason: this file must stay ASCII, and the assertions need to
+#    match Chinese output. The first version of these marks embedded the actual
+#    characters, which turned the file non-ASCII, and PowerShell 5.1 read the
+#    BOM-less UTF-8 as ANSI -- mojibake, off-by-one quoting, and the whole
+#    script failed to PARSE on the CI runner. (The unit-test suite caught
+#    nothing because test_all runs the script with pwsh on this machine, where
+#    the file reads fine. Only Windows PowerShell 5.1 trips on it.)
+#    Even the COMMENTS here must stay ASCII -- writing the characters out to
+#    "document" the code points is enough to break the parse.
+#    U+5F53 U+524D U+65F6 U+95F4 = "current time": what the mock answer contains.
+$currentTime = [string]([char]0x5F53 + [char]0x524D + [char]0x65F6 + [char]0x95F4)
+#    U+73B0 U+5728 U+51E0 U+70B9 U+4E86 = "what time is it now": a prompt typed
+#    in Chinese, to prove non-ASCII input survives the pipeline.
+$promptZh = [string]([char]0x73B0 + [char]0x5728 + [char]0x51E0 + [char]0x70B9 + [char]0x4E86)
+
 $ws = Join-Path $evidence 'agent_ws'
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
 Invoke-Smoke -Name 'mock_turn' -ExeArgs @('--mock', '--no-tui', '--permission', 'readonly',
                                           '--project-root', $ws, '--input', 'what time is it') `
-             -Mark '当前时间'
+             -Mark $currentTime
 
 # 4) the native tool-call path in the frozen bundle (--tools + full permission).
 #    Same mock flow, but through function calling rather than the text protocol.
 Invoke-Smoke -Name 'native_tools' -ExeArgs @('--mock', '--no-tui', '--tools',
                                              '--permission', 'full',
-                                             '--project-root', $ws, '--input', '现在几点了') `
-             -Mark '当前时间'
+                                             '--project-root', $ws, '--input', $promptZh) `
+             -Mark $currentTime
 
 # NOTE: "code_execute returns 501 when frozen" is deliberately NOT a smoke
 # scenario. The scripted mock model never calls code_execute, so there is no CLI

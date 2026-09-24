@@ -73,7 +73,7 @@ def main() -> int:
     if shutil.which("docker"):
         try:
             r = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
-                               capture_output=True, text=True, timeout=5)
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
             ok("Docker 守护进程: " + (r.stdout.strip() or "连接失败")) if r.returncode == 0 \
                 else warn("docker CLI 存在但守护进程不可用(--sandbox docker 会诚实 503)")
         except subprocess.TimeoutExpired:

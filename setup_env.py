@@ -111,7 +111,7 @@ def probe(python: str, imports: Tuple[str, ...] = REQUIRED,
     code = ("import " + ", ".join(imports)) if imports else "pass"
     cmd = [python, "-c", code]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except Exception:  # noqa: BLE001 —— 起不来就当他没有
         return False
     return proc.returncode == 0
@@ -122,7 +122,7 @@ def version_of(python: str) -> str:
     try:
         proc = subprocess.run([python, "-c",
                                "import sys;print('.'.join(map(str, sys.version_info[:3])))"],
-                              capture_output=True, text=True, timeout=CHECK_TIMEOUT)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=CHECK_TIMEOUT)
         return proc.stdout.strip() if proc.returncode == 0 else ""
     except Exception:  # noqa: BLE001
         return ""
@@ -144,7 +144,7 @@ def vendor_wheels(root: Optional[Path] = None) -> List[str]:
 
 def _run(cmd: List[str], timeout: int = 300) -> Tuple[int, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     except Exception as e:  # noqa: BLE001
         return 1, f"{type(e).__name__}: {e}"

@@ -265,7 +265,7 @@ def _install_executor() -> bool:
         os.chmod(tmp, 0o755)
     try:
         out = subprocess.run([str(tmp), "--version"], capture_output=True,
-                             text=True, timeout=15)
+                             text=True, encoding="utf-8", errors="replace", timeout=15)
         if out.returncode == 0 and out.stdout.strip().startswith("ace-executor"):
             os.replace(tmp, dest)
             print(c("green", f"✅ 已安装 {dest.name}: {out.stdout.strip()}"))

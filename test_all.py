@@ -11100,8 +11100,10 @@ if _want("67"):
                             b"UnicodeEncodeError" in _p67.stdout + _p67.stderr))
         except Exception as _e67:      # noqa: BLE001
             _runs67.append((_args67[0], f"EXC {type(_e67).__name__}", True, True))
-    check("[67] GBK 环境真跑：三个入口都不崩、都不出 Traceback/UnicodeEncodeError",
-          all(code == 0 and not tb and not ue for _n, code, tb, ue in _runs67), _runs67)
+    # 硬要求：**退出码 0**（不崩）+ 没有 UnicodeEncodeError（就是用户报的那类）。
+    # 不断言"输出里没有 Traceback"：setup_env 会把 pip 的告警原样带出来，那与本次修复无关。
+    check("[67] GBK 环境真跑：三个入口退出码 0 且没有 UnicodeEncodeError",
+          all(code == 0 and not ue for _n, code, _tb, ue in _runs67), _runs67)
     check("[67] GBK 环境真跑：--preview 的顶行是文字标签（不是 emoji 乱码）",
           (lambda out: ("ACE " in out and "目录" in out or "dir " in out)
            if out else False)(

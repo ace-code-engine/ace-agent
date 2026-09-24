@@ -76,6 +76,7 @@ ace-agent/
 │   ├── ace_net.py              #   出站请求闸门：全记录校验 + pin-to-IP + 逐跳复检（SSRF）
 │   ├── ace_isolation.py        #   外部内容定界与来源标注（SEC-011）
 │   ├── ace_http.py             #   模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
+│   ├── ace_client.py           #   模型 HTTP 客户端：唯一的出网实现（OpenAI/Anthropic 两种格式 + tools 降级，两个前端共用，R-03）
 │   ├── ace_executor.py         #   Go 执行器客户端（NDJSON 协议，纯 stdlib）
 │   ├── ace_model.py            #   模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
 │   ├── work.py                 #   诱饵工厂 + AST 行为检测（ASTDetector）

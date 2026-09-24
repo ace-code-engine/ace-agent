@@ -135,7 +135,7 @@
 | 项目 | 命令 | 结果 |
 |---|---|---|
 | 全量回归（合并前基线，`main`） | `python test_all.py` | **1979 / 1980** —— 唯一失败是 `[38] 树中路径全部存在`，因为新加的 `e2e/*` 在权威树里已登记、在这个分支上还是未跟踪文件 |
-| 全量回归（合并后） | `python test_all.py` | **1976 / 1976 全绿 · 跳过 13** |
+| 全量回归（合并后） | `python test_all.py` | **1993 / 1993 全绿 · 跳过 13**（跳过=缺 `requests` / 缺 `textual` 的能力探测） |
 | 双前端输出契约（无凭证） | `python e2e/r03_contract_smoke.py` | **7 / 7** —— 真监听 socket、两种线格式、两个前端；请求日志确认无头走 `stream=false`、CLI 走 `stream=true`，`--tools` 确实出现在 payload 里，429 会退避重试 |
 | 真机启动器冒烟（REL-03） | `powershell -ExecutionPolicy Bypass -File e2e/rel03_native_smoke.ps1` | **3 / 3** —— 启动器 / 直接入口 / `chcp 936` |
 

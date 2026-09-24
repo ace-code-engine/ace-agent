@@ -98,7 +98,7 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
                           retry_notice, tools_for_permission,
                           sanitize_plain_content, tool_calls_to_protocol)
 from core.ace_isolation import wrap_untrusted  # noqa: E402
-from core import ace_http  # noqa: E402
+from core import ace_client  # noqa: E402  （模型 HTTP 客户端：与 agent_runner 共用唯一一份，R-03）
 from cli import ace_context  # noqa: E402
 from core import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 / 错误码提示，与 agent_runner 共用）
 from ui.i18n import set_language, t  # noqa: E402
@@ -867,156 +867,56 @@ class ModelClient:
         return self._stream_openai(system, messages, on_delta)
 
     def _stream_mock(self, messages: List[Dict], on_delta: Optional[Callable] = None) -> str:
-        text = self._mock_provider.generate(messages[-1]["content"])
-        if on_delta is None:
-            for line in text.splitlines():
-                print(line)
-                time.sleep(0.02)
-            return text
-        buf = ""
-        for line in text.splitlines():
-            buf += line + "\n"
-            on_delta(buf)
-            time.sleep(0.02)
-        return text
+        """脚本化假模型 —— 逐行吐字的实现与 agent_runner 共用（core/ace_client.py）。
 
-    def _post_openai_once(self, payload: Dict,
-                          on_delta: Optional[Callable] = None) -> tuple:
-        """非流式请求一次，返回 (正文, {index: tool_call})。
-        tools 模式走这条路——见 _stream_openai 里关于 /v1 流式丢 tool_calls 的说明。
-        返回值刻意和流式分支同构，后面的协议转换逻辑就不用分情况。
-
-        "一次"指的是**一次逻辑请求**：429 / 502 / 连接抖动由 ace_http 在里面退避重试，
-        对调用方仍然是一次调用。400/404 属于 FATAL_STATUS，不重试、原样抛
-        requests.HTTPError —— _stream_openai 的 tools 降级就是靠它，绝不能被吞掉。
+        mock 是 CI 与离线演示唯一的模型来源；它一旦和真实路径分叉，
+        "测试通过"就不再代表"能跑"。
         """
-        r = ace_http.request_with_retry(
-            "POST", f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload, timeout=300,
-            on_retry=retry_notice,
-        )
-        # request_with_retry 只在 status < 400 时返回，raise_for_status 已无事可做。
-        body = r.json()
-        choices = body.get("choices") or []
-        msg = ((choices[0] or {}).get("message") or {}) if choices else {}
-        full = msg.get("content") or ""
-        tool_calls: Dict[int, Dict] = {}
-        for i, tc in enumerate(msg.get("tool_calls") or []):
-            if isinstance(tc, dict):
-                tool_calls[i] = tc
-        if full:
-            # 一次性把整段正文交给展示层，等价于"只有一个 delta"的流式
-            if on_delta is not None:
-                on_delta(full)
-            else:
-                print(full, end="", flush=True)
-        return full, tool_calls
+        return ace_client.stream_mock(self._mock_provider.generate(messages[-1]["content"]),
+                                      on_delta)
 
     def _stream_openai(self, system: str, messages: List[Dict],
                        on_delta: Optional[Callable] = None) -> str:
-        # requests 只为下面 except 里的异常类型；请求本身都交给 ace_http。
-        import requests
-        # 这个循环是**协议降级**配额，不是网络重试 —— 网络重试在 ace_http 里，比这层低
-        # 一级。两层各管一件事：这里管"端点认不认 tools 参数"，那里管"这次失败再试一下
-        # 会不会变"。把它们叠成一个循环，结果就是一次 429 也会把 tools 关掉。
-        for _attempt in (1, 2):
-            # tools 模式强制非流式。Ollama 一类端点的 OpenAI 兼容层在 stream=true 下会
-            # 丢掉 tool_calls 增量（ollama#7881：delta.tool_calls 不带 index；#5769：整块
-            # 不下发），后果不是报错而是静默降级——模型明明生成了 file_write 调用，agent
-            # 只收到"我已经帮你在桌面创建了 example.py"这段纯文本，再被当成最终回复，
-            # 文件根本没写。打字机效果没有"工具真的被执行"重要，这里牺牲流式换正确性。
-            streaming = not self.tools_ok
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "system", "content": system}] + messages,
-                "stream": streaming,
-                "temperature": 0.2,
-            }
-            if self.tools_ok:
-                payload["tools"] = tools_for_permission(self.permission_level)
-                payload["tool_choice"] = "auto"
-            full = ""
-            tool_calls: Dict[int, Dict] = {}
-            try:
-                if not streaming:
-                    full, tool_calls = self._post_openai_once(payload, on_delta)
-                else:
-                    # 重试只覆盖到"拿到响应头"为止，这一点是刻意的：此刻还没有
-                    # 任何字符吐给用户，重发是安全的。读到一半断流则不在覆盖范围内 ——
-                    # 那时正文已经在屏幕上了，重发会造成重复输出，宁可报错。
-                    with ace_http.request_with_retry(
-                        "POST", f"{self.base_url}/chat/completions",
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                        json=payload, stream=True, timeout=300,
-                        on_retry=retry_notice,
-                    ) as r:
-                        for line in r.iter_lines():
-                            if not line:
-                                continue
-                            line = line.decode("utf-8", errors="ignore").strip()
-                            if not line.startswith("data:"):
-                                continue
-                            data = line[5:].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                obj = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
-                            if not isinstance(obj, dict):
-                                continue
-                            choices = obj.get("choices") or []
-                            delta = ((choices[0] or {}).get("delta", {})
-                                     if choices else {})
-                            if not isinstance(delta, dict):
-                                continue
-                            content = delta.get("content")
-                            if content:
-                                full += content
-                                if on_delta is not None:
-                                    on_delta(full)
-                                else:
-                                    print(content, end="", flush=True)
-                            for tc in (delta.get("tool_calls") or []):
-                                if not isinstance(tc, dict):
-                                    continue
-                                idx = int(tc.get("index", 0))
-                                slot = tool_calls.setdefault(
-                                    idx, {"function": {"name": "", "arguments": ""}})
-                                fn = tc.get("function") or {}
-                                if fn.get("name"):
-                                    slot["function"]["name"] = fn["name"]
-                                if fn.get("arguments"):
-                                    slot["function"]["arguments"] += fn["arguments"]
-            except requests.HTTPError as e:
-                # 端点不支持 tools 参数（400/404）→ 降级重试一次文本协议
-                if (self.tools_ok and e.response is not None
-                        and e.response.status_code in (400, 404)):
-                    self.tools_ok = False
-                    continue
-                raise
-            if tool_calls:
-                calls = [v for _, v in sorted(tool_calls.items())]
-                text = tool_calls_to_protocol(calls)
+        """OpenAI 兼容调用 + tools 协议降级。传输在 ace_client，语义在这里。
+
+        降级判据（400/404 = 端点不认 tools 参数）由本函数提供、循环由 ace_client 跑：
+        网络重试比它低一级（ace_client 里的 ace_http），两层各管一件事。把它们叠成一层，
+        结果就是一次 429 也会把 tools 永久关掉。
+        """
+        degraded = {"hit": False}
+
+        def _degrade(exc: BaseException) -> bool:
+            if isinstance(exc, ace_client.ChatHTTPError) and exc.status in (400, 404):
+                degraded["hit"] = True
+                return True
+            return False
+
+        try:
+            full, calls = ace_client.chat_stream(
+                self.base_url, self.api_key, self.model, "openai", system, messages,
+                tools=tools_for_permission(self.permission_level) if self.tools_ok else None,
+                on_delta=on_delta, on_retry=retry_notice, should_degrade=_degrade)
+        finally:
+            if degraded["hit"]:
+                # 端点不认 tools：本次降级为文本协议，并永久关掉以免每轮都撞一次
+                self.tools_ok = False
+        if on_delta is None and not self.tools_ok:
+            print()          # 流式分支把正文直接打到 stdout，收尾换行由这里补
+        if calls:
+            text = tool_calls_to_protocol(calls)
+            if on_delta is not None:
+                on_delta(text)
+            return text
+        if self.tools:
+            # tools 模式：清洗模型残留的协议标签后，再决定是工具调用还是纯文本回复
+            full = sanitize_plain_content(full)
+            converted = content_to_tool_protocol(full)
+            if converted:
                 if on_delta is not None:
-                    on_delta(text)
-                else:
-                    print()
-                return text
-            if on_delta is None:
-                print()
-            if self.tools:
-                # tools 模式：清洗模型残留的协议标签后，再决定是工具调用还是纯文本回复
-                full = sanitize_plain_content(full)
-                converted = content_to_tool_protocol(full)
-                if converted:
-                    if on_delta is not None:
-                        on_delta(converted)
-                    return converted
-                return final_reply_protocol(full)
-            return full
-        raise RuntimeError("模型 API 调用失败")
+                    on_delta(converted)
+                return converted
+            return final_reply_protocol(full)
+        return full
 
     @staticmethod
     def trim_messages(messages: List[Dict], max_history: int) -> List[Dict]:
@@ -1041,112 +941,21 @@ class ModelClient:
         # 模型仍可能按协议格式包一层（系统提示词训出来的习惯），统一剥成纯文本
         return sanitize_plain_content(raw)
 
-    def _anthropic_payload_variants(self, system: str, messages: List[Dict]) -> List[Dict]:
-        """生成多组兼容变体：不同服务商对 system 字段格式 / 流式支持要求不一，逐个降级尝试"""
-        base = {"model": self.model, "max_tokens": 8192, "messages": messages}
-        msgs_blocks = [
-            {"role": m.get("role", "user"),
-             "content": [{"type": "text", "text": str(m.get("content", ""))}]}
-            for m in messages
-        ]
-        sys_blocks = [{"type": "text", "text": system}]
-        return [
-            {**base, "system": system, "stream": True},
-            {**base, "system": sys_blocks, "stream": True},
-            {**base, "system": system, "messages": msgs_blocks, "stream": True},
-            {**base, "system": sys_blocks, "messages": msgs_blocks, "stream": True},
-            {**base, "system": system, "stream": False},
-            {**base, "system": sys_blocks, "stream": False},
-        ]
-
-    def _post_anthropic(self, payload: Dict,
-                        on_delta: Optional[Callable] = None) -> str:
-        """POST /v1/messages，自动处理流式（SSE）与非流式（JSON）两种响应
-
-        重试同样在 ace_http 里，且和 _stream_anthropic 的变体循环分工明确：
-        变体循环只处理 400（"这个端点不认这种 payload 形状"），而 429/5xx 由退避
-        接手。这一点在合并前是缺的 —— 一次 429 会让变体循环立刻 break，
-        整个会话报"已尝试多种请求格式"然后死掉，用户看不出真实原因是限流。
-        """
-        stream = bool(payload.get("stream"))
-        with ace_http.request_with_retry(
-            "POST", f"{self.base_url}/v1/messages",
-            headers={
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json=payload, stream=stream, timeout=300,
-            on_retry=retry_notice,
-        ) as r:
-            if not stream:
-                data = r.json()
-                blocks = data.get("content") or []
-                full = "".join(b.get("text", "") for b in blocks
-                               if isinstance(b, dict) and b.get("type") == "text")
-                if on_delta is not None:
-                    on_delta(full)
-                else:
-                    print(full, end="", flush=True)
-                    print()
-                return full
-            full = ""
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                line = line.decode("utf-8", errors="ignore").strip()
-                if not line.startswith("data:"):
-                    continue
-                try:
-                    obj = json.loads(line[5:].strip())
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(obj, dict):
-                    continue
-                if obj.get("type") == "content_block_delta":
-                    delta = obj.get("delta") or {}
-                    text = delta.get("text", "") if isinstance(delta, dict) else ""
-                    if text:
-                        full += text
-                        if on_delta is not None:
-                            on_delta(full)
-                        else:
-                            print(text, end="", flush=True)
-            if on_delta is None:
-                print()
-            return full
-
     def _stream_anthropic(self, system: str, messages: List[Dict],
                           on_delta: Optional[Callable] = None) -> str:
-        """Anthropic Messages 调用：多格式变体自动降级，兼容不同服务商"""
-        import requests
-        last_err = ""
-        for payload in self._anthropic_payload_variants(system, messages):
-            try:
-                return self._post_anthropic(payload, on_delta)
-            except requests.HTTPError as e:
-                body = ""
-                try:
-                    body = (e.response.text or "")[:400]
-                except Exception:
-                    pass
-                last_err = f"{e} | 响应体: {body}"
-                # 常见错误码给出可操作提示（如智谱 1214 = 模型名不存在）
-                try:
-                    err_obj = json.loads(e.response.text or "{}")
-                    code = str(err_obj.get("error", {}).get("code", ""))
-                    msg = str(err_obj.get("error", {}).get("message", ""))
-                    if code == "1214" or "modelCode" in msg or "不存在" in msg:
-                        last_err += ("\n提示: 该端点不存在这个模型名。用 /model glm-4.6 切换"
-                                     "（智谱真实模型码，如 glm-4.6 / glm-4.5-air），或用 /config 改端点")
-                except Exception:
-                    pass
-                if e.response is not None and e.response.status_code != 400:
-                    break   # 401/403/429/5xx 等不重试，避免浪费请求
-            except requests.RequestException as e:
-                last_err = str(e)
-                break
-        raise RuntimeError(f"模型 API 调用失败（已尝试多种请求格式）: {last_err}")
+        """Anthropic Messages 调用：多格式变体自动降级，兼容不同服务商。
+
+        变体构造、单次 POST、变体循环、401/403/429 不换形状重试 —— 全在
+        `core/ace_client.py`，与 agent_runner 共用同一份（R-03）。
+        这里只补 i18n 层能看懂的错误类型：旧实现抛的是 requests.HTTPError，
+        `_model_error_hint` 靠它出 401/403/404 排查提示。
+        """
+        try:
+            return ace_client.stream_anthropic(
+                self.base_url, self.api_key, system, messages, model=self.model,
+                on_delta=on_delta, on_retry=retry_notice)
+        except ace_client.ChatHTTPError as e:
+            raise e.raw if e.raw is not None else e
 
 
 class _MockArgs:

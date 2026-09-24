@@ -213,7 +213,7 @@ if _want("1"):
           gateway_v2.intent.Intent is Intent
           and gateway_v2.guard.InstinctGuard is not None
           and gateway_v2.flywheel.Flywheel is not None)
-    check("L3 模型适配层已移除（模型调用只留 ai_code.ModelClient 一处）",
+    check("L3 模型适配层已移除（模型调用只留 core/ace_client 一处）",
           not hasattr(gateway_v2, "ModelAdapter")
           and not (Path(gateway_v2.__file__).parent / "model.py").exists())
 
@@ -879,6 +879,75 @@ if _want("8"):
     r2 = elr.process_agent_output(out2, "现在几点了")
     check("runner mock 第二轮最终回复", r2["status"] == "FINAL_REPLY"
           and "当前时间" in r2["message"], r2)
+
+    # —— R-03：出网那一层归 core/ace_client 一份，runner 只 retain 自己的调用契约 ——
+    #   （模型 HTTP 客户端合并后，"runner 怎么发请求"必须只有一条路；这条守卫
+    #    盯的是它没有偷偷长出第二套 payload/URL/重试。）
+    from core import ace_client as _ac8  # noqa: E402
+
+    _ar8 = (Path(__file__).parent / "agent_runner.py").read_text(encoding="utf-8")
+    check("[8] runner 的模型请求走共用客户端 ace_client.chat_once",
+          "ace_client.chat_once(" in _ar8 and "on_retry=retry_notice" in _ar8, "")
+    check("[8] runner 不再自己拼端点 / 自己发 urllib 请求（只有一处实现）",
+          "/chat/completions" not in _ar8 and "urllib.request.Request(" not in _ar8, "")
+    check("[8] 共用客户端按格式给端点，且两种格式都在",
+          _ac8.OPENAI_CHAT_PATH == "/chat/completions"
+          and _ac8.ANTHROPIC_MESSAGES_PATH == "/v1/messages", "")
+    check("[8] tools 模式发的 payload 是非流式（流式会丢 tool_calls 增量）",
+          _ac8.openai_payload("m", [], stream=False,
+                              tools=[{"function": {"name": "t"}}])["stream"] is False, "")
+    check("[8] 不带 tools 时 payload 里没有 tools 键（不给端点多余参数）",
+          "tools" not in _ac8.openai_payload("m", [], stream=True, tools=None), "")
+    # 端点不认 tools（400/404）→ 降级重来一次，且第二次**不带 tools 且恢复流式**。
+    # 这是 ai_code 与 agent_runner 两边都要靠的行为，所以钉在共用客户端上。
+    _seen8 = []
+
+    def _fake_retry_8(method, url, **kw):
+        _seen8.append(kw["json"])
+        if kw["json"].get("tools"):
+            raise _ac8.ChatHTTPError(404, "no tools here", url)
+
+        class _R8:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def iter_lines(self):
+                yield b'data: {"choices":[{"delta":{"content":"ok"}}]}\n'
+                yield b"data: [DONE]\n"
+        return _R8()
+
+    _real_retry_8 = _ac8.ace_http.request_with_retry
+    try:
+        _ac8.ace_http.request_with_retry = _fake_retry_8
+        _body8, _calls8 = _ac8.chat_stream(
+            "http://x/v1", "k", "m", "openai", "sys", [{"role": "user", "content": "hi"}],
+            tools=[{"function": {"name": "t"}}],
+            should_degrade=lambda e: isinstance(e, _ac8.ChatHTTPError)
+            and e.status in (400, 404))
+    finally:
+        _ac8.ace_http.request_with_retry = _real_retry_8
+    check("[8] tools 被拒后自动降级：第二次不带 tools 且恢复流式",
+          len(_seen8) == 2 and "tools" in _seen8[0] and "tools" not in _seen8[1]
+          and _seen8[1]["stream"] is True and _body8 == "ok", (_seen8, _body8))
+
+    # —— ai_code 的语义层（协议转换）钉住：传输换了家，这段行为不许跟着变 ——
+    #   非流式返回 tool_calls → 必须转成 <INTERNAL>/<EXTERNAL> 协议文本，
+    #   而不是把原始 JSON 当最终回复（那会让执行层把工具调用当答案）。
+    import ai_code as _ai8  # noqa: E402
+
+    _real_openai_8 = _ac8.stream_openai
+    try:
+        _ac8.stream_openai = lambda *a, **kw: (
+            "", [{"function": {"name": "datetime_now",
+                               "arguments": '{"format": "%Y-%m-%d"}'}}])
+        _mc8 = _ai8.ModelClient({"base_url": "http://x/v1", "api_key": "k",
+                                 "model": "m", "tools": True}, mock=False)
+        _proto8 = _mc8._stream_openai("sys", [{"role": "user", "content": "hi"}],
+                                      on_delta=lambda _t: None)
+    finally:
+        _ac8.stream_openai = _real_openai_8
+    check("[8] 非流式 tool_calls 仍被转成协议文本（工具调用不当答案）",
+          _proto8.startswith("<INTERNAL>") and '"tool": "datetime_now"' in _proto8
+          and _proto8.rstrip().endswith("</EXTERNAL>"), _proto8[:80])
 
     # ============================================================
 
@@ -3982,19 +4051,44 @@ if _want("21"):
     finally:
         _hur.urlopen = _orig_urlopen
 
-    # —— 接入点源码守卫：四个出网点都必须走 ace_http ——
+    # —— 接入点源码守卫：出网点只此一处（R-03：两个前端合并成一份 HTTP 客户端）——
+    #   在此之前 ai_code 与 agent_runner 各有一套出网代码（一处三次 ace_http 调用、
+    #   一处 urllib），于是 URL 怎么拼、头怎么带、重试找谁、tools 被拒怎么办都各写一遍。
+    #   现在这几条守卫盯的是同一件事：**模型请求只允许有一个实现处**。
+    #   查的是"端点字面量"（引号包住的 `/chat/completions`），而不是任意提及 ——
+    #   注释里提一句不算实现，写死一个 URL 才算。
     _ar_src = (Path(__file__).parent / "agent_runner.py").read_text(encoding="utf-8")
-    check("ai_code 的三处出网都走 ace_http",
-          _ai_src.count("ace_http.request_with_retry(") == 3,
-          _ai_src.count("ace_http.request_with_retry("))
-    check("ai_code 不再直接 requests.post 打模型", "requests.post(" not in _ai_src)
-    check("agent_runner 走 urllib 版重试",
-          "ace_http.urlopen_json_with_retry(" in _ar_src
-          and "urllib.request.urlopen(" not in _ar_src)
-    # 两层循环各管一件事：tools 协议降级 vs 网络重试。叠成一个的后果是一次 429
-    # 也会把 tools 永久关掉。
-    check("tools 降级循环仍然独立存在（没有和重试叠成一层）",
-          "for _attempt in (1, 2):" in _ai_src and "self.tools_ok = False" in _ai_src)
+    _ac_path = Path(__file__).parent / "core" / "ace_client.py"
+    _ac_src = _ac_path.read_text(encoding="utf-8")
+
+    check("模型请求只有一处实现：ace_client 里唯一一个 ace_http 出网点",
+          _ac_src.count("ace_http.request_with_retry(") == 1,
+          _ac_src.count("ace_http.request_with_retry("))
+    check("两个前端都不再直接出网（requests / urllib 都归 ace_client）",
+          "ace_http.request_with_retry(" not in _ai_src
+          and "ace_http.request_with_retry(" not in _ar_src
+          and "urllib.request.urlopen(" not in _ar_src
+          and "requests.post(" not in _ai_src,
+          "ai_code / agent_runner 里仍有一处自己发请求")
+    check("两个前端都 import 同一个客户端",
+          "from core import ace_client" in _ai_src
+          and "from core import ace_client" in _ar_src, "")
+    _oai_lit = _re.compile(r"""["']/chat/completions["']""")
+    _oai_builders = sorted(
+        str(x.relative_to(Path(__file__).parent)).replace("\\", "/")
+        for x in Path(__file__).parent.rglob("*.py")
+        # 本文件自己排掉：它把被查的字面量写在正则里，不排掉就是自己命中自己
+        if x.name != "test_all.py"
+        and _oai_lit.search(x.read_text(encoding="utf-8", errors="ignore")))
+    check("全仓只有 ace_client 一处拼 /chat/completions（无第二份实现残留）",
+          _oai_builders == ["core/ace_client.py"], _oai_builders)
+    # 两层循环各管一件事：tools 协议降级（判据在前端、循环在 ace_client）vs 网络重试
+    # （ace_http）。叠成一个的后果是一次 429 也会把 tools 永久关掉。
+    check("tools 降级与网络重试仍是两层（降级判据在前端，循环只有一份）",
+          "should_degrade=_degrade" in _ai_src
+          and "def _degrade(exc: BaseException) -> bool:" in _ai_src
+          and "self.tools_ok = False" in _ai_src
+          and "should_degrade" in _ac_src and "use_tools = False" in _ac_src)
     check("退避提示走 stderr（stdout 被流式渲染器占着）",
           "def retry_notice" in _ar_src and "file=sys.stderr" in _ar_src)
 
@@ -6317,6 +6411,22 @@ if _want("42"):
     check("[42] 两个前端都委托给 ace_model（不再各写一份裁剪/提示）",
           "ace_model.trim_history(" in _ai42 and "ace_model.error_hint(" in _ai42
           and "ace_model.trim_history(" in _ar42)
+
+    # —— R-03 的另一半：HTTP/chat 层也只有一份实现 ——
+    from core import ace_client as _ac42  # noqa: E402
+    _ac42_src = (Path(__file__).parent / "core" / "ace_client.py").read_text(encoding="utf-8")
+    check("[42] 两个前端的出网都委托给 ace_client（不再各写一份请求/重试/降级）",
+          "from core import ace_client" in _ai42 and "from core import ace_client" in _ar42
+          and "ace_client.chat_stream(" in _ai42 and "ace_client.chat_once(" in _ar42, "")
+    check("[42] 共用客户端对外 API 齐全（流式 / 一次性 / 两种格式 / 规范化错误）",
+          all(hasattr(_ac42, n) for n in (
+              "chat_stream", "chat_once", "stream_openai", "stream_anthropic",
+              "chat_complete", "ChatHTTPError", "openai_payload", "stream_mock")), "")
+    # "降级判据在前端、循环在客户端"：这一层分工会被顺手改回去（在客户端里写死
+    # 400/404 判据、或在两个前端各写一个循环），两种都会让某一端的行为悄悄变。
+    check("[42] 降级判据由前端注入，循环在客户端里只写一份",
+          "should_degrade" in _ac42_src and "should_degrade=_degrade" in _ai42
+          and _ai42.count("for _attempt in") == 0 and _ar42.count("for _attempt in") == 0, "")
 
 
 # ============================================================

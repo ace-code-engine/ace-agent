@@ -4,6 +4,7 @@
 > 来源：`docs/BACKLOG.md` P1 · Q-06「CI 结构一致性校验」；触发于第二轮文档重构后——权威目录树已从 README 迁至本文档（`docs/ARCHITECTURE.md`），成为唯一事实源。
 > 预期产出：一条自动校验，让"树 ↔ 仓库实际文件"的漂移在 CI 与本地都被拦住，而不是靠人工纪律。
 > **后续（R-07）**：本文写于根目录扁平时期，下文示例里的 `version.py` / `i18n.py` / `ace_doctor.py` / `ace_chatscroll.py` 等根级模块，现已下沉到 `ui/` `cli/` `core/`（见 `docs/design/STRUCT-REFACTOR.md` R-07）。**R1-R4 四条规则一个字都没变**，只是被校验的路径换了前缀；示例文字保留原样作为当时的记录。另追加一条 **R5**（包化当天补的）：`compileall` 的参数必须覆盖**全部** `.py`（文件或包目录），且列出的每个路径都真实存在 —— 它上线时当场揪出 `demo/record_demo.py` 与 `docker/download_model.py` 两个从来没进过编译检查的脚本。
+> **闭环说明（2026-09-26 补）**：Q-06 的**两半都已闭环** —— R1-R5 由 `test_all.py` 的 `[38]` 段在 CI 三档 Python 上跑；`ci.yml` 的 `compileall` 也已覆盖全量（`[38]` 有对应断言）。因此下文 §1 引用的那句"（BACKLOG Q-06 曾提 CI 自动校验，未实现前靠人工）"是**当时**的原文，保留不动；现状以 `[38]` 的实测输出为准。
 
 ---
 

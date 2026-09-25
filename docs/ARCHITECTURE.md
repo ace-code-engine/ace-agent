@@ -55,7 +55,6 @@ ace-agent/
 │   ├── ace_home.py             #   主页模型：分区顺序（接着上次→开始→能力→特色）+ 条目 + 渲染（纯逻辑）
 │   ├── ace_keys.py             #   键位系统（内置语义键 + 用户覆盖 + 冲突警告 + **作用域/和弦/生成的帮助**）
 │   ├── ace_prompt.py           #   无依赖输入行：菜单 + 历史 + 行编辑（按键来源可注入，可端到端测）
-│   ├── ace_keys.py             #   键位系统：内置语义键 + 用户覆盖 + 冲突警告 + 键位表（纯函数）
 │   ├── ace_vim.py              #   vim 子集：motions/operators/text objects + 行编辑器（纯函数）
 │   ├── ace_term.py             #   终端能力探测（自动判定）+ 自检向导步骤
 │   ├── ace_chatscroll.py       #   聊天内置滚动引擎(方案 C:视口只滚会话行)
@@ -64,6 +63,7 @@ ace-agent/
 │   ├── __init__.py             #   包入口：tui_available() 能力探测 + 惰性导出（没装时不炸）
 │   ├── bridge.py               #   引擎↔界面桥接（纯逻辑，不依赖 Textual）：按行入队、丢 \r 重绘、剥 ANSI
 │   └── app.py                  #   四区布局（Header/转写区/状态行/输入栏）+ 后台线程跑引擎 + 队列排空
+├── frontend/                   # 主前端（TypeScript + Ink，独立进程）：经 `ace --serve` 的双向 NDJSON 协议驱动引擎；与 ui/ 并存，内部结构见 frontend/README.md
 ├── cli/                        # 操作者侧工具：自检 / 上下文 / 会话日志
 │   ├── __init__.py             #   包入口
 │   ├── ace_doctor.py           #   环境自检（python -m cli.ace_doctor）
@@ -88,6 +88,7 @@ ace-agent/
 │   ├── ace_hooks.py            #   事件钩子：session_start / user_prompt / pre_tool / post_tool / session_end（JSON 进出）
 │   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
+│   ├── ace_serve.py            #   双向 NDJSON 协议服务端（ace --serve）：帧编解码 + 派发 + 审批往返，给独立进程前端用
 │   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
@@ -191,7 +192,8 @@ ace-agent/
 │   │   ├── EXECUTOR-RELEASE.md     #   执行器发布通道（预编译二进制 + ace --install-executor）
 │   │   ├── README-RESTRUCTURE.md   #   README 瘦身两轮立项（本结构由此演进）
 │   │   └── ARCH-TREE-CHECK.md      #   权威树一致性校验（Q-06：R1-R4 规则 / 实测缺口 / S1-S4）
-│   │   └── STRUCT-REFACTOR.md      #   P2 结构重构立项卡（R-01~R-05 实测规模 / 顺序 / 验收）
+│   │   ├── STRUCT-REFACTOR.md      #   P2 结构重构立项卡（R-01~R-05 实测规模 / 顺序 / 验收）
+│   │   └── SAFETY-HARDENING.md     #   安全边界加固立项卡（H-01~H-22 审计证据 / 工作包 / 验收）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

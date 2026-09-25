@@ -78,8 +78,9 @@ ctx = el.prepare_context(user_input)          # 记忆预注入(可独立调用)
 
 ## 5. 权限模型
 
-- 档位:`readonly`(起步默认)/ `write` / `full`;**默认只读**是产品契约
-  (⚠️ `agent_runner.py --permission` 目前默认 `write`,与本文矛盾,记 BACKLOG SEC-03)。
+- 档位:`readonly`(起步默认)/ `write` / `full`;**默认只读**是产品契约。
+  三个入口实测一致(v3.8 收口,SEC-03 已闭环):`agent_runner.py:838`、
+  `execution_layer.py`、`ai_code.py` 的 `--permission` 默认均为 `readonly`。
 - 工具权限组:`PERM_READ` / `PERM_WRITE` / `PERM_HIGH_RISK`;另有 `CONTROL_TOOLS`
   (`plan_propose`/`request_permission`,任何档位都在)与 `CONFIRM_TOOLS`。
 - 授权:单次(用后即焚)或会话级;`terminal_exec` 只接受逐次确认,永不会话级。
@@ -124,7 +125,10 @@ class ToolSpec:
   `ace_net` SSRF 判定(pin-to-IP + 逐跳复检 + 全记录)+ 可选 `egress_allowlist`。
 - 模型调用统一 OpenAI 兼容 `POST {base}/chat/completions`,`Authorization: Bearer <key>`;
   429/5xx/抖动由 `ace_http.urlopen_json_with_retry` 退避(认 `Retry-After`)。
-- 已知缺口:双前端 `ai_code.ModelClient` 与 `agent_runner.ModelProvider` 重复实现 → BACKLOG R-03 合并。
+- ✅ 已闭环(v3.9,R-03):`core/ace_client.py` 是唯一一份模型 HTTP 客户端 —— 唯一出网点
+  (唯一 `ace_http.request_with_retry` 调用点)、唯一拼 `/chat/completions` 的地方;
+  `ai_code.ModelClient` / `agent_runner.ModelProvider` 只余各前端自己的适配壳。
+  守卫:`[8]`/`[42]` 静态断言 + `e2e/r03_contract_smoke.py`(无凭证 7/7)。
 
 ## 9. 支撑模块最小接口
 
@@ -169,7 +173,9 @@ class ToolSpec:
 - ✅ `parse_document` 未走文件路径闸门(只读越界) → 已修(v3.2, SEC-02)
 - ✅ `code_execute` AST 精确名拦截可被别名/lambda 绕过 → 已修(v3.2, SEC-01，改危险内建引用级拦截)
 - ✅ 模块命名风格(旧 `archive/nuwa/work/guardian` vs 新 `ace_*`) → 已定(v3.3, R-06)：新模块统一 `ace_` 前缀，旧名补导流 docstring
-- 仍开放项以 `docs/BACKLOG.md` 为准（如 SEC-03 默认权限与外发确认、Q-08 e2e 抗抖动、Q-15 docstring、R-01~R-05 结构重构）
+- 仍开放项以 `docs/BACKLOG.md` 为准。**截至 v3.41.0,SEC-/Q-/R-/REL- 全部已闭环**;
+  新一批(安全边界加固 H-01 ~ H-23)见 `docs/design/SAFETY-HARDENING.md`
+  —— 编号 `H-` 独占命名空间,不与既有前缀共享。
 
 ## 11. 命名与检索索引(R-06)
 

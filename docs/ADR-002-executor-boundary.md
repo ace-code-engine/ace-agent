@@ -503,7 +503,9 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 ### 还没做的
 
 - 阶段 4 的另一半已完成：流式增量输出（`output` 事件）与宿主侧聚合。落地时改掉了四处一开始写错的地方：截断必须发生在推送 `onChunk` **之前**（否则 `max_output_bytes` 只约束了缓冲区，事件流仍把子进程的全量输出推给宿主）；`seq` 必须在写锁内分配（否则 stdout/stderr 两个 pump 并发时帧的写出顺序与 seq 不一致，宿主的丢帧检测会误报协议损坏）；事件在读线程内**实时派发**而不是等 `resp` 之后回放（这让"resp 是同一 id 的最后一帧"成为单线程读取的性质，而不是时序上的巧合）；读侧套 `io.BufferedReader`（裸 FileIO 上按行迭代会退化成逐字节 syscall）。另外每帧单独 `base64.b64decode`、只在末尾做**一次** UTF-8 解码——帧长度不是 3 的倍数，base64 字符串不能拼接后再解；字节一致性由执行器回报的 sha256 `digest` 校验，不一致抛 `E_TRANSPORT`。
-- 仍未接线的是 `code_execute`：它还没走执行器，`terminal_exec` 才是当前唯一使用流式路径的工具。
+- `code_execute` **已接线**执行器（`tools/code_tools.py` 的 `use_go_executor` 分支 +
+  `client.exec_python`）—— 本节此前写的"仍未接线"已过时。`terminal_exec` 仍是当前唯一
+  使用**流式**路径的工具。
 
 - Tier-2 Docker 档位。
 - 待实测假设第 1 项（Low IL 下 `python`/`git`/`pip` 的写入行为）——当前 Tier-1 走的是 LUA_TOKEN 的 **Medium** 完整性级别，并没有降到 Low，所以这条假设的原始场景尚未被触发，也尚未被验证。这一点现在不再依赖读代码推断：`sandbox_applied.integrity_level` 是实测回报（`GetTokenInformation(TokenIntegrityLevel)`），本机值为 `medium (S-1-16-8192)`，并有一条断言盯着它 —— 如果哪天真降到了 Low，那条断言会先响，提醒重新评估这项假设。

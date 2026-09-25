@@ -40,8 +40,10 @@ HERE = Path(__file__).resolve().parent
 ENV_DIR_NAME = ".ace_env"
 VENDOR_DIR_NAME = "vendor"
 # 界面依赖：prompt_toolkit（输入行/浮层菜单）+ textual + rich（组件化 TUI 与渲染）。
-# 核心功能仍然零依赖；这三个只影响"界面长什么样"。
-REQUIRED = ("prompt_toolkit", "textual", "rich")
+# 这三个只影响"界面长什么样"。requests 不一样 —— 它是**模型调用的硬依赖**
+# （core/ace_http.request_with_retry 唯一出网点，直接 import requests，无回退），
+# 所以列在这里：启动器必须把它装上，否则装完 UI 也连不上模型（H-22）。
+REQUIRED = ("requests", "prompt_toolkit", "textual", "rich")
 # 索引顺序：**官方源优先**，镜像兜底。踩过的坑：某些镜像会返回 "from versions: none"
 # （包索引不完整），于是"装不上"被误判成"没有网络"；换官方源立刻就装上了。
 INDEXES = ("https://pypi.org/simple",

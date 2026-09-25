@@ -1,10 +1,12 @@
-# 立项卡：安全边界加固 H-01 ~ H-26（W0 ~ W6 已实施）
+# 立项卡：安全边界加固 H-01 ~ H-26（W0 ~ W7 已实施）
 
-> 状态：**W0 + W1 + W2 + W3 + W4 + W5 + W6 已实施**（H-01 ~ H-07、H-09 ~ H-21、H-23、H-24、H-25、H-26 完成并验收；**H-08 未做**，理由见 §9.4）。
-> **只剩 H-08（需独立包）、H-22（依赖契约，需你拍板）**。
-> 全量测试：**2241 / 2241 全绿、退出码 0，零失败项，且不需要 `PYTHONUTF8=1` 这类环境变量**。
-> 本卡 §2 保留原始规划口径，§9 ~ §16 是实施记录（含与卡片不一致之处）。
-> 全部改动已分 7 个可独立回滚的提交入库（`7a679fa` → `32c1b93`），工作树干净。
+> 状态：**W0 ~ W7 已实施**（H-01 ~ H-07、H-09 ~ H-26 完成并验收；**H-08 未做**，理由见 §9.4）。
+> **只剩 H-08：精确回滚** —— 要把"整树还原"改成"只回滚本轮"，现有 5 条断言依赖旧语义，需独立工作包（见 §9.4）。
+> 全量测试：**全绿、退出码 0、零失败项**，且不需要 `PYTHONUTF8=1` 这类环境变量。
+> （**本卡头部不手抄断言总数** —— 那正是本次修掉的一类漂移：头部写 2240、实际已 2241。
+> 精确条数以 `python test_all.py` 的输出为准，或在下面各节的验收快照里查。）
+> 本卡 §2 保留原始规划口径，§9 ~ §17 是实施记录（含与卡片不一致之处）。
+> 全部改动按**分层提交**入库 —— 每个工作包一个可独立回滚的提交；工作树干净。
 > 编号：`H-` 是**新命名空间**，不与 `SEC-` / `Q-` / `R-` / `REL-` 共享编号空间（吸取 ADR-002 与独立 ADR 文件撞号的教训）。
 > 来源：2026-09-25 三路独立只读审计（执行层安全 / agent 循环与协议 / 前端与扩展面），共 38 条；其中 20 余条经复核，1 条被推翻（见 §7）。
 > 与 BACKLOG 的关系：`docs/BACKLOG.md` 的 SEC-/Q-/R-/REL- 全绿是**当时那一批**。本卡是**新一批**，不回填 BACKLOG、不改其状态。
@@ -692,11 +694,11 @@ token 表实测（新增断言盯着）：
 | 项 | 状态 | 说明 |
 |---|---|---|
 | **H-08** 精确回滚 | **未做** | 需独立工作包（现有 5 条断言依赖整树还原语义），见 §9.4 |
-| **H-22** 依赖契约 | **待你拍板** | "zero deps" 已不成立、stdlib 出口是死代码。二选一：(a) 接回 stdlib；(b) 删死代码并改 README 徽章 / ADR-004 / INTERFACES §8 / requirements。**我建议 (b)** |
+| **H-22** 依赖契约 | **✅ 已实施 (b)** | 删死码（`_requests()` + `urlopen_json_with_retry` + 3 条用例）、`requirements.txt` 与 `setup_env.REQUIRED` 改成事实、12 份活跃文档口径修正、7 条守卫。**唯一行为改动**：启动器开始装 `requests`。见 §17 |
 | **H-26** 测试污染 `.ace_sessions` | **✅ 已修** | 见 §16 |
 | 那 4 条 `--serve` 失败 | **已修** | 根因是 H-24，不是环境噪音，见 §9.8 |
 
-**验收总账**：全量 **2241 / 2241 全绿 · 退出码 0 · 零环境变量要求**；`ruff` 全过；
+**验收总账**：全量 **2245 / 2245 全绿 · 退出码 0 · 零环境变量要求**；`ruff` 全过；
 `[38]` 结构守卫全绿。
 
 ---
@@ -758,3 +760,91 @@ check("H-26 测试没有往仓库自己的 .ace_sessions/ 写会话", _sn <= _SE
 | `ruff` | All checks passed |
 
 **改动文件**：`test_all.py`（4 处 spawn 注入 `--project-root` + 末尾守卫）、本卡。
+
+---
+
+## 17. H-22 实施记录：依赖契约 —— 删死码 + 把口径改成事实
+
+**选择**：你拍板 **(b)** —— `requests` 是事实依赖，删掉没人走的 stdlib 出口，并把文档口径改成事实（不选 (a) 接回 stdlib）。
+
+### 17.1 先量再改：三处事实
+
+探针做法：`sys.meta_path` 前置一个对 `requests` 抛 `ImportError` 的 finder，再跑真实代码路径。
+
+| 检查 | 实测 | 含义 |
+|---|---|---|
+| `from core import ace_client, ace_http` | **OK** | 模块级不硬 import `requests`；"没有 requests 也能 import" 这句**是真的** |
+| `ace_client._run(...)`（真发一次请求） | 抛 `builtins.ImportError: No module named 'requests'` | 模型调用**没有回退**，而且报的是裸 `ImportError`，不是可操作的提示 |
+| `ace_http.classify_requests_exception(ValueError("x"))` | `"other"` | 纯判定部分确实不依赖 `requests`，所以无 requests 的机器仍能跑这部分测试 |
+| `setup_env.REQUIRED` | `('prompt_toolkit', 'textual', 'rich')` | **启动器不装 `requests`** —— 干净机器上装完界面依赖照样连不上模型 |
+
+调用点计数（全仓 `grep`）：`ace_client._requests()` **0**、`ace_http.urlopen_json_with_retry` **0**（只有定义与 `test_all.py`）。真实出网唯一走 `ace_client._run` → `ace_http.request_with_retry`。
+
+⇒ **"核心零依赖"在模型调用这一格是假的，而且假得有代价**：一条没人走的第二份实现撑着那句话，同时启动器偏偏没装真正需要的那个包。
+
+### 17.2 删掉的死码
+
+| 位置 | 处理 | 为什么是删而不是留 |
+|---|---|---|
+| `core/ace_client.py` `_requests()` | 删（无调用点） | 它看着像"没 requests 也有救"，真发请求时 `request_with_retry` 直接 ImportError —— **一个会骗人的兜底比没有兜底更糟** |
+| `core/ace_http.py` `urlopen_json_with_retry()` | 删（生产调用点 0） | R-03 把两个前端合并进 `ace_client` 之后就没人走了；它同时是"纯 stdlib 也能调模型"这句话的唯一载体 |
+| 同一文件的 `import json` / `urllib.error` / `urllib.request` / `typing.Dict` | 随之删 | 只被上面那个函数用；**是 `ruff` 的 `F401` 当场抓出来的**，不是靠眼睛找 |
+| `test_all.py` 的 3 条 urllib 用例 | 删，原地换成 2 条 H-22 守卫 | 被删函数的用例不该留着；换成"这条路不许回来"的断言 |
+
+### 17.3 依赖契约改成事实
+
+| 文件 | 改动 |
+|---|---|
+| `requirements.txt` | `requests` 从"**可选**：接入真实模型 API（ai_code / agent_runner）"改为"**必需**：模型调用与联网工具"；顺手修掉失效的 `agent_runner` 指针（R-03 之后模型客户端只剩 `core/ace_client.py`） |
+| `setup_env.py` | `REQUIRED` 加 `requests` —— **这是本次唯一的行为改动**：`ace --setup` / `ace --install-ui` / `ace.cmd` 此后会把它一起装上。不装才是 bug：文档说"模型调用需要 requests"而启动器不装它，等于把失败留给用户 |
+
+**`REQUIRED` 的连带效应（已处理）**：`REQUIRED` 同时喂给三处 —— pip 安装清单、`probe()` 的
+"这个环境可用吗"判据、`--vendor` 的下载清单。所以加了 `requests` 之后，**离线那条路变成全有或全无**：
+`setup_env.py` 装完本地 wheel 会真的 `import` 一遍 `REQUIRED` 的每一项，缺一项就整段退回在线安装 ——
+只备了 `prompt_toolkit` 的时代过去了。为此把 `vendor/README.md` 的离线段落改成用
+`python setup_env.py --vendor`（它按 `REQUIRED` 下全套），并写明必须连 `requests` 的传递依赖
+（urllib3 / certifi / idna / charset-normalizer）一起备齐。**本机的 `vendor/*.whl` 是旧的
+（没有 requests），没有替你重下** —— 那是一次联网写入，留给你决定；`--vendor` 一条命令即可补齐。
+（`vendor/*.whl` 本就不进 git，新克隆只有那份说明。）
+
+### 17.4 口径修正（活跃文档全覆盖）
+
+| 文件 | 原口径 → 现口径 |
+|---|---|
+| `README.md` | 徽章 `core deps-zero` → **双徽章** `safety core-zero--dep` + `model API-requires requests`；"pure-stdlib core" → "pure-stdlib **safety core**（执行层 · 网关 · 记忆 · CLI）… Model calls need `requests`"；打包表同步 |
+| `README.zh-CN.md` | 同上（两个徽章都换 —— 中英不许只有一个是对的） |
+| `docs/ADR.md` ADR-004 | 标题"核心"→"**安全核心**"；补上**被否决的选项 (a) 与实测理由**、以及口径修正记录 |
+| `docs/ADR-002-executor-boundary.md` | 41/58 两处的"零第三方依赖"限定为"**安全边界**"，并注明模型调用依赖 `requests` |
+| `docs/INTERFACES.md` §8 | `urlopen_json_with_retry` → `request_with_retry`。**原文与同节第 128 行"唯一 `ace_http.request_with_retry` 调用点"自相矛盾**，现在一致 |
+| `docs/ARCHITECTURE.md` | 树的 `requirements.txt` 注释："可选增强依赖清单（核心零依赖）" → "安全核心零依赖，模型调用需 requests" |
+| `docs/PACKAGING-EXE.md` | 冻结包能力表"纯 stdlib 核心" → "纯 stdlib 安全核心（`requests` 也在包内）" |
+| `docs/TESTING.md` | `requests`"（可选增强）" → "（**必需**，不是可选增强）" |
+| `CONTRIBUTING.md` | 原文**已经如实**（第 10 行单列"真实模型对话需要 `requests`"）—— 这正说明文档层内部早有分歧；只把第 9 行的"核心"收紧成"**安全核心**" |
+| `docs/COMMANDS.md` | `--install-ui` 说明补上"装 `requests`（模型调用必需）" |
+| `vendor/README.md` | 依赖分"必需 / 可选"两栏；`setup_env.py --ensure` 的注释不再只写 prompt_toolkit |
+| `core/ace_client.py` 模块 docstring | 设计取态第 4 条重写：**模块级零依赖 ≠ 调用零依赖** |
+
+**不动的（按仓库纪律，历史记录不重写）**：`CHANGELOG.md`、`docs/RELEASE-NOTES-*.md`、`docs/history/**`、`.github/RELEASE-ANNOUNCEMENT-v3.41.0.md`。
+
+**仍然是真话的（特意没改）**：`benchmarks/`、`cli/ace_doctor.py`、`ui/*`、`tui/*`、`tools/docker_sandbox.py`、`packaging/make_icon.py`、`test_all.py` 自身，以及执行层 / 网关 / 记忆 —— 这些确实零第三方依赖。所以"**安全核心**零依赖"不是空话；原来那句话的问题只是把模型客户端也算进了"核心"。
+
+### 17.5 防漂回守卫（净 +4 条）
+
+| 段 | 断言 |
+|---|---|
+| `[21]` | ★无 requests 的 stdlib 出网路径已删除 · ★唯一出网实现仍是 `request_with_retry` · ★`ace_client` 里无调用点的 requests 探针已删除 |
+| `[70]` | ★`requirements.txt` 把 requests 列为必需 · ★`setup_env.REQUIRED` 含 requests · ★两个 README 都不再挂 `core deps-zero` · ★两个 README 都有如实的双徽章 |
+
+删 3 条（urllib 用例）+ 加 7 条 = 净 +4。
+
+### 17.6 验收
+
+| 项目 | 结果 |
+|---|---|
+| 全量测试 | **2245 / 2245 全绿 · 退出码 0** |
+| 上一轮 | 2241 / 2241 |
+| `ruff`（CI 口径） | **All checks passed** —— 且它真的起了作用：删函数后靠 `F401` 抓出 4 个变成未用的导入 |
+| 7 条 H-22 守卫 | 全部 ✅；另做了一次独立复核，确认谓词确实在量该量的东西（`requirements.txt` 未注释行、`REQUIRED` 元组、两个 README 的徽章字符串与 BOM） |
+| `.ace_sessions` | 262 → 262（H-26 未回退） |
+| 行为改动 | **只有一处**：`setup_env.REQUIRED` 多了 `requests`（启动器多装一个包） |
+

@@ -12,14 +12,11 @@
 
 from __future__ import annotations
 
-import json
 import random
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 # —— 状态码分类 ——
 #
@@ -246,55 +243,4 @@ def request_with_retry(method: str, url: str, *,
                 resp.close()
         except Exception:
             pass
-        sleep(d.delay)
-
-
-def urlopen_json_with_retry(req: "urllib.request.Request", *, timeout: int = 120,
-                            policy: Optional[RetryPolicy] = None,
-                            sleep: Callable[[float], None] = time.sleep,
-                            clock: Callable[[], float] = time.monotonic,
-                            on_retry: Optional[Callable[[RetryDecision, int], None]] = None
-                            ) -> Dict:
-    """标准库 urllib 版本，供不依赖 requests 的入口（agent_runner）使用。
-
-    注意 urllib 把 4xx/5xx 抛成 HTTPError，而 HTTPError 本身是个 response 对象，
-    Retry-After 要从 e.headers 取——从 e.reason 里是拿不到的。
-    """
-    policy = policy or RetryPolicy.DEFAULT
-    started = clock()
-    attempt = 0
-    last_exc: Optional[BaseException] = None
-    while True:
-        attempt += 1
-        status: Optional[int] = None
-        retry_after = None
-        exc_kind: Optional[str] = None
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            last_exc = e
-            status = e.code
-            try:
-                retry_after = e.headers.get("Retry-After")
-            except Exception:
-                retry_after = None
-        except urllib.error.URLError as e:
-            last_exc = e
-            # URLError 包着 socket.timeout 时是读超时，其余按连接失败处理。
-            inner = getattr(e, "reason", None)
-            exc_kind = EXC_READ_TIMEOUT if isinstance(inner, TimeoutError) else EXC_CONNECT
-        except TimeoutError as e:
-            last_exc = e
-            exc_kind = EXC_READ_TIMEOUT
-
-        d = decide(attempt=attempt, policy=policy, elapsed=clock() - started,
-                   status=status, exc_kind=exc_kind, retry_after=retry_after)
-        if not d.should_retry:
-            if status is not None:
-                raise last_exc
-            raise RetryExhausted(f"请求失败且不再重试：{d.reason}",
-                                 status=status, attempts=attempt, last_error=last_exc)
-        if on_retry is not None:
-            on_retry(d, attempt)
         sleep(d.delay)

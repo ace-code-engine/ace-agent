@@ -58,4 +58,4 @@ python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演�
 
 - 控制台 GBK 已做 UTF-8 兜底，但建议全局设 `PYTHONUTF8=1`。
 - 文档解析增强依赖（python-docx / openpyxl / pdfplumber / pymupdf / pytesseract）按需装，见 `requirements.txt`；旧版 Office 格式（.doc/.xls/.ppt/.wps/.et）回退依赖系统级 LibreOffice 或 antiword。
-- 真实模型对话需要 `requests`（可选增强），`/` 补全需要 `prompt_toolkit`（`ace --install-ui` 一键装）。
+- 真实模型对话需要 `requests`（**必需**，不是可选增强：模型调用的唯一出网点 `core/ace_http.request_with_retry` 直接 import 它、无回退），`/` 补全需要 `prompt_toolkit`（`ace --install-ui` 一键装）。

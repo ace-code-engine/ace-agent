@@ -15,7 +15,8 @@
 <p align="center">
   <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
-  <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
+  <img alt="安全核心依赖" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
+  <img alt="模型调用" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.41.0%20(2026--09--24)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
@@ -23,13 +24,13 @@
 
 | 关键属性 | 说明 |
 |---|---|
-| **本地跑** | 核心纯 stdlib，跑在你自己的机器上，链路里没有云；离线演示不需要任何 API Key |
+| **本地跑** | **安全核心**纯 stdlib（执行层 · 网关 · 记忆 · CLI），跑在你自己的机器上，链路里没有云；离线演示不需要任何 API Key。模型调用需要 `requests`（[ADR-004](docs/ADR.md)） |
 | **模型无关** | 9 家厂商 · 10 个入口，一个 `/provider` 切换（智谱、DeepSeek、Moonshot、OpenAI、Anthropic、通义千问、SiliconFlow、OpenRouter、Ollama），同时支持 OpenAI 与 Anthropic 两种报文格式 |
 | **可插拔** | 每个工具只在 [`tools/registry.py`](tools/registry.py) 声明一次；技能就是普通 `SKILL.md` 文件；接 MCP 不过是 `register()` 一个 `ToolSpec` |
 
 大多数 Agent 把安全交给提示词："请不要删除文件"。ACE 不这么做：模型的每一次工具调用都要穿过一个独立的执行层，由它做权限裁决、危险行为检测、写入前快照。提示词失效时，执行层仍然拦得住。
 
-配套一个 Claude Code 风格的终端：登录页、`/` 实时补全、9 家厂商 · 10 入口一键切换、流式输出。核心零第三方依赖。
+配套一个 Claude Code 风格的终端：登录页、`/` 实时补全、9 家厂商 · 10 入口一键切换、流式输出。安全核心零第三方依赖；模型调用走 `requests`。
 
 v3.7 起，Go 执行器提供**官方预编译二进制**（随 GitHub Release 发布，5 平台）：`ace --install-executor` 一条命令装好，Windows 开 `--sandbox job` **不再需要本机装 Go**。通道设计见 [`docs/design/EXECUTOR-RELEASE.md`](docs/design/EXECUTOR-RELEASE.md)。
 
@@ -114,7 +115,7 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 
 | 能力 | 预编译 exe | 原因 |
 |---|---|---|
-| 对话、工具、文件、终端、权限裁决、快照回滚 | ✅ | 纯 stdlib 核心，资源已随包带上 |
+| 对话、工具、文件、终端、权限裁决、快照回滚 | ✅ | 纯 stdlib 安全核心，资源已随包带上 |
 | `code_execute` | ❌ 如实返回 **501** | 它靠 `sys.executable` 去跑 Python，而冻结后那就是 `ace.exe` 自己，机器上再没有第二个解释器；需要它请用[源码运行](#快速开始) |
 | `--install-ui` / `--setup` | ❌ 无意义 | 包里已经自带解释器与界面依赖 |
 | `--install-executor` | ⚠️ 取决于包里带没带 Go 二进制 | 没带就去下载，这一步需要联网 |

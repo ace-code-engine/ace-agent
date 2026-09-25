@@ -6,8 +6,8 @@
 
 ## 环境准备
 
-- Python ≥ 3.10(建议 3.11/3.12);核心零第三方依赖,跑测试不需要额外安装
-- 真实模型对话需要 `requests`(`pip install requests`)
+- Python ≥ 3.10(建议 3.11/3.12);**安全核心**(执行层/网关/记忆/CLI)零第三方依赖,跑测试不需要额外安装
+- **模型调用需要 `requests`**——没有它两个前端都连不上模型(报裸 `ImportError`);`python setup_env.py --ensure` 会一并装好
 - 可选:`prompt_toolkit`(`/` 与 `@` 实时补全菜单,`ace --install-ui`)
 - 本机无系统 Python 时可用 `uv`(`uv python install 3.12` 后以该解释器运行)
 

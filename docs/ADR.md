@@ -26,11 +26,22 @@
   但本地小模型（Ollama/Qwen）常把工具调用写成 JSON 文本而非结构化 `tool_calls`，
   因此保留文本协议作为兜底，并兼容 Ollama 原生 schema 与 ```json 围栏。
 
-## ADR-004：为什么核心保持纯 stdlib（不引入 Pydantic/FAISS）
+## ADR-004：为什么安全核心保持纯 stdlib（不引入 Pydantic/FAISS）
 
-- **决策**：运行时核心（执行层/网关/记忆/CLI）只用标准库；`requests`、`prompt_toolkit` 等按需可选。
+- **决策**：**安全核心**（执行层 / 网关 / 记忆 / CLI / 内置编辑器）只用标准库。
+  **模型调用需要 `requests`**：`core/ace_http.py` 是唯一出网点，`request_with_retry`
+  直接 `import requests`、没有回退。`prompt_toolkit` / `textual` / `rich` 仍是可选懒加载。
 - **理由**：降低部署与依赖风险；配置校验用 `dataclass`（`CLIConfig`）实现同样的默认值与校验能力，
-  不引入 Pydantic。容器化、插件化是未来的可选路径，但不会以牺牲零依赖为前提。
+  不引入 Pydantic。**安全边界不依赖任何第三方库** —— 这是"安全下沉到执行层"能成立的前提：
+  被审计的那一层越少外部成分，权限/快照/审计链越可审计。容器化、插件化是未来的可选路径。
+- **被否决的选项 (a)**：保留 `ace_http.urlopen_json_with_retry` 作为"没有 requests 也能调模型"的
+  stdlib 路径。实测它自 R-03 把两个前端合并到 `core/ace_client` 之后，**生产调用点为 0** ——
+  真实调用走的是 `request_with_retry`。一条没人走的第二份出网实现，却一直撑着"核心零依赖"的
+  口径，让那句话变成假的。与其维护双重实现，不如把 `requests` 声明为事实依赖。
+  决策与实测见 `docs/design/SAFETY-HARDENING.md` §17。
+- **口径修正（v3.41）**：此前 README 徽章、`requirements.txt`、本文档与 `INTERFACES.md` 都
+  把 `requests` 描述成"可选"，而 `setup_env.py` 也不装它 —— 结果是**干净机器上装完界面依赖
+  仍然连不上模型**（报的是裸 `ImportError`）。现已改为如实声明，并把它列进 `setup_env.REQUIRED`。
 
 ## ADR-005：为什么 Plan Mode 用 `plan_propose` 工具而非文本识别
 

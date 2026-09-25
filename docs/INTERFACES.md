@@ -124,7 +124,8 @@ class ToolSpec:
 - 所有出站(api_get/api_post/browser_open/search 系)统一走 `safe_request`:
   `ace_net` SSRF 判定(pin-to-IP + 逐跳复检 + 全记录)+ 可选 `egress_allowlist`。
 - 模型调用统一 OpenAI 兼容 `POST {base}/chat/completions`,`Authorization: Bearer <key>`;
-  429/5xx/抖动由 `ace_http.urlopen_json_with_retry` 退避(认 `Retry-After`)。
+  429/5xx/抖动由 `ace_http.request_with_retry` 退避(认 `Retry-After`)。该函数直接
+  `import requests`、**没有回退**,所以模型调用需要 `requests`(见 ADR-004)。
 - ✅ 已闭环(v3.9,R-03):`core/ace_client.py` 是唯一一份模型 HTTP 客户端 —— 唯一出网点
   (唯一 `ace_http.request_with_retry` 调用点)、唯一拼 `/chat/completions` 的地方;
   `ai_code.ModelClient` / `agent_runner.ModelProvider` 只余各前端自己的适配壳。

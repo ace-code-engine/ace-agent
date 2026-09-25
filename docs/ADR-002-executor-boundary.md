@@ -38,7 +38,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 
 - 宿主 Windows 11 + PowerShell 5.1；Python 3.13.14；**Go 1.26.5 可用**（`D:\学习\go\go\bin\go.exe`，不在 PATH 上，需显式绝对路径调用）。本机无 rustc/cargo，且 `go test -race` 不可用（缺 C 编译器，`-race requires cgo`），Go 测试一律在 `CGO_ENABLED=0` 下跑、不带竞态检测。
   - 这一条曾写作"本机无 rustc/cargo/go"，是错的：只看 PATH 就下了结论。执行器最终用 Go 实现（`executor/`），而不是本 ADR 原先预期的"Python 执行器，将来可能换 Rust"。
-- 零第三方依赖是项目原则（`docs/ADR.md:25-29` 的 ADR-004）：核心只用 stdlib，`requests`/`prompt_toolkit` 可选懒加载。
+- **安全边界**零第三方依赖是项目原则（`docs/ADR.md` 的 ADR-004）：执行层/网关/记忆/CLI 只用 stdlib；模型调用需要 `requests`（唯一出网点 `core/ace_http.py`，v3.41 起如实声明），`prompt_toolkit`/`textual`/`rich` 等界面依赖仍是可选懒加载。
 - 已有 `Dockerfile:1-11`（`python:3.12-slim` + `requests`）与 `docker-compose.yml:1-6`（ACE + Ollama）。注意：现有容器化的语义是**把整个 ACE 放进容器**（`CMD ["python", "ai_code.py", "--mock"]`，`Dockerfile:11`），不是"ACE 在宿主、执行器在容器"——后者是本 ADR 讨论的另一件事。
 - `test_all.py` 1121 行纯 stdlib 自写断言，统一入口 `run_agent()`（`test_all.py:59`）与 `check()`（`test_all.py:50`）；`core/guardian.py` 提供 `snapshot`（`core/guardian.py:79`）/`verify_snapshot`（`core/guardian.py:128`）/`rollback`（`core/guardian.py:162`）/`prune`（`core/guardian.py:218`）。
 
@@ -55,7 +55,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 ## Decision Drivers
 
 1. **消除 `shell=True`**（`tools/file_tools.py:274`）是本 ADR 的首要目标，其余都是为了让这件事做得彻底且不可回退。
-2. **零第三方依赖不可破**（`docs/ADR.md:25-29`）：所有必需路径只能用 stdlib（含 `ctypes`）；需要外部运行时的方案只能是**可选档位**。
+2. **安全边界的零第三方依赖不可破**（`docs/ADR.md` 的 ADR-004）：执行层与网关的所有必需路径只能用 stdlib（含 `ctypes`），所以需要外部运行时的方案只能是**可选档位**。（注：这条管的是**安全边界**那一层；模型调用自 v3.41 起如实声明依赖 `requests`。）
 3. **实现语言可替换**：契约必须语言无关，替换实现时宿主侧零改动。（实施结果：执行器直接用 Go 写成，跳过了"先 Python 再换掉"的中间态；这条驱动力因此从"将来可能"变成了"当下就是"。）
 4. **既有测试与 guardian 不能被破坏**：`test_all.py` 全部断言（除下文明确点名的一条）与 `core/guardian.py` 的快照/回滚语义必须保持。
 5. **可分阶段、每阶段可独立验证与回滚**：不接受"大爆炸式"重写。

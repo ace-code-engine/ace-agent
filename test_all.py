@@ -4193,57 +4193,20 @@ if _want("21"):
         finally:
             _hrq.request = _orig_request
 
-    # —— urllib 版本（agent_runner 走这条，不依赖 requests）——
-    import urllib.error as _hue
-    import urllib.request as _hur
-
-    _orig_urlopen = _hur.urlopen
-    try:
-        _u_calls = []
-
-        class _FakeURLResp:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def read(self):
-                return b'{"ok": true}'
-
-        def _fake_urlopen(req, timeout=None):
-            _u_calls.append(1)
-            if len(_u_calls) == 1:
-                raise _hue.HTTPError("http://x", 503, "busy", {"Retry-After": "1"}, None)
-            return _FakeURLResp()
-
-        _hur.urlopen = _fake_urlopen
-        _u_slept = []
-        _out = _http.urlopen_json_with_retry(object(), timeout=5, policy=_hpol,
-                                             sleep=_u_slept.append, clock=lambda: 0.0)
-        check("urllib 版 503 后重试成功", _out == {"ok": True}, _out)
-        # Retry-After 只能从 e.headers 取，从 e.reason 里是拿不到的
-        check("urllib 版读到了 HTTPError 里的 Retry-After", _u_slept == [1.0], _u_slept)
-
-        # 4xx 原样抛，且**不能把响应体读掉** —— agent_runner 的 tools 降级要读
-        # e.read() 里的错误正文来判断"是不是不认 tools 参数"。
-        _u_calls.clear()
-
-        def _fake_urlopen_400(req, timeout=None):
-            _u_calls.append(1)
-            raise _hue.HTTPError("http://x", 400, "bad", {},
-                                 _io.BytesIO(b"no tools here"))
-
-        _hur.urlopen = _fake_urlopen_400
-        try:
-            _http.urlopen_json_with_retry(object(), timeout=5, policy=_hpol,
-                                          sleep=lambda _s: None, clock=lambda: 0.0)
-            check("urllib 版 400 原样抛且正文未被读掉", False, "未抛出")
-        except _hue.HTTPError as e:
-            check("urllib 版 400 原样抛且正文未被读掉",
-                  len(_u_calls) == 1 and e.read() == b"no tools here")
-    finally:
-        _hur.urlopen = _orig_urlopen
+    # —— `ace_http.urlopen_json_with_retry` 已删除（H-22）——
+    # 它曾是"没有 requests 也能调模型"的那条标准库路径，原先由 agent_runner 走。
+    # R-03 把两个前端合并到 core/ace_client 之后，真实调用改走
+    # `ace_http.request_with_retry`，这条路径的生产调用点变成 **0** ——
+    # 一条没人走的路，却一直撑着"核心零依赖"的口径（那个口径因此是假的）。
+    # v3.41 起如实声明 requests 是模型调用的硬依赖，这条路连同它的 3 条用例一并删除，
+    # 并在此留下行为级守卫：谁把它加回来，这里当场红。
+    # 决策与实测见 docs/design/SAFETY-HARDENING.md §17。
+    check("H-22 ★无 requests 的 stdlib 出网路径已删除（不再留第二份没人走的实现）",
+          not hasattr(_http, "urlopen_json_with_retry"),
+          hasattr(_http, "urlopen_json_with_retry"))
+    check("H-22 ★唯一的出网实现仍然是 request_with_retry（删的是死码，不是主路）",
+          callable(getattr(_http, "request_with_retry", None)),
+          hasattr(_http, "request_with_retry"))
 
     # —— 接入点源码守卫：出网点只剩一处，就在 core/ace_client.py ——
     # R-03 把模型 HTTP 客户端合并成一份之后，这两条守卫的**形状**必须跟着改：
@@ -4297,6 +4260,12 @@ if _want("21"):
     check("全仓唯一出网点在 ace_client 里（重试仍走 ace_http 那一层）",
           _ac_src.count("ace_http.request_with_retry(") == 1,
           _ac_src.count("ace_http.request_with_retry("))
+    # H-22：惰性 requests 探针 `_requests()` 自 R-03 起就没有任何调用点，v3.41 删除。
+    # 留着它比删掉更糟 —— 它看着像"没 requests 也有救"，而真发请求时
+    # `request_with_retry` 会直接 ImportError，一个会骗人的兜底不是兜底。
+    check("H-22 ★ace_client 里没有调用点的 requests 探针已删除",
+          "def _requests" not in _ac_src,
+          "def _requests" in _ac_src)
     # 两层循环各管一件事：tools 协议降级 vs 网络重试。叠成一个的后果是一次 429
     # 也会把 tools 永久关掉。R-03 之后**降级循环搬到了 ace_client**，判据仍由前端注入
     # （两家端点认不认 tools 的判据不同），所以这条也按新位置断言。
@@ -12769,6 +12738,32 @@ if _want("70"):
           and _el70d._retry_fingerprint("FORMAT_ERROR", "x", "abc")
           != _el70d._retry_fingerprint("FORMAT_ERROR", "x", "abd"))
     _el70d.close()
+
+    # —— H-22：依赖契约必须与事实一致（安全核心零依赖 / 模型调用需 requests）——
+    # 这一条防的是"文档把事实说回去"。v3.41 之前：README 徽章挂着 `core deps-zero`、
+    # `requirements.txt` 把 requests 标成"可选"、`setup_env.REQUIRED` 也不装它 ——
+    # 结果是干净机器上装完界面依赖**照样连不上模型**（`request_with_retry` 里裸
+    # `import requests`，报的是 ImportError）。真实判据只有三条：唯一出网点直接
+    # import 它、requirements.txt 列了它、启动器装它。三条任一被改回去，这里红。
+    _req22 = (FOLDER / "requirements.txt").read_text(encoding="utf-8")
+    _req22_live = [ln.strip() for ln in _req22.splitlines()
+                   if ln.strip() and not ln.strip().startswith("#")]
+    check("H-22 ★requirements.txt 把 requests 列为必需（不是注释、不是「可选」）",
+          any(ln.startswith("requests") for ln in _req22_live), _req22_live)
+    import setup_env as _se70  # noqa: E402
+    check("H-22 ★setup_env.REQUIRED 含 requests（启动器必须把它装上，否则装完也连不上模型）",
+          "requests" in _se70.REQUIRED, _se70.REQUIRED)
+    _rd22 = {n: (FOLDER / n).read_text(encoding="utf-8")
+             for n in ("README.md", "README.zh-CN.md")}
+    check("H-22 ★两个 README 都不再挂 `core deps-zero` 徽章"
+          "（那句是假的：模型调用需要 requests）",
+          all("core%20deps-zero" not in t for t in _rd22.values()),
+          [k for k, v in _rd22.items() if "core%20deps-zero" in v])
+    check("H-22 ★两个 README 都换成如实的双徽章（安全核心零依赖 + 模型调用需 requests）",
+          all("safety%20core-zero--dep" in t and "requires%20requests" in t
+              for t in _rd22.values()),
+          [k for k, v in _rd22.items()
+           if "safety%20core-zero--dep" not in v or "requires%20requests" not in v])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

@@ -25,8 +25,13 @@
      `requests.HTTPError` 和 `urllib.error.HTTPError` 的私有细节做判断
      （`.response.status_code`、`e.read()`），这些细节一并暴露出来，
      迁移才是"换调用点"而不是"改行为"。
-  4. **零项目依赖。** 只 import `core.ace_http`（同为纯 stdlib）——谁都能安全地引它，
-     `requests` 仍然只在真要发请求时才用（惰性 import，无依赖的解释器照样跑得动）。
+  4. **模块级零项目依赖，但模型调用需要 `requests`**（如实声明，见 `docs/ADR.md` ADR-004）。
+     只 import `core.ace_http`；`requests` 是惰性 import，所以**没有 requests 的解释器
+     也能 import 本模块**，纯判定的那部分代码照样可测。但真发一次请求就必须有它：
+     `ace_http.request_with_retry` 直接 `import requests`，**没有回退**。
+     此前"纯 stdlib 也能调模型"的口径自 R-03 前端合并后就已不成立 —— 曾经承载它的
+     那条 urllib 路径（`ace_http.urlopen_json_with_retry`）生产调用点为 0，已于
+     v3.41 删除（见 `docs/design/SAFETY-HARDENING.md` §17）。
 """
 
 from __future__ import annotations
@@ -72,15 +77,6 @@ class ChatHTTPError(RuntimeError):
         self.attempts = attempts
         if status is not None:
             self.response = type("ChatResponse", (), {"status_code": status})()
-
-
-def _requests():
-    """惰性取 requests；没装就返回 None（纯 stdlib 环境照样能 import 本模块）。"""
-    try:
-        import requests
-    except ImportError:
-        return None
-    return requests
 
 
 def _response_body(exc: BaseException) -> str:

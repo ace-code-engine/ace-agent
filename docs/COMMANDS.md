@@ -214,7 +214,7 @@
 - `--max-history N` — 只保留最近 N 轮，防本地小模型上下文溢出
 - `--context-window N` — 告诉 ACE 模型窗口有多大（默认 32768），压缩阈值按它算
 - `--no-compact` — 关掉上下文压缩，退回纯硬截断（会丢早期对话）
-- `--install-ui` — 装 / 补全 prompt_toolkit（多镜像自动回退）
+- `--install-ui` / `--setup` — 准备运行环境：装 `requests`（模型调用必需）+ `prompt_toolkit` / `textual` / `rich`（界面增强），多镜像自动回退
 - `--install-executor` — 下载官方预编译执行器（无需本机 Go；`--sandbox job` 前置）
 - `--sandbox job` — Windows Job Object：进程树/内存上限 + 受限令牌（拿不到边界一律 503，不静默回退）
 - `--sandbox docker` — 一次性容器：--network none + --read-only + cap-drop ALL + --init + 只挂工作目录。镜像需先构建一次（`docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`）；镜像放在 registry 里的话 `ACE_SANDBOX_PULL=1` 可自动拉（先 `docker login`），`--sandbox-image <ref>@sha256:<digest>` 可固定摘要

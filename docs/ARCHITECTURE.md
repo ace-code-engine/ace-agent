@@ -212,7 +212,7 @@ ace-agent/
 ├── LICENSE                     # MIT
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── SECURITY.md                 # 安全策略：漏洞报告流程 / 承诺 / 已知边界
-├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
+├── requirements.txt            # 依赖清单（安全核心零依赖，模型调用需 requests）
 ├── setup_env.py                # 运行环境一键准备：多环境发现 + 真的 import 一次 + 离线 wheel
 ├── vendor/                     # 离线依赖落点（放 wheel 即可离线安装；README 说明口径）
 ├── packaging/                  # 发行打包：ace.spec + build_exe.ps1（PyInstaller 单目录 + 冒烟门禁）/ make_wix.py + build_installer.ps1（WiX MSI 安装包 + 便携 zip）/ make_icon.py（logo.svg → ace.ico，纯标准库光栅化）/ check_packaging.ps1（提交前脚本自检）

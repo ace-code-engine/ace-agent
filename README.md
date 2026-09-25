@@ -15,13 +15,14 @@
   <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <img alt="Dependencies" src="https://img.shields.io/badge/core%20deps-zero-orange">
+  <img alt="Safety core dependencies" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
+  <img alt="Model API" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.41.0%20(2026--09--24)-brightgreen"></a>
 </p>
 
 | Property | What you get |
 |---|---|
-| **Local** | pure-stdlib core, runs on your machine, no cloud in the loop; the offline demo needs no API key |
+| **Local** | pure-stdlib **safety core** (execution layer · gateway · memory · CLI) — runs on your machine, no cloud in the loop; the offline demo needs no API key. Model calls need `requests` ([ADR-004](docs/ADR.md)) |
 | **Model-agnostic** | 9 vendors · 10 endpoints behind one `/provider` switch (Zhipu, DeepSeek, Moonshot, OpenAI, Anthropic, Qwen, SiliconFlow, OpenRouter, Ollama), OpenAI *and* Anthropic wire formats |
 | **Pluggable** | every tool is declared once in [`tools/registry.py`](tools/registry.py); **MCP servers connect over stdio** (`mcp_servers` in config → their tools appear as `mcp__<server>__<tool>`, permission/approval/audit unchanged — see [SECURITY-MODEL](docs/SECURITY-MODEL.md), *an MCP server runs outside ACE's sandbox*); skills are plain `SKILL.md` files |
 
@@ -77,7 +78,7 @@ Two things worth knowing before you run it:
 
 | Capability | In the prebuilt exe | Why |
 |---|---|---|
-| Chat, tools, files, terminal, permissions, snapshots | ✅ | pure-stdlib core, resources are bundled |
+| Chat, tools, files, terminal, permissions, snapshots | ✅ | pure-stdlib safety core, resources are bundled |
 | `code_execute` | ❌ returns **501**, stated plainly | it runs Python via `sys.executable`, which is `ace.exe` itself when frozen — no interpreter left to run; [use the source build](#run-it-in-30-seconds-no-api-key) if you need it |
 | `--install-ui` / `--setup` | ❌ meaningless | the bundle already contains its interpreter and UI deps |
 | `--install-executor` | ✅ only if the bundle shipped the Go binary | otherwise it downloads it, which needs network |

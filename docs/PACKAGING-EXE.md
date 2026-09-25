@@ -22,7 +22,7 @@
 
 | 能力 | 状态 | 原因 |
 |---|---|---|
-| 对话 / 工具 / 文件 / 终端 / 权限裁决 / 快照回滚 | ✅ | 纯 stdlib 核心，资源随包 |
+| 对话 / 工具 / 文件 / 终端 / 权限裁决 / 快照回滚 | ✅ | 纯 stdlib 安全核心，资源随包（`requests` 也在包内，模型调用照常） |
 | `code_execute` | ❌ **501** | 它靠 `subprocess.run([sys.executable, tmp_file])` 跑 Python 代码；冻结后 `sys.executable` 是 `ace.exe` 自己，不是解释器，而最小环境又把 PATH 洗掉，找不到第二个解释器。已加冻结探测（`tools/code_tools.py: _is_frozen()`），`test_all [10]` 有 5 条断言盯着 |
 | `--install-ui` / `--setup` | ❌ 无意义 | 包内已自带解释器与界面依赖；`setup_env.py` 那套"找/建解释器"逻辑在冻结包里没有用武之地 |
 | `--install-executor` | ⚠️ 视情况 | 打包时 `executor/` 里有 Go 二进制就一并带上；没带则需要联网下载 |

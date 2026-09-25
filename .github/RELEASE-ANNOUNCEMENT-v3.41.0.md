@@ -9,16 +9,20 @@
 
 ### 这一版给你什么
 
-**① 预编译 Windows 发行包（新）**
+**① Windows 安装包（新）**
 
-`ace-3.41.0-windows-amd64.zip` —— 解压到任意目录，运行 `ace\ace.exe`。**那台机器上不需要装 Python。** 没有安装程序，也不会往你选的目录之外写东西。
+`ace-3.41.0-windows-amd64-setup.exe` —— 双击安装。**它自带运行环境，那台机器上不需要装 Python。** 也提供同内容的便携版 `ace-3.41.0-windows-amd64.zip`，解压即用。
+
+安装包会做的事：装到 `Program Files\ACE`（或只装给你自己）· 开始菜单两项（正常启动 / 离线演示，都自动开好终端窗口）· 可选**加入 PATH**（勾上就能在任意终端敲 `ace`）· 可选桌面快捷方式。**卸载会把 PATH 条目一起摘干净。**
+
+装完想先确认它是好的？在任意终端敲（或从开始菜单选「离线演示」）：
 
 ```powershell
-.\ace\ace.exe --mock     # 离线先确认这个包是完整的，不需要账号也不需要密钥
-.\ace\ace.exe            # 接真实模型：进首页选 2 走配置向导
+ace --mock     # 离线跑一遍完整闭环，不需要账号也不需要密钥
+ace            # 接真实模型：进首页选 2 走配置向导
 ```
 
-跑之前两件小事：**SmartScreen 会拦一下**（这个构建没有代码签名，点"更多信息 → 仍要运行"即可，这是未签名二进制的正常样子）；**它是一整个目录，不是单个文件**——`ace.exe` 必须和旁边的 `_internal\` 待在一起。
+两件小事：**SmartScreen 会拦一下**（这个构建没有代码签名，点"更多信息 → 仍要运行"即可——这是未签名二进制的正常样子）；**`code_execute` 在安装版里不提供**（下面有原因，它会明确告诉你而不是静默失败）。
 
 **② 两个前端合并到同一份模型客户端**
 
@@ -77,16 +81,20 @@ python ai_code.py --mock   # 离线演示：完整跑一遍 模型 ↔ 执行层
 
 ### What this version gives you
 
-**① A prebuilt Windows bundle (new)**
+**① A Windows installer (new)**
 
-`ace-3.41.0-windows-amd64.zip` — unzip anywhere, run `ace\ace.exe`. **No Python required on that machine.** No installer, and nothing is written outside the folder you pick.
+`ace-3.41.0-windows-amd64-setup.exe` — double-click to install. **It carries its own runtime: no Python needed on that machine.** The same payload is also offered as a portable `ace-3.41.0-windows-amd64.zip` if you would rather not install anything.
+
+What the installer does: installs to `Program Files\ACE` (or just for you) · two Start Menu entries (normal launch / offline demo, each opening a terminal window for you) · optional **add to PATH** (tick it and `ace` works in any terminal) · optional desktop shortcut. **Uninstall removes the PATH entry again.**
+
+To confirm it works right after installing, in any terminal (or pick "offline demo" from the Start Menu):
 
 ```powershell
-.\ace\ace.exe --mock     # offline: confirm the bundle is intact, no account or key needed
-.\ace\ace.exe            # real models: pick 2 on the landing screen for the setup wizard
+ace --mock     # the whole loop, offline: no account and no key needed
+ace            # real models: pick 2 on the landing screen for the setup wizard
 ```
 
-Two small things first: **SmartScreen will warn you** — the build is not code-signed, so choose *More info* → *Run anyway* (that is what an unsigned binary looks like, not a broken one); and **it is a folder, not a single file** — `ace.exe` must stay next to its `_internal\` directory.
+Two small things: **SmartScreen will warn you** — the build is not code-signed, so choose *More info* → *Run anyway* (that is what an unsigned binary looks like, not a broken one); and **`code_execute` is not offered in the installed build** (the reason is below — it tells you so instead of failing silently).
 
 **② Both frontends now share one model client**
 

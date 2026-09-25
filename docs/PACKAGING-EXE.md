@@ -41,18 +41,39 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/check_packaging.ps1
 ```
 
-它检查五件事：
+它检查这些事：
 
 | 检查 | 对应踩过的坑 |
 |---|---|
-| `build_exe.ps1` 是纯 ASCII（并点名是哪几行） | 注释里写中文 → CI 解析崩 |
+| 每个打包脚本都是纯 ASCII（并点名是哪几行） | 注释里写中文 → CI 解析崩 |
 | 无 BOM | 一条规则，不留特例 |
 | 能被当前 PowerShell 解析 | 同上 |
 | 没用 `$Args`/`$Input`/`$Matches` 当参数名 | 自动变量会把参数值吞掉，脚本静默以空参数运行 |
 | 冒烟用调用运算符而非 `Start-Process` | `-ArgumentList` 按 C 运行时规则拼行，带空格的参数被拆开 |
+| `core/version.py` / CHANGELOG 标题 / tag 三者一致 | 发布步骤 grep 的正是 `## [v<版本>]`；这条判据自己曾因少写一个 `v` 而误报 |
 
 它还会**真跑一遍源码**，确认每个冒烟 mark 都是场景确实会输出的文本——断言一条永不出现的文本，
 无论包多正确都不可能通过。
+
+## 图标
+
+`assets/ace.ico` 由 `assets/logo.svg` 生成，**纯标准库、零外部工具**：
+
+```powershell
+python packaging/make_icon.py --preview 512   # 另存一张大图便于肉眼核对
+```
+
+为什么自己写光栅化：svg→png 那一套（cairosvg / svglib / Pillow / ImageMagick / Inkscape /
+无头浏览器）每一条都要联网装或要外部二进制，而本项目的构建依赖刻意为零。`logo.svg` 恰好是
+**纯几何图形**，所以一个够用的小光栅化器可行——支持 `<rect>`（含 rx）、`<path>`（M/L/C/Z）、
+纯色与 `linearGradient`、`stroke-width/linecap/linejoin`，多一样都不做；抗锯齿用 3×3 超采样。
+
+**一个踩过的坑写在这里**：SVG 的 `gradientUnits` **默认是 `objectBoundingBox`**，即
+`x1="0" y1="0" x2="1" y2="1"` 指的是**图形包围盒的比例**而非绝对坐标。第一版把它当绝对坐标，
+于是所有采样点的 `t` 都被钳到 0，整条盾牌描边渲染成第一个 stop 的纯青色（浏览器里明明有渐变）。
+`make_icon.py` 现在按包围盒换算，并把这份教训写在 `LinearGradient` 的 docstring 里。
+
+生成的 ICO：16 / 24 / 32 / 48 / 64 / 128 / 256 七个尺寸，32bpp，内嵌 PNG（Vista 起支持）。
 
 ## 构建
 
@@ -66,7 +87,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
 #   -SkipSmoke               只构建（会打一条醒目的"这个包没跑过"警告）
 ```
 
-产物：`dist\ace\`（整个目录就是要发布的包，压缩后挂 Release）。脚本最后会打印体积。
+产物：`dist\ace\`（整个目录就是载荷，下一步的安装包与便携 zip 都由它来）。脚本最后会打印体积。
+
+## 安装包（自带环境，用户机器上不需要 Python）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps1
+#   -Version 3.41.0   覆盖版本（默认读 core/version.py）
+#   -Iscc <路径>      指定 ISCC.exe
+#   -NoZip            不另出便携 zip
+```
+
+产物：`dist\ace-<版本>-windows-amd64-setup.exe`（Inno Setup）＋ 同载荷的便携
+`...-windows-amd64.zip`。**两个都挂在 Release 上**：安装包是主推渠道，zip 给不想装的人。
+
+安装包做的事：装到 `{autopf}\ACE`（默认所有用户，也可只给自己）→ 开始菜单两项
+（正常启动 / 离线演示，都用 `cmd /k` 起终端，否则控制台程序会一闪而过）→ 可选的
+「加入 PATH」（勾上就能在任意终端敲 `ace`）→ 可选桌面快捷方式。**卸载会把 PATH 条目一起摘掉**
+（HKCU 与 HKLM 都查，因为安装与卸载时的权限模式可能不同——留一条指向不存在目录的 PATH 比多删一行更糟）。
+
+**为什么单开一步而不是塞进 `build_exe.ps1`**：构建并验证载荷是一件事，把它包起来是另一件事。
+分开之后，改措辞 / 改 PATH 行为都不必重新冻结，而且冒烟门禁的意义保持纯粹——它验的是载荷，
+不是包装。所以 `build_installer.ps1` **不自己构建载荷**：`dist\ace\` 不存在就停下并告诉你该跑哪条命令。
+包一个没验过的载荷是本末倒置。
 
 ## 冒烟门禁：为什么构建脚本敢说自己成功
 
@@ -79,10 +122,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
 |---|---|
 | `--version` | 进程能不能起来 |
 | `--preview` | **资源是否齐**——首屏要读 `locales/` 的每一句标签和 `assets/` 的 logo |
-| `--mock --input …` | 离线全链路：模型 → 执行层 → 工具往返 |
-| `--tools --permission full --input "run this python code…"` | `code_execute` 是否**如实**报 501，而不是拿 `ace.exe` 去跑 `.py` |
+| `--mock --permission readonly --input …` | 离线全链路：模型 → 执行层 → 工具往返 |
+| `--mock --tools --permission full --input …` | 原生工具调用路径在冻结包里也通 |
 
 任一场景失败 → 脚本非零退出 → 不发布。证据落在 `packaging\_smoke\`。
+
+**为什么不把 `code_execute` 的 501 也做成冒烟场景**：mock 模型是脚本化的，只调 `datetime_now`，
+永远不会调 `code_execute` —— 断言一条注定不出现的文本，无论包多正确都不可能通过（这条我犯过）。
+它由 `test_all [10]` 直接断言（打桩 `sys.frozen` 驱动工具），那才是它该待的地方：
+**冒烟门禁只该断言它能真正观察到的东西**。
 
 ## 发布
 

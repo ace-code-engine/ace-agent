@@ -41,34 +41,44 @@ Write-Host "checking: $Script"
 Write-Host ""
 
 # -- 1. ASCII purity --------------------------------------------------------
-# The one that keeps biting. A single byte > 127 breaks the CI parse.
-$bytes = [System.IO.File]::ReadAllBytes($Script)
-$nonAscii = ($bytes | Where-Object { $_ -gt 127 } | Measure-Object).Count
-$detail = ""
-if ($nonAscii -gt 0) {
-    # Name the offending lines so the fix is obvious.
-    $lines = [System.IO.File]::ReadAllLines($Script, [System.Text.Encoding]::UTF8)
-    $bad = @()
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i].ToCharArray() | Where-Object { [int]$_ -gt 127 }) {
-            $bad += ("L{0}" -f ($i + 1))
-        }
-    }
-    $detail = ("non-ASCII bytes={0} on lines {1}" -f $nonAscii, ($bad -join ', '))
+# The one that keeps biting. A single byte > 127 breaks the CI parse. Checked for
+# EVERY PowerShell script we ship, not just the one that broke last time -- the
+# installer script carries exactly the same constraints.
+$scripts = @($Script)
+foreach ($extra in @('build_installer.ps1')) {
+    $p = Join-Path $Here $extra
+    if ((Test-Path $p) -and ($p -ne $Script)) { $scripts += $p }
 }
-Check "build_exe.ps1 is pure ASCII (PowerShell 5.1 reads BOM-less as ANSI)" ($nonAscii -eq 0) $detail
+foreach ($s in $scripts) {
+    $leaf = Split-Path $s -Leaf
+    $bytes = [System.IO.File]::ReadAllBytes($s)
+    $nonAscii = ($bytes | Where-Object { $_ -gt 127 } | Measure-Object).Count
+    $detail = ""
+    if ($nonAscii -gt 0) {
+        # Name the offending lines so the fix is obvious.
+        $lines = [System.IO.File]::ReadAllLines($s, [System.Text.Encoding]::UTF8)
+        $bad = @()
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].ToCharArray() | Where-Object { [int]$_ -gt 127 }) {
+                $bad += ("L{0}" -f ($i + 1))
+            }
+        }
+        $detail = ("non-ASCII bytes={0} on lines {1}" -f $nonAscii, ($bad -join ', '))
+    }
+    Check ("{0} is pure ASCII (PowerShell 5.1 reads BOM-less as ANSI)" -f $leaf) ($nonAscii -eq 0) $detail
 
-# A BOM would also be a problem to reason about, even though 5.1 honours it.
-$hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
-Check "build_exe.ps1 has no BOM (one rule, no special cases)" (-not $hasBom)
+    # A BOM would also be a problem to reason about, even though 5.1 honours it.
+    $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    Check ("{0} has no BOM (one rule, no special cases)" -f $leaf) (-not $hasBom)
 
-# -- 2. parses under Windows PowerShell 5.1 ---------------------------------
-# The check that would actually have caught all three CI failures.
-$errs = $null
-$null = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$errs)
-$msg = ""
-if ($errs -and $errs.Count) { $msg = (($errs | Select-Object -First 3 | ForEach-Object { $_.Message }) -join ' | ') }
-Check "build_exe.ps1 parses under the current PowerShell" (-not ($errs -and $errs.Count)) $msg
+    # -- 2. parses under Windows PowerShell 5.1 -----------------------------
+    # The check that would actually have caught all three CI failures.
+    $errs = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseFile($s, [ref]$null, [ref]$errs)
+    $msg = ""
+    if ($errs -and $errs.Count) { $msg = (($errs | Select-Object -First 3 | ForEach-Object { $_.Message }) -join ' | ') }
+    Check ("{0} parses under the current PowerShell" -f $leaf) (-not ($errs -and $errs.Count)) $msg
+}
 
 # -- 3. the reserved-name trap ---------------------------------------------
 # $Args / $Input / $Matches are automatic variables; using them as parameter

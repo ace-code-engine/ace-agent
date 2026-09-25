@@ -207,7 +207,7 @@ ace-agent/
 ├── requirements.txt            # 可选增强依赖清单（核心零依赖，按需安装）
 ├── setup_env.py                # 运行环境一键准备：多环境发现 + 真的 import 一次 + 离线 wheel
 ├── vendor/                     # 离线依赖落点（放 wheel 即可离线安装；README 说明口径）
-├── packaging/                  # 发行打包：ace.spec（PyInstaller 单目录）+ build_exe.ps1（构建 + 冒烟门禁）+ check_packaging.ps1（提交前的脚本自检）
+├── packaging/                  # 发行打包：ace.spec + build_exe.ps1（PyInstaller 单目录 + 冒烟门禁）/ ace.iss + build_installer.ps1（Inno Setup 安装包）/ make_icon.py（logo.svg → ace.ico，纯标准库光栅化）/ check_packaging.ps1（提交前脚本自检）
 ├── ace.cmd                     # Windows 启动器（向 setup_env 问路挑解释器，防商店占位）
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
 ├── docker-compose.yml          # 整体镜像一键起停编排

@@ -1,0 +1,18 @@
+### git show d829e6f (v3.8.0 release commit)
+
+d829e6f640474102e6862f3ec618c32ed8c3d51d
+2026-09-18 19:51:03 +0800
+release: v3.8.0 里程碑 —— 文档/安全承诺守卫([38]/[39]/[40]) + 审计 19 条全面对账 + 外发闸门/SEC-009/016/017 + 场景示例 examples/(P1 全清); version.py 3.7.0→3.8.0, CHANGELOG 拆出 v3.8 段, README 徽章与'最近更新'同步, 今日写下的'本轮'标注由 v3.7 订正为 v3.8
+
+
+
+ CHANGELOG.md           | 13 ++++++++++---
+ README.md              |  4 ++--
+ docs/BACKLOG.md        | 14 +++++++-------
+ docs/CONFIGURATION.md  |  4 ++--
+ docs/DEVELOPMENT.md    |  4 ++--
+ docs/INTERFACES.md     |  2 +-
+ docs/SECURITY-AUDIT.md |  4 ++--
+ docs/SECURITY-MODEL.md |  2 +-
+ version.py             |  2 +-
+ 9 files changed, 28 insertions(+), 21 deletions(-)

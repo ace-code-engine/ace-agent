@@ -1,0 +1,6 @@
+### git rev-parse --is-inside-work-tree
+true
+
+### git remote -v
+origin  https://github.com/ace-code-engine/ace-agent.git (fetch)
+origin  https://github.com/ace-code-engine/ace-agent.git (push)

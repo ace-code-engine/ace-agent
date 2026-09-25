@@ -1,0 +1,108 @@
+### git remote -v
+origin	https://github.com/ace-code-engine/ace-agent.git (fetch)
+origin	https://github.com/ace-code-engine/ace-agent.git (push)
+
+### git ls-remote --tags origin   （远端权威 tag 列表；2026-09-25 23:17:53 +08:00）
+### 说明：本地这份 clone 只有 46 个 tag，远端有 48 个 —— 本地缺 v3.41.0 与 v3.7.0。
+### 因此 `git tag` / `git for-each-ref refs/tags` 的输出**不能**用来断言"某个 tag 不存在"。
+
+95acfa63f03c149be7d8d47562be5cbe89c17978	refs/tags/v3.10.0
+d31a784b5e464fc2347caf62ec2e523a0851e2d6	refs/tags/v3.10.0^{}
+2d20defccc10ac08f23316cfd596e6602b58fe77	refs/tags/v3.10.1
+7b3dbd39f22cdc7cb7b033084fa2f1ff90d76658	refs/tags/v3.10.1^{}
+4e5fb53991db094d0ca5a73906527e5391905921	refs/tags/v3.11.0
+efc56d6e825a466edd8d1d90122ad7082ff0c290	refs/tags/v3.11.0^{}
+d3e9942117d2029baf4b5b0b7b3f5409d150c8fb	refs/tags/v3.11.1
+2499c1a75b9980a088283612d9ba3eee6dc34bd6	refs/tags/v3.11.1^{}
+6ac2e5555a6ada768427f77b0ce1adb198043560	refs/tags/v3.12.0
+978dbdb5152caf0976d46dbf9c556b28c7b70fae	refs/tags/v3.12.0^{}
+a1a4ebbcf416ae7e308350ab9f38eed7a539058b	refs/tags/v3.13.0
+fad904649f617754c673331b5ceb92cbd90b180c	refs/tags/v3.13.0^{}
+757fa07791747e14b85e7a1fd1b687ca54afbc51	refs/tags/v3.14.0
+21cd6189c7edff45ff29417c2bd57500d703e64c	refs/tags/v3.14.0^{}
+3e3584d09aeee23399bbb01265a16ef973e6758c	refs/tags/v3.15.0
+033e5a8fd8261777c0296c08dbcef349bea01a60	refs/tags/v3.15.0^{}
+a16dac9279a4d0ed66f185af577aa6bce59cb295	refs/tags/v3.16.0
+a5e917be28b757af86cad71c37e2bb79ba3f8b14	refs/tags/v3.16.0^{}
+301c76e1541dac784dcc8b007a89a3e324e6a926	refs/tags/v3.16.1
+99894c910d4c9b15629f3cde0890d611ed5bfa24	refs/tags/v3.16.1^{}
+301238225f95fcd12ee270adce4518e74fa4ee27	refs/tags/v3.17.0
+5c7205206da430173103d3ae2613977d1cee67ac	refs/tags/v3.17.0^{}
+7856b70a8c81006818dfc9673a472fbdcb464e95	refs/tags/v3.18.0
+7d7cb8e3ad898342c5902a3592da8446433429c1	refs/tags/v3.18.0^{}
+b0b6a26eeffaed76dffedad22d0dd1f5b925443a	refs/tags/v3.19.0
+654b0a716e3044144e16eab3a50e15e68943dd38	refs/tags/v3.19.0^{}
+31d0ef69d0a96a2370317a31131dd18d9371d4d7	refs/tags/v3.20.0
+e786ea7b22b8e7ac74ac0b497fe244d9edfd6c1b	refs/tags/v3.20.0^{}
+34bbec37db3cc2c45b98e997967c27ede9806c73	refs/tags/v3.21.0
+37a689bf2f433305331ecb383b069f0ee45b20a5	refs/tags/v3.21.0^{}
+5d66c5b72a1913cdf167a3a4acaf82c474ee706f	refs/tags/v3.22.0
+7b27d89e3a103b1f2ebc19fc802f046174bcb8d5	refs/tags/v3.22.0^{}
+c235b740e2ea467c0ff8194608ddb2e2b99031e0	refs/tags/v3.23.0
+7bd5a20cb3aefe8743548c789249627ad1bf646c	refs/tags/v3.23.0^{}
+76f4031e08accdb8b9b78d754d041355f3ef2aae	refs/tags/v3.24.0
+9b243ca018e8257be7f4e892d4184b8309d9bea7	refs/tags/v3.24.0^{}
+405cfd1bbef2e858857f5babc71deeb80f79ce2e	refs/tags/v3.25.0
+7ff32fdac53faed4860f6a6731ed79237bfc738e	refs/tags/v3.25.0^{}
+a4e7768b57e2176b5738a9cd1ae47dd1a41b33a5	refs/tags/v3.26.0
+e465c58dd4f95b30cb8efba141026e07378d2dd8	refs/tags/v3.26.0^{}
+5117f3ad99f015b349eb26d1f7c83910ce70af3b	refs/tags/v3.27.0
+c0be615cb5068c69d5595be18bd1dd0213a656ab	refs/tags/v3.27.0^{}
+2efbbbfd00c65e16810513ca5f87a15dcb6c86b7	refs/tags/v3.28.0
+e372c4f4b56f554d7c676c636a75b3f70ac067ca	refs/tags/v3.28.0^{}
+06e5f45377f5a3e5cd21801c6fa6c7ddc5891dee	refs/tags/v3.29.0
+74d0e157392c633c919724a1f2671c322c770a3a	refs/tags/v3.29.0^{}
+e9a1547dacc9cbfeae274253670ea5d123050361	refs/tags/v3.3
+bbd02c934713ad0051bd8b331c7543f5445db704	refs/tags/v3.3^{}
+ab0518f25fccfa6931ed636d8b66d5dd68640f60	refs/tags/v3.30.0
+2019e27d59cdb5039f980d762b37817dff0df61a	refs/tags/v3.30.0^{}
+87d0702cf87b2b6bf43751d3d5035eda475965bf	refs/tags/v3.31.0
+e259e687090b31c3ad22aae98c460b0c5187ea44	refs/tags/v3.31.0^{}
+e83d26abdf22873ff11a8027f1faeab1b39e67fb	refs/tags/v3.32.0
+6677aee256232b7ceb855e6f723fd2b05653aa5d	refs/tags/v3.32.0^{}
+229c07803d4569fc1babfc0dd82e0b1a75096ad1	refs/tags/v3.33.0
+e4577b1d1cb6bbf6838b6fd3087e36eaba360191	refs/tags/v3.33.0^{}
+1f265f5fd11b489f5fe26f70eb9d3479bbe9dc64	refs/tags/v3.34.0
+da64fbde6672c23c0b989687d801b2fffab6ab41	refs/tags/v3.34.0^{}
+0317edad9db3e039221e8e5832f2c6a4eff215d4	refs/tags/v3.35.0
+3ddf0074a3c3b7e7f9df26c72c4a23337b8a0bcf	refs/tags/v3.35.0^{}
+bec00af41e7ac4125026d2f31493a27f8c921deb	refs/tags/v3.35.1
+e9ece5e2a83c24ef78228e8ddced6ac74ee4e659	refs/tags/v3.35.1^{}
+40032ad27fe658936571aa838a12c7e5045b3e52	refs/tags/v3.36.0
+bf0fc029e4ddd5cdc54550cafd1332496dbd0b79	refs/tags/v3.36.0^{}
+737174958cc43dffdb30d29449f0576834fae413	refs/tags/v3.37.0
+56abfcc928c7382895195749768356ef3262de02	refs/tags/v3.37.0^{}
+8b71f8cbcd8619e66f8f6f1db9349b7e24c33d89	refs/tags/v3.38.0
+3841c88ea897bdb694e5fd5b07f3532552ab5de7	refs/tags/v3.38.0^{}
+77dd49d7df504c8f005295c30e4c587a793eb03e	refs/tags/v3.39.0
+f84cb86cad8484eb29bea0dbfdfcddad4ec01520	refs/tags/v3.39.0^{}
+85386526abc2f607e2237a8be321f2eb63fdae76	refs/tags/v3.4
+6d3e60fe838db9315c1883d65d9aa2052ea98263	refs/tags/v3.4^{}
+47e2a03027179efdbbed7ca18bd8364520c5bbbe	refs/tags/v3.40.0
+a02ca7782ff5d03868d0a449904b80f685126532	refs/tags/v3.40.0^{}
+9172e89796dc8bc4b279bba9758856e28d32e9b2	refs/tags/v3.40.1
+78ebdcc97f2475702c381fb9e302e23f495dd26e	refs/tags/v3.40.1^{}
+d09ee80854b0c865cd40bbe70b5f496d1bd4e590	refs/tags/v3.41.0
+83f9a00663355e04ee52f95f1e930fd017923edd	refs/tags/v3.5
+0c7430c7b7559a4997c314219c2590f3900a4b19	refs/tags/v3.5^{}
+fc163b5ac57dd788131f6ce58a506dd5e26ddedc	refs/tags/v3.6
+7cb33447b95c91892e7abb3de1ac6a7978f558ca	refs/tags/v3.6^{}
+37f9dfe61235cf370da559fc2c4ebfaa96c68428	refs/tags/v3.7.0
+0adb5906df03edde1000d58159ecae46eff78792	refs/tags/v3.8.0
+d829e6f640474102e6862f3ec618c32ed8c3d51d	refs/tags/v3.8.0^{}
+5aa84357ff7897b013fb73dbe40f203194c33ee0	refs/tags/v3.8.1
+bbb3fb4da16df4b6ad26e7060e9577ca1254046f	refs/tags/v3.8.1^{}
+e86677e044c046e90ebac57c9b848ffe617cc142	refs/tags/v3.8.2
+6493d2eae94abe5de9f433919f3bc3211730083b	refs/tags/v3.8.2^{}
+9263991809502297b80e3ef83013d5ffc9cd680d	refs/tags/v3.8.3
+2f24fba5b711381f63a77029b7d8404456c8670f	refs/tags/v3.8.3^{}
+c12112f50d44e193c1a0e38416b919b0d75d5a2c	refs/tags/v3.8.4
+b7c7ad429a28dfb4d2cda99a47657658deb7bb71	refs/tags/v3.8.4^{}
+4b80e658a5a76c107b308767359010c8de3a4dec	refs/tags/v3.9.0
+db28e1c33b1c9ecd50a74af55fe4d9e2e1db903c	refs/tags/v3.9.0^{}
+
+### 本地 vs 远端 差异
+本地 tag 数: 46
+远端 tag 数（去 ^{} 皮）: 48
+本地缺: v3.41.0, v3.7.0
+本地多: 

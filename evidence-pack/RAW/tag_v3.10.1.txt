@@ -1,0 +1,26 @@
+### git show --stat --format="%H%n%ad%n%s%n%b" --date=iso v3.10.1
+
+tag v3.10.1
+Tagger: jincheng3870682453-hash <jincheng3870682453-hash@users.noreply.github.com>
+
+v3.10.1 · 协议纠错死锁修复 + 执行器 Tier-1 降级 + ace.cmd CRLF
+7b3dbd39f22cdc7cb7b033084fa2f1ff90d76658
+2026-09-19 10:36:13 +0800
+chore(release): v3.10.1 —— 协议纠错死锁 / 执行器 Tier-1 降级 / 启动器 CRLF
+- core/version.py 3.10.0 → 3.10.1（单源；横幅、doctor、--version 一并跟随）
+- CHANGELOG 新增 v3.10.1 段与版本目录条目，段首写明「这一版要重发预编译执行器」——
+  否则 ace --install-executor 拿到的仍是修复前的二进制
+- 两份 README 的 Latest 徽章与「最近更新 / Recent changes」同步
+- 两张演示图重录（图内嵌版本号，--check 会逐字比对）：happy 28 行 / blocked 26 行
+
+验证：test_all 1081/1081 · 跳过 3（受限宿主下 Tier-1 的能力探测跳过，--strict 仍判失败）；
+演示图守卫双绿；版本单源抽查 version.py = 3.10.1，文档五处引用一致
+
+
+ CHANGELOG.md          | 33 +++++++++++++++++++++++++++++++++
+ README.md             |  3 ++-
+ README.zh-CN.md       |  3 ++-
+ core/version.py       |  2 +-
+ demo/demo.svg         |  4 ++--
+ demo/demo_blocked.svg |  2 +-
+ 6 files changed, 41 insertions(+), 6 deletions(-)

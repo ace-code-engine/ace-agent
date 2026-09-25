@@ -1,0 +1,14 @@
+### git rev-list --count HEAD
+284
+
+### git log --reverse --format=%ad --date=iso | head -1
+2026-08-19 20:32:46 +0800
+
+### git log -1 --format=%ad --date=iso
+2026-09-25 22:47:27 +0800
+
+### git log --format=%an|%ae (unique)
+jincheng3870682453-hash|jincheng3870682453-hash@users.noreply.github.com
+
+### git status -sb
+## main...origin/main [ahead 11]  M core/canonical.py  M core/guardian.py  M execution_layer.py

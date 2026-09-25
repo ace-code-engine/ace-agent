@@ -223,6 +223,7 @@ ace-agent/
 ├── .gitattributes              # 行尾策略：*.cmd / *.bat 固定 CRLF（-text，防 cmd.exe 错位重读）
 ├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
+├── evidence-pack/              # 公开时间线证据包：ACE 公开 commit/tag/release 的可复核时间线调研（用法与不确定项见其 README.md）
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板

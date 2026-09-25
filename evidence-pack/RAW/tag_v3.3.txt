@@ -1,0 +1,21 @@
+### git show --stat --format="%H%n%ad%n%s%n%b" --date=iso v3.3
+
+tag v3.3
+Tagger: jincheng3870682453-hash <jincheng3870682453-hash@users.noreply.github.com>
+
+ACE v3.3 - 工程化质量收尾(P0 安全批 + P1 快速项 + 发布件)
+bbd02c934713ad0051bd8b331c7543f5445db704
+2026-09-05 17:38:10 +0800
+release(v3.3): 工程化质量收尾 - Q-09 移除 BehaviorConstraint 死代码, version.py/SECURITY.md/PR 模板, CHANGELOG+README 同步 v3.3
+
+
+ .github/pull_request_template.md | 16 ++++++++++++++++
+ CHANGELOG.md                     | 14 ++++++++++++++
+ README.md                        |  6 ++++--
+ SECURITY.md                      | 17 +++++++++++++++++
+ docs/BACKLOG.md                  |  2 +-
+ execution_layer.py               |  3 +--
+ test_all.py                      |  4 +---
+ version.py                       |  5 +++++
+ work.py                          | 33 ++-------------------------------
+ 9 files changed, 61 insertions(+), 39 deletions(-)

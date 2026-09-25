@@ -1,0 +1,14 @@
+### 采集环境快照
+captured_at_local | 2026-09-25 22:51:44 +08:00
+
+### git rev-list --count HEAD
+284
+
+### git rev-parse HEAD
+be2d03fd4b226ad08f93b947f8c0068a9cb169e2
+
+### git log -1 --format=%H|%ad|%an|%s --date=iso
+be2d03fd4b226ad08f93b947f8c0068a9cb169e2|2026-09-25 22:47:27 +0800|jincheng3870682453-hash|test(H-22): 两条守卫把「REQUIRED 长大而 vendor/ 没跟上」变成红灯
+
+### git status -sb
+## main...origin/main [ahead 11]  M core/canonical.py  M core/guardian.py  M execution_layer.py

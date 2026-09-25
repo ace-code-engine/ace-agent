@@ -1,0 +1,22 @@
+### git log --reverse --format="%H|%ad|%an|%s" --date=iso | head -20
+
+549db5773eddddd46f7f7896d0a8b4d61839c655|2026-08-19 20:32:46 +0800|jincheng3870682453-hash|ACE v1.0: AI Code Engine - 沙盒 Agent 执行层 + 命令行终端
+1113336c634ff103d077b32a248c5b275ce02074|2026-08-19 20:43:00 +0800|jincheng3870682453-hash|ACE 登录页/首页: AI-CLI 启动平台同款主菜单
+1c93180972b60c887e54f1b842d951f408dfa628|2026-08-19 20:51:18 +0800|jincheng3870682453-hash|修复: mock 可来回切换 + 聊天退出回主界面
+cdf8884e15b68f7ae68fbc3dd89ac728399d6731|2026-08-19 20:53:42 +0800|jincheng3870682453-hash|README 重构: Mermaid 架构图 + 完整介绍（特性/分层说明/交互速查/设计参考）
+21c5d888ba8e19748fa0fecff373e019cfdecfba|2026-08-20 11:53:03 +0800|jincheng3870682453-hash|CI: 适配项目自身的 GitHub Actions 工作流（3.10-3.12 矩阵 + test_all.py + ruff 安全子集）
+0c3c262ef7a597c603084ba1fd40361efd038d95|2026-08-20 12:02:13 +0800|jincheng3870682453-hash|真实联网能力: search 接入 DuckDuckGo/Bing 双引擎 + /search 命令 + SSRF 私网防护
+af83cc2c56e4b7f6f1c1cffc3dbac1423879ea0b|2026-08-20 12:04:55 +0800|jincheng3870682453-hash|修复 Linux CI 两个失败: 无引号密钥检测 + && 消除后台竞态
+4b8c26ce3392a7a15770f3c512ea1e3f5eb2b818|2026-08-20 12:23:34 +0800|jincheng3870682453-hash|提示词 v7: 同步 search 工具描述（top_k/双引擎/无网错误码）
+4a366ceed78365f962c0e7d8eea7bb75f0dea98c|2026-08-20 12:31:30 +0800|jincheng3870682453-hash|落地真实工具: SQLite 数据库 + 浏览器 + 通知 + 免费图像生成
+caa69d81849c0df3573b0fa932c1a16e99a722b0|2026-08-20 12:59:10 +0800|jincheng3870682453-hash|CLI 智能展示: 隐藏内部思考 + ◈ 状态行实时反馈过程
+df7973aa407ebd6f6755e98dbc675775b66363ce|2026-08-20 13:07:38 +0800|jincheng3870682453-hash|修复工具调用 500 三连: 路径分词/参数处理/序列化崩溃
+3cc3b6cbe453cf0e719976fcd583481d3f1962a6|2026-08-20 13:21:50 +0800|jincheng3870682453-hash|对话内打开文件: 新增 open_file / edit_file 工具（Agent 可直接调用）
+7dfacd4049116fc5b78ce3542840b710676e48aa|2026-08-20 13:53:09 +0800|jincheng3870682453-hash|open_file 改为点击才展开: 默认给可点击链接，不抢焦点
+ad2fef4f80b230038815a73e4c8876a25f3e290f|2026-08-21 15:19:14 +0800|jincheng3870682453-hash|feat: 原生工具调用、Plan Mode、权限申请与 @ 快捷方式
+904c8d9f6a961e6026212d4736e205f3af6df361|2026-08-21 15:33:20 +0800|jincheng3870682453-hash|refactor: gateway_v2 拆包 + 性能/配置/日志/文档/容器化
+88a35db52fdb54e58a07992ea604c3def8bf949f|2026-08-21 15:39:54 +0800|jincheng3870682453-hash|refactor: ToolExecutor 拆分为 tools/ 包，execution_layer 瘦身 57%
+2a064def5517294e730cd5dab04c59e4ff22bd69|2026-08-21 15:46:44 +0800|jincheng3870682453-hash|feat: i18n 国际化基础设施 + CLI 界面语言抽离（zh/en/ja）
+fd466c2f172c892baeac25bde9703381acb43292|2026-08-21 18:54:48 +0800|jincheng3870682453-hash|修复: / 斜杠补全显示 i18n 键名 + 403 自动申请临时授权
+c45f7ebc17df0dba16375126d473be7fb9c7d3bb|2026-08-21 18:57:41 +0800|jincheng3870682453-hash|修复: @ 补全回车变输出（自定义 key_bindings 覆盖了默认菜单绑定）
+46aa050f3073beaf4a718779252ed543b1a5c8b4|2026-08-21 19:04:40 +0800|jincheng3870682453-hash|修复: /stats 等完整命令回车被补全菜单吃掉导致'长时间未响应'

@@ -1,0 +1,73 @@
+### 仓库转移（transfer）验证原始证据
+### 采集时间：2026-09-25
+### 用途：验证 ace-code-engine/ace-agent 是否由个人账户 jincheng3870682453-hash 转移而来
+
+## 证据 1：旧 URL 的 API 响应被重定向到新仓库（决定性）
+
+请求：https://api.github.com/repos/jincheng3870682453-hash/ace-agent
+（web_fetch 跟随重定向后，最终落点为 https://api.github.com/repositories/1339557972）
+
+返回对象的关键字段（全文见下方「完整响应」）：
+  "id": 1339557972
+  "full_name": "ace-code-engine/ace-agent"
+  "owner": {"login": "ace-code-engine", "type": "Organization", "id": 330937228}
+  "html_url": "https://github.com/ace-code-engine/ace-agent"
+  "fork": false
+
+请求 https://github.com/jincheng3870682453-hash/ace-agent （HTML）
+返回页面标题：GitHub - ace-code-engine/ace-agent: ACE (AI Code Engine) — ...
+
+## 证据 2：同一仓库身份（id 相同）
+
+  请求个人 URL -> id 1339557972, full_name ace-code-engine/ace-agent
+  请求组织 URL -> id 1339557972, full_name ace-code-engine/ace-agent
+
+两个 URL 返回同一个 id => 同一个 GitHub 仓库对象。
+
+## 证据 3：仓库创建时间
+
+  "created_at": "2026-08-19T12:31:22Z"    (= 2026-08-19 20:31:22 +0800)
+  "updated_at": "2026-09-25T05:47:00Z"
+  "pushed_at":  "2026-09-25T05:46:56Z"    (= 2026-09-25 13:46:56 +0800)
+  "size": 9456            (KB)
+  "language": "Python"
+  "stargazers_count": 0
+  "forks_count": 0
+  "default_branch": "main"
+  "license": {"key": "mit"}
+  "private": false
+
+最早 commit 时间（本地 git）：2026-08-19 20:32:46 +0800
+=> created_at 比最早 commit 早 1 分 24 秒（同一天内先建仓、随即首提交）
+
+## 证据 4：本机两份 clone 的最早 commit hash 完全相同
+
+  G:\AI_Project\ai angent
+    remote: https://github.com/jincheng3870682453-hash/ace-agent.git
+    最早 commit: 549db5773eddddd46f7f7896d0a8b4d61839c655
+    HEAD:        37268582b786a30e538bb4447867b041ba2ae7ab (2026-08-21 20:49:35 +0800)
+
+  G:\AI_Project\ace
+    remote: https://github.com/ace-code-engine/ace-agent.git
+    最早 commit: 549db5773eddddd46f7f7896d0a8b4d61839c655
+
+  hash 相同 => 同一份历史。commit hash 由 内容+父提交+作者+时间戳 计算得出，
+  两个仓库各自独立提交不可能产生相同 hash。
+
+  ai angent 的 cat-file 探测：
+    549db57 -> commit        (存在)
+    ad2fef4 -> commit        (存在，2026-08-21 的提交)
+    1e3b095 -> Not a valid object name   (2026-09-05 的提交，本地未 fetch 到)
+    554cb6f -> Not a valid object name   (2026-09-05 的提交，本地未 fetch 到)
+  => ai angent 那份 clone 停在 2026-08-21，之后未再 fetch。
+     这只说明该本地副本旧，不说明远端仓库状态。
+
+## 无法从上述证据得出的结论
+
+  - 转移发生的具体日期：公开数据不提供。
+  - 转移前的仓库可见性（public/private）：不提供。
+  - 该账户在 ace-code-engine 组织中的角色：组织成员列表不公开。
+
+## 完整响应（证据 1 最终落点对象，节选全部字段）
+
+{"id":1339557972,"node_id":"R_kgDOT9gIVA","name":"ace-agent","full_name":"ace-code-engine/ace-agent","private":false,"owner":{"login":"ace-code-engine","id":330937228,"node_id":"O_kgDOE7mzjA","type":"Organization","user_view_type":"public","site_admin":false},"html_url":"https://github.com/ace-code-engine/ace-agent","description":"ACE (AI Code Engine) — production-grade sandbox AI agent execution layer with zero pre‑judgment and automated security gates.","fork":false,"url":"https://api.github.com/repos/ace-code-engine/ace-agent","created_at":"2026-08-19T12:31:22Z","updated_at":"2026-09-25T05:47:00Z","pushed_at":"2026-09-25T05:46:56Z","git_url":"git://github.com/ace-code-engine/ace-agent.git","ssh_url":"git@github.com:ace-code-engine/ace-agent.git","clone_url":"https://github.com/ace-code-engine/ace-agent.git","svn_url":"https://github.com/ace-code-engine/ace-agent","homepage":null,"size":9456,"stargazers_count":0,"watchers_count":0,"language":"Python","has_issues":true,"has_projects":true,"has_downloads":false,"has_wiki":true,"has_pages":false,"has_discussions":true,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":0,"license":{"key":"mit","name":"MIT License","spdx_id":"MIT","url":"https://api.github.com/licenses/mit"},"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"has_pull_requests":true,"pull_request_creation_policy":"all","topics":[],"visibility":"public","forks":0,"open_issues":0,"watchers":0,"default_branch":"main","organization":{"login":"ace-code-engine","id":330937228,"node_id":"O_kgDOE7mzjA","type":"Organization"},"network_count":0,"subscribers_count":0}

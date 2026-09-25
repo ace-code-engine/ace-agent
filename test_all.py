@@ -12764,6 +12764,23 @@ if _want("70"):
               for t in _rd22.values()),
           [k for k, v in _rd22.items()
            if "safety%20core-zero--dep" not in v or "requires%20requests" not in v])
+
+    # —— H-22 续：`vendor/` 那套离线包必须与 REQUIRED 一致 ——
+    # 这一条抓的是刚刚**真发生过**的事：H-22 把 `requests` 加进 `setup_env.REQUIRED`，
+    # 而 `vendor/` 里没有它的 wheel —— 于是"离线安装"对新克隆全线失败，而且
+    # **没人会立刻发现**：有网时 `--ensure` 会静静退回在线，只有真内网机器才炸。
+    # `vendor/*.whl` 是**刻意提交进仓库**的（`.gitignore` 为此没有 vendor 规则），
+    # 所以这两处必须一致：REQUIRED 说装什么，vendor/ 说离线时从哪装。
+    _vw22 = sorted(p.name.lower() for p in (FOLDER / "vendor").glob("*.whl"))
+    _miss22 = [n for n in _se70.REQUIRED
+               if not any(w.startswith(n.lower().replace("-", "_") + "-") for w in _vw22)]
+    check("H-22 ★vendor/ 的离线 wheel 覆盖 REQUIRED 的每一项"
+          "（两处不一致 = 新克隆的离线安装静默失效）",
+          not _miss22, {"缺": _miss22, "vendor 里": len(_vw22)})
+    check("H-22 ★vendor/ 的 wheel 全部平台中立（py3-none-any）"
+          "（否则离线包只对导出它的那台机器有效）",
+          all(w.endswith("-py3-none-any.whl") for w in _vw22),
+          [w for w in _vw22 if not w.endswith("-py3-none-any.whl")])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

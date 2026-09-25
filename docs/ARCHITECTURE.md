@@ -96,6 +96,10 @@ ace-agent/
 │   ├── ace_effort.py           #   思考强度：auto/low/medium/high/max + 提示词增量 + 关键词逃生门（纯逻辑）
 │   ├── ace_io.py               #   终端编码两道防线：不崩（UTF-8+replace）· 不乱（按控制台代码页降级字形）
 │   ├── ace_rules.py            #   持久授权规则：匹配/优先级/三档作用域（deny 优先，纯函数）
+│   ├── canonical.py            #   路径规范化：解析到 OS 最终路径（8.3 短名/尾点/大小写/.. 一并归一，H-10）
+│   ├── sensitive.py            #   敏感名单唯一来源：①能碰吗（sensitive_target）②内容是秘密吗（is_credential_file），H-11
+│   ├── targets.py              #   破坏性目标唯一入口：destructive_targets（file_move 的 source 也在内，H-13）
+│   ├── ace_claims.py           #   「模型声称完成了操作」的措辞判据（编排层与执行层共用，H-20）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 
@@ -141,6 +145,7 @@ ace-agent/
 │   ├── RELEASE-NOTES-v3.40.1.md #  v3.40.1 更新介绍（终端编码防线）
 │   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
 │   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
+│   ├── HANDOFF-FRONTEND.md     #  Ink 前端（frontend/ + ace --serve）的交接提示词：自包含、含「未完成/未验证」清单
 │   ├── RELEASE-NOTES-v3.39.0.md #  v3.39 更新介绍（主页与功能面板）
 │   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置
 │   ├── RELEASE-NOTES-v3.38.0.md #  v3.38 更新介绍（与 Claude 对齐的键位）

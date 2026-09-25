@@ -47,6 +47,12 @@ import uuid  # noqa: E402
 TEST_TMP = FOLDER / ".test_tmp"
 TEST_TMP.mkdir(exist_ok=True)
 
+# H-26：仓库自己的 `.ace_sessions/` 是**用户真实会话历史**的目录。测试里那些
+# `ai_code.py` 子进程此前只给了 cwd、没给 `--project-root`，于是把测试会话写了进去
+# （实测每跑一次全量 +8 个文件，累计涨到 1200+）。这里记下跑前的数量，整跑末尾对比。
+_SESS_DIR = FOLDER / ".ace_sessions"
+_SESS_BASELINE = (len(list(_SESS_DIR.glob("*.jsonl"))) if _SESS_DIR.is_dir() else 0)
+
 
 # H-23：`mktemp()` 此前只建不收 —— 本机每跑一轮就沉淀一批目录，实测曾累积到
 # 135 万文件 / 2.8 GB（`ai angent` 那份副本里最多）。而那正是"文件数拖慢一切"的
@@ -7390,8 +7396,13 @@ if _want("45"):
           _proxy45.isatty() is False, "")
 
     # —— 真子进程：完整会话的事件流 ——
+    # H-26：给 headless 子进程一个**项目根**。不给的话它按 cwd 把测试会话写进仓库自己的
+    # `.ace_sessions/` —— 那是用户真实会话历史的目录（实测每跑一次全量 +8 个文件，
+    # 修完这几处后降到 0）。
+    _pr45 = str(mktemp("norepo45"))
     def _run_json45(args45, timeout=180):
-        proc = _sp45.run([sys.executable, str(FOLDER / "ai_code.py")] + args45,
+        proc = _sp45.run([sys.executable, str(FOLDER / "ai_code.py"),
+                          "--project-root", _pr45] + args45,
                          cwd=str(FOLDER), capture_output=True, text=True,
                          encoding="utf-8", errors="replace", timeout=timeout)
         lines = [x for x in (proc.stdout or "").splitlines() if x.strip()]
@@ -11558,9 +11569,14 @@ if _want("67"):
 
     _env67.pop("PYTHONUTF8", None)
     _runs67 = []
+    # H-26：给 CLI 子进程一个**项目根**，否则它会按 cwd 把测试会话写进仓库自己的
+    # `.ace_sessions/`（那是用户真实的会话历史目录）。实测：每跑一次全量 +8 个文件。
+    _pr67 = str(mktemp("norepo67"))
     # 三个"必须退出码 0"的入口：都是纯 CLI 路径，不依赖本机装没装界面依赖
-    for _args67 in (["ai_code.py", "--mock", "--preview", "--preview-width", "80"],
-                    ["ai_code.py", "--mock", "--input", "现在几点了"],
+    for _args67 in (["ai_code.py", "--mock", "--preview", "--preview-width", "80",
+                     "--project-root", _pr67],
+                    ["ai_code.py", "--mock", "--input", "现在几点了",
+                     "--project-root", _pr67],
                     ["agent_runner.py", "--mock", "--input", "现在几点了"]):
         try:
             _p67 = _sp67.run([_sys67.executable] + _args67, cwd=str(FOLDER),
@@ -11583,7 +11599,8 @@ if _want("67"):
           (lambda out: ("ACE " in out and "目录" in out or "dir " in out)
            if out else False)(
               _sp67.run([_sys67.executable, "ai_code.py", "--mock", "--preview",
-                         "--preview-width", "80"], cwd=str(FOLDER), capture_output=True,
+                         "--preview-width", "80", "--project-root", _pr67],
+                        cwd=str(FOLDER), capture_output=True,
                         timeout=180, env=_env67).stdout.decode("utf-8", "replace")
               if True else ""), "")
 
@@ -11794,6 +11811,9 @@ if _want("69"):
           and _f69b[-1].get("ok") is True, _f69b[:2])
 
     # —— 真子进程：整条协议跑一轮，含**授权往返** ——
+    # H-26：给 serve 子进程一个**项目根**。不给的话它按 cwd 把测试会话写进仓库自己的
+    # `.ace_sessions/` —— 那是用户真实会话历史的目录，实测每跑一次全量 +8 个文件。
+    _pr69 = str(mktemp("norepo69"))
     def _serve_round69(decision, trigger, timeout=120):
         """起一个真的 `ai_code.py --serve`，跑一轮并在收到审批请求时递上答案。
 
@@ -11802,7 +11822,7 @@ if _want("69"):
         """
         _p69 = _sp69.Popen(
             [sys.executable, str(FOLDER / "ai_code.py"), "--serve", "--mock",
-             "--permission", "readonly"],
+             "--permission", "readonly", "--project-root", _pr69],
             cwd=str(FOLDER), stdin=_sp69.PIPE, stdout=_sp69.PIPE,
             stderr=_sp69.PIPE, text=True, encoding="utf-8", errors="replace",
             bufsize=1)
@@ -11971,7 +11991,8 @@ if _want("69"):
     from core import ace_io as _io69b  # noqa: E402
 
     _p69c = _sp69.Popen(
-        [sys.executable, str(FOLDER / "ai_code.py"), "--serve", "--mock"],
+        [sys.executable, str(FOLDER / "ai_code.py"), "--serve", "--mock",
+         "--project-root", _pr69],
         cwd=str(FOLDER), stdin=_sp69.PIPE, stdout=_sp69.PIPE,
         stderr=_sp69.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
     _kill69c = {"v": False}
@@ -12756,6 +12777,14 @@ if not (_ONLY or _SKIP or _UPTO or _LIST):
           sorted(_SEEN_SECTIONS, key=int) == sorted(_SECTIONS, key=int),
           f"文件里 {len(_SEEN_SECTIONS)} 段 / 已登记 {len(_SECTIONS)} 段；"
           f"差集 {sorted(set(_SEEN_SECTIONS) ^ set(_SECTIONS), key=int)}")
+    # H-26 守卫：整跑完，仓库自己的 `.ace_sessions/` 不该多出文件来。
+    # 这是"行为"级断言（不是源码级）—— 谁再给 ai_code.py 子进程漏了 `--project-root`，
+    # 它当场就会红。放在末尾是因为增长只有跑完才看得出来。
+    _sn = len(list(_SESS_DIR.glob("*.jsonl"))) if _SESS_DIR.is_dir() else 0
+    check("H-26 测试没有往仓库自己的 .ace_sessions/ 写会话（那是用户真实的会话历史）",
+          _sn <= _SESS_BASELINE,
+          f"跑前 {_SESS_BASELINE} → 跑后 {_sn}（+{_sn - _SESS_BASELINE}）；"
+          "给相关 ai_code.py 子进程补 --project-root 或临时 cwd")
 
 print(f"通过 {len(PASSED)} / {len(PASSED) + len(FAILED)}" + (f"  · 跳过 {len(SKIPPED)}" if SKIPPED else ""))
 if FAILED:

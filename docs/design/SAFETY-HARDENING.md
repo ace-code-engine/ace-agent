@@ -801,11 +801,25 @@ check("H-26 测试没有往仓库自己的 .ace_sessions/ 写会话", _sn <= _SE
 **`REQUIRED` 的连带效应（已处理）**：`REQUIRED` 同时喂给三处 —— pip 安装清单、`probe()` 的
 "这个环境可用吗"判据、`--vendor` 的下载清单。所以加了 `requests` 之后，**离线那条路变成全有或全无**：
 `setup_env.py` 装完本地 wheel 会真的 `import` 一遍 `REQUIRED` 的每一项，缺一项就整段退回在线安装 ——
-只备了 `prompt_toolkit` 的时代过去了。为此把 `vendor/README.md` 的离线段落改成用
-`python setup_env.py --vendor`（它按 `REQUIRED` 下全套），并写明必须连 `requests` 的传递依赖
-（urllib3 / certifi / idna / charset-normalizer）一起备齐。**本机的 `vendor/*.whl` 是旧的
-（没有 requests），没有替你重下** —— 那是一次联网写入，留给你决定；`--vendor` 一条命令即可补齐。
-（`vendor/*.whl` 本就不进 git，新克隆只有那份说明。）
+只备 `prompt_toolkit` 的时代过去了。
+
+而 `vendor/*.whl` **是刻意提交进仓库的**（`.gitignore:66` 专门留了说明；仓库里原有 11 个 wheel），
+所以不能只当本地缓存处理：**`requests` 及其传递依赖必须补进那套被提交的集合**，否则新克隆的
+离线安装一律失败。补齐时踩到一个陷阱并已修：
+
+- 直接 `pip download requests` 会**按跑它的那台机器**解析。在 Windows + CPython 3.13 上实测下出
+  `charset_normalizer-3.5.1-cp313-cp313-win_amd64.whl`，而原有 11 个全是 `py3-none-any` ——
+  离线包会**悄悄退化成只对导出它的那台机器有效**。
+- 修法：`setup_env.vendor_into()` 新增 `NEUTRAL_TAGS`
+  （`--only-binary=:all: --platform any --implementation py --abi none --python-version 3.10`）
+  强制解析成 `py3-none-any`；镜像源不支持这套 tag 时（**实测清华镜像直接报 `from versions: none`**）
+  退回普通下载，并在提示里**明说"非平台中立"**。
+- 补齐结果：`vendor/` 共 **16 个 wheel、全部 `py3-none-any`**、3.56 MB。
+- **端到端验证**：干净 venv → `pip install --no-index vendor/*.whl` → 退出码 0 →
+  `import requests, prompt_toolkit, textual, rich, urllib3, certifi, idna, charset_normalizer` 全通过。
+  （这条必须实测：只数 wheel 个数会漏掉"某个 wheel 装不上"这种失败。）
+- 顺手修掉 `vendor/README.md` 里一句**假话**：原写"`vendor/*.whl` 不进 git（`.gitignore` 已排除）"，
+  事实相反。这与本次修的是同一类毛病 —— **文档写 A、仓库是 B** —— 已改成"**是**故意入库的"并写清理由。
 
 ### 17.4 口径修正（活跃文档全覆盖）
 

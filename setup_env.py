@@ -44,6 +44,18 @@ VENDOR_DIR_NAME = "vendor"
 # （core/ace_http.request_with_retry 唯一出网点，直接 import requests，无回退），
 # 所以列在这里：启动器必须把它装上，否则装完 UI 也连不上模型（H-22）。
 REQUIRED = ("requests", "prompt_toolkit", "textual", "rich")
+# `--vendor` 用的解析参数：让 pip 把整棵依赖树解成**平台中立**的 `py3-none-any` wheel，
+# 而不是按"跑这条命令的那台机器"解。
+#
+# 为什么必须这么做：这份集合是**要提交进仓库**的，给 Linux/macOS 与 3.10~3.13 共用。
+# 实测在 Windows + CPython 3.13 上直接 `pip download requests` 会把 charset-normalizer
+# 下成 `charset_normalizer-3.5.1-cp313-cp313-win_amd64.whl`，而仓库里原有的 11 个 wheel
+# 全是 py3-none-any —— 于是"离线包"会**悄悄退化成只对导出它的那台机器有效**。
+# 注意：部分镜像源不支持这套 tag（实测清华镜像直接报 "from versions: none"），
+# 所以 `vendor_into()` 在全部源都失败后会退回普通下载，并明确把"非平台中立"说出来。
+NEUTRAL_TAGS = ("--only-binary=:all:", "--platform", "any",
+                "--implementation", "py", "--abi", "none",
+                "--python-version", "3.10")
 # 索引顺序：**官方源优先**，镜像兜底。踩过的坑：某些镜像会返回 "from versions: none"
 # （包索引不完整），于是"装不上"被误判成"没有网络"；换官方源立刻就装上了。
 INDEXES = ("https://pypi.org/simple",
@@ -193,10 +205,14 @@ def create_env(root: Optional[Path] = None, base_python: Optional[str] = None,
 
 
 def vendor_into(root: Optional[Path] = None, log=print) -> Tuple[int, str]:
-    """把界面依赖的 wheel 下载到 `vendor/`（**给离线机器准备内置环境**）。
+    """把运行依赖的 wheel 下载到 `vendor/`（**给离线机器准备内置环境**）。
 
     这是"内置好环境"的正路：在一台能联网的机器上跑一次，把 wheel 提交进仓库，
     之后任何机器 `python setup_env.py --ensure` 都能离线装好。
+
+    只用**平台中立**（`py3-none-any`）的 wheel，见 `NEUTRAL_TAGS` 的说明 ——
+    这份集合要跨平台、跨 Python 版本共用，不能按导出它的那台机器解析。
+    镜像源不支持这套 tag 时退回普通下载，并在返回值里**明说**产物只对本平台有效。
     """
     root = root or HERE
     dest = (root) / VENDOR_DIR_NAME
@@ -204,11 +220,20 @@ def vendor_into(root: Optional[Path] = None, log=print) -> Tuple[int, str]:
     base = sys.executable
     last = ""
     for index in INDEXES:
-        log(f"  · 从 {index} 下载 wheel 到 {dest}")
+        log(f"  · 从 {index} 下载平台中立的 wheel 到 {dest}")
+        code, out = _run([base, "-m", "pip", "download", "--index-url", index,
+                          *NEUTRAL_TAGS, "-d", str(dest), *REQUIRED], timeout=900)
+        if code == 0:
+            return len(vendor_wheels(root)), f"已下载到 {dest}（源: {index}，平台中立 py3-none-any）"
+        last = out.strip()[-200:]
+    for index in INDEXES:
+        log(f"  · 该源不支持平台中立解析，退回普通下载（{index}）")
         code, out = _run([base, "-m", "pip", "download", "--index-url", index,
                           "-d", str(dest), *REQUIRED], timeout=900)
         if code == 0:
-            return len(vendor_wheels(root)), f"已下载到 {dest}（源: {index}）"
+            return len(vendor_wheels(root)), (
+                f"已下载到 {dest}（源: {index}） —— ⚠ **非平台中立**，"
+                "只对导出它的平台与 Python 版本有效")
         last = out.strip()[-200:]
     return 0, f"下载失败: {last}"
 

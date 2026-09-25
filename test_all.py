@@ -1051,6 +1051,22 @@ if _want("9"):
     check("/undo 一键回滚到最近快照", "已回滚" in out_text
           and (proj_undo / "f.txt").read_text(encoding="utf-8") == "v1", out_text)
 
+    # H-08：`/undo` 走精确回滚 —— 用户自己改过的**无关**文件不再被一起抹掉。
+    # 这是"事后入口"的那一半：/undo 手里没有本轮 ctx，靠的是快照自己记的范围。
+    (proj_undo / "notes.md").write_text("my notes", encoding="utf-8")
+    run_agent(el_undo, "file_write", path="f.txt", content="v3-round")
+    (proj_undo / "notes.md").write_text("MY EDIT AFTER SNAPSHOT", encoding="utf-8")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli_undo.run_command("/undo")
+    out_text = buf.getvalue()
+    check("H-08 ★/undo 精确回滚：v3 那轮被撤销（f.txt 回到该轮快照里的 v1）",
+          "已回滚" in out_text
+          and (proj_undo / "f.txt").read_text(encoding="utf-8") == "v1", out_text)
+    check("H-08 ★★/undo 不再抹掉用户对无关文件的编辑（H-08 的验收点）",
+          (proj_undo / "notes.md").read_text(encoding="utf-8") == "MY EDIT AFTER SNAPSHOT",
+          (proj_undo / "notes.md").read_text(encoding="utf-8"))
+
     # —— 文件打开命令（只验证校验分支，不真正弹 GUI） ——
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -12781,6 +12797,68 @@ if _want("70"):
           "（否则离线包只对导出它的那台机器有效）",
           all(w.endswith("-py3-none-any.whl") for w in _vw22),
           [w for w in _vw22 if not w.endswith("-py3-none-any.whl")])
+
+    # —— H-08：回滚范围必须与本轮实际动过的路径一致 ——
+    # 此前 `rollback()` 一律**整树还原**：把项目退回"快照那一刻"，于是用户在同一时间
+    # 对其它文件的编辑被一起抹掉。而 `SECURITY-MODEL.md` 承诺的是"只回滚本轮，不动
+    # 无关修改" —— 文档对、实现不对。
+    # 现在快照**自己记下范围**（`rollback_scope`）：说得清就精确、说不清才整树。
+    # 说"不清"时必须整树，这一档不能省 —— 精确回滚在 `touched` 为空时会**静默什么
+    # 都不做**，把"已回滚"变成假承诺；宁可多退（看得见、备份还在），不能少退。
+    _p08 = mktemp("h08")
+    (_p08 / "agent.txt").write_text("a1", encoding="utf-8")
+    (_p08 / "user.txt").write_text("u1", encoding="utf-8")
+    _g08 = _G70(str(_p08))
+    _sid08 = _g08.snapshot("t", touched=["agent.txt", "sub/../agent.txt"])
+    _m08 = json.loads((_g08.snap_dir / _sid08 / "meta.json").read_text(encoding="utf-8"))
+    check("H-08 ★快照自己记下回滚范围（scope=paths + 归一/去重后的路径）",
+          _m08.get("rollback_scope") == "paths" and _m08.get("touched") == ["agent.txt"],
+          (_m08.get("rollback_scope"), _m08.get("touched")))
+    # 模拟：本轮改 agent.txt；**同时**用户在编辑器里改了 user.txt（与 agent 无关）
+    (_p08 / "agent.txt").write_text("a2-round", encoding="utf-8")
+    (_p08 / "user.txt").write_text("u2-USER-EDIT", encoding="utf-8")
+    check("H-08 ★事后回滚（不传范围 —— `/undo` 走的就是这条）成功",
+          _g08.rollback(_sid08))
+    check("H-08 本轮动过的文件被还原",
+          (_p08 / "agent.txt").read_text(encoding="utf-8") == "a1",
+          (_p08 / "agent.txt").read_text(encoding="utf-8"))
+    check("H-08 ★★用户对**无关**文件的编辑没有被回滚（这就是 H-08 的验收点）",
+          (_p08 / "user.txt").read_text(encoding="utf-8") == "u2-USER-EDIT",
+          (_p08 / "user.txt").read_text(encoding="utf-8"))
+
+    # 说不清范围 ⇒ 整树；没记范围的旧快照（缺键）也必须还是整树
+    _p08b = mktemp("h08b")
+    (_p08b / "a.txt").write_text("a1", encoding="utf-8")
+    _g08b = _G70(str(_p08b))
+    _sid08b = _g08b.snapshot("t")           # 不传 touched
+    (_p08b / "user.txt").write_text("u1", encoding="utf-8")
+    (_p08b / "a.txt").write_text("a2", encoding="utf-8")
+    check("H-08 没记范围的快照 = 整树（向后兼容，旧快照缺键也一样）",
+          _g08b.rollback(_sid08b)
+          and not (_p08b / "user.txt").exists()
+          and (_p08b / "a.txt").read_text(encoding="utf-8") == "a1")
+
+    # 端到端：执行层把范围写进了它建的那个快照（写工具 vs 任意写盘工具）
+    _p08c = mktemp("h08c")
+    _el08 = _EL70(project_root=str(_p08c), permission_level="write",
+                  config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+    run_agent(_el08, "file_write", path="seed.txt", content="s")   # 空项目 → 无快照
+    _r08c = run_agent(_el08, "file_write", path="seed.txt", content="s2")
+    _meta08c = json.loads((_p08c / ".guardian" / "snapshots" / _r08c["snapshot_id"]
+                           / "meta.json").read_text(encoding="utf-8"))
+    check("H-08 ★端到端：file_write 轮的快照记 paths 范围（touched 就是那个文件）",
+          _meta08c.get("rollback_scope") == "paths"
+          and _meta08c.get("touched") == ["seed.txt"],
+          (_meta08c.get("rollback_scope"), _meta08c.get("touched")))
+    _r08d = run_confirmed(_el08, "terminal_exec", command="echo hi")
+    _meta08d = json.loads((_p08c / ".guardian" / "snapshots" / _r08d["snapshot_id"]
+                           / "meta.json").read_text(encoding="utf-8"))
+    check("H-08 ★端到端：terminal_exec 轮的快照记 tree 范围"
+          "（能任意写盘、说不清 —— 若也走精确就会静默回滚不了任何东西）",
+          _meta08d.get("rollback_scope") == "tree", _meta08d.get("rollback_scope"))
+    # [8] 段那条"违规自动回滚（仅本轮快照）"用的正是 terminal_exec 造文件 ——
+    # 它同时是这一档的存在性证明：把 tree 档去掉，那条会当场红。
+    _el08.close()
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

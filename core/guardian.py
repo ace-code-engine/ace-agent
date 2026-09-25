@@ -8,6 +8,9 @@ guardian.py —— 物理快照回滚
     g = Guardian(str(project_root))
     snapshot_id = g.snapshot(tag)      # 返回快照 id（空项目返回 None）
     ok = g.rollback(snapshot_id)       # 完整性预检 → 备份当前状态 → 恢复 → 验证 → 清理备份
+                                       # H-08：范围记在快照里（snapshot(touched=…)）。
+                                       #   说得清就只回滚那几个路径（用户对别的文件的
+                                       #   编辑不受影响）；说不清就整树还原。
 
 机制（与 system prompt 对齐）：
     1. 写入操作前自动创建项目快照（完整文件树，排除 .git / __pycache__ / .venv 等）
@@ -26,7 +29,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", ".ace_env", "node_modules",
                 ".idea", ".vscode", ".guardian", ".agent_flywheel",
@@ -47,6 +50,9 @@ EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", ".ace_env", "node_module
 # 结果是 25 个凭据名（`.npmrc`/`.pypirc`/`.pgpass`/`.git-credentials`/`.netrc`/
 # `.htpasswd`/`.terraformrc`…）被**明文复制进快照**，而本文件的注释正写着"绝不能"。
 from core.sensitive import is_credential_file as _is_sensitive_file  # noqa: E402
+# H-08：精确回滚要把"模型写在参数里的路径"和快照元信息里的相对路径对上，
+# 所以必须走 H-10 的同一个解析入口（8.3 短名 / 尾点 / `..` / 大小写都在那里收口）。
+from core.canonical import canonical_path  # noqa: E402
 
 # `is_credential_file` 的唯一实现在 `core.sensitive`；调用方请**直接从那里取**
 # （`tools/file_ops.py` 已改成直取），别在这里再转一层 —— 转出层就是下一份会漂的名单。
@@ -136,7 +142,8 @@ class Guardian:
 
     # ---------- 快照 ----------
 
-    def snapshot(self, tag: str = "") -> Optional[str]:
+    def snapshot(self, tag: str = "",
+                 touched: Optional[Iterable[str]] = None) -> Optional[str]:
         """创建物理快照（完整拷贝文件树），返回快照 id；无可备份内容返回 None
 
         H-02：任何失败都在这里就地清掉 `dest_root`，再把异常抛出去。此前只有
@@ -162,7 +169,21 @@ class Guardian:
             "root": str(self.project_root),
             "file_count": len(files),
             "files": {},
+            # H-08：这个快照能按多小的范围回滚。`"tree"` = 整树还原；`"paths"` = 只回滚
+            # `touched` 里列出的路径（这一轮明确动过的那些）。
+            # 记进快照而不是靠调用方记得传：`/undo`、`/rollback <id>` 是**事后**从另一个
+            # 入口调的，那时早就没有 ctx 了 —— 让快照自己说得清，才不会退化成整树。
+            # 缺这个键的旧快照按 `"tree"` 处理（向后兼容）。
+            "rollback_scope": "tree",
+            "touched": [],
         }
+        if touched is not None:
+            rel_touched, _outside = self._relative_targets(touched)
+            if _outside:
+                print(f"⚠ 快照范围里有 {_outside} 个路径在项目外，快照盖不住它们",
+                      file=sys.stderr)
+            meta["rollback_scope"] = "paths"
+            meta["touched"] = rel_touched
         created = False
         try:
             for src in files:
@@ -232,53 +253,129 @@ class Guardian:
 
     # ---------- 回滚 ----------
 
-    def rollback(self, snap_id: str) -> bool:
-        """回滚到指定快照：预检 → 备份当前状态 → 恢复 → 验证 → 清理备份"""
+    def _relative_targets(self, only: "Iterable[str]") -> Tuple[List[str], int]:
+        """把一批"本轮动过的路径"归一到**项目相对**的 posix 路径（去重、保序）。
+
+        必须走 `canonical_path(..., base=self.project_root)`（H-10）：调用方给的是
+        **模型写在参数里的原始串**，可能带 `..`、8.3 短名、大小写差异、尾点或绝对
+        路径。不归一就直接和 `meta["files"]` 的键比，匹配不上的后果不是报错而是
+        **静默不做事** —— 回滚报告成功、文件却没动。
+
+        相对路径的起点是**项目根**而不是进程 cwd：两者在 `--project-root` 与 cwd
+        不同的场景下（无头、测试）并不相等，用 cwd 会把项目内的文件解析到项目外。
+
+        返回 `(相对路径, 落在项目外的个数)`。项目外的路径不在快照里、无法从这个
+        快照恢复，也不该在这里删 —— 但调用方要知道"这次回滚盖不住它们"。
+        """
+        out: List[str] = []
+        outside = 0
+        for raw in only:
+            if not str(raw or "").strip():
+                continue
+            resolved = canonical_path(raw, base=self.project_root)
+            if resolved is None:
+                continue
+            try:
+                rel = resolved.relative_to(self.project_root).as_posix()
+            except ValueError:
+                outside += 1
+                continue
+            if rel and rel not in out:
+                out.append(rel)
+        return out, outside
+
+    def rollback(self, snap_id: str, only: Optional[Iterable[str]] = None) -> bool:
+        """回滚到指定快照：预检 → 备份当前状态 → 恢复 → 验证 → 清理备份
+
+        **H-08：`only` 给了路径集合时只回滚这些路径**（"只回滚本轮"），其余文件一个
+        都不碰 —— 用户在同一时间对别的文件的编辑不再被一起抹掉。
+        `only=None` 保持既有的**整树还原**语义："把整个项目退回那个时间点"。
+
+        为什么默认仍然是整树，而不是干脆一律精确：精确回滚的前提是"知道这一轮动了
+        哪些路径"。对 `file_write`/`str_replace`/`file_delete`/`file_move`，
+        `core.targets.destructive_targets()` 给得出；对 `terminal_exec` /
+        `code_execute` / `subagent` 这类能任意写盘的工具给不出 —— 那时"精确回滚"会
+        **静默什么都不做**，把"已回滚"变成假承诺。宁可多退回一点（用户看得见、
+        备份还在、可恢复），也不能少退（用户以为撤掉了，其实还在盘上）。
+        所以调用方只在**能确定范围**的时候传 `only`（见 `execution_layer._stage_snapshot`）。
+
+        整树与精确共用同一套动作，只有集合不同：
+          - 快照里有的路径 → 从快照写回
+          - 快照里没有的路径 → 删掉（那是快照之后新增的）
+        比"先全删、再全恢复"少一个"已删除、未恢复"的窗口：快照里有的文件不再先被删。
+        """
         # 1. 完整性预检
         ok, reason = self.verify_snapshot(snap_id)
         if not ok:
             raise SnapshotError(f"回滚前完整性预检失败: {reason}")
-        # 2. 备份当前状态
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        backup_path = self.backup_dir / f"{ts}_{snap_id}"
-        for src in self._collect_files():
-            rel = src.relative_to(self.project_root)
-            dst = backup_path / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        # 3. 恢复快照
         meta = json.loads((self.snap_dir / snap_id / "meta.json").read_text(encoding="utf-8"))
         files_dest = self.snap_dir / snap_id / "files"
-        # 删除与恢复都逐个来、都兜异常：一个文件被编辑器/杀软占用（Windows 上很常见）
+
+        # 折算成本次真正要落地的两个集合。
+        # H-08：调用方没给范围时，**听快照自己记的**（`/undo`、`/rollback <id>` 走这条）。
+        # 缺键的旧快照 = "tree"，与改动前的行为逐字一致。
+        if only is None and meta.get("rollback_scope") == "paths":
+            only = tuple(meta.get("touched") or ())
+        if only is None:
+            to_restore = list(meta["files"].keys())
+            to_delete = [p.relative_to(self.project_root).as_posix()
+                         for p in self._collect_files()
+                         if p.relative_to(self.project_root).as_posix() not in meta["files"]]
+        else:
+            wanted, outside = self._relative_targets(only)
+            if outside:
+                print(f"⚠ 本次回滚的目标里有 {outside} 个在项目外，快照盖不住它们，未处理",
+                      file=sys.stderr)
+            to_restore = [rel for rel in wanted if rel in meta["files"]]
+            to_delete = [rel for rel in wanted if rel not in meta["files"]]
+
+        # 2. 备份"即将被覆盖或删除"的当前版本
+        #    整树回滚时这个集合就等于"当前所有文件"（与旧行为一致）；
+        #    精确回滚时只备份受影响的那几个，不再消耗整棵树的拷贝。
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        backup_path = self.backup_dir / f"{ts}_{snap_id}"
+        for rel in list(to_delete) + list(to_restore):
+            cur = self.project_root / rel
+            if not cur.is_file():
+                continue
+            dst = backup_path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cur, dst)
+
+        # 3. 删除与恢复都逐个来、都兜异常：一个文件被编辑器/杀软占用（Windows 上很常见）
         # 不该让其余文件停在"已删除、未恢复"的状态里。失败项登记下来，最后统一报，
         # 并且**保留删除前的备份**给人工恢复（SEC-016）。
         failed: List[Tuple[str, str]] = []
-        for src in self._collect_files():
+        for rel in to_delete:
             try:
-                src.unlink(missing_ok=True)
+                (self.project_root / rel).unlink(missing_ok=True)
             except OSError as e:
-                failed.append((str(src.relative_to(self.project_root)), f"删除失败: {e}"))
-        for rel, _info in meta["files"].items():
-            src = files_dest / rel
-            dst = self.project_root / rel
+                failed.append((rel, f"删除失败: {e}"))
+        for rel in to_restore:
             try:
+                dst = self.project_root / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
+                shutil.copy2(files_dest / rel, dst)
             except OSError as e:
                 failed.append((rel, str(e)))
         # 4. 验证恢复（同样逐项兜异常：恢复后仍可能被占用/被替换成目录）
         restored = 0
-        for rel, info in meta["files"].items():
+        for rel in to_restore:
             fp = self.project_root / rel
             try:
-                if fp.is_file() and self._sha256(fp) == info["sha256"]:
+                if fp.is_file() and self._sha256(fp) == meta["files"][rel]["sha256"]:
                     restored += 1
             except OSError as e:
                 failed.append((rel, f"校验失败: {e}"))
-        if failed or restored != meta["file_count"]:
-            # 恢复不完整：保留备份供人工处理，并说清"哪些没恢复、备份在哪、怎么恢复"
-            print(f"⚠ 回滚未完成：{meta['file_count'] - restored} 个文件未恢复"
+        leftover = [rel for rel in to_delete
+                    if (self.project_root / rel).exists()]
+        if failed or restored != len(to_restore) or leftover:
+            scope = ("整树" if only is None
+                     else f"本轮动过的 {len(to_restore) + len(to_delete)} 个路径")
+            print(f"⚠ 回滚未完成（{scope}）：{len(to_restore) - restored} 个文件未恢复"
                   f"（失败 {len(failed)} 项）", file=sys.stderr)
+            if leftover:
+                print(f"  另有 {len(leftover)} 个本轮新增的文件没能删掉", file=sys.stderr)
             for rel, why in failed[:5]:
                 print(f"    {rel}: {why}", file=sys.stderr)
             if len(failed) > 5:

@@ -589,6 +589,13 @@ class RoundCtx:
     # "rolled_back" 守门违规后已回滚 / "rollback_failed" 回滚没做成（改动仍在盘上）
     # "" 本轮不需要快照（非写工具）。
     snapshot_state: str = ""
+    # H-08：本轮快照该按**多大范围**回滚，以及精确回滚要用的路径集合。
+    # "" = 本轮没建快照（非写工具）；"paths" = 这轮动了哪些路径**说得清**
+    # （`core/targets.WRITE_TOOLS_WITH_PATH` 那 4 个工具）→ 只回滚它们；
+    # "tree" = 工具能任意写盘（`terminal_exec` / `code_execute` / `subagent` …），
+    # 说不清 → 退回整树还原。理由见 `_stage_snapshot`（宁可多退，不可少退）。
+    rollback_scope: str = ""
+    touched_paths: Tuple[str, ...] = ()
 
 
 class ExecutionLayer:
@@ -935,7 +942,7 @@ class ExecutionLayer:
         # ⑨ 写入操作前创建快照（core/guardian.py）→ ctx.snapshot_id（轮末回收）；
         # 拿不到快照就拒写（H-05）：与沙箱档位（503 不降级）、审批（非交互一律拒）
         # 同一立场 —— 安全机制不可用时绝不静默放行。
-        early = self._stage_snapshot(tool_name, ctx, route_meta)
+        early = self._stage_snapshot(tool_name, ctx, route_meta, tool_call)
         if early is not None:
             return early
         # ⑩ 执行工具（全链路日志：调用原始参数 + 结果）
@@ -1520,7 +1527,9 @@ class ExecutionLayer:
         return gate.get("warnings"), None
 
     def _stage_snapshot(self, tool_name: str, ctx: RoundCtx,
-                        route_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                        route_meta: Dict[str, Any],
+                        params: Optional[Dict[str, Any]] = None
+                        ) -> Optional[Dict[str, Any]]:
         """⑨ 写入操作前创建快照（core/guardian.py）；快照 id 挂 ctx.snapshot_id，轮末回收。
 
         H-05：快照失败**不再被吞掉**。此前是 `except Exception:
@@ -1535,15 +1544,42 @@ class ExecutionLayer:
         - `snapshot()` 返回 None 且项目**真的是空的** → 放行（没有可失去的东西），
           这是 `[3]`/`[5]` 段钉住的既有行为。
 
+        **H-08：同时定下这轮的回滚范围**（`ctx.rollback_scope` / `ctx.touched_paths`）。
+        精确回滚的前提是"说得清这轮动了哪些路径"：
+
+        - `core.targets.WRITE_TOOLS_WITH_PATH` 那 4 个按路径动文件的工具说得清
+          （`core/targets` 是这件事的唯一入口）→ `"paths"`，只回滚这几个路径，
+          **不再连累用户同时对别的文件的编辑**。
+        - 其余写工具（`terminal_exec` / `code_execute` / `subagent` / `db_write` …）
+          能任意写盘，说得出"这轮改了什么"是不可能的 → `"tree"`，整树还原。
+          这一档**必须存在**：若对这它们也走精确回滚，`touched_paths` 是空的，
+          回滚会**静默什么都不做**，把"已回滚"变成假承诺。宁可多退一点（用户看得见、
+          备份还在、可恢复），也不能少退（用户以为撤掉了，其实还在盘上）。
+          `[8]` 段"违规自动回滚（仅本轮快照）"用的正是 `terminal_exec` 造文件，
+          它就是这一档的守卫。
+
         返回 dict = 本轮终止（不可用且 `snapshot_required`）；返回 None = 继续下一阶段。
         """
         ctx.snapshot_id = None
         ctx.snapshot_state = ""
+        ctx.rollback_scope = ""
+        ctx.touched_paths = ()
         if tool_name not in WRITE_TOOLS or not self.guardian:
             return None
+        # H-08：先定范围，再建快照（范围定不下来就按整树，宁可多退）
+        from core.targets import WRITE_TOOLS_WITH_PATH, destructive_targets
+        ctx.rollback_scope = "tree"
+        if tool_name in WRITE_TOOLS_WITH_PATH:
+            _targets = destructive_targets(tool_name, params or {})
+            if _targets:
+                ctx.rollback_scope = "paths"
+                ctx.touched_paths = tuple(_targets)
         try:
             ctx.snapshot_id = self.guardian.snapshot(
-                f"before_{tool_name}_{int(time.time())}")
+                f"before_{tool_name}_{int(time.time())}",
+                # H-08：把范围一起写进快照元信息 —— 之后 /undo、/rollback <id> 这类
+                # **事后**入口才能自己用对范围，而不是一律整树还原。
+                touched=(ctx.touched_paths if ctx.rollback_scope == "paths" else None))
         except Exception as e:  # noqa: BLE001 —— 任何失败都不许静默吞掉
             return self._snapshot_unavailable(tool_name, ctx, route_meta, str(e))
         if ctx.snapshot_id is None:
@@ -1673,7 +1709,9 @@ class ExecutionLayer:
         # H-07：回滚结果必须走到用户可见的结果里，不能只往 stderr 打一行。
         # 回滚失败 = 违规产生的写入还在磁盘上 —— 那时"已回滚"是假承诺，
         # 用户和模型都得知道，否则模型会以为世界已经回到违规之前。
-        rolled, rollback_detail = self._rollback_current_snapshot(ctx.snapshot_id)
+        rolled, rollback_detail = self._rollback_current_snapshot(
+            ctx.snapshot_id,
+            only=ctx.touched_paths if ctx.rollback_scope == "paths" else None)
         ctx.snapshot_state = "rolled_back" if rolled else "rollback_failed"
         ctx.snapshot_id = None
         if not rolled and rollback_detail:
@@ -2012,7 +2050,9 @@ class ExecutionLayer:
             "instruction": "请修正输出后重试"
         }
 
-    def _rollback_current_snapshot(self, snapshot_id: Optional[str]) -> Tuple[bool, str]:
+    def _rollback_current_snapshot(self, snapshot_id: Optional[str],
+                                   only: Optional[Tuple[str, ...]] = None
+                                   ) -> Tuple[bool, str]:
         """熔断回滚：仅回滚本轮创建的快照（防止回滚到过期快照破坏无关修改）
 
         返回 `(是否真的回滚成功, 给人看的说明)`。这里不抛异常——调用点正在处理一次
@@ -2021,11 +2061,15 @@ class ExecutionLayer:
 
         H-07：说明串由调用点带进**结果**（用户可见），不再只往 stderr 打一行 ——
         本函数的 docstring 一直写着"用户必须知道"，而实现此前只有 stderr。
+
+        H-08：`only` 非空 = 只回滚这些路径（本轮动过的那些），用户对其它文件的编辑
+        不再被一起抹掉；`None` = 整树还原（本轮范围说不清时的兜底）。选择由
+        `_stage_snapshot` 定，调用点按 `ctx.rollback_scope` 传进来。
         """
         if not (self.guardian and snapshot_id):
             return False, ""
         try:
-            ok = self.guardian.rollback(snapshot_id)
+            ok = self.guardian.rollback(snapshot_id, only=only)
             if self.session_log:
                 self.session_log.record_snapshot(K_SNAPSHOT_ROLLBACK, snapshot_id)
             if not ok:

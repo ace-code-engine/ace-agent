@@ -30,12 +30,19 @@ from typing import Optional
 __all__ = ["canonical_path", "canonical_text", "same_file"]
 
 
-def canonical_path(path: "Path | str") -> Optional[Path]:
-    """解析成 OS 最终路径；失败返回 None（调用方退回按原串判定）。"""
+def canonical_path(path: "Path | str", *, base: "Optional[Path | str]" = None
+                   ) -> Optional[Path]:
+    """解析成 OS 最终路径；失败返回 None（调用方退回按原串判定）。
+
+    `base` 是**相对路径的起点**，默认 `Path.cwd()`。需要传它的场合：解析"模型写在
+    工具参数里的路径"时，相对路径的起点是**项目根**而不是进程 cwd —— 两者在
+    `--project-root` 与 cwd 不同的场景下（无头、测试、`/open` 之外的调用）并不相等，
+    用 cwd 当起点会把项目内的文件解析到项目外，精确回滚于是变成静默空操作。
+    """
     try:
         p = Path(os.path.expanduser(str(path)))
         if not p.is_absolute():
-            p = Path.cwd() / p
+            p = (Path(base) if base is not None else Path.cwd()) / p
         return p.resolve()
     except (OSError, ValueError, RuntimeError):
         return None

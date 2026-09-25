@@ -135,7 +135,7 @@ class ToolSpec:
 
 | 模块 | 契约方法 |
 |---|---|
-| `core/guardian.py` | `snapshot(reason) -> id|None`、`verify_snapshot(id) -> (ok,msg)`、`rollback(id) -> bool`、`backup_dir` |
+| `core/guardian.py` | `snapshot(reason, touched=None) -> id|None`（`touched` = 本轮回滚范围，记进 meta）、`verify_snapshot(id) -> (ok,msg)`、`rollback(id, only=None) -> bool`（`only` 省略时按快照自己记的范围；H-08）、`backup_dir` |
 | `core/archive.py` | `add(text)->bool`(短输入拒)、`detect_topic_shift(text)`、`get_memory(top_k)`、`stats()` |
 | `core/nuwa.py` | `add_metric(...)`、`add_rollback(...)`、`generate_report() -> {html_path,json_path,summary}` |
 | `core/universal_document_parser.py` | `parse_document(path) -> ParseResult(success, method, text, truncated, metadata, error)` |

@@ -12666,11 +12666,21 @@ if _want("70"):
     _tokens70 = [("--output=C:/Users/x/leak.txt", True), ("-o/tmp/leak.txt", True),
                  ("--target-directory=/tmp/x", True), ("--exclude=*.py", False),
                  ("-la", False), ("--oneline", False), ("-rf", False),
-                 ("src/main.py", False), ("docs/a.md", False)]
+                 ("src/main.py", False), ("docs/a.md", False),
+                 # 裸路径分支：**另一套平台的绝对路径**同样算越界。
+                 # `C:/...` 在 POSIX 上 `Path.is_absolute()` 是 False，会被当成相对
+                 # 路径拼进项目目录 ⇒ 明明写着绝对路径却判成"项目内"。CI（Linux）就是
+                 # 被这一条抓到的：本地 Windows 全绿、CI 单条红。
+                 ("C:/Users/x/leak.txt", True), ("/tmp/leak.txt", True)]
     _bad70 = [(t, _el70z.executor._escapes_project(t)) for t, _want in _tokens70
               if _el70z.executor._escapes_project(t) is not _want]
     check("H-15 选项 token 表：带路径的值要查、纯开关与 glob 不误伤",
           not _bad70, _bad70)
+    check("H-15 ★另一套平台语义的绝对路径也算越界（两端同判，不受宿主影响）",
+          _el70z.executor._escapes_project("C:/Users/x/leak.txt") is True
+          and _el70z.executor._escapes_project("/tmp/leak.txt") is True,
+          (_el70z.executor._escapes_project("C:/Users/x/leak.txt"),
+           _el70z.executor._escapes_project("/tmp/leak.txt")))
 
     # —— H-19：截断必须与"参数写错"分开（否则工具会被整会话熔断）——
     import agent_runner as _ar70  # noqa: E402

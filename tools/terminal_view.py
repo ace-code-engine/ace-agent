@@ -48,8 +48,14 @@ class TerminalView:
         if os.name == "nt" and self._NT_SWITCH_RE.match(token):
             return False
         expanded = os.path.expanduser(token)
+        # H-15：`/` 开头也算"像路径"，**两端同判**。此前只看 `os.path.isabs`：
+        # 同一个 `cat /tmp/x` 在 POSIX 上判越界、在 Windows 上**直接放行**
+        # （`ntpath.isabs('/tmp/x')` 是 False，于是它连"像不像路径"都过不了），
+        # 而子进程在 Windows 上会把 `/tmp/x` 解析成 `<当前盘>:\tmp\x` —— 项目外。
+        # DOS 单字母开关（`tree /F`）已在上面被 `_NT_SWITCH_RE` 排除，不受影响。
         looks_like_path = (os.path.isabs(expanded)
                            or re.match(r"^[a-zA-Z]:[\\/]", expanded)
+                           or expanded.startswith("/")
                            or ".." in Path(expanded).parts)
         if not looks_like_path:
             return False

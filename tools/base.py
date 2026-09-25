@@ -29,6 +29,14 @@ GIT_READONLY_SUBCOMMANDS = {"status", "log", "diff", "show",
 # \U、\6 等是非法转义，json.loads 会失败导致整个工具调用被丢弃。
 _WIN_PATH_BACKSLASH_RE = re.compile(r'\\([^"\\/bfnrtu])')
 
+# H-15（跨平台）：**另一套平台语义的绝对路径**。`C:/x` 在 POSIX 上
+# `Path.is_absolute()` 是 False，会被当成相对路径拼进项目目录 —— 一个明明写着
+# 绝对路径的越界目标反而被判成"项目内"。`terminal_view._escapes_project` 那边的
+# "像不像路径"用的是显式判据（同一个 `^[A-Za-z]:[\\/]`），两端都认；但真正落地的
+# 约束检查在 `_confined`，用的是宿主语义，于是同一个 token 在 Windows 上判越界、
+# 在 Linux/macOS 上判项目内。CI 就是被这条抓到的。
+_FOREIGN_ABS_RE = re.compile(r"^[a-zA-Z]:[\\/]")
+
 # —— 敏感目标：凭据 / 持久化入口 / 系统目录 ——
 # 绝对路径写入是产品意图（"放到桌面"），但意图不覆盖凭据与自启动入口：
 # 写 ~/.ssh/authorized_keys、~/.bashrc 是持久化后门，读 ~/.ai_code.json 是窃取本工具自身的 API key。
@@ -138,7 +146,17 @@ class ToolExecutorBase:
 
 
     def _confined(self, path: Path) -> Optional[Path]:
-        """把路径解析并约束到项目目录内；越界（..、绝对路径逃逸、符号链接、跨盘符）返回 None"""
+        """把路径解析并约束到项目目录内；越界（..、绝对路径逃逸、符号链接、跨盘符）返回 None
+
+        H-15（跨平台）：**另一套平台语义的绝对路径在本宿主上无法表达，一律按越界处理**。
+        `C:/Users/x/leak.txt` 在 POSIX 上 `Path.is_absolute()` 是 `False`，于是被当成
+        相对路径拼进项目目录 —— 一个明明写着绝对路径的越界目标反而判成"项目内"。
+        修在这里而不是在 `terminal_view._escapes_project`：那里只是"像不像路径"的
+        预筛，真正决定放不放行的是这个函数，两个调用分支（选项 token 与裸路径）都经过它。
+        方向是保守的 —— 宁可拒，不可放。
+        """
+        if not path.is_absolute() and _FOREIGN_ABS_RE.match(str(path)):
+            return None
         resolved = (path if path.is_absolute() else self.project_root / path).resolve()
         # 盘符一致性检查（Windows）：防止 .. 把路径解析到其他盘符后混过校验
         try:

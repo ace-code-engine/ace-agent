@@ -1,0 +1,46 @@
+### GitHub Contributors 页面截图（原始留档）
+### 采集时间：2026-09-25（截图由仓库所有者在会话中提供）
+### 截图文件：contributors_page_2026-09-25.png
+###   sha256: 365fe37d29a64e059664e313572899c166c02e1fb4b485b33a301dc8aca591ef
+###   48881 字节
+### 页面：GitHub → Insights → Contributors
+
+## 页面上的原文（逐字转录）
+
+标题        Contributors
+副标题      Contributions per week to main, excluding merge commits
+筛选项      Period: Custom range      Contributions: Commits
+
+图表 1      Commits over time
+            Weekly from 2026年8月5日 to 2026年9月9日
+            x 轴刻度: Aug 17 / Aug 24 / Aug 31 / Sep 7 / Sep 14 / Sep 21
+            y 轴: 0 - 60（Contributions）
+            柱高（**目测**，非页面给出的数字）: ≈48 / ≈57 / ≈47 / ≈11 / ≈57 / ≈52
+
+贡献者卡片  jincheng3870682453-hash     排名 #1
+            156 commits, 38,776 ++, 8,221 --
+            x 轴: Aug 17 / Aug 24 / Sep 7
+            y 轴: 0 - 40 左右
+
+## 转录口径与不确定项
+
+1. **「Weekly from 2026年8月5日 to 2026年9月9日」与 x 轴末端「Sep 21」不一致。**
+   这是 GitHub 在自定义区间下的实际显示。本包**不推断**哪个才是真实区间 —— 两者都照录，引用时请注明"页面如此显示"。
+
+2. **柱高是目测读数**，不是页面给出的数字。页面只在贡献者卡片上给出精确计数（`156 / 38,776 / 8,221`）。
+   **写文章请引用精确计数，不要引用柱高。**
+
+3. **`156 commits` 与 git 的 `284 commits` 不是同一口径**，二者不能互相印证，也不能互相否定：
+
+   | | 本页 | `RAW/repo_meta.txt` |
+   |---|---|---|
+   | 计数 | **156** | **284** |
+   | 范围 | 所选区间内 | 全部历史 |
+   | 是否排除 merge | **排除** | 不排除 |
+   | 分支 | `main` | `HEAD` |
+   | 出处 | 本页截图 | `git rev-list --count HEAD` |
+
+4. **本页不含仓库维度**：它统计该账户的贡献，**不显示属于哪个仓库**，也不显示组织归属。
+   因此**不能**用它证明「该仓库由个人账户转移而来」—— 那个结论的出处是 `RAW/transfer_evidence.txt`（commit hash 相同 + 301 重定向 + 仓库 id 相同）。
+
+5. 该页为**动态渲染页面**，本包**未保存 HTML 原文**（只有截图）。因此上面 3 个精确计数属于**截图转录**，不是命令输出 —— 与 `RAW/` 其余文件的证据等级不同，已在 `RAW/00_INDEX.md` 中标注。

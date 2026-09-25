@@ -172,3 +172,31 @@ git -C G:\AI_Project\ace log --format='%ad' --date=format:'%Y-%m-%d' |
 ```
 
 **注意**：贡献图与逐日 commit 数都会随新提交变化。比对时以采集日 **2026-09-25** 为准。
+
+---
+
+## 七、补充：GitHub **Contributors** 页截图（2026-09-25 提供）
+
+> 本节晚于 §1–§6 补入。出处是一张**截图**，**不是命令输出**：
+> `RAW/contributors_page_2026-09-25.png`（sha256 `365fe37d…`），逐字转录见 `RAW/contributors_page.txt`。
+
+**页面原文**：
+
+- 标题 `Contributors`，副标题 `Contributions per week to main, excluding merge commits`
+- 筛选项 `Period: Custom range` / `Contributions: Commits`
+- 贡献者 `jincheng3870682453-hash` —— **排名 #1**，**`156 commits, 38,776 ++, 8,221 --`**
+- 图表「Commits over time」副标题 `Weekly from 2026年8月5日 to 2026年9月9日`（x 轴刻度到 `Sep 21`，y 轴 0–60）
+  —— **柱高请勿引用**（那是目测读数，页面没给数字）
+
+**⚠️ 三个口径不能混**：
+
+| | **Contributors 页（本节）** | 贡献图（§1） | git（`RAW/repo_meta.txt`） |
+|---|---|---|---|
+| 计数 | **156** commits ／ **+38,776 / −8,221** | 2026 年 **377** 次贡献 | **284** commits |
+| 口径 | `main`、**排除 merge**、所选区间 | 账户全部公开贡献（含 Issue / PR 等） | `git rev-list --count HEAD`，不排除 merge、无区间 |
+
+**三者互不印证、也互不否定。** `156 ≠ 284` 至少有两个原因（排除 merge + 区间限制），**本包不推断具体成因**。
+
+**本页同样不含仓库维度** —— 它不显示贡献属于哪个仓库，也不显示组织归属，因此**不能**用它证明仓库转移（那一条的出处是 `RAW/transfer_evidence.txt`）。
+
+**这页新提供了什么**：此前本包只有「贡献**次数**」（377）与「commit **数**」（284）；截图补上了**行数变更**（`+38,776 / −8,221`）与**仓库自带的排名**（`#1`）—— 两者都是页面首次给出的量。

@@ -1,0 +1,11 @@
+# 依赖与产物：不进版本库
+# npm 的依赖树几万个文件，提交进去会让 diff 与克隆都变得没法用。
+node_modules/
+
+# 构建产物（本包目前 `npm run build` 只做类型检查，不产出文件；留给将来）
+dist/
+*.tsbuildinfo
+
+# 本地日志
+npm_install.log
+*.log

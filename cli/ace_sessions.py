@@ -149,7 +149,23 @@ def head_for_resume(events: List[Dict[str, Any]],
 
 
 def label(events: List[Dict[str, Any]], fallback: str = "") -> str:
-    """给会话起个可读名字：首句前 40 字；没有就退回文件名。"""
+    """给会话起个可读名字。
+
+    优先级：**用户显式改的名字** > 首句前 40 字 > 文件名。
+
+    显式命名必须压过首句 —— 否则用户 `/rename` 完，列表里显示的还是那句话，
+    改名就成了一个"按了没反应"的功能。
+
+    **取最后一条 rename 就停下，不再往前找**：最后那条可能是"清空"（name 为空），
+    那意味着用户不要名字了。继续往前找会捡回一条**已经被清掉的旧名字** ——
+    清空就成了"按了没反应"（写完才知道，测试当场抓的）。
+    """
+    for ev in reversed(list(events or [])):
+        if _kind(ev) == "session/rename":
+            name = " ".join(str(ev.get("name") or "").split())
+            if name:
+                return name[:60]
+            break       # 最后一条是清空 → 回到首句，别再往前捡旧的
     s = summarize(events)
     first = " ".join(str(s["first_user"] or "").split())
     if not first:

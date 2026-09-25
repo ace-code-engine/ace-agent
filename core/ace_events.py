@@ -13,15 +13,24 @@
 | `session_start` | `version` `permission` `sandbox` `project_root` | 会话建立 |
 | `user_message` | `text` | 用户这一轮说了什么 |
 | `model_request` | `round` `messages_count` `system_len` | 每次模型请求的 envelope |
-| `tool_call` | `tool` `params` | 模型要调工具 |
+| `tool_start` | `tool` | 工具**即将**执行（另有 `target` 可选；见下方"两个时刻"） |
+| `tool_call` | `tool` `params` | 工具执行**之后**的审计记录 |
 | `tool_result` | `tool` `status` `elapsed` `message` | 工具结果（`data` 可能很大） |
 | `permission_request` | `tool` `reason` | 需要审批（非交互下随后会被拒） |
+| `choice_request` | `kind` `title` | 需要用户做一次选择（`kind` = choose / confirm / text） |
 | `notice` | `text` | 人看的输出被转成事件（这样"人话"也不会丢） |
 | `final` | `text` | 模型的最终回复 |
 | `session_end` | `rounds` `tools` `violations` `elapsed` | 会话结束 |
+| `model_delta` | `text` | 流式增量（**opt-in**，见下） |
+| `status` | `segments` | 状态行分段的结构化形态（数据与样式分离） |
 
-明说没做的：**不流式发 model_delta**（一次回复可能几千条 delta，灌进事件流只会让
-消费者自己再攒一遍）。要增量请用 SDK 层自己接 `on_delta`。
+**两个时刻（驱动 UI 必须分清）**：`tool_call` 是**事后**发出的 —— 它在"执行层已跑完"
+的分支里（`ai_code.py:5208`），是审计记录，不是意图预告。想画"工具正在跑"必须用
+`tool_start`。两者按出现顺序一一对应（本引擎的工具是串行执行的）。
+
+**`model_delta` 是 opt-in 的**：默认**不发**（一次回复可能几千条 delta，灌进只想要
+结论的脚本消费者那里只会让它自己再攒一遍）。要流式渲染的前端在 `initialize` 时
+带 `stream: true` 打开；不开就只收 `final`。要增量也可以走 SDK 层的 `on_delta`。
 
 纯逻辑（事件构造、schema 校验）与输出分离：前者可单测，后者只负责写一行 JSON。
 """
@@ -37,20 +46,28 @@ from typing import Any, Dict, List, Optional
 __all__ = ["EVENT_TYPES", "EVENT_REQUIRED", "make_event", "validate_event",
            "EventEmitter", "NoticeProxy", "strip_ansi"]
 
-EVENT_TYPES = ("session_start", "user_message", "model_request", "tool_call",
-               "tool_result", "permission_request", "notice", "final", "session_end")
+EVENT_TYPES = ("session_start", "user_message", "model_request", "tool_start",
+               "tool_call", "tool_result", "permission_request", "choice_request",
+               "notice", "final", "session_end", "model_delta", "status")
 
 # 每个事件的必需字段（校验与文档的唯一来源）
 EVENT_REQUIRED: Dict[str, tuple] = {
     "session_start": ("version", "permission", "sandbox", "project_root"),
     "user_message": ("text",),
     "model_request": ("round", "messages_count", "system_len"),
+    # tool_start 只要求 tool：它由"提前偷看模型原文"得出（`ai_code._peek_tool_name`），
+    # 那是宽松匹配、认不出就空 —— 要求 params 等于逼调用方编一个出来。
+    # 目标（路径/命令）作 `target` 附带，同样是尽力而为。
+    "tool_start": ("tool",),
     "tool_call": ("tool", "params"),
-    "tool_result": ("tool", "status", "elapsed"),
+    "tool_result": ("tool", "status", "elapsed", "message"),
     "permission_request": ("tool", "reason"),
+    "choice_request": ("kind", "title"),
     "notice": ("text",),
     "final": ("text",),
-    "session_end": ("rounds", "tools", "elapsed"),
+    "session_end": ("rounds", "tools", "violations", "elapsed"),
+    "model_delta": ("text",),
+    "status": ("segments",),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

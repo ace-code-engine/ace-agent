@@ -20,16 +20,17 @@ r"""ace_menu —— 补全菜单的**模型**：候选从哪来、怎么排、�
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 __all__ = ["MenuItem", "MenuState", "command_items", "mention_items",
            "argument_items", "build_menu", "render_menu", "menu_hint",
            "window_bounds", "MENTION_TRIGGERS", "ARGUMENT_HINTS"]
 
-# `@` 提及的四类（顺序 = 菜单里的展示顺序）
+# `@` 提及的五类（顺序 = 菜单里的展示顺序）
 MENTION_TRIGGERS: Tuple[Tuple[str, str], ...] = (
     ("lang", "at_complete_lang"), ("skill", "at_complete_skill"),
     ("file", "at_complete_file"), ("folder", "at_complete_folder"),
+    ("session", "at_complete_session"),
 )
 
 # 命令的参数提示：命令 → [(参数, 说明 i18n 键)]。有提示的命令输入空格后即弹参数菜单，
@@ -136,15 +137,27 @@ def command_items(commands: Dict[str, str],
 
 
 def mention_items(kind: str = "", translate: Optional[Callable[[str], str]] = None,
-                  values: Optional[Sequence[str]] = None) -> List[MenuItem]:
-    """`@` 提及候选：kind 为空时给四类触发词；给定 kind 时给该类的取值（可选）。"""
+                  values: Optional[Sequence[Any]] = None) -> List[MenuItem]:
+    """`@` 提及候选：kind 为空时给五类触发词；给定 kind 时给该类的取值（可选）。
+
+    取值可以是**字符串**（标签即插入值，如 `@lang` 的 `zh`），也可以是
+    **`(标签, 插入值)` 二元组** —— `@session` 需要这个：菜单里要显示
+    「1. 缓存穿透 · 2 轮」让人认得出是哪次，但插进输入框的必须是 `1`（编号）。
+    只给标签的话补全后得到一句人话，模型看不懂；只给编号则用户不知道选的是哪次。
+    """
     tr = translate or (lambda k: k)
     if not kind:
         return [MenuItem(f"@{k}", f"@{k} ", tr(desc_key), tr("group_extend"),
                          "mention")
                 for k, desc_key in MENTION_TRIGGERS]
-    return [MenuItem(str(v), f"{v} ", "", tr("group_extend"), "mention")
-            for v in (values or [])]
+    out: List[MenuItem] = []
+    for v in (values or []):
+        if isinstance(v, (tuple, list)) and len(v) == 2:
+            label, insert = str(v[0]), str(v[1])
+        else:
+            label = insert = str(v)
+        out.append(MenuItem(label, f"{insert} ", "", tr("group_extend"), "mention"))
+    return out
 
 
 def argument_items(cmd: str, translate: Optional[Callable[[str], str]] = None

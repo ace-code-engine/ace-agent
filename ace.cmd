@@ -56,6 +56,40 @@ if /i "%~1"=="--install-ui" (
     shift
 )
 
+rem ---------------------------------------------------------------------------
+rem Frontend dispatch.
+rem The TypeScript/Ink frontend is the MAIN UI once both pieces are present:
+rem Node on PATH, and frontend\node_modules installed. Anything missing falls
+rem back to the Python REPL below -- and says WHICH piece was missing. A silent
+rem fallback is how you end up wondering why the new UI never shows up.
+rem Force the Python path with:  set ACE_LEGACY_UI=1
+rem ---------------------------------------------------------------------------
+if defined ACE_LEGACY_UI goto :ace_python
+where node >nul 2>nul
+if errorlevel 1 (
+    echo [ACE] Node was not found on PATH -- the Ink frontend needs Node 18+.
+    echo       Falling back to the Python REPL.
+    goto :ace_python
+)
+if not exist "frontend\node_modules\tsx\dist\cli.mjs" (
+    echo [ACE] Ink frontend dependencies are not installed yet.
+    echo       Install them once with:
+    echo           cd frontend
+    echo           npm install
+    echo       Falling back to the Python REPL for now.
+    goto :ace_python
+)
+rem tsx discovers tsconfig.json from the CURRENT DIRECTORY, not from the
+rem location of the file it is given. Run it from the repo root and it finds
+rem no tsconfig, falls back to the classic JSX transform, and the first
+rem render() dies with "React is not defined" -- while "npm start" keeps
+rem working, because there the cwd is frontend. So run it from frontend too.
+pushd "%~dp0frontend"
+node "node_modules\tsx\dist\cli.mjs" "src\index.tsx" %*
+popd
+goto :eof
+
+:ace_python
 "%_ACE_PY%" ai_code.py --tools --max-history 12 %*
 goto :eof
 

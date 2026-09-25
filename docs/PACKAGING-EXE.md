@@ -89,27 +89,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
 
 产物：`dist\ace\`（整个目录就是载荷，下一步的安装包与便携 zip 都由它来）。脚本最后会打印体积。
 
-## 安装包（自带环境，用户机器上不需要 Python）
+## 安装包（MSI，自带环境，用户机器上不需要 Python）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps1
 #   -Version 3.41.0   覆盖版本（默认读 core/version.py）
-#   -Iscc <路径>      指定 ISCC.exe
+#   -Python <解释器>   生成器用的解释器（默认自动探测）
 #   -NoZip            不另出便携 zip
 ```
 
-产物：`dist\ace-<版本>-windows-amd64-setup.exe`（Inno Setup）＋ 同载荷的便携
-`...-windows-amd64.zip`。**两个都挂在 Release 上**：安装包是主推渠道，zip 给不想装的人。
+产物：`dist\ace-<版本>-windows-amd64.msi`（WiX）＋ 同载荷的便携
+`...-windows-amd64.zip`。**两个都挂在 Release 上**：MSI 是主推渠道，zip 给不想装的人。
 
-安装包做的事：装到 `{autopf}\ACE`（默认所有用户，也可只给自己）→ 开始菜单两项
-（正常启动 / 离线演示，都用 `cmd /k` 起终端，否则控制台程序会一闪而过）→ 可选的
-「加入 PATH」（勾上就能在任意终端敲 `ace`）→ 可选桌面快捷方式。**卸载会把 PATH 条目一起摘掉**
-（HKCU 与 HKLM 都查，因为安装与卸载时的权限模式可能不同——留一条指向不存在目录的 PATH 比多删一行更糟）。
+`packaging/make_wix.py` 由载荷目录**生成** WiX 源文件（每个文件一个 `<Component>`，GUID 用
+`uuid5(固定命名空间, 相对路径)` 确定性推出——MSI 的升级/卸载依赖产品身份稳定，随机 GUID 会让
+每次构建变成不同产品），然后调 `candle` + `light` 编译。生成过程本身就**顺带验了载荷完整性**：
+少一个文件就少一个组件引用。编译完还会把 MSI 读回来，确认里面真有 `ace.exe` 的引用——
+只信 `light` 的退出码不够，一个空壳 MSI 也能编出来。
+
+### 为什么是 WiX，不是 Inno Setup
+
+两者都能做"自带环境、双击安装"。选 WiX 的理由只有一条，但很硬：**能用的 WiX 工具链在这台机器上
+存在，Inno Setup 不存在。** 而"本地不可验证"在这条发布链上已经连续弄红 CI 五次——每次都是同一个
+模式：**我在本地看不到 CI 会看到的东西**。所以凡是在本地能真跑一遍的方案，优先于"理论上更好但
+只能靠 CI 兜底"的方案。第一版确实是 Inno Setup，写完才发现本机没有 ISCC，也就无法编译验证，
+于是换掉。
+
+代价要说清楚：**WiX 3 的 MSI 门槛比 Inno 高**。所以第一版的安装包能力是收窄的——
+
+| 能力 | Inno 版（未采用） | WiX 版（当前） |
+|---|---|---|
+| 装到 `Program Files\ACE` | ✅ | ✅（`InstallScope="perMachine"`） |
+| 开始菜单两项（正常 / 离线演示，`cmd /k` 起终端） | ✅ | ✅ |
+| 卸载干净 | ✅ | ✅（组件 GUID 稳定，MSI 自己记账） |
+| 只装给当前用户 | ✅ | ❌ 暂只支持全机安装 |
+| 可选加入 PATH | ✅ | ❌ 暂不做（改 PATH 需要 `Environment` 表或自定义动作，而 MSI 的自定义动作是最容易做坏的一块；宁可先不做） |
+| 可选桌面快捷方式 | ✅ | ❌ 同上，先不做 |
+
+后三项不是"做不了"，是**先把能验证的部分做对**。要补时按同样纪律：补上就得能在本机验。
 
 **为什么单开一步而不是塞进 `build_exe.ps1`**：构建并验证载荷是一件事，把它包起来是另一件事。
-分开之后，改措辞 / 改 PATH 行为都不必重新冻结，而且冒烟门禁的意义保持纯粹——它验的是载荷，
-不是包装。所以 `build_installer.ps1` **不自己构建载荷**：`dist\ace\` 不存在就停下并告诉你该跑哪条命令。
+分开之后，改安装行为不必重新冻结，而且冒烟门禁的意义保持纯粹——它验的是载荷，不是包装。
+所以 `build_installer.ps1` **不自己构建载荷**：`dist\ace\` 不存在就停下并告诉你该跑哪条命令。
 包一个没验过的载荷是本末倒置。
+
+**CI 上要装 WiX v3**：`windows-latest` 预装的是 v4/v5（只有 `wix.exe`，没有 `candle`/`light`），
+而生成器 target 的是 v3 schema。工作流里显式 `choco install wixtoolset`。
 
 ## 冒烟门禁：为什么构建脚本敢说自己成功
 

@@ -11,9 +11,9 @@
 
 **① Windows 安装包（新）**
 
-`ace-3.41.0-windows-amd64-setup.exe` —— 双击安装。**它自带运行环境，那台机器上不需要装 Python。** 也提供同内容的便携版 `ace-3.41.0-windows-amd64.zip`，解压即用。
+`ace-3.41.0-windows-amd64.msi` —— 双击安装。**它自带运行环境，那台机器上不需要装 Python。** 也提供同内容的便携版 `ace-3.41.0-windows-amd64.zip`，解压即用。
 
-安装包会做的事：装到 `Program Files\ACE`（或只装给你自己）· 开始菜单两项（正常启动 / 离线演示，都自动开好终端窗口）· 可选**加入 PATH**（勾上就能在任意终端敲 `ace`）· 可选桌面快捷方式。**卸载会把 PATH 条目一起摘干净。**
+安装包会做的事：装到 `Program Files\ACE` · 开始菜单两项（正常启动 / 离线演示，都自动开好终端窗口）· 卸载干净（MSI 自己记账，不留残件）。
 
 装完想先确认它是好的？在任意终端敲（或从开始菜单选「离线演示」）：
 
@@ -83,15 +83,15 @@ python ai_code.py --mock   # 离线演示：完整跑一遍 模型 ↔ 执行层
 
 **① A Windows installer (new)**
 
-`ace-3.41.0-windows-amd64-setup.exe` — double-click to install. **It carries its own runtime: no Python needed on that machine.** The same payload is also offered as a portable `ace-3.41.0-windows-amd64.zip` if you would rather not install anything.
+`ace-3.41.0-windows-amd64.msi` — double-click to install. **It carries its own runtime: no Python needed on that machine.** The same payload is also offered as a portable `ace-3.41.0-windows-amd64.zip` if you would rather not install anything.
 
-What the installer does: installs to `Program Files\ACE` (or just for you) · two Start Menu entries (normal launch / offline demo, each opening a terminal window for you) · optional **add to PATH** (tick it and `ace` works in any terminal) · optional desktop shortcut. **Uninstall removes the PATH entry again.**
+What the installer does: installs to `Program Files\ACE` · two Start Menu entries (normal launch / offline demo, each opening a terminal window for you) · a clean uninstall (MSI keeps its own ledger, no leftovers).
 
-To confirm it works right after installing, in any terminal (or pick "offline demo" from the Start Menu):
+To confirm it works right after installing, open a terminal in the install folder (or pick "offline demo" from the Start Menu):
 
 ```powershell
-ace --mock     # the whole loop, offline: no account and no key needed
-ace            # real models: pick 2 on the landing screen for the setup wizard
+ace.exe --mock     # the whole loop, offline: no account and no key needed
+ace.exe            # real models: pick 2 on the landing screen for the setup wizard
 ```
 
 Two small things: **SmartScreen will warn you** — the build is not code-signed, so choose *More info* → *Run anyway* (that is what an unsigned binary looks like, not a broken one); and **`code_execute` is not offered in the installed build** (the reason is below — it tells you so instead of failing silently).

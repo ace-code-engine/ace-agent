@@ -79,10 +79,16 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1 -Python python
 
-      # 安装包（自带环境，用户机器上不需要 Python）。放在冒烟之后：包一个没验过的
+      # 安装包（MSI，自带环境，用户机器上不需要 Python）。放在冒烟之后：包一个没验过的
       # 载荷是本末倒置。这一步同时生成便携 zip（同一个载荷，给不想装的人）。
-      # Inno Setup 在 windows-latest 上是预装的；build_installer.ps1 找不到会明确报错。
-      - name: Build installer (Inno Setup)
+      #
+      # WiX **v3**（candle/light）：生成器 target 的是 v3 schema。windows-latest 上
+      # 预装的是 v4/v5（只有 wix.exe，没有 candle/light），所以显式装 v3。
+      - name: Install WiX Toolset v3
+        shell: pwsh
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Build installer (WiX MSI)
         shell: pwsh
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps1 -Version "${{ steps.v.outputs.version }}"
@@ -91,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          Copy-Item "dist/ace-${{ steps.v.outputs.version }}-windows-amd64-setup.exe" release-assets/ -Force
+          Copy-Item "dist/ace-${{ steps.v.outputs.version }}-windows-amd64.msi" release-assets/ -Force
           Copy-Item "dist/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" release-assets/ -Force
           Get-ChildItem release-assets | Format-Table Name, Length -AutoSize
 
@@ -114,8 +120,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title $tag --notes "见 CHANGELOG.md 的 $tag 条目。"
           }
-          # 两个都传：安装包是主推渠道，便携 zip 给不想装的人。--clobber 让重跑可覆盖。
-          gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64-setup.exe" --clobber
+          # 两个都传：MSI 是主推渠道，便携 zip 给不想装的人。--clobber 让重跑可覆盖。
+          gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.msi" --clobber
           gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" --clobber
 
   # tag 推送触发时，Release 由 release-executor 建、exe 附件由上面的 job 负责。

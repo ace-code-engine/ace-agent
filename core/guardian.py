@@ -28,40 +28,28 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules",
+EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", ".ace_env", "node_modules",
                 ".idea", ".vscode", ".guardian", ".agent_flywheel",
                 ".poc_reports", ".sandbox_tmp", ".test_tmp",
-                ".ace_shots", ".ace_images"}
+                ".ace_shots", ".ace_images",
+                # H-01：工具缓存与"只该由自己被写"的运行时产物。
+                # 之前漏在名单外，实测一次快照 1903 文件 / 34.5 MB 里有 71% 是
+                # `.ace_sessions`(972) + `.ace-cc-zh`(636) —— 全是非源码。
+                # `.ace_sessions` 尤其不该被回滚：那是 append-only 的审计记录，
+                # 把它还原等于抹掉取证材料。
+                ".ruff_cache", ".pytest_cache", ".mypy_cache",
+                ".ace_sessions", ".ace-cc-zh"}
 # SEC-04：快照是明文副本，绝不能把用户凭据/密钥文件再复制一份进 .guardian。
 # 命中这些名字的文件不进快照（也就不进 meta、不会被回滚重建）。
-_SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
-                       ".ovpn", ".ppk", ".asc")
-_SENSITIVE_BASENAMES = {".env", ".ai_code.json", ".claude.json"}
-_PRIVATE_KEY_PREFIXES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")
+#
+# H-11：判据**只剩一份**，在 `core/sensitive.py`。此前这里自带一份（3 个 basename
+# + 9 个后缀），与 `tools/base` 那份（30 个 basename + 7 个后缀）**双向漂移** ——
+# 结果是 25 个凭据名（`.npmrc`/`.pypirc`/`.pgpass`/`.git-credentials`/`.netrc`/
+# `.htpasswd`/`.terraformrc`…）被**明文复制进快照**，而本文件的注释正写着"绝不能"。
+from core.sensitive import is_credential_file as _is_sensitive_file  # noqa: E402
 
-
-def _is_sensitive_file(path: Path) -> bool:
-    low = path.name.lower()
-    if low in _SENSITIVE_BASENAMES or low.startswith(".env."):
-        return True
-    if low.startswith(_PRIVATE_KEY_PREFIXES):
-        return True
-    if low.endswith(_SENSITIVE_SUFFIXES):
-        return True
-    return False
-
-
-def is_credential_file(path) -> bool:
-    """这是明文凭据文件吗（SEC-04 名单）？
-
-    公开入口，供**同一判断的第二处**复用：快照不留它的副本，那么"为了显示 diff
-    而把旧内容读出来"同样不该做 —— 那份内容会进终端卡片，也会顺着工具结果进模型
-    上下文。两处各维护一份名单，迟早会漂。
-    """
-    try:
-        return _is_sensitive_file(Path(path))
-    except (TypeError, ValueError):
-        return False
+# `is_credential_file` 的唯一实现在 `core.sensitive`；调用方请**直接从那里取**
+# （`tools/file_ops.py` 已改成直取），别在这里再转一层 —— 转出层就是下一份会漂的名单。
 
 
 class SnapshotError(Exception):
@@ -121,10 +109,43 @@ class Guardian:
                 h.update(chunk)
         return h.hexdigest()
 
+    def count_credential_only_files(self) -> int:
+        """数出"文件存在、却只因为像凭据而进不了快照"的个数（H-06）。
+
+        `_collect_files()` 返回空有两种含义，而 `snapshot()` 都用 `None` 表达，
+        调用方分不出来。但两者**危险程度完全不同**，不能一概而论：
+
+        - 目录被排除（`.git`/`.poc_reports`/`.agent_flywheel`/缓存/会话）——
+          项目里没有用户内容，也就没有可失去的东西，写入应当放行。
+          实测踩到过：测试里复用的 sandbox 目录在跑到写工具时已有 `.poc_reports/`，
+          若把这类运行时产物算成"内容"，会把合法的空项目写入全部拒掉。
+        - **有文件、但每一个都命中凭据名单**（`.env` / `*.pem` / `.npmrc` /
+          `.git-credentials` …）—— 这是"有内容却没有回滚点"：工具放行对它们的
+          写入（`.env` 是故意放行的"正常开发对象"），而快照永远不会有它们，
+          于是那次写入**无法撤销**。这一种才该按快照不可用处理。
+
+        本方法只统计后者的个数。
+        """
+        total = 0
+        for dirpath, dirnames, filenames in os.walk(self.project_root):
+            dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+            for fn in filenames:
+                if _is_sensitive_file(Path(dirpath) / fn):
+                    total += 1
+        return total
+
     # ---------- 快照 ----------
 
     def snapshot(self, tag: str = "") -> Optional[str]:
-        """创建物理快照（完整拷贝文件树），返回快照 id；空项目返回 None"""
+        """创建物理快照（完整拷贝文件树），返回快照 id；无可备份内容返回 None
+
+        H-02：任何失败都在这里就地清掉 `dest_root`，再把异常抛出去。此前只有
+        "创建后自检失败"那一支做清理，而 `shutil.copy2` 中途失败（Windows 上文件
+        被别的进程占用是常态）会留下一个**没有 meta.json** 的半成品目录 ——
+        `list_snapshots()` 只认带 meta.json 的目录，于是 `prune()` 永远看不见它，
+        只吃磁盘、不报警。历史遗留的这类目录用 `guardian --gc` 或
+        `gc_orphans()` 清。
+        """
         files = self._collect_files()
         if not files:
             return None  # 空项目没有可备份内容
@@ -142,29 +163,34 @@ class Guardian:
             "file_count": len(files),
             "files": {},
         }
-        for src in files:
-            rel = src.relative_to(self.project_root)
-            dst = files_dest / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            meta["files"][rel.as_posix()] = {
-                "size": src.stat().st_size,
-                "sha256": self._sha256(src),
-            }
-        # 元信息原子写入（配置签名密钥时附 HMAC 签名）
-        meta_path = dest_root / "meta.json"
-        tmp_path = meta_path.with_suffix(".json.tmp")
-        meta_text = json.dumps(meta, ensure_ascii=False, indent=2)
-        tmp_path.write_text(meta_text, encoding="utf-8")
-        tmp_path.replace(meta_path)
-        if self.signing_key:
-            (dest_root / "meta.json.sig").write_text(
-                self._sign(meta_text), encoding="utf-8")
-        # 创建后立即自检
-        ok, reason = self.verify_snapshot(snap_id)
-        if not ok:
-            shutil.rmtree(dest_root, ignore_errors=True)
-            raise SnapshotError(f"快照创建后完整性校验失败: {reason}")
+        created = False
+        try:
+            for src in files:
+                rel = src.relative_to(self.project_root)
+                dst = files_dest / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                meta["files"][rel.as_posix()] = {
+                    "size": src.stat().st_size,
+                    "sha256": self._sha256(src),
+                }
+            # 元信息原子写入（配置签名密钥时附 HMAC 签名）
+            meta_path = dest_root / "meta.json"
+            tmp_path = meta_path.with_suffix(".json.tmp")
+            meta_text = json.dumps(meta, ensure_ascii=False, indent=2)
+            tmp_path.write_text(meta_text, encoding="utf-8")
+            tmp_path.replace(meta_path)
+            if self.signing_key:
+                (dest_root / "meta.json.sig").write_text(
+                    self._sign(meta_text), encoding="utf-8")
+            # 创建后立即自检
+            ok, reason = self.verify_snapshot(snap_id)
+            if not ok:
+                raise SnapshotError(f"快照创建后完整性校验失败: {reason}")
+            created = True
+        finally:
+            if not created:
+                shutil.rmtree(dest_root, ignore_errors=True)
         # 自动清理：快照数量超出上限时删除最旧的（防备份爆炸）
         if self.max_snapshots > 0:
             self.prune(keep=self.max_snapshots)
@@ -292,15 +318,36 @@ class Guardian:
             removed += 1
         return removed
 
+    def gc_orphans(self) -> int:
+        """删除没有 meta.json 的孤儿快照目录，返回清理数量（H-02）。
+
+        这些目录对 `list_snapshots()` 不可见（它只认带 meta.json 的），所以
+        `prune()` 永远不会动它们 —— 这是"失败快照只吃磁盘不报警"的另一半。
+        H-02 之后 `snapshot()` 自己会收拾，此方法用于清理**历史遗留**的那些，
+        以及"创建过程中进程被强杀"这类来不及走 finally 的情况。
+        """
+        if not self.snap_dir.is_dir():
+            return 0
+        removed = 0
+        for d in sorted(self.snap_dir.iterdir()):
+            if d.is_dir() and not (d / "meta.json").exists():
+                shutil.rmtree(d, ignore_errors=True)
+                removed += 1
+        return removed
+
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Guardian 物理快照回滚")
     parser.add_argument("--project", default=".")
     parser.add_argument("--list", action="store_true", help="列出所有快照")
+    parser.add_argument("--gc", action="store_true",
+                        help="清理没有 meta.json 的孤儿快照目录")
     args = parser.parse_args()
     g = Guardian(args.project)
-    if args.list:
+    if args.gc:
+        print(f"清理孤儿快照目录: {g.gc_orphans()} 个")
+    elif args.list:
         print(json.dumps(g.list_snapshots(), ensure_ascii=False, indent=2))
     else:
         sid = g.snapshot("manual")

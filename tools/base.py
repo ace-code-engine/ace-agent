@@ -32,80 +32,32 @@ _WIN_PATH_BACKSLASH_RE = re.compile(r'\\([^"\\/bfnrtu])')
 # —— 敏感目标：凭据 / 持久化入口 / 系统目录 ——
 # 绝对路径写入是产品意图（"放到桌面"），但意图不覆盖凭据与自启动入口：
 # 写 ~/.ssh/authorized_keys、~/.bashrc 是持久化后门，读 ~/.ai_code.json 是窃取本工具自身的 API key。
-# 这里按"路径成分"匹配而非全字符串正则，避免 D:\project\ssh_utils.py 这类误伤。
-_SENSITIVE_BASENAMES = {
-    ".ai_code.json", ".agent_cli.json", ".netrc", "_netrc",
-    ".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile",
-    ".zshenv", ".zlogin", ".bash_aliases", ".bash_logout",
-    "authorized_keys", "known_hosts", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
-    "credentials", "shadow", "sudoers",
-    # 各类工具链的凭据存放点：都是明文 token，且不存在"agent 需要改它"的正常场景
-    ".git-credentials", ".npmrc", ".pypirc", ".dockercfg",
-    ".pgpass", ".my.cnf", ".htpasswd", ".terraformrc",
-}
-# 私钥 / 证书材料按后缀拦（.env 故意不在此列：项目内 .env 是正常开发对象，
-# 一律拦死会让"帮我建个 .env"这类请求失败。它的防线是"不出项目目录"）
-_SENSITIVE_SUFFIXES = (".pem", ".key", ".ppk", ".p12", ".pfx", ".keystore", ".jks")
-_SENSITIVE_DIRNAMES = {
-    ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".config/gcloud",
-    # 用户级自启动 / 定时任务：写这里等于装持久化后门
-    ".config/autostart", ".config/systemd", ".local/share/systemd",
-}
-# 目录整体不可写（系统 / 自启动 / 定时任务）
-_SENSITIVE_DIR_PREFIXES = (
-    "c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
-    "/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/boot", "/sys", "/proc",
-    "/var/spool/cron",
-)
-_STARTUP_FRAGMENTS = ("start menu/programs/startup", "currentversion/run")
-# Agent 自身的安全状态目录：回滚快照存在项目目录内，而项目目录正是 agent 可写的范围。
-# 不挡这里，agent 改一行 .guardian/snapshots/<id>/meta.json 就能让 verify_snapshot
-# 失败，熔断回滚静默变成空操作——安全网被它要防的东西拆了。
-# 审计与运行状态同理（SEC-017）：会话事件日志、飞轮样本、POC 报告都是"事后取证"用的，
-# 让被审计方自己可写，等于没有记录。挡住文件工具这一层；terminal_exec 仍能碰它们，
-# 但它每次都过人，且那一步本身就是可被看见的动作。
-_AGENT_STATE_DIRNAMES = {".guardian", ".ace_sessions", ".agent_flywheel", ".poc_reports"}
-# 同上，但是文件形态（目标状态 / 记忆）：改它等于伪造"用户偏好"或"任务已完成"
-_AGENT_STATE_FILENAMES = {".ace_goals.json", ".agent_memory.json"}
-
-# Q-10: 403 的“安全限制(路径越界/白名单/沙盒/敏感目标)”语义标记。
-# handler 可直接置 metadata["security_denied"]=True;execute 收口处会按文案兜底标记。
-_403_SECURITY_MARKERS = ("越界", "白名单", "拦截", "仅允许", "沙盒")
-
+#
+# H-11：名单**只剩一份**，在 `core/sensitive.py`；这里只把它转出来，老调用点
+# （`from tools.base import sensitive_target`）照旧可用。
+# 为什么不再在这里维护一份：`tools/base` 与 `core/guardian` 那两份实测会**双向漂移**
+# —— 25 个凭据名对工具是凭据、对快照却不是，于是被**明文复制进 `.guardian`**，
+# 而 guardian 的注释还写着"绝不能把用户凭据再复制一份"（SEC-04）。
+# 详见 `core/sensitive.py` 的模块 docstring（那里显式写出 ①/② 两个问题的差集）。
+from core.sensitive import sensitive_target as _sensitive_target  # noqa: E402
 
 
 def sensitive_target(path: "Path | str") -> Optional[str]:
     """命中敏感目标返回原因串，否则 None。
 
-    用于文件写/删/移 与 终端命令的前置拦截。挡两类东西：用户的凭据/自启动入口，
-    以及 agent 自己的回滚快照目录。注意：这是"已知高价值目标"清单，
-    不是完备边界——真正的隔离仍需容器/低权限账户（见 README 部署说明）。
+    用于文件写/删/移与终端命令的前置拦截。挡两类东西：用户的凭据/自启动入口，
+    以及 agent 自己的回滚快照目录。
+
+    H-11：判据在 `core/sensitive.py`（**唯一来源**），这里只是**转发**，好让历史
+    调用点 `from tools.base import sensitive_target` 继续可用。新代码建议直接
+    `from core.sensitive import sensitive_target`。注意这是"已知高价值目标"清单、
+    不是完备边界 —— 真正的隔离仍需容器/低权限账户（见 README 部署说明）。
     """
-    raw = str(path).replace("\\", "/")
-    low = raw.lower()
-    name = low.rsplit("/", 1)[-1]
-    parts = [p for p in low.split("/") if p]
+    return _sensitive_target(path)
 
-    if name in _SENSITIVE_BASENAMES:
-        return f"敏感文件（凭据/启动脚本）: {name}"
-    if _AGENT_STATE_DIRNAMES & set(parts):
-        return "Agent 自身的运行/审计状态目录（改它等于改自己的记录或拆掉回滚安全网）"
-    if name in _AGENT_STATE_FILENAMES:
-        return f"Agent 自身的状态文件（目标/记忆）: {name}"
-
-    if name.endswith(_SENSITIVE_SUFFIXES):
-        return f"私钥/证书文件: {name}"
-    for d in _SENSITIVE_DIRNAMES:
-        if d in parts or (("/" in d) and d in low):
-            return f"敏感目录: {d}"
-    if low.startswith(_SENSITIVE_DIR_PREFIXES):
-        return "系统目录"
-    if any(frag in low for frag in _STARTUP_FRAGMENTS):
-        return "自启动项"
-    # .claude/settings.json 等同类配置（含模型凭据）
-    if ".claude/" in low and name.endswith(".json"):
-        return "敏感文件（模型凭据配置）"
-    return None
+# Q-10: 403 的“安全限制(路径越界/白名单/沙盒/敏感目标)”语义标记。
+# handler 可直接置 metadata["security_denied"]=True;execute 收口处会按文案兜底标记。
+_403_SECURITY_MARKERS = ("越界", "白名单", "拦截", "仅允许", "沙盒")
 
 
 def repair_backslash_json(text: str) -> str:
@@ -199,6 +151,39 @@ class ToolExecutorBase:
             return resolved
         except ValueError:
             return None
+
+    # 交给操作系统"打开/执行"时**硬拒**的后缀（H-14）。
+    # 模型能控制 `open_file` 的 path，而 `os.startfile` 走的是 ShellExecute 的默认动作
+    # —— 对 `.exe` / `.bat` / `.lnk` 就是**执行**它。这条清单此前只写在文档里
+    # （`SECURITY-AUDIT.md` 写着"可执行扩展名拒绝清单已生效"），**代码里并不存在**。
+    _OS_HANDOFF_BLOCKED_SUFFIXES = (
+        ".exe", ".com", ".bat", ".cmd", ".msi", ".scr", ".pif", ".cpl",
+        ".lnk", ".url", ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh",
+        ".hta", ".jar", ".reg", ".inf", ".dll",
+    )
+
+    def _os_handoff_guard(self, path: Path) -> Optional[str]:
+        """把 path 交给操作系统打开/执行之前的硬拦截；返回原因，None = 放行（H-14）。
+
+        为什么单独一条：`open_file` / `edit_file` 是 `PERM_READ`，在**默认只读会话**下
+        不需要任何授权，而它们会把模型给的路径递给 `os.startfile`（ShellExecute）
+        或 `Popen(["code", …])`。那是一条**完全绕开 `ace_execpolicy`** 的进程启动路径
+        —— 正是"单一执行边界"声称不存在的那种旁路。
+
+        这里拦两件**不该有机会被确认**的事：
+        - 凭据/密钥/自启动入口（把私钥丢进编辑器 = 把密钥交出去）；
+        - 可执行/脚本后缀（`os.startfile("x.exe")` 就是运行它）。
+
+        "任意路径"那一层由工具自身的 `confirm=True` 兜：每次调用都要人点头，
+        所以模型选不了"悄悄打开一个我没让它开的东西"。
+        """
+        reason = sensitive_target(path)
+        if reason:
+            return f"敏感目标，不交给系统打开（{reason}）"
+        if path.suffix.lower() in self._OS_HANDOFF_BLOCKED_SUFFIXES:
+            return (f"可执行/脚本后缀不交给系统打开 —— ShellExecute 会**运行**它: "
+                    f"{path.suffix}")
+        return None
 
     def _go_executor(self):
         """惰性拿到 Go 执行器客户端。返回 None 表示"这条路走不了"。

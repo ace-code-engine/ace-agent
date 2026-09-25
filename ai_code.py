@@ -89,6 +89,7 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
                           PROMPT_PLAN_APPROVED, PROMPT_TOOL_RESULT,
                           PROMPT_UNVERIFIED_CLAIM,
                           ModelProvider, ask_grant, ask_yes_no,
+                          TruncatedOutput,
                           claims_completed_action,
                           content_to_tool_protocol, final_reply_protocol,
                           load_system_prompt, render_error_result,
@@ -103,6 +104,7 @@ from core import ace_model  # noqa: E402  （模型层纯逻辑：历史裁剪 /
 from ui.i18n import set_language, t  # noqa: E402
 from core import version  # noqa: E402   # Q-12 版本单源：横幅 / --version 都从这里读
 from core import ace_events  # noqa: E402  （--json：一行一个事件，给脚本/CI/其它前端）
+from core import ace_serve   # noqa: E402  （--serve：双向 NDJSON，给独立进程的前端）
 
 CONFIG_PATH = Path.home() / ".ai_code.json"
 LEGACY_CONFIG_PATH = Path.home() / ".agent_cli.json"
@@ -294,7 +296,14 @@ def _looks_like_cli_command(line: str) -> bool:
 
 
 def _model_error_hint(e: Exception) -> str:
-    """HTTP 错误码 → 排查提示（跟随界面语言）。映射表在 ace_model，两个前端共用"""
+    """HTTP 错误码 → 排查提示（跟随界面语言）。映射表在 ace_model，两个前端共用。
+
+    H-19：截断（`TruncatedOutput`）不是 HTTP 错误，`ace_model.error_hint` 认不出它，
+    会给一句泛泛的"模型调用失败"。这里单独给一条**可操作**的提示 —— 用户看到
+    "被 max_tokens 截断"才知道该把任务拆小，而不是去查 API key。
+    """
+    if isinstance(e, TruncatedOutput):
+        return t("model_truncated_hint")
     return ace_model.error_hint(e, t)
 
 
@@ -357,6 +366,29 @@ def load_project_instructions(cwd: str) -> str:
 # 支持"无空格参数"的斜杠命令：/search关键词 → /search 关键词
 ARG_COMMANDS = {"/search", "/open", "/edit", "/model", "/provider",
                 "/rollback", "/permission"}
+
+# 前端（Ink）用到的字形。启动时逐个问 `ace_io` "这台控制台画得出来吗"，
+# 画不出的连同替身一起发给前端。
+#
+# 为什么由**引擎**来发：只有它知道控制台编码（`ace_io.display_encoding()`）。
+# 前端是 Node，判断不了"cp936 能不能编码这个字"—— Node 只内建 utf8/latin1 编码器。
+# 不降级的后果是实机可见的：cp936 下 `❯` 画不出来，屏幕上那个位置是乱码/方框，
+# 而用户看到的是"界面坏了"。Python 侧一直有这套降级（`ace_io.glyph`），
+# 前端漏接了。
+FRONTEND_GLYPHS = (
+    "❯◈▏▌▐▶✓✗◐◓◑◒◉○●◇◆▁▃▅▇▖▘▝▗·˙•…⚠"
+    "╭╮╰╯─│├└"      # 框线与树形连接线（多数控制台画得出，但别赌）
+    "█╗╔╝╚═║"      # 首屏 logo 的块状字符
+)
+
+# `@session`（跨会话引用）的两条边界。
+#
+# 列几条候选：够挑就行，多了会把屏幕刷掉 —— 真正要找的那条通常就在最近几个里。
+AT_SESSION_LIST_LIMIT = 20
+# 单次引用最多带进多少字符。比 `@file` 的 4000 大：一段会话的信息密度远低于文件
+# （大量是来回对话），4000 字符在会话里可能只有两三轮。
+# 超了就取**尾部**并说明截断 —— 会话的价值主要在近几轮。
+AT_SESSION_MAX_CHARS = 6000
 
 
 def _parse_slash_command(cmd: str):
@@ -1187,6 +1219,8 @@ class _AtCommands:
             self._at_file(arg)
         elif cmd == "@folder":
             self._at_folder(arg)
+        elif cmd == "@session":
+            self._at_session(arg)
         elif cmd == "@image":
             self._at_image(arg)
         elif cmd in ("@refs", "@context"):
@@ -1263,6 +1297,89 @@ class _AtCommands:
         self.context_refs = self.context_refs[-3:]
         print(c("green", t("at_file_added", path=p, n=len(content))))
 
+    def _at_session(self, arg: str) -> None:
+        r"""`@session [编号|文件名片段]`：把某次历史会话带进上下文。
+
+        ## 为什么走 `context_refs` 而不另开一条路
+
+        与 `@file` **完全同一条路**：append 进 `self.context_refs`，调模型前由
+        `_build_system_prompt` 统一包成不可信块（SEC-011）。
+
+        为什么历史会话**必须**是不可信内容：它里面可能有别人贴进来的网页、工具输出、
+        被注入的文本。把它当指令读，等于让**一次旧攻击跨会话重放** —— 而它出现在
+        系统提示词里，比工具结果那条路径更危险（系统 role 天然被当成最高权威）。
+
+        ## 三条边界，都如实报不静默
+
+        - 找不到 → 报错并列出可选的；
+        - 引用**当前会话自己** → 拒绝（内容已经在上下文里，再加一遍纯属浪费，
+          还会造成自我强化）；
+        - 超预算 → 截断**并说明截了多少**（静默截断会让人以为整段都进来了）。
+        """
+        from cli import ace_sessions as _sess
+        rows = self._sessions_brief(limit=AT_SESSION_LIST_LIMIT)
+        if not rows:
+            print(c("dim", t("at_session_none")))
+            return
+
+        if not arg:
+            for _i, _r in enumerate(rows, 1):
+                print(c("dim", t("at_session_row", n=_i, when=str(_r.get("when") or ""),
+                                 turns=int(_r.get("turns") or 0),
+                                 label=str(_r.get("label") or ""))))
+            print(c("dim", t("at_session_usage")))
+            return
+
+        picked: Optional[Dict[str, object]] = None
+        if arg.isdigit():
+            _idx = int(arg) - 1
+            if 0 <= _idx < len(rows):
+                picked = rows[_idx]
+        if picked is None:
+            for _r in rows:
+                if arg in str(_r.get("path") or ""):
+                    picked = _r
+                    break
+        if picked is None:
+            print(c("red", t("at_session_not_found", arg=arg)))
+            return
+
+        _path = str(picked.get("path") or "")
+        # 自引用：当前会话的日志文件就是它自己
+        _cur = str(self.cfg.get("session_log") or "")
+        if _cur and os.path.abspath(_cur) == os.path.abspath(_path):
+            print(c("yellow", t("at_session_self")))
+            return
+
+        try:
+            _events = self._load_session_events(_path)
+        except Exception as e:      # noqa: BLE001 —— 坏文件如实报，不让循环崩
+            print(c("red", t("at_read_failed", err=e)))
+            return
+
+        _msgs = _sess.replay_messages(_events)
+        if not _msgs:
+            print(c("dim", t("at_session_empty")))
+            return
+
+        _lines = [f"{m.get('role', '?')}: {m.get('content', '')}" for m in _msgs]
+        _body = "\n\n".join(_lines)
+        _dropped = 0
+        if len(_body) > AT_SESSION_MAX_CHARS:
+            # 取**尾部**：一段会话的价值主要在近几轮，早期的探索往往已经收敛掉了。
+            _body = _body[-AT_SESSION_MAX_CHARS:]
+            _dropped = len(_lines)
+        _when = str(picked.get("when") or "")
+        _label = str(picked.get("label") or "")
+        # 块首自带**出处**：`wrap_untrusted` 那句 source 是粗标签，
+        # 模型要判断"这段是什么"靠的是块内这一行。
+        _header = t("at_session_header", when=_when, label=_label)
+        self.context_refs.append(f"{_header}\n{_body}")
+        self.context_refs = self.context_refs[-3:]
+        print(c("green", t("at_session_added", n=len(_msgs), label=_label[:40])))
+        if _dropped:
+            print(c("dim", t("at_session_truncated", chars=AT_SESSION_MAX_CHARS)))
+
     def _at_folder(self, arg: str) -> None:
         if not arg:
             print(c("dim", t("at_folder_usage")))
@@ -1327,13 +1444,15 @@ class _SlashCommands:
                            "/statusline", "/tasks", "/fullscreen", "/stats",
                            "/expand", "/expandall",
                            "/history", "/sessions", "/resume", "/fork",
-                           "/rewind", "/todo", "/audit", "/exit"]),
+                           "/rewind", "/compact", "/context", "/plan", "/btw",
+                           "/rename", "/recap", "/export",
+                           "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking",
                          "/style"]),
         ("group_tools", ["/home", "/new", "/open", "/edit", "/review", "/diff", "/search", "/memory",
-                        "/report", "/goal"]),
+                        "/report", "/goal", "/cd", "/agents"]),
         ("group_extend", ["/effort", "/lang", "/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term",
                           "/rules"]),
     ]
@@ -1406,9 +1525,20 @@ class _SlashCommands:
         "/resume": "cmd_resume",
         "/fork": "cmd_fork",
         "/rewind": "cmd_rewind",
+        "/compact": "cmd_compact",
+        "/context": "cmd_context",
+        "/plan": "cmd_plan",
+        "/btw": "cmd_btw",
+        "/cd": "cmd_cd",
+        "/agents": "cmd_agents",
+        "/rename": "cmd_rename",
+        "/recap": "cmd_recap",
+        "/export": "cmd_export",
         "/review": "cmd_review",
         "/diff": "cmd_diff",
         "/statusline": "cmd_statusline",
+        "/cd": "cmd_cd",
+        "/agents": "cmd_agents",
         "/tasks": "cmd_tasks",
         "/fullscreen": "cmd_fullscreen",
         "/vim": "cmd_vim",
@@ -1459,6 +1589,15 @@ class _SlashCommands:
         "/history": ("_cmd_history", True),
         "/mcp": ("_cmd_mcp", True),
         "/todo": ("_cmd_todo", True),
+        "/compact": ("_cmd_compact", True),
+        "/context": ("_cmd_context", True),
+        "/plan": ("_cmd_plan", True),
+        "/btw": ("_cmd_btw", True),
+        "/cd": ("_cmd_cd", True),
+        "/agents": ("_cmd_agents", True),
+        "/rename": ("_cmd_rename", True),
+        "/recap": ("_cmd_recap", True),
+        "/export": ("_cmd_export", True),
         "/sessions": ("_cmd_sessions", True),
         "/resume": ("_cmd_resume", True),
         "/fork": ("_cmd_fork", True),
@@ -3063,9 +3202,16 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.cfg = cfg
         # --json：结构化事件流（脚本/CI/其它前端用）。终端里的一切"人话"会通过
         # NoticeProxy 变成 notice 事件，所以两种消费者拿的是同一份事实。
-        self.json_mode = bool(cfg.get("json"))
-        self.events = cfg.get("_events") or ace_events.EventEmitter(
-            enabled=self.json_mode)
+        # serve 模式同样要发事件（它们经 FrameEmitter 变成协议帧），所以一并算作
+        # "结构化输出模式" —— 全项目几十处 `if self.json_mode:` 分支于是自动生效，
+        # 不必为协议再抄一遍"什么时候该发哪个事件"。
+        self.json_mode = bool(cfg.get("json") or cfg.get("serve"))
+        # --serve：双向协议的宿主。`FrameEmitter` 与 `EventEmitter` 同接口，所以这里
+        # 换掉之后，下面几十处 `self.events.emit(...)` 一行都不用改就变成合法协议帧。
+        self._serve = cfg.get("_serve")
+        self.events = (getattr(self._serve, "emitter", None)
+                       or cfg.get("_events")
+                       or ace_events.EventEmitter(enabled=self.json_mode))
         self.client = ModelClient(cfg, mock=mock)
         self.max_history = int(cfg.get("max_history", 0) or 0)
         self.context_window = int(cfg.get("context_window", 32768) or 32768)
@@ -3443,11 +3589,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """
         custom = [c.menu_entry() for c in self.custom_commands.values()] \
             if getattr(self, "custom_commands", None) else []
+        # `@session` 的取值要**读盘**（列会话文件并解析），而菜单是每次按键都重建的 ——
+        # 无条件塞进去等于每敲一个字读 20 个 JSONL。所以只在用户真的在打 `@session`
+        # 时才去取：菜单是补全用的，不该成为输入延迟的来源。
+        mentions: Dict[str, List[Any]] = {"lang": sorted(LANG_NAMES.keys()),
+                                          "skill": sorted(SKILLS.keys())}
+        if str(text or "").lstrip().lower().startswith("@session"):
+            mentions["session"] = [
+                (f"{i}. {r.get('label') or ''} · "
+                 f"{t('sessions_turns', n=int(r.get('turns') or 0))}", str(i))
+                for i, r in enumerate(
+                    self._sessions_brief(limit=AT_SESSION_LIST_LIMIT), 1)
+            ]
         return ace_menu.build_menu(
             text, cursor, self.COMMANDS, custom=custom, translate=t,
             group_of=lambda name: t(self.command_group(name)),
-            mention_values={"lang": sorted(LANG_NAMES.keys()),
-                            "skill": sorted(SKILLS.keys())})
+            mention_values=mentions)
 
     def _build_ace_completer(self):
         """把菜单模型包成 prompt_toolkit 的补全器（装了依赖时走这条）。
@@ -3596,8 +3753,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def _ask_permission(self, tool_name: str, reason: str) -> str:
         """问人要不要授权：有界面走界面的模态框，没有就回落到终端问答。
 
-        两条路都过 `ui/ace_grace` 的防误触宽限期（终端那条在 `ask_grant` 里，
-        界面那条在 `ui/ace_turn` 里）—— 不能因为"走的是哪条路"而少一层保护。
+        三条路（组件界面 / 协议前端 / 终端问答）都守着同一条口径：**拿不到答案就拒绝**。
+        不能因为"走的是哪条路"而少一层保护 —— 尤其不能因为"前端断了"就默认放行。
+
+        （终端那条的宽限期在 `ask_grant` 里，组件界面那条在 `ui/ace_turn` 里；
+        协议前端那条在 `core/ace_serve.ServeUIHost` 里 —— 三条路各管各的按键，
+        但"拿不到答案就拒绝"这条完全一致。）
         """
         ui = self._ui
         if ui is not None and hasattr(ui, "ask_permission"):
@@ -3994,14 +4155,23 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return rows
         for path in files[:max(1, int(limit))]:
             try:
-                info = _sess.summarize(self._load_session_events(path))
+                evs = self._load_session_events(path)
+                info = _sess.summarize(evs)
             except Exception:      # noqa: BLE001 —— 坏文件跳过，不让主页崩
                 continue
-            rows.append({"path": str(path), "when": str(info.get("when") or ""),
-                         "turns": int(info.get("turns") or 0),
-                         "project": str(info.get("project") or ""),
-                         "root": str(info.get("root") or ""),
-                         "label": str(info.get("first") or info.get("label") or "")[:60]})
+            rows.append({
+                "path": str(path),
+                # 这里原来读的是 `summarize` 的 `when` / `first` —— **那两个键它从来不产出**
+                # （它给的是 `first_user` / `last_assistant` / `turns` / `root` / `project`）。
+                # 后果是主页「继续上次」那行的**时间和首句一直是空的**，而且不报错。
+                # 改成与 `/sessions` 同一套口径：时间取文件 mtime，首句用 `label()`（带文件名兜底）。
+                "when": ace_panel.format_when(path.stat().st_mtime, time.time())
+                        if path.exists() else "",
+                "turns": int(info.get("turns") or 0),
+                "project": str(info.get("project") or ""),
+                "root": str(info.get("root") or ""),
+                "label": str(_sess.label(evs, path.stem))[:60],
+            })
         return rows
 
     def home_state(self) -> Dict[str, object]:
@@ -4256,6 +4426,320 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return list(_SL(str(path)).events())
         except Exception:  # noqa: BLE001 —— 坏日志就当空会话，不崩
             return []
+
+    def _cmd_context(self, parts: List[str]) -> bool:
+        """`/context`：上下文占用可视化。
+
+        与底栏那个百分比**必须同源**：同一个 `context_usage()`、同一份
+        `_compaction_policy()`。两处各算各的必然漂，而"还有多少余量"一旦对不上，
+        用户就再也不信这个数了（`_compaction_policy` 的 docstring 里写着这条）。
+        """
+        try:
+            _sys_toks = ace_context.estimate_tokens(self._build_system_prompt())
+        except Exception:      # noqa: BLE001
+            _sys_toks = 0
+        usage = context_usage(self.messages, self.context_window, _sys_toks)
+        _w = max(20, min(60, self._panel_width() - 30))
+        print(c("bold", t("context_title", window=usage.get("window", 0))))
+        _ansi = ace_layout.context_state_ansi(usage)
+        print("  " + c(_ansi, ace_layout.context_meter(usage, width=_w)))
+        print(c("dim", t("context_detail",
+                         tokens=usage.get("tokens", 0),
+                         budget=usage.get("budget", 0),
+                         sys=_sys_toks,
+                         msgs=len(self.messages or []))))
+        # 触发线：让人知道"再涨到多少就会自动压" —— 只看当前百分比看不出这件事
+        print(c("dim", t("context_trigger",
+                         trigger=usage.get("trigger", 0),
+                         trigger_pct=usage.get("trigger_pct", 0))))
+        return True
+
+    def _cmd_plan(self, parts: List[str]) -> bool:
+        """`/plan`：查看当前计划（Plan Mode）状态。
+
+        **只做查看与清除，不做批准。** 原因是 Plan Mode 的门禁在**一轮之内**：
+        `_stage_new_task` 在每次新输入时把 `pending_plan` / `plan_approved` 清掉，
+        所以"待批的计划"只在那一轮里存在；而那一轮跑着的时候 REPL 是阻塞的 ——
+        用户根本没有机会在中途敲 `/plan approve`。给一个按不动的批准键，
+        比不给更糟（用户会以为按了没用）。
+        """
+        el = getattr(self, "el", None)
+        pending = getattr(el, "pending_plan", None) if el is not None else None
+        approved = bool(getattr(el, "plan_approved", False)) if el is not None else False
+        if len(parts) > 1 and parts[1] in ("clear", "--clear"):
+            if el is not None:
+                el.pending_plan = None
+                el.plan_approved = False
+            print(c("dim", t("plan_cleared")))
+            return True
+        if pending and not approved:
+            print(c("cyan", t("plan_pending")))
+            try:
+                print(c("dim", str(el._render_plan())))
+            except Exception:      # noqa: BLE001 —— 渲染不出来也不该让命令失败
+                pass
+            return True
+        if approved:
+            print(c("green", t("plan_approved_now")))
+            return True
+        print(c("dim", t("plan_none")))
+        return True
+
+    def _cmd_btw(self, parts: List[str]) -> bool:
+        """`/btw <问题>`：**不打断、不记账**的侧问。
+
+        与普通提问的区别在**不留痕**：这次往返**不进 `self.messages`**，也不写会话日志。
+        为什么要这样：主对话是"我们正在做的事"，随手问一句"这个 API 叫什么来着"
+        不该改变后续每一轮都要带上的上下文 —— 那既费 token，也会让模型把
+        无关的枝节当成任务的一部分。
+        """
+        question = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        if not question:
+            print(c("dim", t("btw_usage")))
+            return True
+        try:
+            _sys = self._build_system_prompt() + "\n\n" + t("btw_system")
+            # 用**临时**消息列表：`self.messages` 一个字节都不动
+            _msgs = list(self.messages or []) + [{"role": "user", "content": question}]
+            answer = self.client.stream_generate(_sys, _msgs, self._make_display().get("on_delta"))
+        except Exception as e:      # noqa: BLE001 —— 侧问失败不该影响主对话
+            print(c("red", t("btw_failed", err=e)))
+            return True
+        print(c("dim", t("btw_header")))
+        print(str(answer or "").strip())
+        print(c("dim", t("btw_footer")))
+        return True
+
+    def _cmd_cd(self, parts: List[str]) -> bool:
+        """`/cd <路径>`：换工作目录（并重建执行层）。
+
+        换目录的影响面是**整个执行层**：沙箱根、MCP 的项目文件、hooks 的项目文件
+        都在重建时从 `project_root` 重新派生 —— 所以这里复用 `/clear` 那条
+        重建路径（`_init_execution_layer`），而不是只改一个字段。
+
+        **两样东西不跟着走，必须说出来**：
+        - **快照**（`.guardian/`）留在原目录 —— 回滚找的是"当前目录的备份"，
+          换目录之后旧快照就不在列表里了；
+        - **会话日志**留在原处 —— 这次会话是**连续的**，日志该接着写同一个文件，
+          按目录切开会把一段对话劈成两半。
+        """
+        target = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        if not target:
+            print(c("dim", t("cd_usage", now=self.cfg.get("project_root", "."))))
+            return True
+        try:
+            p = Path(target).expanduser()
+            if not p.is_absolute():
+                p = Path(str(self.cfg.get("project_root", "."))) / p
+            p = p.resolve()
+        except Exception as e:      # noqa: BLE001
+            print(c("red", t("cd_bad_path", err=e)))
+            return True
+        if not p.is_dir():
+            print(c("red", t("cd_not_dir", path=str(p))))
+            return True
+        old = str(self.cfg.get("project_root", "."))
+        self.cfg["project_root"] = str(p)
+        try:
+            self._init_execution_layer()
+        except Exception as e:      # noqa: BLE001 —— 重建失败就退回去，别把会话留在半路
+            self.cfg["project_root"] = old
+            try:
+                self._init_execution_layer()
+            except Exception:      # noqa: BLE001
+                pass
+            print(c("red", t("cd_failed", err=e)))
+            return True
+        print(c("green", t("cd_done", path=str(p))))
+        print(c("dim", t("cd_caveat")))
+        return True
+
+    def _cmd_agents(self, parts: List[str]) -> bool:
+        """`/agents`：列出本次会话里的**子代理**运行记录。
+
+        数据来自会话日志的 `request/snapshot` 事件（`_run_subagent` 在那里打了
+        `subagent=<mode>` 标记）。为什么要看它：子代理跑的时候屏幕上是"一条工具调用"，
+        它内部跑了多少轮、动了哪些文件，事后全在日志里 —— 不列出来的话，
+        那部分工作对用户是**不可见**的。
+        """
+        try:
+            evs = list(self.session_log.events())
+        except Exception:      # noqa: BLE001
+            evs = []
+        runs: List[Dict] = []
+        for ev in evs:
+            try:
+                if str(ev.get("kind") or "") == "request/snapshot" and ev.get("subagent"):
+                    runs.append(ev)
+            except Exception:      # noqa: BLE001
+                continue
+        if not runs:
+            print(c("dim", t("agents_none")))
+            return True
+        print(c("bold", t("agents_title", n=len(runs))))
+        for i, r in enumerate(runs, 1):
+            print("  %d. %s · %s · %s" % (
+                i, str(r.get("subagent") or "?"),
+                str(r.get("ts") or ""),
+                t("agents_msgs", n=int(r.get("messages_count") or 0))))
+        return True
+
+    def _cmd_compact(self, parts: List[str]) -> bool:
+        """`/compact`：**手动**压缩上下文。
+
+        自动那条要到触发线（默认 75%）才动；手动这条**不等** —— 用户说压就是压。
+
+        策略仍由 `_compaction_policy` 构造（那是唯一构造点，底栏显示的"还有多少余量"
+        与实际压缩阈值必须同源），只把触发线替换成 0。摘要回调也用同一个
+        （`client.summarize_context`）—— 手动与自动压出来的摘要该是一致的。
+        """
+        import dataclasses
+        if not self.messages:
+            print(c("dim", t("compact_empty")))
+            return True
+        try:
+            _sys_toks = ace_context.estimate_tokens(self._build_system_prompt())
+        except Exception:      # noqa: BLE001 —— 估不出来就按 0 算，不影响正确性
+            _sys_toks = 0
+        policy = _compaction_policy(self.context_window, _sys_toks)
+
+        # 手动是"现在就压"，但**不能跳过"值不值得压"这一关**。
+        #
+        # 踩过：直接把 trigger_ratio 设成 0 强行触发，结果一次两三条消息的对话也被
+        # "压"了 —— 没有可摘要的区间，于是走硬截断，**token 反而从 30 涨到 52**
+        # （用一条摘要顶掉两条短消息，摘要更贵），内容还白丢。
+        # 先用**正常策略**问一次计划：没有可压区间就如实说，什么都别动。
+        plan = ace_context.plan_compaction(self.messages, policy)
+        if plan.summarize_end - plan.summarize_start < 1:
+            print(c("dim", t("compact_nothing", n=len(self.messages))))
+            return True
+
+        before = ace_context.measure(self.messages)
+        # 过了上面那关才强行触发（触发线压到 0）—— 策略仍是 `_compaction_policy`
+        # 构造出来的那份，只替换触发线，其余阈值与底栏显示的那个数保持同源。
+        forced = dataclasses.replace(policy, trigger_ratio=0.0)
+        try:
+            outcome = ace_context.maybe_compact(
+                self.messages, forced, summarize=self.client.summarize_context)
+        except Exception as e:      # noqa: BLE001 —— 压缩是增强，不能反过来打断会话
+            print(c("red", t("compact_failed", err=e)))
+            return True
+        if not (outcome.compacted or outcome.truncated):
+            # "没什么可压的"是**正常结果**，不是失败 —— 如实说，别让人以为命令没生效
+            print(c("dim", t("compact_nothing", n=len(self.messages))))
+            return True
+        self.messages = outcome.messages
+        after = ace_context.measure(outcome.messages)
+        self.session_log.record_compaction(
+            before, after, "compacted" if outcome.compacted else "truncated")
+        if outcome.compacted:
+            print(c("green", t("compact_done", before=before, after=after)))
+        else:
+            print(c("yellow", t("compact_truncated", before=before, after=after,
+                                reason=outcome.error or "-")))
+        return True
+
+    def _cmd_rename(self, parts: List[str]) -> bool:
+        """`/rename <名字>`：给当前会话起个名字（不带参数 = 取消命名，回到首句）。
+
+        名字落在**会话日志**里（`session/rename` 事件），不是内存里 —— 这样
+        `/sessions`、主页「继续上次」、`@session` 候选**全都看得到**，重启也还在。
+        事件溯源那条口径（消息历史 = 日志派生）在这里一样适用：
+        名字是这段会话的一个事实，该和别的会话事件待在一起。
+        """
+        name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        # 清命名走**显式开关**，不是"传个空串"：命令行的分词会把尾随空格吃掉，
+        # `/rename ` 和 `/rename` 在 parts 里长得一模一样 —— 空串表达不出"清掉"。
+        # **这个判断必须在 `if not name` 之前**：`--clear` 是非空字符串，
+        # 放到后面就会被当成一个新名字（写完才知道，测试当场抓了）。
+        if name in ("--clear", "-"):
+            self.session_log.append("session/rename", {"name": ""})
+            print(c("dim", t("rename_cleared")))
+            return True
+        if not name:
+            print(c("dim", t("rename_usage")))
+            return True
+        self.session_log.append("session/rename", {"name": name[:60]})
+        print(c("green", t("rename_done", name=name[:60])))
+        return True
+
+    def _cmd_recap(self, parts: List[str]) -> bool:
+        """`/recap`：一句话回顾这段会话。
+
+        **本地算，不调模型**：回顾的用途是"我离开一会儿，回来扫一眼说到哪了"，
+        为这一句去等一次模型往返不值当（而且它可能又跑偏）。要模型写的总结，
+        `/compact` 已经在做了。
+
+        数据取**会话日志**而不是内存里的 messages —— 日志是完整事实源
+        （内存里那份可能已经被裁剪/压缩过）。
+        """
+        from cli import ace_sessions as _sess
+        try:
+            evs = list(self.session_log.events())
+        except Exception:      # noqa: BLE001
+            evs = []
+        info = _sess.summarize(evs)
+        if not int(info.get("turns") or 0):
+            print(c("dim", t("recap_empty")))
+            return True
+        print(c("bold", t("recap_line",
+                          turns=int(info.get("turns") or 0),
+                          tools=int(info.get("tools") or 0),
+                          first=str(info.get("first_user") or "")[:50],
+                          last=str(info.get("last_assistant") or "")[:50])))
+        if int(info.get("compactions") or 0):
+            print(c("dim", t("recap_compacted", n=int(info.get("compactions") or 0))))
+        return True
+
+    def _cmd_export(self, parts: List[str]) -> bool:
+        """`/export [路径]`：把当前对话导成 Markdown。
+
+        为什么是 Markdown 而不是 JSON：这份东西是**给人看的**（存档、贴给别人、
+        喂给另一个工具）。机器可读的那份已经有 `/audit`（原始事件日志）了 ——
+        再导一份 JSON 只是重复，而且没人会去读它。
+        """
+        if not self.messages:
+            print(c("dim", t("export_empty")))
+            return True
+        target = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        if target:
+            path = Path(target)
+            if not path.is_absolute():
+                path = Path(str(self.cfg.get("project_root", "."))) / path
+        else:
+            path = (Path(str(self.cfg.get("project_root", ".")))
+                    / f"ace-export-{time.strftime('%Y%m%d-%H%M%S')}.md")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self._render_transcript_markdown(), encoding="utf-8")
+        except OSError as e:
+            print(c("red", t("export_failed", err=e)))
+            return True
+        print(c("green", t("export_done", path=str(path), n=len(self.messages))))
+        return True
+
+    def _render_transcript_markdown(self) -> str:
+        """当前对话 → Markdown（`/export` 用；纯字符串拼装，可单测）。"""
+        lines = [f"# ACE 会话导出", ""]
+        try:
+            lines.append(f"- 模型：{self.client.model}")
+            lines.append(f"- 项目：{self.cfg.get('project_root', '.')}")
+            lines.append(f"- 权限：{self.get_permission()}")
+        except Exception:      # noqa: BLE001 —— 头部信息缺了不影响正文
+            pass
+        lines.append("")
+        for msg in self.messages or []:
+            role = str(msg.get("role") or "?")
+            content = str(msg.get("content") or "")
+            if not content.strip():
+                continue
+            # 工具调用与结果在 messages 里是 JSON 字符串，原样放代码块里 —— 导出要的是
+            # **可追溯**，不是好看；改写成散文反而丢了细节。
+            lines.append("## 用户" if role == "user" else f"## {role}")
+            lines.append("")
+            lines.append(content)
+            lines.append("")
+        return "\n".join(lines)
 
     def _cmd_sessions(self, parts: List[str]) -> bool:
         """`/sessions [n]`：列出最近会话（时间 / 轮数 / 首句 / 是否被压过），可选中续聊。"""
@@ -4654,8 +5138,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             # 危险 —— 系统 role 天然被模型当成最高权威。文件正文可能来自任何地方
             # （克隆的仓库、收到的附件），所以逐条包进隔离块并标注来源。
             # context_refs 本身保持原样，因为 _at_refs 要拿首行当标题显示。
+            # source 是**粗标签**（原来写的是"文件/目录内容"，现在 `@session` 也走这条路，
+            # 所以放宽成"引用的内容"）。精确出处由块内首行自带 —— 见 `_at_session`。
             parts.append("【已引用上下文】\n" + "\n".join(
-                wrap_untrusted(ref, source="用户 @ 引用的文件/目录内容",
+                wrap_untrusted(ref, source="用户 @ 引用的内容",
                                origin="at_ref", nonce=self._ctx_nonce)
                 for ref in self.context_refs))
         return "\n\n".join(parts)
@@ -4988,6 +5474,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             # 与"正在读取 ace/ui/ace_menu.py"给人的信息量差一个量级。
             _tool_name = _peek_tool_name(output)
             _tool_target = _peek_tool_target(output)
+            # `tool_start`：**执行前**发一条，前端据此画"正在跑"。
+            # 为什么非要有它：`tool_call` 是执行**之后**发的审计记录（见 ai_code.py:5208
+            # 的分支），拿它驱动"运行中"UI 只能得到事后播报 —— 工具早跑完了才亮起来。
+            # 名字与目标就是上面那两个偷看函数的结果：宽松匹配，认不出就空，
+            # 前端拿到空 tool 时忽略这条即可（与 status 行同一条口径）。
+            if self.json_mode and _tool_name:
+                self.events.emit("tool_start", tool=_tool_name, target=_tool_target)
             # 状态行说清"在做什么、动的是哪个东西"：动词按工具类别选，
             # 目标取参数里的 path/command/pattern
             _verb = ("reading" if ace_cards.is_read_tool(_tool_name) else "running")
@@ -5070,7 +5563,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
             if result["status"] == "PERMISSION_REQUEST":
                 tool_name = result.get("tool")
-                if self.json_mode:
+                # H-25：装了界面宿主时，`permission_request` 由宿主在**真正问人**的那一刻发
+                # （`ServeUIHost.ask_permission`）—— 它同时在那儿阻塞等答案，位置更准。
+                # 这里再发一条就是重复：前端会为同一次审批弹两次对话框，而对第二条的应答
+                # 落到 `wait_for()` 之外，被正常派发路径回成 `E_UNKNOWN_METHOD`。
+                # `--serve` 会把 `json_mode` 也置真（见 `--serve` 的接线），所以两者必然同时
+                # 命中；由宿主独占，纯 `--json`（无宿主）时才在这里发。
+                if self.json_mode and getattr(self, "_ui", None) is None:
                     self.events.emit("permission_request", tool=tool_name,
                                      reason=str(result.get("reason") or ""))
                 self._set_title(t("title_waiting"))
@@ -5154,6 +5653,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self.session["violations"] += 1
                 print(c("red", t("error_line", status=result["status"],
                                  msg=result.get("message", "")[:80])))
+                # H-21：执行层判定"同一段畸形输出重复出现，再喂一次不会有用"时
+                # 会带 `abort`。就此打住并如实报（复用既有的 stall_abort 文案）——
+                # 此前只有 CLI 的 `_fail_streak` 熔断，headless 连这个都没有。
+                if result.get("abort"):
+                    print(c("yellow", t("stall_abort", n=1)))
+                    return
                 # SEC-017：执行层安全拦截到阈值 → 明确告诉人（不是模型走神，是有人在试探边界）
                 _sec = result.get("security_alerts")
                 if _sec:
@@ -5897,6 +6402,207 @@ def _tui_default_ok(args) -> bool:
         return False
 
 
+def _run_serve(cli: "AgentCLI", srv) -> int:
+    """跑 `--serve`：读 req、回 resp，直到 `shutdown` 或前端断开（EOF）。
+
+    处理函数只做**翻译**，真正干活的是 AgentCLI 那套（`converse` / `_process_line`），
+    与 REPL、组件界面完全共用同一条实现。这里刻意不写任何对话逻辑 —— 多一份实现
+    就多一条会漂的路，而那正是 R-03（双前端合并）踩过的坑。
+
+    退出码：`shutdown` 与 EOF 都算正常收工（0）。EOF 是前端的正常死法（关窗口），
+    不是错误 —— 往 stderr 上打一坨栈信息只会让人以为出了事。
+    """
+    from core import ace_serve as _sv
+
+    def _requires_init(fn):
+        """业务方法一律要求先 `initialize`。
+
+        没有这一层的话，前端忘发握手也能跑，然后它按"没有 capabilities 字段"
+        去猜服务端能力 —— 猜错的症状是某个功能静默不工作，而不是一条明确的错。
+        """
+        def _wrapped(params):
+            if not srv.initialized:
+                raise _sv.ServeError("E_NOT_READY", "先发 initialize 再发业务请求")
+            return fn(params)
+        return _wrapped
+
+    def _h_initialize(params: Dict) -> Dict:
+        srv.initialized = True
+        srv.stream_enabled = bool(params.get("stream"))
+        srv.client_info = dict(params.get("client") or {})
+        return {
+            "protocol": _sv.PROTOCOL_VERSION,
+            "server": {"name": "ace", "version": version.__version__},
+            "permission": cli.cfg.get("permission", "readonly"),
+            "sandbox": cli.cfg.get("sandbox", "off") or "off",
+            "project_root": str(cli.cfg.get("project_root", ".")),
+            "model": cli.client.model,
+            "mock": bool(cli.client.mock),
+            "stream": srv.stream_enabled,
+            "vim": bool(cli.cfg.get("vim_mode", False)),
+            # 字形降级表：`{原字: 替身}`，只含**这台控制台画不出**的那些。
+            # 前端用 `glyphs[c] ?? c` 应用；表为空即"这台终端画得出全部"。
+            "glyphs": {c: ace_io.glyph(c) for c in FRONTEND_GLYPHS
+                       if ace_io.glyph(c) != c},
+            "methods": ["user.message", "command.exec", "session.interrupt",
+                        "permission.answer", "choice.answer",
+                        "home.request", "tasks.request", "config.request",
+                        "shutdown"],
+            # 命令表（名 → i18n 键）与分组。**发键不发译文**：前端自己有 locales/，
+            # 发译文等于把语言钉死在握手那一刻，用户之后 /lang 切了也不会跟着变。
+            #
+            # **按 `grouped_commands()` 的顺序发**，不是 `COMMANDS` 的字典顺序 ——
+            # 前端拿这个顺序直接排菜单，并在"组变了"时插组标题。发字典序的话，
+            # 菜单里会是 `/help` `/model` `/perm` 这样跨组交错，而组标题
+            # 会在每次交错时重复出现（实测：`group_session` 出现了两次、
+            # 而 `/perm` 排在 `/model` 后面）。分组顺序的权威在 `COMMAND_GROUPS`，
+            # 只在这里派生一次，前端不自己猜。
+            "commands": {_n: AgentCLI.COMMANDS[_n]
+                         for _g, _ns in AgentCLI.grouped_commands() for _n in _ns},
+            "command_groups": {n: AgentCLI.command_group(n)
+                               for n in AgentCLI.COMMANDS},
+        }
+
+    def _h_user_message(params: Dict) -> Dict:
+        text = str(params.get("text") or "")
+        if not text.strip():
+            raise _sv.ServeError("E_BAD_REQUEST", "text 为空")
+        # echo_input=False：说话的是前端，它已经把那句话画在屏幕上了。再回显一次
+        # 会变成一条多余的 notice，前端要自己去重 —— 那是把我们的账推给它。
+        cli.converse(text, echo_input=False)
+        return {"ok": True}
+
+    def _h_command(params: Dict) -> Dict:
+        line = str(params.get("line") or "").strip()
+        if not line:
+            raise _sv.ServeError("E_BAD_REQUEST", "line 为空")
+        keep = cli._process_line(line)
+        return {"ok": True, "keep_going": keep is not False}
+
+    def _h_interrupt(_params: Dict) -> Dict:
+        cli.request_stop()
+        return {"ok": True}
+
+    def _h_home(_params: Dict) -> Dict:
+        """主页的结构化形态（分区 / 条目 / 当前值 / 怎么改）。
+
+        **不在前端重写这套模型**：`ui/ace_home.build_home` 里那套排序与开关逻辑
+        （"继续"排最前、"能力开关"必须在开始前定好、"特色"排最后）是这个产品的
+        既定取舍，抄一份到 TS 就是第二个会漂的地方。这里只把结构发过去，
+        渲染（配色、宽度、选中态）仍由前端自己做。
+
+        发的是 **i18n 键**（`title_key` / `label_key` / `hint_key`）不是译文，
+        所以 `/lang` 切了之后前端刷新一次主页就跟着变。
+        """
+        st = cli.home_state()
+        secs = ace_home.build_home(st, cli._sessions_brief())
+        return {
+            "title": {k: st.get(k) for k in
+                      ("version", "model", "permission", "sandbox", "folder")},
+            "sections": [
+                {
+                    "key": s.key,
+                    "title_key": s.title_key,
+                    "items": [
+                        {"action": it.action, "label_key": it.label_key,
+                         "value": it.value, "hint_key": it.hint_key,
+                         "enabled": bool(it.enabled),
+                         # `fmt` 是文案里的占位符参数（如「继续上次：{when}{turns} 轮」）。
+                         # **必须一起发**：少了它前端只能把 `{when}` 原样打出来 ——
+                         # 那种"字面上没报错、读起来是残缺的"最容易被漏掉。
+                         "fmt": dict(it.fmt or {})}
+                        for it in s.items
+                    ],
+                }
+                for s in secs
+            ],
+        }
+
+    def _h_tasks(_params: Dict) -> Dict:
+        """任务树（目标 + 逐项待办 + 正在跑的工具）。**复用 `_current_task_tree`** ——
+        `/tasks` 命令与全屏头部用的就是它，不在协议这条路上另造一棵。
+
+        返回 `tree: null` 表示"三样都空"（调用方不该画一棵空树 —— 那只会让人以为
+        "这里本来该有东西"）。这与 `build_task_tree` 返回 None 是同一个口径。
+        """
+        try:
+            node = cli._current_task_tree()
+        except Exception:  # noqa: BLE001 —— 取不到树不该把协议请求打成 500
+            node = None
+        if node is None:
+            return {"tree": None}
+
+        def _ser(n) -> Dict:
+            return {
+                "text": str(getattr(n, "text", "")),
+                "status": str(getattr(n, "status", "pending")),
+                "note": str(getattr(n, "note", "") or ""),
+                "children": [_ser(c) for c in (getattr(n, "children", None) or [])],
+            }
+
+        return {"tree": _ser(node), "empty_key": "tasks_none"}
+
+    def _h_config(_params: Dict) -> Dict:
+        """当前状态（模型 / 权限 / 沙箱 / 强度 / 联网 / 语言 / vim）。
+
+        **直接复用 `home_state()`** —— "现在是什么状态"这件事只该有一处来源。
+        主页那几个分区、补全菜单里"当前值"那一段括注，都从这里取；各算各的必然会漂
+        （主页说沙箱是 job、菜单说 off，用户不知道该信哪个）。
+
+        为什么前端需要它：`/vim` 这类命令改的是**引擎**的 cfg，但按键怎么解析是前端的事 ——
+        执行完命令前端得重新问一次。做成通用读取而不是给 vim 单开一个方法，
+        以后再加开关就不用动协议。
+        """
+        st = cli.home_state()
+        st["vim"] = bool(cli.cfg.get("vim_mode", False))
+        return st
+
+    def _h_sessions(_params: Dict) -> Dict:
+        """可引用的历史会话列表（`@session` 菜单的候选）。
+
+        **复用 `_sessions_brief`** —— 主页「继续上次」、`/sessions`、`@session`
+        和这里的菜单候选，全部是同一份摘要。四份各自去读盘、各自算，迟早会出现
+        "菜单说有 5 条、主页说 3 条"这种事。
+
+        调用方是补全菜单：**每次按键都会问一次**，所以这里只做读取、不做任何
+        解析或格式化（格式化留给定稿的文案层）。
+        """
+        try:
+            rows = cli._sessions_brief(limit=AT_SESSION_LIST_LIMIT)
+        except Exception:      # noqa: BLE001 —— 读不到就给空列表，不让菜单崩
+            rows = []
+        return {"sessions": [{"path": str(r.get("path") or ""),
+                              "when": str(r.get("when") or ""),
+                              "turns": int(r.get("turns") or 0),
+                              "label": str(r.get("label") or "")}
+                             for r in rows]}
+
+    srv.register("initialize", _h_initialize)
+    srv.register("user.message", _requires_init(_h_user_message))
+    srv.register("command.exec", _requires_init(_h_command))
+    srv.register("session.interrupt", _requires_init(_h_interrupt))
+    srv.register("home.request", _requires_init(_h_home))
+    srv.register("tasks.request", _requires_init(_h_tasks))
+    srv.register("config.request", _requires_init(_h_config))
+    srv.register("sessions.request", _requires_init(_h_sessions))
+    # 说明**为什么不注册** `permission.answer` / `choice.answer`：它们由
+    # `ServeUIHost` 里的 `wait_for` 就地取走（那才是它们该出现的时刻）。
+    # 注册在这里是有害的 —— 那会让"根本没人在等答案"时前端递上来的答案被静默接受，
+    # 看起来成功、实际什么都不影响。不注册则回一条 E_UNKNOWN_METHOD，前端立刻知道搞错了。
+    #
+    # 把协议前端挂成界面宿主：`attach_ui` 之后，授权 / 选择 / 确认 / 文本输入
+    # 四类提问全部自动走协议往返 —— CLI 里十几处调用点**一行都不用改**。
+    # 这比"每处加一个 if serve 分支"稳得多：那种写法等于把同一条规则抄十几遍。
+    cli.attach_ui(ace_serve.ServeUIHost(srv, on_deny_feedback=cli._record_deny_feedback))
+
+    reason = srv.serve_forever()
+    srv.emitter.close()
+    # EOF 是前端的正常死法（关窗口 / 进程被杀），不是错误：不打栈信息。
+    if reason == "eof":
+        print(c("dim", t("serve_client_gone")), file=sys.stderr)
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Code —— AI Agent 命令行终端")
     parser.add_argument("--mock", action="store_true", help="离线演示（脚本化假模型）")
@@ -5941,6 +6647,10 @@ def main() -> None:
     parser.add_argument("--json", action="store_true",
                         help="机器可读事件流（一行一个 JSON 对象）：给脚本/CI/其它前端用。"
                              "人看的输出会转成 notice 事件，不含 ANSI 与进度条")
+    parser.add_argument("--serve", action="store_true",
+                        help="双向 NDJSON 协议服务端：给**独立进程**的前端用。前端发 req、"
+                             "本进程回 resp，事件作 event 帧吐出，授权往返走 permission.answer。"
+                             "与 --json 互斥 —— 那个是单向的，问了没人答")
     parser.add_argument("--preview", action="store_true",
                         help="只画一遍首屏（含状态栏示例）然后退出：不开终端也能看界面")
     parser.add_argument("--fullscreen", action="store_true",
@@ -6002,6 +6712,15 @@ def main() -> None:
         _emitter = ace_events.EventEmitter(sys.stdout, enabled=True)
         cfg["_events"] = _emitter
         sys.stdout = ace_events.NoticeProxy(_emitter, sys.__stdout__)
+    if getattr(args, "serve", False):
+        # --serve：stdout 变成协议帧通道。与 --json 同一套"一处生效"的手法 ——
+        # 换掉 sys.stdout，几百处 print 全成为 notice 事件；把 ServeServer 挂进 cfg，
+        # AgentCLI 构造时会把 self.events 接到帧发射器，几十处 emit 也全成为合法帧。
+        # 两处替换加起来，引擎侧**没有一行输出代码需要为协议改动**。
+        cfg["serve"] = True
+        _srv = ace_serve.ServeServer()
+        cfg["_serve"] = _srv
+        sys.stdout = ace_events.NoticeProxy(_srv.emitter, sys.__stdout__)
     if args.no_bait:
         cfg["bait"] = False
     # 策略组合自检：never（从不问人）+ 没有内核边界 = ADR-002 里"不存在合理用途"的
@@ -6021,6 +6740,11 @@ def main() -> None:
     # 留着就是一堆孤儿 npx/python（下次启动再来一批）。
     import atexit
     atexit.register(cli.close)
+    if getattr(args, "serve", False):
+        # 协议模式：前端是另一个进程，这里只负责收发帧。放在最前面是因为它
+        # 与 --preview/--input/TUI/REPL 都不同路 —— 那些都会自己往 stdout 写，
+        # 而此刻 stdout 已经是协议通道，多写一个字都是坏帧。
+        return _run_serve(cli, cfg["_serve"])
     if args.preview:
         return _print_preview(cli, width=args.preview_width)
     if args.input:

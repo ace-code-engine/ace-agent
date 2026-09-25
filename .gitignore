@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *.pyo
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
 
 # 执行层运行时产物（快照/飞轮/报告/记忆/沙箱/测试/数据库/截图/图片/通知）
 .guardian/
@@ -18,6 +21,13 @@ __pycache__/
 agent.db
 notifications.log
 *.jsonl
+
+# 项目级 Agent 配置里**本机私有**的那两份（见 docs/design/SAFETY-HARDENING.md H-17）：
+# `hooks.json` 里的命令在 ExecutionLayer 初始化时以 shell 执行（任何权限判定之前），
+# `permissions*.json` 记的是本机授权决定 —— 两者都不该被 clone 下来就直接生效。
+# 团队若要共享，请 git add -f；`.ace/commands` 与 `.ace/plugins` 不受此规则影响。
+.ace/hooks.json
+.ace/permissions*.json
 
 # 虚拟环境与依赖
 .venv/
@@ -55,3 +65,6 @@ examples/02_document_parsing/drop_docs_here/*
 .ace_env/
 # 注意：vendor/*.whl 是**故意入库**的——离线环境靠它 `setup_env.py --ensure` 一把装好，
 # 所以这里没有 vendor 的忽略规则。详见 vendor/README.md。
+
+# 本地汉化产出（Claude Code 泄漏源码中文版）—— 不进版本库，等人工检验
+.ace-cc-zh/

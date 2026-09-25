@@ -215,6 +215,18 @@ def parse_hook_output(returncode: int, stdout: str, stderr: str,
     return res
 
 
+# H-17：**绝不递给钩子**的环境变量。ACE 自己的模型凭据是确定的名字，直接摘掉；
+# 各家厂商的 key 把常见的也列上。注意这只是"少给一点"，**不是边界** ——
+# 真正的边界是执行层的项目级信任门（未受信任的仓库里那些钩子根本不加载），
+# 因为环境变量的全集无法穷举（这一点在 H-06/H-11 已经被证明过一次）。
+_HOOK_ENV_DENY = frozenset({
+    "AGENT_API_KEY", "ACE_API_KEY", "ACE_E2E_API_KEY", "AI_CODE_API_KEY",
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
+    "MOONSHOT_API_KEY", "DASHSCOPE_API_KEY", "SILICONFLOW_API_KEY",
+    "OPENROUTER_API_KEY", "ZHIPUAI_API_KEY", "QWEN_API_KEY",
+})
+
+
 def run_hook(spec: HookSpec, payload: Dict[str, Any], cwd: str = ".",
              env_extra: Optional[Dict[str, str]] = None) -> HookResult:
     """执行一条钩子：JSON 从 stdin 进，JSON 从 stdout 出。
@@ -225,7 +237,7 @@ def run_hook(spec: HookSpec, payload: Dict[str, Any], cwd: str = ".",
     - stdout 超限直接判错：钩子不该往协议流里灌一兆数据。
     """
     import time as _t
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items() if k not in _HOOK_ENV_DENY}
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env["ACE_HOOK_EVENT"] = spec.event
     if env_extra:

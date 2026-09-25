@@ -39,7 +39,7 @@ process_agent_output 单轮状态机（阶段流程图；与 README「架构」�
                             → PERMISSION_REQUEST
     ⑧ _stage_code_gate      code_execute 专属：诱饵验证 + AST 检测
                             → BAIT_TRIGGERED / AST_FAILED（风格规则仅警告）
-    ⑨ _stage_snapshot       写前快照（guardian）→ ctx.snapshot_id
+    ⑨ _stage_snapshot       写前快照（guardian）→ ctx.snapshot_id；失败即拒写（H-05）
     ⑩ _stage_execute        工具执行（tools/registry 分发 + 全链路日志）
     ⑪ _stage_output_guard   成功结果过 L4 守门 ──违规→ 回滚 ctx.snapshot_id
                             → GUARD_VIOLATION
@@ -56,6 +56,7 @@ process_agent_output 每轮创建、轮末 finally 回收；跨轮状态（授�
 计数/前缀免确认）不放进 ctx，仍挂在 ExecutionLayer 实例上。
 """
 
+import hashlib
 import os
 import re
 import sys
@@ -68,8 +69,9 @@ from typing import Optional, Dict, Any, List, Set, Tuple
 from tools import ToolExecutor, repair_backslash_json
 from core.ace_isolation import wrap_untrusted
 from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
-from cli.ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_ROLLBACK,
-                            SessionLog)
+from core.ace_claims import claims_completed_action, PROMPT_UNVERIFIED_CLAIM  # noqa: E402
+from cli.ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_FAIL,
+                            K_SNAPSHOT_ROLLBACK, SessionLog)
 from core import ace_execpolicy as execpolicy  # noqa: E402
 
 # ============================================================
@@ -449,9 +451,17 @@ def format_error_instruction(agent_output: str, limit: int = 120) -> str:
     "把执行层实际收到的原始输出贴出来，我逐字符核对" —— 这条指令就是那个请求的
     答案：给它实际字节，一轮就能自查自纠。
     """
-    head = agent_output[:limit]
-    tail = "" if len(agent_output) <= limit else f"…（本轮共 {len(agent_output)} 字符）"
-    return FORMAT_ERROR_HINT.format(preview=_visualize_controls(head) + tail)
+    total = len(agent_output)
+    if total <= limit * 2:
+        shown = agent_output
+    else:
+        # H-21：只给头部不够 —— 最常见的两类畸形（`answer.` 之后还有多余 JSON、
+        # 缺结尾的 `</EXTERNAL>`）**都在尾部**。只给头部时模型看到的是一段完全正常的
+        # 开头，"对照它自查"就成了空话，而同一段 head 会被反复回喂。
+        shown = (f"{agent_output[:limit]}"
+                 f"\n…（中间省略 {total - limit * 2} 字符，本轮共 {total} 字符）…\n"
+                 f"{agent_output[-limit:]}")
+    return FORMAT_ERROR_HINT.format(preview=_visualize_controls(shown))
 
 
 # ============================================================
@@ -573,6 +583,12 @@ class RoundCtx:
 
     confirmed: bool = False
     snapshot_id: Optional[str] = None
+    # H-05/H-07：本轮快照到底处于哪一态，供结果装配如实带出给用户/模型。
+    # "created" 建好了 / "empty_project" 项目是空的（无可失去的东西）/
+    # "unavailable" 建不出来（fail-close 已拒写，或 snapshot_required=false 放行）/
+    # "rolled_back" 守门违规后已回滚 / "rollback_failed" 回滚没做成（改动仍在盘上）
+    # "" 本轮不需要快照（非写工具）。
+    snapshot_state: str = ""
 
 
 class ExecutionLayer:
@@ -628,22 +644,56 @@ class ExecutionLayer:
         self.security_denials: List[Dict[str, Any]] = []
         # 已获会话级批准的项目外路径（按路径而不是按工具，见 _outside_destructive_reason）
         self.approved_outside: Set[str] = set()
+        # H-09：闸门问人时记下"被批准的那个**对象**"的身份（目的地主机 / 解析后路径 /
+        # 用户看到的那条命令）。重试若换了对象就作废这次授权、重新问。
+        # 只在真正问过人之后才有条目；来自持久规则/前缀白名单/测试直接 grant_temp 的
+        # 授权没有条目，沿用旧的按工具行为（不误伤）。
+        self._grant_identity: Dict[str, str] = {}
+        # H-20：本次任务内**成功执行过**的工具数（反幻觉闸门的判据），以及
+        # "已经给过模型一次机会"的计数器。两者都按"一次用户请求"重置。
+        self.tools_ran_this_task = 0
+        self._claim_nudges = 0
+        # H-21：自愈循环的指纹（本轮畸形输出的归一化特征）。同一个指纹第二次出现
+        # 就说明"再喂一次"不会有用 —— 直接中止并如实报，而不是跑满轮数。
+        self._retry_fingerprints: Set[str] = set()
 
         # 事件钩子：**用户自己的检查**（用户配置 hooks + 项目 .ace/hooks.json + 插件）。
         # 与 MCP 一样属于"用户配置的本地命令"，不在我们的沙箱里；执行层只决定
         # "要不要跑、以及它说的话算不算数"。
+        #
+        # H-17：但"用户配置的"这个前提对**项目级**钩子不成立 —— `.ace/hooks.json`
+        # 与 `.ace/plugins/*/hooks.json` 来自**你打开的那份仓库**，而它们在这里以
+        # `shell=True` 执行（`core/ace_hooks.run_hook`），时机是 `__init__`、即任何
+        # 权限判定之前，并且继承整个环境（含模型 API key）。也就是说
+        # `git clone <陌生仓库> && ace` = 执行它的 shell 命令。
+        # 默认**不信任**：要跑必须显式点头（见 `_project_hooks_trusted`）。
+        # 用户自己配置里的 `config["hooks"]` 不受影响 —— 那是他自己写的。
         self.hooks = None
         self.hooks_error = ""
         self.hook_ignored: List[str] = []
         self.plugins: List[Any] = []
+        self.project_hooks_trusted = self._project_hooks_trusted(config)
+        self.project_hooks_note = (
+            "" if self.project_hooks_trusted else
+            "项目级 hooks 未加载：本仓库未被信任。要启用，在配置里写 "
+            "trust_project_hooks: true，或把项目路径加进 trusted_workspaces")
         try:
             from core import ace_commands as _acmd
             from core import ace_hooks as _ahk
-            _resolved = _ahk.load_hooks((config or {}).get("hooks"),
-                                        (config or {}).get("hooks_project_file"))
+            _resolved = _ahk.load_hooks(
+                (config or {}).get("hooks"),
+                # 未受信任时**不读**项目 hook 文件（连解析都不做）
+                (config or {}).get("hooks_project_file")
+                if self.project_hooks_trusted else None)
             self.plugins = _acmd.load_plugins(str(self.project_root))
-            self.hook_ignored = _acmd.merge_plugin_hooks(self.plugins, _resolved,
-                                                        _ahk.EVENTS)
+            if self.project_hooks_trusted:
+                self.hook_ignored = _acmd.merge_plugin_hooks(self.plugins, _resolved,
+                                                            _ahk.EVENTS)
+            elif self.plugins:
+                # 命令照旧可用（那是 markdown，不是命令执行）；只有钩子被跳过，且**说出来**
+                self.hook_ignored = [
+                    f"{p.get('name') or '?'}: 插件钩子未加载（项目未受信任）"
+                    for p in self.plugins if p.get("hooks")]
             if any(_resolved.values()):
                 self.hooks = _ahk.HookRunner(_resolved, str(self.project_root))
         except Exception as e:  # noqa: BLE001 —— 钩子是增强，坏了也不能拖垮会话
@@ -663,7 +713,9 @@ class ExecutionLayer:
                 _cfgs = _mcp.load_server_configs(
                     _mcp_cfg, (config or {}).get("mcp_project_file"))
                 if _cfgs:
-                    self.mcp = _mcp.McpManager(_cfgs, str(self.project_root))
+                    self.mcp = _mcp.McpManager(
+                        _cfgs, str(self.project_root),
+                        permissions=(config or {}).get("mcp_permissions"))
                     self.mcp.start()
                     _registered = self.mcp.register_into(self.executor, registry_mod)
                     self.mcp_registered = _registered
@@ -714,6 +766,11 @@ class ExecutionLayer:
             str(self.project_root),
             signing_key=(config or {}).get("signing_key"),
             max_snapshots=int((config or {}).get("max_snapshots", 20))) if V1_GUARDIAN_AVAILABLE else None
+        # H-05：写工具拿不到写前快照时，默认**拒绝写入**（fail-close），与沙箱档位
+        # （不可用返回 503 而非静默降级）和审批（非交互一律拒）保持同一立场。
+        # 显式配 `snapshot_required: false` 才放行 —— 那时失败仍会记进事件日志并
+        # 在结果里带 `snapshot_state="unavailable"`，不静默。
+        self.snapshot_required = bool((config or {}).get("snapshot_required", True))
         self.archive = MemoryArchive(
             str(self.project_root / ".agent_memory.json"),
             session_tag=(config or {}).get("session_id", "default")) if V1_ARCHIVE_AVAILABLE else None
@@ -875,8 +932,12 @@ class ExecutionLayer:
         gate_warnings, early = self._stage_code_gate(tool_call, tool_name)
         if early is not None:
             return early
-        # ⑨ 写入操作前创建快照（core/guardian.py）→ ctx.snapshot_id（轮末回收）
-        self._stage_snapshot(tool_name, ctx)
+        # ⑨ 写入操作前创建快照（core/guardian.py）→ ctx.snapshot_id（轮末回收）；
+        # 拿不到快照就拒写（H-05）：与沙箱档位（503 不降级）、审批（非交互一律拒）
+        # 同一立场 —— 安全机制不可用时绝不静默放行。
+        early = self._stage_snapshot(tool_name, ctx, route_meta)
+        if early is not None:
+            return early
         # ⑩ 执行工具（全链路日志：调用原始参数 + 结果）
         result = self._stage_execute(tool_call, tool_name)
         # ⑪ L4 输出守门：成功结果过文本/代码规则；违规回滚 ctx.snapshot_id
@@ -904,6 +965,11 @@ class ExecutionLayer:
             self.pending_plan = None
             self.plan_approved = False
             self.pending_permission = None
+            # H-20/H-21：反幻觉判据按"一次用户请求"重置（与 CLI 原口径一致）；
+            # 循环指纹也按任务清空 —— 同一个畸形输出只在**同一任务内**算重复。
+            self.tools_ran_this_task = 0
+            self._claim_nudges = 0
+            self._retry_fingerprints = set()
 
     def _stage_route(self, user_input: str) -> Dict[str, Any]:
         """② L1 意图识别 + L2 技能推荐（五层网关，仅新输入时计算一次并缓存）。"""
@@ -927,11 +993,37 @@ class ExecutionLayer:
         parsed = self.parser.parse(agent_output)
         if parsed["valid"]:
             return parsed, None
+        # H-21：同一个畸形输出第二次出现 ⇒ 再回喂一次不会有用 —— 回喂的内容是
+        # **逐字相同**的，而模型上次就是这么答的。就此打住并如实报，而不是跑满轮数
+        # （CLI 有 20 轮上限与 `_fail_streak` 熔断，headless 此前**两者都没有**）。
+        _fp = self._retry_fingerprint("FORMAT_ERROR", str(parsed.get("error") or ""),
+                                      agent_output)
+        if _fp in self._retry_fingerprints:
+            return None, {
+                "status": "FORMAT_ERROR",
+                "message": ("模型连续两次给出同一段畸形输出（指纹相同），已中止 —— "
+                            "再回喂同样的原文不会有变化"),
+                "instruction": "把上面的原文与错误原因一起如实报给用户，不要重试。",
+                "fingerprint": _fp,
+                "abort": True,
+            }
+        self._retry_fingerprints.add(_fp)
         return None, {
             "status": "FORMAT_ERROR",
             "message": f"格式错误: {parsed['error']}",
-            "instruction": format_error_instruction(agent_output)
+            "instruction": format_error_instruction(agent_output),
+            "fingerprint": _fp,
         }
+
+    @staticmethod
+    def _retry_fingerprint(status: str, reason: str, output: str) -> str:
+        """一轮失败的归一化指纹（H-21）：状态 + 错误原因 + 输出的原始内容。
+
+        为什么用**原始内容**而不是"提示词"：提示词是我们拼的，每次都可能因为
+        长度/编号变化而不同，拿它去重会把"同一段畸形输出"判成不同的失败。
+        """
+        blob = f"{status}|{reason.strip()[:200]}|{output.strip()}"
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
     def _stage_memory(self, user_input: str) -> List[Dict]:
         """④ 记录到 archive（SimHash 记忆）；返回本轮注入的记忆列表（可空）。
@@ -962,9 +1054,35 @@ class ExecutionLayer:
                                           code_rules=False)
         if guard_result is not None:
             return guard_result
+        # H-20：反幻觉闸门下沉到这里（此前只在 CLI 里）。零工具调用 + "已完成"措辞
+        # ⇒ 不能当最终回复放行。CLI 会打绿色 ✓ 然后退出、headless 更是直接
+        # print + return 且**退出码 0** —— 而 headless 正是"没人在看"的那个模式。
+        # 判据同 CLI 原口径：按"一次用户请求"重置的 tools_ran_this_task。
+        message = parsed["final_reply"] or ""
+        if self.tools_ran_this_task == 0 and claims_completed_action(message):
+            if self.session_log:
+                self.session_log.record_guard("unverified_claim", "block", message[:200])
+            if self._claim_nudges < 1:
+                self._claim_nudges += 1
+                return {
+                    "status": "FORMAT_ERROR",
+                    "message": "回复声称已完成操作，但本次任务没有任何工具成功执行过",
+                    "instruction": PROMPT_UNVERIFIED_CLAIM,
+                }
+            self.violation_count += 1
+            return {
+                "status": "GUARD_VIOLATION",
+                "rule": "unverified_claim",
+                "action": "block",
+                "details": {"tools_ran_this_task": 0},
+                "message": ("模型声称完成了操作，但本次任务没有任何工具成功执行过 —— "
+                            "这条回复不可信"),
+                "instruction": ("必须如实告诉用户：本次没有任何操作被执行。"
+                                "不要把这条当成最终回复。"),
+            }
         return {
             "status": "FINAL_REPLY",
-            "message": parsed["final_reply"],
+            "message": message,
             "internal": parsed["internal"],
             "memory_injected": injected_memory or None
         }
@@ -1049,6 +1167,14 @@ class ExecutionLayer:
                 return None
             return "图片 prompt 会明文发给第三方服务 image.pollinations.ai（不在白名单内）"
 
+        # H-16：MCP 工具的参数由对面 server 定义，ACE 认不出"目的地"是什么。
+        # 认不出**不等于**不用问 —— 那恰恰是最该问的情形：一个跑在 ACE 沙箱**之外**、
+        # 自己开网络、能把数据带到任意地方的进程。内置 egress 工具都有 `url` 参数，
+        # 所以这条实际上只覆盖 MCP（下面那句 `if not _url...: return None` 会把
+        # 认不出的情形放过去，那正是此前 MCP 绕过 SEC-03 的通道）。
+        if tool_name.startswith("mcp__"):
+            return (f"MCP 工具 `{tool_name}` 在 ACE 沙箱**之外**执行，"
+                    "目的地无法判定（参数由对面 server 定义）")
         _url = str(tool_call.get("url") or "").strip()
         if not _url.lower().startswith(("http://", "https://")):
             # 连协议都不对：交给工具自己的协议校验去报 400。
@@ -1062,6 +1188,99 @@ class ExecutionLayer:
         _shown = _url if len(_url) <= 200 else _url[:200] + " …（已截断）"
         return f"外发到 {_host}（不在 egress_allowlist / 内置清单内）: {_shown}"
 
+    def _project_hooks_trusted(self, config: Optional[Dict[str, Any]]) -> bool:
+        """项目级 hooks 是否被信任（H-17）。默认 **False**。
+
+        `.ace/hooks.json` 与 `.ace/plugins/*/hooks.json` 来自**被打开的那份仓库**，
+        却在 `__init__` 里以 `shell=True` 执行 —— `git clone <陌生仓库> && ace`
+        就等于执行它的 shell 命令，且发生在任何权限判定之前。所以默认不信任，
+        要跑必须显式点头，二选一：
+
+        - `trust_project_hooks: true` —— 本次会话信任当前项目；
+        - `trusted_workspaces: [<路径>, …]` —— 项目根在白名单里。
+
+        比较用 `resolve()` 后的规范路径（大小写/短名/`..` 都归一到同一个答案），
+        而不是字符串前缀 —— 后者正是本卡 H-10 那类绕过的来源。
+        """
+        cfg = config or {}
+        if cfg.get("trust_project_hooks") is True:
+            return True
+        ws = cfg.get("trusted_workspaces")
+        if not isinstance(ws, (list, tuple, set)):
+            return False
+        try:
+            here = Path(str(self.project_root)).resolve()
+        except (OSError, ValueError):
+            return False
+        for item in ws:
+            try:
+                if Path(str(item)).expanduser().resolve() == here:
+                    return True
+            except (OSError, ValueError):
+                continue
+        return False
+
+    def _gated_identity(self, tool_name: str, tool_call: Dict[str, Any]) -> str:
+        """这次调用被闸门盯上的**那个对象**的身份（H-09）。
+
+        为什么需要它：授权原本只绑在**工具名**上（`temp_grants` 是个字符串集合），
+        而被批准之后重试的那次调用是**模型重新生成**的
+        （`PROMPT_PERM_GRANTED` → 重新出 JSON），参数可以完全不同。于是
+        "批准 `https://benign.example.com/`" 实际等于"批准 `api_post` 随便发"，
+        默认配置下（无 `egress_allowlist`）那道闸门本就是唯一防线。
+
+        返回空串 = 这次调用没有被闸门盯上的对象，调用方沿用旧的按工具授权行为。
+        """
+        # ① 项目外覆盖/删除：绑**解析后的路径**（注释早就写了"用户点的是这一个文件"）
+        # H-13：走唯一入口取全部破坏性目标 —— `file_move` 有**两个**（源在前），
+        # 此前只绑 `path or dest`，源那一半对身份校验不可见。
+        if tool_name in ("file_write", "file_delete", "str_replace", "file_move"):
+            from core.targets import destructive_targets
+            _idents: List[str] = []
+            for _raw in destructive_targets(tool_name, tool_call):
+                try:
+                    _p = Path(_raw).expanduser()
+                    if _p.is_absolute():
+                        # normcase：Windows 大小写不敏感，别把 C:\a.txt 与 c:\A.TXT 当两个对象
+                        _idents.append(os.path.normcase(str(_p.resolve())))
+                except (OSError, ValueError):
+                    continue
+            if not _idents:
+                return ""
+            return "path:" + "|".join(_idents)
+
+        # ② 外发工具：绑**目的地主机**
+        if tool_name in EGRESS_TOOLS:
+            try:
+                from core.ace_net import normalize_host, url_host
+            except Exception:  # noqa: BLE001 —— 加固失败不误伤：退回按工具授权
+                return ""
+            if tool_name == "notify_send":
+                if str(tool_call.get("channel") or "").strip().lower() != "email":
+                    return ""
+                smtp = str((getattr(self.executor, "email_smtp", None) or {}).get("host") or "")
+                return "host:" + normalize_host(smtp)
+            if tool_name == "image_generate":
+                return "host:image.pollinations.ai"
+            url = str(tool_call.get("url") or tool_call.get("target") or "")
+            if not url:
+                return ""
+            return "host:" + normalize_host(url_host(url))
+
+        # ③ 逐次确认工具（terminal_exec）：绑**用户看到的那条命令**
+        if tool_name in CONFIRM_TOOLS:
+            cmd = " ".join(str(tool_call.get("command")
+                                or tool_call.get("code") or "").split())
+            return "cmd:" + cmd if cmd else ""
+
+        # ④ MCP 工具（H-16）：参数形状由对面定义，ACE 认不出"对象"是什么。
+        # 那就绑**参数摘要** —— 换参数就等于换对象，必须重新问人；否则一次批准
+        # 等于"这个 MCP 工具以后随便调"（而它跑在沙箱之外）。
+        if tool_name.startswith("mcp__"):
+            _payload = json.dumps(tool_call, ensure_ascii=False, sort_keys=True)
+            return "mcp:" + hashlib.sha256(_payload.encode("utf-8")).hexdigest()[:16]
+        return ""
+
     def _outside_destructive_reason(self, tool_name: str, tool_call: Dict[str, Any]
                                     ) -> Optional[str]:
         """要覆盖或删除**项目外已存在**的东西时，返回给人看的原因（否则 None）。
@@ -1074,32 +1293,36 @@ class ExecutionLayer:
         """
         if tool_name not in ("file_write", "file_delete", "str_replace", "file_move"):
             return None
-        raw = str(tool_call.get("path") or tool_call.get("dest") or "").strip()
-        if not raw:
-            return None
-        try:
-            p = Path(raw).expanduser()
-            if not p.is_absolute():
-                return None          # 相对路径要么落在项目内，要么越界已被路径闸门拦下
-            p = p.resolve()
-        except (OSError, ValueError):
-            return None
-        try:
-            p.relative_to(self.project_root)
-            return None              # 项目内：快照兜底，不打扰用户
-        except ValueError:
-            pass
-        if not p.exists():
-            return None              # 项目外新建：不摧毁任何东西（"往桌面丢个文件"要顺手）
-        # 敏感目标（凭据/私钥/自启动入口）是**硬拒**，不该走确认：让工具层直接 403。
-        # 否则用户会被问一个"点了同意也不会发生"的问题——那比不问更坏。
+        # H-13：走**唯一入口**取"这次会动哪些路径"。此前这里只读
+        # `path or dest` —— `file_move` 的 `source` 因此对这条闸门不可见，
+        # 而"把项目外已存在的文件移走"等于删除它。
+        from core.targets import destructive_targets
         from tools.base import sensitive_target
-        if sensitive_target(p):
-            return None
-        if str(p) in self.approved_outside:
-            return None              # 本会话已经为这条路径点过头
-        what = "删除" if tool_name == "file_delete" else "覆盖"
-        return f"{what}项目外已存在的文件（项目外没有快照可回滚）: {p}"
+        for _raw in destructive_targets(tool_name, tool_call):
+            try:
+                p = Path(_raw).expanduser()
+                if not p.is_absolute():
+                    continue         # 相对路径要么落在项目内，要么越界已被路径闸门拦下
+                p = p.resolve()
+            except (OSError, ValueError):
+                continue
+            try:
+                p.relative_to(self.project_root)
+                continue             # 项目内：快照兜底，不打扰用户
+            except ValueError:
+                pass
+            if not p.exists():
+                continue             # 项目外新建：不摧毁任何东西（"往桌面丢个文件"要顺手）
+            # 敏感目标（凭据/私钥/自启动入口）是**硬拒**，不该走确认：让工具层直接 403。
+            # 否则用户会被问一个"点了同意也不会发生"的问题——那比不问更坏。
+            if sensitive_target(p):
+                continue
+            if str(p) in self.approved_outside:
+                continue             # 本会话已经为这条路径点过头
+            _what = ("删除" if tool_name == "file_delete"
+                     else ("移动" if tool_name == "file_move" else "覆盖"))
+            return f"{_what}项目外已存在的文件（项目外没有快照可回滚）: {p}"
+        return None
 
     def _stage_permission(self, tool_call: Dict[str, Any], tool_name: str,
                           route_meta: Dict[str, Any], ctx: RoundCtx
@@ -1113,6 +1336,22 @@ class ExecutionLayer:
         本轮确认标志写入 ctx.confirmed（approval hook 经 self._round 读取），必须在
         can_execute() 之前取：can_execute 会消费掉 temp_grants，之后再读永远是 False。
         """
+        # H-09：授权必须绑到**对象**上，不是绑到工具名上。用户点"同意"时看到的是
+        # `https://benign.example.com/` 或 `Desktop\taxes.xlsx`；而重试是模型**重新生成**
+        # 的一次调用，参数可以完全不同。绑工具名的话"批准 A"就等于"批准这个工具随便用"。
+        # 只在**闸门确实问过人并记下了对象**时校验（`_grant_identity`）；来自持久规则、
+        # 前缀白名单、或测试直接 `grant_temp` 的授权没有条目 ⇒ 沿用旧的按工具行为。
+        _identity = self._gated_identity(tool_name, tool_call)
+        if _identity and tool_name in self.permission.temp_grants:
+            _approved = self._grant_identity.get(tool_name)
+            if _approved is not None and _approved != _identity:
+                # 授权绑的是另一个对象：作废这次授权，让它重走闸门（会重新问人）
+                self.permission.temp_grants.discard(tool_name)
+                self._grant_identity.pop(tool_name, None)
+                if self.session_log:
+                    self.session_log.record_permission(
+                        tool_name, "grant_identity_mismatch", self.permission.level,
+                        f"已批准 {_approved[:60]}；本次是 {_identity[:60]}")
         ctx.confirmed = (tool_name in self.permission.temp_grants
                          or tool_name in self.permission.session_grants)
         # ⑨ 持久规则（`.ace/permissions*.json` / `~/.ace/permissions.json`）：
@@ -1176,8 +1415,11 @@ class ExecutionLayer:
             _outside = self._outside_destructive_reason(tool_name, tool_call)
             if _outside:
                 self.pending_permission = {"tool": tool_name, "reason": _outside,
+                                           "identity": _identity,
                                            "outside_path": str(tool_call.get("path")
                                                                or tool_call.get("dest") or "")}
+                if _identity:
+                    self._grant_identity[tool_name] = _identity
                 if self.session_log:
                     self.session_log.record_permission(
                         tool_name, "confirm_outside", self.permission.level, _outside[:100])
@@ -1192,7 +1434,10 @@ class ExecutionLayer:
                 }
             _egress_reason = self._egress_confirm_reason(tool_name, tool_call)
             if _egress_reason:
-                self.pending_permission = {"tool": tool_name, "reason": _egress_reason}
+                self.pending_permission = {"tool": tool_name, "reason": _egress_reason,
+                                           "identity": _identity}
+                if _identity:
+                    self._grant_identity[tool_name] = _identity
                 if self.session_log:
                     self.session_log.record_permission(
                         tool_name, "confirm_egress", self.permission.level, _egress_reason[:100])
@@ -1220,7 +1465,10 @@ class ExecutionLayer:
                 preview = _cmd
                 if len(preview) > 300:
                     preview = preview[:300] + " …（已截断）"
-                self.pending_permission = {"tool": tool_name, "reason": preview}
+                self.pending_permission = {"tool": tool_name, "reason": preview,
+                                           "identity": _identity}
+                if _identity:
+                    self._grant_identity[tool_name] = _identity
                 if self.session_log:
                     self.session_log.record_permission(
                         tool_name, "confirm", self.permission.level, preview[:100])
@@ -1242,7 +1490,10 @@ class ExecutionLayer:
             preview = str(tool_call.get("command") or tool_call.get("code") or "")
             if len(preview) > 300:
                 preview = preview[:300] + " …"
-            self.pending_permission = {"tool": tool_name, "reason": preview}
+            self.pending_permission = {"tool": tool_name, "reason": preview,
+                                       "identity": _identity}
+            if _identity:
+                self._grant_identity[tool_name] = _identity
             return {
                 "status": "PERMISSION_REQUEST",
                 "tool": tool_name,
@@ -1268,18 +1519,74 @@ class ExecutionLayer:
             return None, gate["result"]
         return gate.get("warnings"), None
 
-    def _stage_snapshot(self, tool_name: str, ctx: RoundCtx) -> None:
-        """⑨ 写入操作前创建快照（core/guardian.py）；快照 id 挂 ctx.snapshot_id，轮末回收。"""
+    def _stage_snapshot(self, tool_name: str, ctx: RoundCtx,
+                        route_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """⑨ 写入操作前创建快照（core/guardian.py）；快照 id 挂 ctx.snapshot_id，轮末回收。
+
+        H-05：快照失败**不再被吞掉**。此前是 `except Exception:
+        ctx.snapshot_id = None`，然后 ⑩ 照常写入 —— 快照是"trust but verify"里
+        可 verify 的那一半，静默失去它等于把安全网拆了还不告诉任何人，而全仓库
+        没有任何地方会因此告警。三种情形分开处理：
+
+        - 创建抛异常（磁盘满 / `.guardian` 只读 / 文件被别的进程占用 / 创建后自检
+          失败）→ 快照不可用；
+        - `snapshot()` 返回 None 但项目里**有内容**（全被排除名单挡了）→ 同样是
+          "没有回滚点"，按不可用处理（H-06）；
+        - `snapshot()` 返回 None 且项目**真的是空的** → 放行（没有可失去的东西），
+          这是 `[3]`/`[5]` 段钉住的既有行为。
+
+        返回 dict = 本轮终止（不可用且 `snapshot_required`）；返回 None = 继续下一阶段。
+        """
         ctx.snapshot_id = None
-        if tool_name in WRITE_TOOLS and self.guardian:
-            try:
-                ctx.snapshot_id = self.guardian.snapshot(
-                    f"before_{tool_name}_{int(time.time())}")
-                if self.session_log and ctx.snapshot_id:
-                    self.session_log.record_snapshot(K_SNAPSHOT_CREATE,
-                                                     ctx.snapshot_id, tool_name)
-            except Exception:
-                ctx.snapshot_id = None
+        ctx.snapshot_state = ""
+        if tool_name not in WRITE_TOOLS or not self.guardian:
+            return None
+        try:
+            ctx.snapshot_id = self.guardian.snapshot(
+                f"before_{tool_name}_{int(time.time())}")
+        except Exception as e:  # noqa: BLE001 —— 任何失败都不许静默吞掉
+            return self._snapshot_unavailable(tool_name, ctx, route_meta, str(e))
+        if ctx.snapshot_id is None:
+            # H-06：`None` = 没有可收集的文件。只有"有文件但每个都像凭据"才算
+            # 没有回滚点；目录被排除（运行时产物/缓存/会话）意味着没有用户内容，
+            # 放行（`[3]`/`[5]` 段钉住了"空项目快照返回 None"这个既有契约）。
+            if self.guardian.count_credential_only_files() > 0:
+                return self._snapshot_unavailable(
+                    tool_name, ctx, route_meta,
+                    "项目里有文件，但每个都命中凭据名单（.env / *.pem / .npmrc 等），"
+                    "快照不会包含它们")
+            ctx.snapshot_state = "empty_project"
+            return None
+        ctx.snapshot_state = "created"
+        if self.session_log:
+            self.session_log.record_snapshot(K_SNAPSHOT_CREATE,
+                                             ctx.snapshot_id, tool_name)
+        return None
+
+    def _snapshot_unavailable(self, tool_name: str, ctx: RoundCtx,
+                              route_meta: Dict[str, Any], reason: str
+                              ) -> Optional[Dict[str, Any]]:
+        """H-05：快照不可用时的一致处理。
+
+        返回 dict = 拒写并终止本轮；返回 None = 用户配了 `snapshot_required=false`，
+        显式接受"这次写入没有回滚点"（此时仍记事件日志 + 结果里带状态，不静默）。
+        """
+        ctx.snapshot_state = "unavailable"
+        if self.session_log:
+            self.session_log.record_snapshot(K_SNAPSHOT_FAIL, "", reason[:200])
+        if not self.snapshot_required:
+            return None
+        return {
+            "status": "403",
+            "tool": tool_name,
+            "message": f"无法创建写前快照，已拒绝本次写入：{reason}",
+            "snapshot_state": "unavailable",
+            "instruction": ("这是执行层安全限制，不是权限问题 —— 本次写入**没有执行**，"
+                            "因为无法为它留下可回滚的快照。请让用户检查 .guardian 的"
+                            "可写性与磁盘空间；确实要接受无回滚点时，配置 "
+                            "snapshot_required=false 再重试。"),
+            **route_meta,
+        }
 
     def _stage_execute(self, tool_call: Dict[str, Any], tool_name: str) -> Any:
         """⑩ 执行工具（全链路日志：调用原始参数 + 结果）。
@@ -1363,8 +1670,22 @@ class ExecutionLayer:
         guard_result = self._guard_output(output_text, user_input, code_rules=code_rules)
         if guard_result is None:
             return None
-        self._rollback_current_snapshot(ctx.snapshot_id)
+        # H-07：回滚结果必须走到用户可见的结果里，不能只往 stderr 打一行。
+        # 回滚失败 = 违规产生的写入还在磁盘上 —— 那时"已回滚"是假承诺，
+        # 用户和模型都得知道，否则模型会以为世界已经回到违规之前。
+        rolled, rollback_detail = self._rollback_current_snapshot(ctx.snapshot_id)
+        ctx.snapshot_state = "rolled_back" if rolled else "rollback_failed"
         ctx.snapshot_id = None
+        if not rolled and rollback_detail:
+            guard_result = dict(guard_result)
+            guard_result["snapshot_state"] = "rollback_failed"
+            guard_result["rollback_error"] = rollback_detail
+            guard_result["message"] = (
+                f"{guard_result.get('message', '守门拦截')} —— 且回滚未成功：{rollback_detail}")
+            guard_result["instruction"] = (
+                "本次写入违反了守门规则，且执行层**没有**成功回滚它 —— 磁盘上的改动"
+                "仍然存在，请如实告知用户并停止重试，由用户决定如何处理"
+                "（备份在 .guardian/rollback_backups/）。")
         return guard_result
 
     def _stage_bait_rearm(self, tool_name: str, result: Any) -> None:
@@ -1389,10 +1710,18 @@ class ExecutionLayer:
                       injected_memory: List[Dict], ctx: RoundCtx,
                       gate_warnings: Optional[Dict], route_meta: Dict[str, Any]
                       ) -> Dict[str, Any]:
-        """⑭ 构建返回：本轮快照引用用完即清（防止后续轮次误回滚）。"""
+        """⑭ 构建返回：本轮快照引用用完即清（防止后续轮次误回滚）。
+
+        H-07：同时把 `snapshot_state` 如实带出去 —— 调用方（尤其无头/CI）据此
+        分辨"有回滚点""项目是空的""回滚点建不出来"，不必去猜 `snapshot_id is None`
+        到底是哪一种。
+        """
         snapshot_id = ctx.snapshot_id
+        snapshot_state = ctx.snapshot_state
         ctx.snapshot_id = None
         if result.status == "success":
+            # H-20：本次任务确实有工具落地过 —— 反幻觉闸门据此放行"已完成"类回复。
+            self.tools_ran_this_task += 1
             # 成功推进：只清空该工具的失败计数，保留其他工具的计数。
             # 防止模型"成功一个工具"就把失败工具的计数清零、交替绕过熔断。
             self.repeat_fail = {k: v for k, v in self.repeat_fail.items()
@@ -1404,6 +1733,7 @@ class ExecutionLayer:
                 "elapsed": result.metadata.get("elapsed", 0),
                 "internal": parsed["internal"],
                 "snapshot_id": snapshot_id,
+                "snapshot_state": snapshot_state,
                 "memory_injected": injected_memory or None,
                 "ast_warnings": gate_warnings,
                 **route_meta,
@@ -1449,6 +1779,8 @@ class ExecutionLayer:
             "message": result.message,
             "tool": tool_name,
             "internal": parsed["internal"],
+            "snapshot_id": snapshot_id,
+            "snapshot_state": snapshot_state,
             "memory_injected": injected_memory or None,
             "instruction": extra_instruction,
             "security_alerts": security_alerts,
@@ -1680,27 +2012,29 @@ class ExecutionLayer:
             "instruction": "请修正输出后重试"
         }
 
-    def _rollback_current_snapshot(self, snapshot_id: Optional[str]) -> bool:
+    def _rollback_current_snapshot(self, snapshot_id: Optional[str]) -> Tuple[bool, str]:
         """熔断回滚：仅回滚本轮创建的快照（防止回滚到过期快照破坏无关修改）
 
-        返回是否真的回滚成功。这里不抛异常——调用点正在处理一次守门违规，
-        抛出会把原始违规信息盖掉。但也不能静默：回滚失败意味着违规产生的写入
-        还留在磁盘上，用户必须知道，否则"已回滚"是个假承诺。
+        返回 `(是否真的回滚成功, 给人看的说明)`。这里不抛异常——调用点正在处理一次
+        守门违规，抛出会把原始违规信息盖掉。但也不能静默：回滚失败意味着违规产生的
+        写入还留在磁盘上，用户必须知道，否则"已回滚"是个假承诺。
+
+        H-07：说明串由调用点带进**结果**（用户可见），不再只往 stderr 打一行 ——
+        本函数的 docstring 一直写着"用户必须知道"，而实现此前只有 stderr。
         """
         if not (self.guardian and snapshot_id):
-            return False
+            return False, ""
         try:
             ok = self.guardian.rollback(snapshot_id)
             if self.session_log:
                 self.session_log.record_snapshot(K_SNAPSHOT_ROLLBACK, snapshot_id)
             if not ok:
-                print(f"警告: 快照 {snapshot_id} 回滚未完成，改动仍在磁盘上，"
-                      f"备份见 .guardian/rollback_backups/", file=sys.stderr)
-            return ok
+                return False, ("回滚未完成，改动仍在磁盘上；删除前的完整备份在 "
+                               ".guardian/rollback_backups/")
+            return True, ""
         except Exception as e:
-            print(f"警告: 快照 {snapshot_id} 回滚失败（{e}），改动仍在磁盘上，请手动检查",
-                  file=sys.stderr)
-            return False
+            return False, (f"回滚失败（{e}），改动仍在磁盘上，请手动检查 "
+                           ".guardian/rollback_backups/")
 
 
     def _gate_code_execute(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:

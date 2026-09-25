@@ -83,6 +83,20 @@ class ToolsUnsupported(Exception):
     """模型端点不支持原生工具调用，触发自动降级到文本协议"""
 
 
+class TruncatedOutput(Exception):
+    """模型输出被 `max_tokens` 截断（H-19）。
+
+    **为什么必须单独区分**：截断时工具调用的 JSON 是**未闭合**的，`tool_calls_to_protocol`
+    的 JSON 修复两条路都会失败，于是 `args` 退化成 `{}` —— 那次工具调用必然报 400。
+    而执行层的"同工具同错误连续失败"计数会因此涨，**3 次之后该工具被整会话熔断**
+    （"工具 file_write 已连续失败 3 次，已被熔断"）。更糟的是每次回喂的 prompt 都在变长，
+    所以截断是**确定性复现**的 —— 模型永远修不好，工具永远被禁。
+
+    真实原因（"输出太长被截断"）与"参数写错了"完全是两回事，回喂的证据必须分开，
+    而且**绝不能**计进那个熔断计数。
+    """
+
+
 def retry_notice(decision, attempt: int) -> None:
     """把 ace_http 的退避决定告诉用户。ai_code 也用这一份。
 
@@ -181,30 +195,21 @@ def final_reply_protocol(content: str) -> str:
             f"<EXTERNAL>\nanswer.\n{content.strip()}\n</EXTERNAL>")
 
 
-# 模型"声称已完成写操作"的措辞。只匹配完成态（已…/…了/created/has been），
-# 不匹配"我将要创建"这类意图陈述，否则正常的计划说明会被误判。
-_CLAIM_DONE_RE = re.compile(
-    r"已(?:经)?(?:为你|帮你|在)?[^。\n]{0,12}?"
-    r"(?:创建|建立|新建|写入|保存|生成|修改|更新|删除|移动|重命名|执行)"
-    r"|(?:创建|写入|保存|生成|修改|删除|执行)(?:好|完)了"
-    r"|文件已(?:经)?(?:成功)?(?:创建|保存|生成|写入|修改|删除)"
-    r"|(?:created|wrote|saved|generated|deleted|updated|executed)\s+(?:the\s+)?file"
-    r"|file\s+(?:has\s+been|was)\s+(?:created|written|saved|updated|deleted)"
-    r"|I(?:'ve|\s+have)\s+(?:created|written|saved|updated|deleted|executed)",
-    re.IGNORECASE)
+# 模型"声称已完成写操作"的措辞检测：判据在 `core/ace_claims.py`（H-20）。
+# 为什么搬走：**执行层也要用它**。此前这道闸门只在 CLI 里，headless / CI / SDK
+# 完全没有防线（零工具调用 + "我已经创建了 x.py" ⇒ 直接 print 然后 return，退出码 0）。
+# 而 `execution_layer` 不能 import `agent_runner`（会成环），所以判据收进 core，两边都取它。
+# 这里保留同名转发，让 `agent_runner.claims_completed_action` 这类历史调用点照旧可用。
+from core.ace_claims import claims_completed_action as _claims_core  # noqa: E402
+from core.ace_claims import PROMPT_UNVERIFIED_CLAIM as _CORE_PROMPT_UNVERIFIED_CLAIM  # noqa: E402
 
 
 def claims_completed_action(content: str) -> bool:
     """模型是否在"没有调用任何工具"的前提下声称自己完成了文件/命令操作。
 
-    这是本项目见过的最有害的失败模式：小模型（或被端点吞掉了 tool_calls 的情况）
-    回一句"我已经帮你在桌面创建了 example.py"，final_reply_protocol 无条件把它
-    包成模式 B，执行层判 FINAL_REPLY，CLI 打绿色的"✓ 完成（1 轮）"然后退出——
-    用户以为成功了，桌面上什么都没有。零工具调用 + 完成态措辞 = 必须拦。
-
-    只做措辞检测、不做语义判断：宁可偶尔多问模型一轮，也不能把幻觉当成功。
+    判据在 `core/ace_claims.py`（唯一来源），这里只转发 —— 见本段上方的说明。
     """
-    return bool(_CLAIM_DONE_RE.search(content or ""))
+    return _claims_core(content)
 
 
 
@@ -479,6 +484,12 @@ class ModelProvider:
                 raise ToolsUnsupported(f"端点不支持 tools 参数: HTTP {e.status}") from e
             raise
         message = data["choices"][0]["message"]
+        # H-19：先看 finish_reason。被 max_tokens 截断时，`tool_calls` 里的 JSON 是
+        # **未闭合**的 —— 修 JSON 的两条路都会失败、`args` 退化成 `{}`，于是报 400、
+        # 计进"连续失败"、3 次后该工具被整会话熔断。那不是模型的错，回喂也没用。
+        if str((data["choices"][0] or {}).get("finish_reason") or "") == "length":
+            raise TruncatedOutput(
+                "模型输出被 max_tokens 截断（finish_reason=length）：工具调用 JSON 未闭合")
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
             return tool_calls_to_protocol(tool_calls)
@@ -509,6 +520,11 @@ class ModelProvider:
                       "content": load_system_prompt() + self.system_suffix}]
                     + self.history + [{"role": "user", "content": prompt}])
         data = _post_chat(self.base_url, self.api_key, self.model, messages)
+        # H-19：截断的**最终回复**会被当成完成品打出去（半句话 + 绿色 ✓）。
+        # 宁可如实报"被截断了"，也不要让用户以为回答完整。
+        if str((data["choices"][0] or {}).get("finish_reason") or "") == "length":
+            raise TruncatedOutput(
+                "模型输出被 max_tokens 截断（finish_reason=length）：回复不完整")
         content = data["choices"][0]["message"]["content"] or ""
         if content.strip():
             # 清洗模型残留的协议标签残片（如 </EXTERNAL>），避免污染解析
@@ -613,16 +629,7 @@ PROMPT_ERROR_RETRY = ("执行层返回了错误，请修正后继续：\n{render
                       "注意：必须严格按 <INTERNAL>/<EXTERNAL> 格式输出。")
 PROMPT_TOOL_RESULT = ("工具执行结果：\n{rendered}\n"
                       "请根据结果继续（输出下一条工具调用，或最终回复）。")
-PROMPT_UNVERIFIED_CLAIM = (
-    "停。你刚才声称已经完成了文件/命令操作，但这一轮你没有调用任何工具，"
-    "所以系统里什么都没有发生——文件不存在，命令没执行。\n"
-    "二选一：\n"
-    "1) 如果确实要做，现在就调用对应工具真正执行（新建文件用 file_write，"
-    "改已有文件用 str_replace，跑命令用 terminal_exec）；\n"
-    "2) 如果不需要执行，重写你的回答，去掉「已创建 / 已保存 / 已执行」这类说法，"
-
-    "改成如实描述。\n"
-    "不要再向用户索要确认——权限审批由执行层负责，不是你的职责。")
+PROMPT_UNVERIFIED_CLAIM = _CORE_PROMPT_UNVERIFIED_CLAIM   # H-20：判据与文案见 core/ace_claims
 
 
 # 需要回喂模型让它自行修正的错误态
@@ -807,6 +814,12 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
             return
 
         if result["status"] in ERROR_STATUSES:
+            # H-21：执行层判定"同一段畸形输出重复出现，再喂一次不会有用"时带 `abort`。
+            # 无头路径此前**没有任何熔断**（CLI 至少有 20 轮上限 + `_fail_streak`），
+            # 所以这里必须停；否则会一路跑到轮数上限，而且 exit code 还是 0。
+            if result.get("abort"):
+                print(f"\n⚠ 已中止：{result.get('message', '')}")
+                return
             # SEC-017：安全拦截到阈值 → 明确告警（可能在借模型的手试探边界）
             _sec = result.get("security_alerts")
             if _sec:

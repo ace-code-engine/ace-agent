@@ -22,7 +22,29 @@ class TerminalView:
     def _escapes_project(self, token: str) -> bool:
         """这个命令行 token 是一个指向项目目录外的路径吗？不像路径、或在项目内则 False。"""
         if token.startswith("-"):
-            return False
+            # H-15：**选项 token 也能带越界目标** —— `git log --output=C:\...\leak.txt`
+            # 就往项目外写了一个文件。执行层那一侧的 `ace_execpolicy` 早在 SEC-06 就补上了
+            # 这一步（`= 右边再查一次路径`），`terminal_view` 没跟上 ——
+            # 于是一个**只读工具**（不问人、不快照）能写盘。
+            #
+            # 两种形态都要看：
+            #   `--output=<路径>` / `--target-directory=<路径>`  → 取等号右边
+            #   `-o<路径>`                                        → 取开关字母之后
+            # 判"像不像路径"用显式判据而不是 `os.path.isabs`：后者在 Windows 上不认
+            # POSIX 绝对路径（`-o/tmp/x` 会漏），而这条工具两端都要站得住。
+            _cand = token.partition("=")[2]
+            if not _cand:
+                _attached = re.match(r"^-+[A-Za-z]+(.+)$", token)
+                _cand = _attached.group(1) if _attached else ""
+            if not _cand:
+                return False
+            _path_like = (os.path.isabs(_cand)
+                          or re.match(r"^[a-zA-Z]:[\\/]", _cand) is not None
+                          or _cand.startswith("/")
+                          or ".." in Path(_cand).parts)
+            if not _path_like:
+                return False
+            return self._confined(Path(os.path.expanduser(_cand))) is None
         if os.name == "nt" and self._NT_SWITCH_RE.match(token):
             return False
         expanded = os.path.expanduser(token)

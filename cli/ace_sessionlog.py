@@ -36,6 +36,7 @@ K_SECURITY = "security/denied"           # 安全拦截（路径越界/白名单
 K_GUARD = "guard/verdict"                # 守卫违规 / 诱饵 / AST 拦截
 K_SNAPSHOT_CREATE = "snapshot/create"    # 写入前快照
 K_SNAPSHOT_ROLLBACK = "snapshot/rollback"  # 回滚
+K_SNAPSHOT_FAIL = "snapshot/unavailable"  # 快照不可用（H-05：fail-close 的决定必须留痕）
 K_GOAL_ROUND = "goal/round"              # 目标轮次推进
 K_MODEL_ERROR = "model/error"            # 模型 API 调用失败
 K_COMPACTION = "compaction/event"        # 上下文压缩

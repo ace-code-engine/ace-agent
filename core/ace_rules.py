@@ -31,6 +31,8 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.targets import destructive_targets   # H-13：破坏性目标的唯一入口
+
 __all__ = ["Rule", "RULES_FILENAME", "LOCAL_RULES_FILENAME", "SCOPES",
            "parse_rule", "rule_matches", "match_rule", "load_rules",
            "load_rules_file", "save_rules", "describe_rule", "shadowed_rules",
@@ -81,12 +83,46 @@ class Rule:
         return f"Rule({self.action} {self.tool}:{pat} @{self.scope})"
 
 
-def _norm_path(value: str) -> str:
-    """路径归一：反斜杠→正斜杠、去掉开头的 ./、统一小写盘符。"""
+def _norm_path(value: str, *, fold_case: bool = True) -> str:
+    """路径归一（H-12）：反斜杠→正斜杠、折叠 `.`/`..`、去掉开头 `./`、按平台折大小写。
+
+    **此前这个 docstring 写着"统一小写盘符"，而函数体从不小写、也从不折叠 `..`。**
+    后果是可利用的：用户写 `{"tool":"file_write","pattern":".env","action":"deny"}`
+    （"这个仓库里别碰 .env" 正是规则的设计用例），模型调
+    `file_write(path="tools/../.env")` —— `"tools/../.env".startswith(".env")` 是
+    False ⇒ deny 不命中 ⇒ 工具解析路径后**真的写了 `<root>/.env`**。
+    **deny 是用户当墙用的那条，它静默不命中比没有更糟。**
+
+    这个函数有**两种用途**，所以 `fold_case` 是个显式开关而不是写死的：
+    - **匹配**（`rule_matches`）—— 折大小写是对的（Windows 路径大小写不敏感）；
+    - **生成规则文本**（`suggest_rule`）—— 那是要写进规则文件、给用户看的，
+      折了就把 `README.md` 变成 `readme.md`，用户拿到一条他没想要的规则。
+
+    这里只做**词法**归一（不碰文件系统、不解析符号链接）—— 足够关掉 `..` 与大小写
+    这两条，而且对远程/不存在的路径也成立。真正的"同一个文件"判定在
+    `core/canonical.py`；本函数保持纯函数，是为了让规则匹配可以脱离磁盘单测。
+
+    目录模式（结尾带 `/`）保留结尾斜杠，否则 `pattern="docs/"` 会连带命中 `docs2/`。
+    """
     s = str(value or "").replace("\\", "/").strip()
-    while s.startswith("./"):
-        s = s[2:]
-    return s
+    if fold_case and os.name == "nt":
+        s = s.lower()                     # Windows 路径大小写不敏感；POSIX 保持原样
+    _dir_pat = s.endswith("/")
+    _absolute = s.startswith("/")
+    _parts: list = []
+    for _seg in s.split("/"):
+        if _seg in ("", "."):
+            continue
+        if _seg == ".." and _parts and _parts[-1] != "..":
+            _parts.pop()
+            continue
+        _parts.append(_seg)
+    out = "/".join(_parts)
+    if _absolute:
+        out = "/" + out
+    if _dir_pat and out and not out.endswith("/"):
+        out += "/"
+    return out
 
 
 def _command_matches(command: str, pattern: str) -> bool:
@@ -114,9 +150,13 @@ def rule_matches(rule: Rule, tool: str, params: Dict[str, Any]) -> bool:
     cmd = params.get("command") or params.get("code")
     if isinstance(cmd, str) and cmd:
         return _command_matches(cmd, pat)
-    path = params.get("path") or params.get("dest") or params.get("target")
-    if isinstance(path, str) and path:
-        return _norm_path(path).startswith(_norm_path(pat))
+    # H-12/H-13：路径规则看**这个工具真正会动的每一个路径**（唯一入口），
+    # 而不是只读 `path`/`dest`/`target` 那一处 —— 后者漏了 `file_move` 的 `source`
+    # （把项目外文件移走等于删除，此前不进规则）。命中任一即命中。
+    _pat = _norm_path(pat)
+    for _p in destructive_targets(str(tool or ""), params):
+        if _norm_path(_p).startswith(_pat):
+            return True
     for key in ("query", "url", "pattern"):
         val = params.get(key)
         if isinstance(val, str) and val:
@@ -141,7 +181,9 @@ def suggest_rule(tool: str, params: Dict[str, Any]) -> str:
         return ""
     path = p.get("path") or p.get("dest") or p.get("target")
     if isinstance(path, str) and path:
-        norm = _norm_path(path)
+        # fold_case=False：这条是要写进规则文件、给用户看的**文本**，
+        # 折大小写会把 `README.md` 变成 `readme.md` —— 用户拿到一条他没想要的规则。
+        norm = _norm_path(path, fold_case=False)
         if "/" in norm:
             return norm.rsplit("/", 1)[0] + "/"
         return norm

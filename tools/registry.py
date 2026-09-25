@@ -153,13 +153,24 @@ TOOL_SPECS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="open_file", permission=PERM_READ, handler="_exec_open_file",
-        description="生成可点击文件链接（用户点击后打开）",
+        # H-14：这个工具此前会把模型给的路径递给 `os.startfile`（ShellExecute）——
+        # 一条绕开 execpolicy 的**进程启动**路径，而它是 PERM_READ、默认只读会话下
+        # **免审批**。现在文件一律只给链接（由用户点击决定要不要打开）；打开**文件夹**
+        # 仍然直接做（那是资源管理器，不是代码执行）。要真把文件递给编辑器请用
+        # `edit_file`（它每次调用都过人）。
+        description=("生成可点击文件链接（用户点击后打开）；传入目录则直接打开该文件夹。"
+                     "不再替用户打开文件——那一步交给点链接的人"),
         parameters=_obj({"path": {"type": "string"}}, ["path"]),
         example='{"tool":"open_file","path":"README.md"}',
     ),
     ToolSpec(
         name="edit_file", permission=PERM_READ, handler="_exec_edit_file",
-        description="用 VS Code 或系统默认编辑器打开文件给人看；不修改内容，改内容请用 file_write",
+        # H-14：它的**本职**就是把文件递给编辑器（`os.startfile` / `Popen(["code", …])`），
+        # 所以不能像 open_file 那样降级成链接。改成逐次确认：模型选不了
+        # "悄悄打开一个我没让它开的东西"。凭据/可执行后缀另有硬拒（`_os_handoff_guard`）。
+        confirm=True,
+        description=("用 VS Code 或系统默认编辑器打开文件给人看；不修改内容，"
+                     "改内容请用 file_write。**每次调用都需用户确认**"),
         parameters=_obj({"path": {"type": "string"}}, ["path"]),
         example='{"tool":"edit_file","path":"main.py"}',
     ),

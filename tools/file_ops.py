@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from core.guardian import is_credential_file
+from core.sensitive import is_credential_file   # H-11：唯一来源（不再经 guardian 转出）
 from tools.base import sensitive_target
 from tools.file_common import (
     FILE_READ_DEFAULT_LIMIT, GLOB_DEFAULT_MAX_RESULTS, GREP_DEFAULT_MAX_RESULTS,
@@ -718,6 +718,11 @@ class FileOps:
         p = self._resolve_read_path(path_str)
         if not p.exists():
             return ExecutionResult(status="error", error_code="404", message=f"文件不存在: {p}")
+        # H-14：交给系统打开之前先过硬拦截（凭据 / 可执行后缀）。
+        # 这条工具是 PERM_READ、走 `os.startfile`（ShellExecute），完全绕开 execpolicy。
+        _handoff = self._os_handoff_guard(p)
+        if _handoff:
+            return ExecutionResult(status="error", error_code="403", message=_handoff)
         if p.is_dir():
             # 目录：立即在系统文件管理器中打开（如"打开桌面文件夹"）
             try:
@@ -738,26 +743,14 @@ class FileOps:
             return ExecutionResult(status="success", data={
                 "path": str(p), "opened": False, "link": p.as_uri(),
                 "hint": "已生成可点击链接，用户点击后即可全屏查看"})
-        try:
-            if os.name == "nt":
-                os.startfile(str(p))
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(p)])
-            else:
-                subprocess.Popen(["xdg-open", str(p)])
-        except Exception as e:
-            # Windows 上 .py 等常无关联默认程序：文本类文件回退记事本
-            if os.name == "nt" and p.suffix.lower() in _TEXT_EXTENSIONS:
-                try:
-                    subprocess.Popen(["notepad.exe", str(p)])
-                    return ExecutionResult(status="success", data={
-                        "path": str(p), "opened": True, "editor": "notepad",
-                        "hint": "该类型无默认打开程序，已用记事本打开"})
-                except Exception as e2:
-                    return ExecutionResult(status="error", error_code="500",
-                                           message=f"打开失败（记事本回退也失败）: {e2}")
-            return ExecutionResult(status="error", error_code="500", message=f"打开失败: {e}")
-        return ExecutionResult(status="success", data={"path": str(p), "opened": True})
+        # H-14：**文件不交给 ShellExecute**。`os.startfile(<文件>)` 走的是关联程序 ——
+        # 对 `.exe` 就是运行它，对 `.py` 则取决于用户把 .py 关联到了什么。而
+        # "哪些后缀可执行"这份黑名单**天生补不全**（正是本卡 §0 那个病）。
+        # 所以这里只给链接，由**用户点击**决定要不要打开；要真的把文件递给编辑器，
+        # 用 `edit_file`（它每次调用都过人）。
+        return ExecutionResult(status="success", data={
+            "path": str(p), "opened": False, "link": p.as_uri(),
+            "hint": "已生成可点击链接，用户点击后即可全屏查看（H-14：不再替模型打开文件）"})
 
 
     def _exec_edit_file(self, params: Dict) -> ExecutionResult:
@@ -769,6 +762,10 @@ class FileOps:
         if not p.exists():
             return ExecutionResult(status="error", error_code="404",
                                    message=f"文件不存在: {p}（可先用 file_write 创建）")
+        # H-14：同上 —— `edit_file` 也会交给系统/编辑器打开。
+        _handoff = self._os_handoff_guard(p)
+        if _handoff:
+            return ExecutionResult(status="error", error_code="403", message=_handoff)
         if p.is_dir():
             # 目录：在系统文件管理器中打开
             try:

@@ -142,22 +142,34 @@ def parse_spec_name(name: str) -> Optional[Tuple[str, str]]:
     return (server, tool) if server and tool else None
 
 
-def tool_permission(tool: Dict[str, Any]) -> str:
-    """MCP 工具 → ACE 权限组。
+def tool_permission(tool: Dict[str, Any], override: Optional[str] = None) -> str:
+    """MCP 工具 → ACE 权限组（H-16）。
 
-    `annotations.readOnlyHint: true` 才按只读处理，其余一律按**写**（readonly 会话
-    下需要授权）。默认从严：对面说只读是它自己声明的，说错话的代价不该由用户承担。
+    **权限类由 ACE 说了算，不由对面自报。** 此前是：服务器在
+    `annotations.readOnlyHint` 里声明自己只读，ACE 就把它放进 `read` 桶 —— 而
+    `read` 桶在**默认 `readonly` 档下是免审批**的（`_LEVEL_SOURCES["readonly"]
+    == ("read",)`）。也就是说：一个跑在 ACE 沙箱**之外**的 MCP 子进程，只靠一句
+    自我声明，就能换来"默认放行"。对面说错话的代价不该由用户承担，所以默认一律
+    按 **high_risk**（readonly/write 下都要授权）。
+
+    想放宽只有一条路：**用户在配置里显式指定**（`mcp_permissions`）。
+    `readOnlyHint` 现在只是描述性的，不参与裁决。
     """
-    ann = (tool or {}).get("annotations")
-    if isinstance(ann, dict) and ann.get("readOnlyHint") is True:
-        return "read"
-    return "write"
+    if override in ("read", "write", "high_risk"):
+        return override
+    return "high_risk"
 
 
-def tool_spec(server: str, tool: Dict[str, Any]) -> Dict[str, Any]:
+def tool_spec(server: str, tool: Dict[str, Any],
+              permission_override: Optional[str] = None) -> Dict[str, Any]:
     """MCP 工具声明 → ACE 工具声明（dict 形态，交给 tools.registry 组装 ToolSpec）。
 
     输入 schema 直接透传：MCP 用的就是 JSON Schema，转一道只会丢信息。
+
+    H-16：`egress=True` —— MCP 工具**能把数据带出去**（它自己开网络、Agent 不知道
+    它去哪），而 `ToolSpec.egress` 正是 SEC-03 那条"外发逐次确认"的开关。此前这里
+    只给 name/permission/description/parameters/handler，**整条 SEC-03 修复对 MCP 都是
+    失效的** —— 偏偏 MCP 就是最容易外带的那类工具。
     """
     name = str((tool or {}).get("name") or "")
     desc = str((tool or {}).get("description") or "").strip()
@@ -168,7 +180,8 @@ def tool_spec(server: str, tool: Dict[str, Any]) -> Dict[str, Any]:
         "name": spec_name(server, name),
         "server": server,
         "tool": name,
-        "permission": tool_permission(tool),
+        "permission": tool_permission(tool, permission_override),
+        "egress": True,
         "description": (f"[MCP:{server}] " + (desc or name))[:400],
         "parameters": schema,
     }
@@ -467,9 +480,13 @@ class McpManager:
     """
 
     def __init__(self, configs: Dict[str, Dict[str, Any]], project_root: str = ".",
-                 log: Optional[Any] = None) -> None:
+                 log: Optional[Any] = None,
+                 permissions: Optional[Dict[str, Any]] = None) -> None:
         self.project_root = project_root
         self.log = log
+        # H-16：用户在 `mcp_permissions` 里显式放宽的权限类。形如
+        # `{"<server>": {"<tool>": "read", "*": "write"}}` —— 没写就一律 high_risk。
+        self.permissions = permissions if isinstance(permissions, dict) else {}
         self.states: Dict[str, McpServerState] = {}
         self.clients: Dict[str, McpStdioClient] = {}
         for name, cfg in (configs or {}).items():
@@ -477,6 +494,14 @@ class McpManager:
             if not cfg.get("enabled", True):
                 state.status = "已禁用"
             self.states[name] = state
+
+    def permission_override(self, server: str, tool: str) -> Optional[str]:
+        """查用户为这个 MCP 工具显式指定的权限类（H-16）；没配返回 None。"""
+        per_server = self.permissions.get(server)
+        if not isinstance(per_server, dict):
+            return None
+        val = per_server.get(tool, per_server.get("*"))
+        return val if val in ("read", "write", "high_risk") else None
 
     def start(self) -> None:
         for name, state in self.states.items():
@@ -508,7 +533,10 @@ class McpManager:
                 self.states[name].error = f"tools/list 失败: {e}"
                 continue
             self.states[name].tools = tools
-            specs.extend(tool_spec(name, t) for t in tools)
+            specs.extend(
+                tool_spec(name, t,
+                          self.permission_override(name, str((t or {}).get("name") or "")))
+                for t in tools)
         return specs
 
     def register_into(self, executor: Any, registry: Any) -> List[str]:
@@ -518,15 +546,22 @@ class McpManager:
         """
         specs = self.load_tools()
         registered: List[str] = []
+        self.register_errors: List[str] = []
         for s in specs:
             try:
                 registry.register(registry.ToolSpec(
                     name=s["name"], permission=s["permission"],
                     description=s["description"], parameters=s["parameters"],
                     # pass_tool_name=True：一个 handler 服务所有 MCP 工具
-                    handler="_exec_mcp_tool", pass_tool_name=True), replace=True)
+                    handler="_exec_mcp_tool", pass_tool_name=True,
+                    # H-16：MCP 工具能自己开网络，ACE 不知道它去哪 ⇒ 走 SEC-03 的外发闸门
+                    egress=bool(s.get("egress"))), replace=True)
                 registered.append(s["name"])
-            except Exception:  # noqa: BLE001 —— 单个工具注册失败不该拖垮整轮
+            except Exception as e:  # noqa: BLE001 —— 单个工具注册失败不该拖垮整轮
+                # 但不能**静默**：此前这里 `continue` 得干干净净，注册失败的工具
+                # 只是"不出现"，没人知道为什么（一个拼错的 kwargs 就能让整批 MCP 工具
+                # 凭空消失）。记下来给 `/mcp` 展示。
+                self.register_errors.append(f"{s.get('name')}: {type(e).__name__}: {e}")
                 continue
         if registered:
             executor.mcp = self

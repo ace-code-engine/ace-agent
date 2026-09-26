@@ -84,7 +84,7 @@ python -m cli.ace_mandate issue --intents file_write --roots . \
 
 ## 六、测试
 
-- `test_all` 新增 **55 条**回归断言（段 `[71]`：RG-01a~h / RG-02a~m / RG-03a~h / RG-04a~j /
+- `test_all` 新增 **54 条**回归断言（段 `[71]`：RG-01a~h / RG-02a~m / RG-03a~h / RG-04a~j /
   RG-05a~o），外加 **1 条文档守卫**（`[68]`：四张演示图里印的版本必须等于版本单源）。
   每条都对应一个**先复现过**的缺陷或一条**踩出来的口径**。全量以 `python test_all.py`
   的实际输出为准（本次记录：本机 2370 / 2370 通过，跳过 3 项能力探测）。

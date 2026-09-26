@@ -27,7 +27,9 @@
 
 ## 验证到什么程度
 
-- 端到端套件新增 **34 条**回归断言（`test_all` 段 `[71]`），每条对应一个先复现过的缺陷或一条踩出来的口径；全量以 `python test_all.py` 输出为准。
+- 端到端套件新增 **54 条**回归断言（`test_all` 段 `[71]`：RG-01a~h / RG-02a~m / RG-03a~h /
+  RG-04a~j / RG-05a~o），另加 1 条文档守卫（`[68]`：演示图里印的版本必须等于版本单源）；
+  每条对应一个先复现过的缺陷或一条踩出来的口径；全量以 `python test_all.py` 输出为准。
 - 关键前后对照：修复前"改内容+修摘要+用项目内密钥重签" → 快照 `verify=True`；修复后 → `verify=False`。
 - 开销量过：单条 MAC **6.5 µs**；`append` 整条路径 11.4 ms/条，绝大部分是既有的 `os.fsync`。
 
@@ -73,7 +75,10 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 
 ## How far it is verified
 
-- 34 new regression assertions (section `[71]`), each tied to a defect reproduced first or a criterion the tests forced us to state precisely; `python test_all.py` output is authoritative.
+- 54 new regression assertions (section `[71]`: RG-01a~h / RG-02a~m / RG-03a~h / RG-04a~j /
+  RG-05a~o), plus one doc guard (`[68]`: the version stamped into the demo SVGs must equal the
+  single version source); each is tied to a defect reproduced first or a criterion the tests forced
+  us to state precisely; `python test_all.py` output is authoritative.
 - Key before/after: "edit + fix digest + re-sign with the in-project key" verified `True` before, `False` after.
 - Costs measured: 6.5 µs per MAC; 11.4 ms per `append` end-to-end, dominated by the pre-existing `os.fsync`.
 

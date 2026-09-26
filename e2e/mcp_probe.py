@@ -29,6 +29,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import ace_mcp_server as M  # noqa: E402
+from core import ace_mandate  # noqa: E402
 
 VERBOSE = "-v" in sys.argv
 FAILS: list[str] = []
@@ -60,7 +61,8 @@ def _fresh() -> pathlib.Path:
 class Host:
     """一个极小的 MCP host：写请求、读应答（一行一个 JSON）。"""
 
-    def __init__(self, *extra_args: str, project: pathlib.Path, home: pathlib.Path) -> None:
+    def __init__(self, *extra_args: str, project: pathlib.Path, home: pathlib.Path,
+                 config: dict | None = None) -> None:
         env = dict(os.environ)
         env["PYTHONIOENCODING"] = "utf-8"
         # 环境隔离（与 demo 录制同一课）：只搬 HOME 在 Linux 上够、Windows 上不够 ——
@@ -69,6 +71,11 @@ class Host:
         for var, sub in (("LOCALAPPDATA", "AppData/Local"), ("APPDATA", "AppData/Roaming"),
                          ("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache")):
             env[var] = str(home / sub)
+        # 锚也钉在临时区：令的密钥由锚派生，探针与子进程必须用**同一个**锚才能对上。
+        env["ACE_ANCHOR_DIR"] = str(home / "anchors")
+        if config is not None:
+            (home / ".ai_code.json").write_text(
+                json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
         self.proc = subprocess.Popen(
             [sys.executable, str(ROOT / "ai_code.py"), "--mcp", "--mock",
              "--project-root", str(project), *extra_args],
@@ -241,10 +248,49 @@ def case_write_and_ledger() -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_mandate_config() -> None:
+    """配置里的授权令真的会生效 —— 走**配置文件**而不是构造函数。
+
+    为什么必须有这一条：`test_all [72]` 是把令直接塞给 `ExecutionLayer(...)`，那条路证明的是
+    "令 → 放行"这套逻辑；而**令怎么从配置进到执行层**（`ai_code.py` 里那个 `"mandate"` 键、
+    `~/.ai_code.json` 的读取）在单测里根本没经过。键名打错、读取漏掉，[72] 照样全绿，
+    而真 host 那边会一直"明明配了令还是被拒"。所以这里用真进程 + 真配置文件验一次。
+    """
+    print("[3] 配置文件里的授权令：terminal_exec 从被拒变成放行")
+    tmp = _fresh()
+    proj, home = tmp / "project", tmp / "home"
+    os.environ["ACE_ANCHOR_DIR"] = str(home / "anchors")   # 探针与子进程同一个锚
+    try:
+        key = ace_mandate.mandate_key(project_root=str(proj))
+        mandate = ace_mandate.issue(key, mandate_id="probe", intents=["terminal_exec"],
+                                    roots=[str(proj)], recovery_floor="never",
+                                    irreversible_quota=3,
+                                    allow_irreversible=["terminal_exec"], ttl_s=3600)
+        cfg = {"permission": "write", "mandate": mandate}    # 注意：不传 --permission，只靠配置
+        h = Host(project=proj, home=home, config=cfg)
+        try:
+            h.initialize()
+            r = h.call("terminal_exec", {"command": "echo mandate-allowed"})
+            body = _text(r)
+            ck("配置里的令覆盖了这次调用 → 放行（不再 headless 拒绝）",
+               not r["result"].get("isError") and "mandate-allowed" in body, body[:240])
+            ck("权限档也是从配置读的（没传 --permission）",
+               not r["result"].get("isError") and "returncode" in body or "mandate-allowed" in body,
+               body[:200])
+        finally:
+            code = h.close()
+        ck("带令的进程同样干净收工", code == 0, f"exit={code}")
+        ck("stdout 纯净（放行路径也一样）", h.stray == [], str(h.stray[:3]))
+    finally:
+        os.environ.pop("ACE_ANCHOR_DIR", None)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("MCP server 探针 —— 真进程 + 真执行层")
     case_readonly()
     case_write_and_ledger()
+    case_mandate_config()
     print(f"\n{CHECKS - len(FAILS)} / {CHECKS} 通过")
     if FAILS:
         print("失败项：")

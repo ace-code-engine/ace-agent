@@ -14343,6 +14343,56 @@ if _want("72"):
         check("[72] readonly 档：写工具 → PERMISSION_REQUEST（权限档拦下，不是静默放行）",
               isinstance(_r72, dict) and _r72.get("status") == "PERMISSION_REQUEST",
               repr(_r72)[:200])
+
+        # —— ④ 翻译（host 唯一读到的那段文字）+ **令覆盖 → 静默放行** ——
+        # 为什么必须单独验这两条：
+        #   · 翻译住在 `ai_code._mcp_call`，而它此前只有真实进程探针覆盖（CI 不跑探针）；
+        #   · "有令 → 放行"是整个设计的另一半，而在此之前只有"没令 → 拒绝"被断言过。
+        import ai_code as _ai72  # noqa: E402
+        _okcall72 = _ai72._mcp_call(_el72, "file_read", {"path": "made.txt"})
+        check("[72] 翻译：成功 → content，且不套 isError",
+              _okcall72["content"][0]["text"] and not _okcall72.get("isError"),
+              str(_okcall72)[:200])
+        _denycall72 = _ai72._mcp_call(_el72, "terminal_exec", {"command": "echo hi"})
+        _denytxt72 = _denycall72["content"][0]["text"]
+        check("[72] 翻译：要问人 → isError + 「没有人可以确认」+ 两条出路（提权 / 令）",
+              _denycall72.get("isError") is True and "没有人可以确认" in _denytxt72
+              and "权限档" in _denytxt72 and "授权令" in _denytxt72, _denytxt72[-200:])
+        check("[72] 翻译：拒绝后不留下悬挂的 pending_permission（否则污染下一次调用）",
+              _el72.pending_permission is None)
+
+        from core import ace_mandate as _md72  # noqa: E402
+        _key72 = _md72.mandate_key(project_root=str(_root72))
+        _cov72 = Path(mktemp()) / "covered_existing.txt"
+        _cov72.write_text("旧内容\n", encoding="utf-8")
+        _nc72 = Path(mktemp()) / "not_covered.txt"
+        _nc72.write_text("另一处\n", encoding="utf-8")
+        _man72 = _md72.issue(_key72, mandate_id="mcp72", intents=["file_write"],
+                             roots=[str(_cov72.parent)], recovery_floor="never",
+                             irreversible_quota=3, allow_irreversible=["file_write"],
+                             ttl_s=3600)
+        _el_m72 = _EL72(project_root=str(_root72), permission_level="write",
+                        config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP),
+                                "mandate": _man72})
+        _covered72 = _el_m72.run_tool_external({"tool": "file_write", "path": str(_cov72),
+                                                "content": "被令放行\n"}, source="mcp")
+        check("[72] 令覆盖的项目外对象 → 静默放行（这一半是令的全部意义）",
+              getattr(_covered72, "status", "") == "success"
+              and _cov72.read_text(encoding="utf-8") == "被令放行\n",
+              repr(_covered72)[:200])
+        _notcov72 = _el_m72.run_tool_external({"tool": "file_write", "path": str(_nc72),
+                                               "content": "x\n"}, source="mcp")
+        check("[72] 令**不**覆盖的对象 → 照旧 PERMISSION_REQUEST（令不是万能钥匙）",
+              isinstance(_notcov72, dict)
+              and _notcov72.get("status") == "PERMISSION_REQUEST"
+              and _nc72.read_text(encoding="utf-8") == "另一处\n",
+              repr(_notcov72)[:200])
+        _notool72 = _el_m72.run_tool_external({"tool": "terminal_exec", "command": "echo hi"},
+                                              source="mcp")
+        check("[72] 令没点名这个工具（intents 不含它）→ 照旧 PERMISSION_REQUEST",
+              isinstance(_notool72, dict)
+              and _notool72.get("status") == "PERMISSION_REQUEST",
+              repr(_notool72)[:200])
     finally:
         if _prev_anchor72 is None:
             os.environ.pop("ACE_ANCHOR_DIR", None)

@@ -6867,22 +6867,26 @@ def _as_result_dict(res: Any, tool: str) -> Dict[str, Any]:
     return d
 
 
-def _mcp_call(cli: "AgentCLI", name: str, args: Dict) -> Dict:
+def _mcp_call(layer: Any, name: str, args: Dict) -> Dict:
     """一次 `tools/call`：走执行层（唯一裁决点），把结果翻成 MCP 的形状。
 
     刻意**不新增任何政策**：能不能动由执行层的三道（权限档 / 敏感目标与规则 / 授权令）决定，
     这里只做两件翻译 —— ① 结果 → `content`/`isError`；② "需要问人" → headless 下说清
     "问不到，缺什么"。第二件是 MCP 场景下唯一必须补的话，因为执行层那句 instruction 是
     写给"有个模型在等用户点 y"的场景的，而这里没有人可点。
+
+    形参收的是**执行层**而不是 AgentCLI（早先是后者）：只依赖执行层，这段翻译就能脱离整个
+    CLI 单测 —— `test_all [72]` 用它验"成功 → content / 要问人 → isError + 两条出路"，
+    而那正是 host 唯一读到的东西。与 `ace_mcp_server` 把引擎做成注入同一个理由。
     """
     tool_call = {"tool": name, **args}
     # 归属账本（RG-03）：这条指令**不是用户说的** —— 是 host 的 agent 说的。
     # 记成工具来源，而不是 `note_user`：G1 要量的正是"外部来的指令动了用户没提过的路径"。
     try:
-        cli.el.taint.note_tool(name, ok=True)
+        layer.taint.note_tool(name, ok=True)
     except Exception:  # noqa: BLE001 —— 测量失败不该让工具调用失败
         pass
-    res = cli.el.run_tool_external(tool_call, source="mcp")
+    res = layer.run_tool_external(tool_call, source="mcp")
     d = _as_result_dict(res, name)
     status = str(d.get("status") or "")
     if status == "success":
@@ -6891,7 +6895,7 @@ def _mcp_call(cli: "AgentCLI", name: str, args: Dict) -> Dict:
     if status == "PERMISSION_REQUEST":
         # headless：没有人可以答。清掉悬挂状态（否则下一次调用会带着它），
         # 并把"缺什么"写清楚 —— 这段文字是 host 的 agent 决定下一步的唯一依据。
-        cli.el.pending_permission = None
+        layer.pending_permission = None
         extra = (
             "\n\n[ACE] 本次调用**没有人可以确认**（MCP 是 headless 通道），已按 fail-close 拒绝。"
             "要让这一步通过，用户需要二选一：① 让 ACE 的权限档允许这个工具"
@@ -6917,7 +6921,7 @@ def _run_mcp(cli: "AgentCLI", out: Any) -> int:
 
     srv = ace_mcp_server.McpServer(
         lambda: ace_mcp_server.mcp_tools(TOOL_SPECS),
-        lambda name, args: _mcp_call(cli, name, args),
+        lambda name, args: _mcp_call(cli.el, name, args),
         server_version=version.__version__,
         instructions=_MCP_INSTRUCTIONS,
     )

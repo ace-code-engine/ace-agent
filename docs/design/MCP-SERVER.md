@@ -140,15 +140,20 @@ Textual 界面 ─┼─→ AgentCLI / ExecutionLayer（唯一裁决点）─→
 
 **M1–M7 的完成证据**（都是实测，不是"应该"）：
 
-- `test_all [72]`：**23 条**断言全绿（暴露面 4 · 协议层 13 · 真实裁决 5 · 对照差异 1），
-  全量 **2370 → 2393**（+23，实测两处都对得上）。其中"真实裁决"那一组用的是真
-  `ExecutionLayer`（不是假引擎）：write 档项目内真落盘、项目外**已存在**对象返回
-  `PERMISSION_REQUEST` 且文件内容一字未变、`terminal_exec` 返回 `PERMISSION_REQUEST`、
-  readonly 档写工具 `PERMISSION_REQUEST`。
-- `e2e/mcp_probe.py`：起**真的** `ace --mcp` 子进程，用 stdio 说 JSON-RPC —— 30 条全过。
-  它额外证明了三件单测证不了的事：**stdout 一行杂音都没有**（引擎几百处 print 全被
-  换到 stderr）、host 断开（EOF）子进程干净收工（退出码 0）、会话台账里留下
-  `source=mcp` 与那次"要问人"的拒绝（`confirm`）且每条带 MAC。
+- `test_all [72]`：**29 条**断言全绿（暴露面 4 · 协议层 13 · 真实裁决 5 · 翻译 3 · 授权令 3 ·
+  对照差异 1），全量 **2370 → 2399**（+29，实测对得上）。其中两组值得单说：
+  - **真实裁决**用的是真 `ExecutionLayer`（不是假引擎）：write 档项目内真落盘、项目外
+    **已存在**对象返回 `PERMISSION_REQUEST` 且文件内容一字未变、`terminal_exec` 返回
+    `PERMISSION_REQUEST`、readonly 档写工具 `PERMISSION_REQUEST`。
+  - **授权令的两半都验了**：没令（或令不覆盖这个路径 / 没点名这个工具）→ 照旧
+    `PERMISSION_REQUEST`；**令覆盖 → 静默放行**（项目外已存在文件被真的改掉）。第二半是
+    这件事的全部意义所在，而它在第一轮里是缺的 —— 只有"拒绝"被断言过。
+- `e2e/mcp_probe.py`：起**真的** `ace --mcp` 子进程，用 stdio 说 JSON-RPC —— **34 条全过**。
+  它额外证明四件单测证不了的事：**stdout 一行杂音都没有**（引擎几百处 print 全被换到
+  stderr）、host 断开（EOF）子进程干净收工（退出码 0）、会话台账里留下 `source=mcp` 与
+  那次"要问人"的拒绝（`confirm`）且每条带 MAC，以及**配置里的令真的会生效**
+  （写一份带 `mandate` 的 `~/.ai_code.json`，`terminal_exec` 从被拒变成放行 —— 单测是把令
+  直接塞给构造函数，那条路**没经过配置读取**，键名打错照样全绿）。
 
 ## 九、已知风险与未验证
 

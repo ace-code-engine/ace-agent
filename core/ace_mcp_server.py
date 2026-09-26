@@ -46,6 +46,7 @@ host 的 agent 要继续思考的输入）；把第二种塞进 `isError` 则会
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -55,7 +56,7 @@ __all__ = [
     "PROTOCOL_VERSION_LATEST", "SUPPORTED_PROTOCOL_VERSIONS", "MAX_LINE_BYTES",
     "PARSE_ERROR", "INVALID_REQUEST", "METHOD_NOT_FOUND", "INVALID_PARAMS",
     "INTERNAL_ERROR", "SERVER_NOT_INITIALIZED",
-    "MCP_TOOL_NAMES", "MCP_TOOL_HIDDEN", "mcp_tools",
+    "MCP_TOOL_NAMES", "MCP_TOOL_HIDDEN", "mcp_tools", "recover_id",
     "McpProtocolError", "McpServer", "tool_error", "tool_text",
 ]
 
@@ -68,10 +69,39 @@ PROTOCOL_VERSION_LATEST = "2025-06-18"
 #: 这是规范允许的做法（服务端必须回一个自己支持的版本），而不是"猜一个能跑的"。
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-#: 单行上限。与 `ace_serve.MAX_LINE_BYTES`、`executor/protocol.go` 同量级：
-#: 不设上限的话，一条畸形行（或对面写进死循环）能把这边的内存吃光，
-#: 而症状是"整个 host 卡死"，不是一条明确的错。
-MAX_LINE_BYTES = 1 << 20
+#: 单行上限。**这条上限保护的是一致性，不是内存** —— 老实说清楚，因为它很容易被读成后者：
+#: `readline()` 已经把整行读进内存了，所以"超限就拒"是**事后**检查。要真限制内存得换成
+#: 按块读 + 提前拒，第一版不做（写明在这里，而不是留一句看起来在保护什么的话）。
+#:
+#: 取值 8 MiB：MCP 把 `arguments` 整包放进**一行** JSON 里，所以"文件内容"这种参数天然撑长行
+#: —— 引擎侧 `file_write` 本来能写任意大小（模型路径不过行协议）。第一版直接搬了 `ace_serve`
+#: 的 1 MiB，`e2e/mcp_probe.py` 的实测结果是**2 MiB 的写入在协议层被拒**，症状像"ACE 不能写
+#: 大文件"。8 MiB 仍然是个硬边界（对面写进死循环时不会无限增长），但容得下正经 payload。
+#: host 自己可能设更小的上限，那是它的事。
+MAX_LINE_BYTES = 8 << 20
+
+#: 从"解析不了的行"里尽力抠 id 用。只看开头 4 KiB，不解析整条大消息。
+_ID_HEAD_RE = re.compile(r'"id"\s*:\s*("[^"]{0,64}"|-?\d{1,20})')
+
+
+def recover_id(line: str) -> Any:
+    """超大行 / 坏 JSON 里尽力把 `id` 抠出来。
+
+    为什么必须有：JSON-RPC 允许"解析不了就回 `id: null`"，但那样**客户端会一直等它自己那个
+    id** —— 这不是推测，`e2e/mcp_probe.py` 的大 payload 用例第一次跑就死等超时（600 s）。
+    id 按惯例在消息开头（`{"jsonrpc":"2.0","id":3,"method":...}`），只看前 4 KiB 就能取到，
+    不必为了一个 id 去解析 12 MiB。抠不到就如实回 null（规范允许），客户端该有自己的超时。
+    """
+    m = _ID_HEAD_RE.search(line[:4096])
+    if not m:
+        return None
+    raw = m.group(1)
+    if raw.startswith('"'):
+        return raw[1:-1]
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 # JSON-RPC 2.0 标准错误码
 PARSE_ERROR = -32700
@@ -310,16 +340,21 @@ class McpServer:
     # ---------------- I/O：读一行、派发、写一行
 
     def handle_line(self, line: str) -> Optional[Dict[str, Any]]:
-        """一行文本 → 要发的消息（None = 通知/空行）。解析失败回 `-32700`。"""
+        """一行文本 → 要发的消息（None = 通知/空行）。
+
+        解析失败/超限时**尽力把 id 抠回来**（`recover_id`）：否则客户端会一直等它自己那个 id
+        —— 实测就是这么死等的。
+        """
         if not line.strip():
             return None
         if len(line.encode("utf-8", "replace")) > MAX_LINE_BYTES:
-            return self._error(None, INVALID_REQUEST,
-                               f"单行超过上限 {MAX_LINE_BYTES} 字节")
+            return self._error(recover_id(line), INVALID_REQUEST,
+                               f"单行超过上限 {MAX_LINE_BYTES} 字节（这条上限是协议层的"
+                               "一致性检查；大 payload 请拆小或换用别的工具）")
         try:
             msg = json.loads(line)
         except ValueError as e:
-            return self._error(None, PARSE_ERROR, f"不是合法 JSON: {e}")
+            return self._error(recover_id(line), PARSE_ERROR, f"不是合法 JSON: {e}")
         return self.handle(msg)
 
     def serve_forever(self, reader: Any = None, writer: Any = None) -> int:

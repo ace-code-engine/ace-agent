@@ -107,6 +107,11 @@ class Host:
                 continue                     # 记下来继续等 —— 这条正是探针要抓的东西
             if got.get("id") == msg["id"]:
                 return got
+            if got.get("id") is None and "error" in got:
+                # 服务端回了"无法关联到请求"的错误（id 抠不出来时按规范就是这样）。
+                # **不能继续等** —— 第一次跑这条路径时探针死等了 600 s。真实客户端这里
+                # 该把它当成本次调用的失败（并可能自己超时），而不是等一个永远不来的应答。
+                return got
 
     def initialize(self) -> dict:
         r = self.send("initialize", {"protocolVersion": M.PROTOCOL_VERSION_LATEST,
@@ -286,11 +291,53 @@ def case_mandate_config() -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_big_write() -> None:
+    """大一点的正经写入不该被**协议层**的行长上限拦掉。
+
+    为什么单独一条：MCP 是把 `arguments` 整包放进**一行** JSON 里的，所以"文件内容"这种
+    参数天然就会把行撑长 —— 而引擎那边 `file_write` 本来能写任意大小的内容（模型路径不过
+    行协议）。行长上限是防"对面写进死循环"，不是防"用户要写一个 2 MB 的文件"。
+    第一版把 `ace_serve` 的 1 MiB 直接搬了过来，这条用例就是那次的实测：**2 MiB 的写入被
+    协议层拒了**（`-32600 单行超过上限`），症状会像"ACE 不能写大文件"。
+    """
+    print("[4] 大 payload：2 MiB 的项目内写入要能通过协议层")
+    tmp = _fresh()
+    proj, home = tmp / "project", tmp / "home"
+    h = Host("--permission", "write", project=proj, home=home)
+    try:
+        h.initialize()
+        blob = "x" * (2 * 1024 * 1024)
+        r = h.call("file_write", {"path": "big.txt", "content": blob})
+        ck("2 MiB 写入没被协议层拒（不是 -32600 单行超限）",
+           "error" not in r, json.dumps(r, ensure_ascii=False)[:200])
+        if "result" in r:
+            ck("2 MiB 写入真的落盘且字节数正确",
+               not r["result"].get("isError") and (proj / "big.txt").is_file()
+               and (proj / "big.txt").stat().st_size == len(blob),
+               f"{_text(r)[:120]} size={((proj / 'big.txt').stat().st_size if (proj / 'big.txt').is_file() else -1)}")
+        # 反面：离谱的大行仍然要有一个明确答复（不能把内存吃光）
+        huge = {"jsonrpc": "2.0", "id": 999, "method": "tools/call",
+                "params": {"name": "file_write",
+                           "arguments": {"path": "z.txt", "content": "y" * (12 * 1024 * 1024)}}}
+        h.proc.stdin.write(json.dumps(huge) + "\n")
+        h.proc.stdin.flush()
+        line = h.proc.stdout.readline()
+        got = json.loads(line)
+        ck("离谱的大行有明确答复（要么执行要么一条说得清的错，不是静默/崩溃）",
+           ("error" in got) or ("result" in got), json.dumps(got, ensure_ascii=False)[:160])
+    finally:
+        code = h.close()
+    ck("大 payload 之后进程仍然干净收工", code == 0, f"exit={code}")
+    ck("stdout 纯净", h.stray == [], str(h.stray[:3]))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("MCP server 探针 —— 真进程 + 真执行层")
     case_readonly()
     case_write_and_ledger()
     case_mandate_config()
+    case_big_write()
     print(f"\n{CHECKS - len(FAILS)} / {CHECKS} 通过")
     if FAILS:
         print("失败项：")

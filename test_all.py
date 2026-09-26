@@ -14197,6 +14197,7 @@ if _want("72"):
     #      （`echo hi` → returncode 0）、项目外**已存在**文件也能改，全都不问人。
     # 真进程 + stdin/stdout 那一路（stdout 纯度、EOF 收工、台账落盘）在
     # `e2e/mcp_probe.py`：它是排查工具，不进 CI 的常规闸门。
+    import json as _json72  # noqa: E402
     from core import ace_mcp_server as _mcp72  # noqa: E402
     from execution_layer import ExecutionLayer as _EL72  # noqa: E402
     from tools.registry import TOOL_SPECS as _SPECS72  # noqa: E402
@@ -14287,6 +14288,29 @@ if _want("72"):
           and _srv72.handle_line("") is None)
     check("[72] ping → 空结果",
           _srv72.handle({"jsonrpc": "2.0", "id": 12, "method": "ping"})["result"] == {})
+    # 行长上限：MCP 把 arguments 整包放进一行，所以"文件内容"这种参数天然撑长行 ——
+    # 第一版搬了 ace_serve 的 1 MiB，结果 2 MiB 的合法写入被协议层拒（探针实测）。
+    # 这里钉两件事：**合法的大消息要能过**、**超限要回可关联的 id**（否则客户端死等）。
+    _big_ok72 = _json72.dumps({"jsonrpc": "2.0", "id": 77, "method": "tools/call",
+                              "params": {"name": "file_write",
+                                         "arguments": {"path": "a.txt",
+                                                       "content": "x" * (2 << 20)}}})
+    _big_resp72 = _srv72.handle_line(_big_ok72)
+    check("[72] 2 MiB 的合法调用能过行长检查（上限是 8 MiB，不是 1 MiB）",
+          _big_resp72.get("id") == 77 and "error" not in _big_resp72,
+          str(_big_resp72)[:160])
+    _huge72 = _json72.dumps({"jsonrpc": "2.0", "id": 78, "method": "tools/call",
+                            "params": {"name": "file_write",
+                                       "arguments": {"path": "a.txt",
+                                                     "content": "x" * (9 << 20)}}})
+    _huge_resp72 = _srv72.handle_line(_huge72)
+    check("[72] 超限行 → -32600 且**把 id 抠回来**（否则客户端一直等它自己那个 id）",
+          _huge_resp72["error"]["code"] == _mcp72.INVALID_REQUEST
+          and _huge_resp72["id"] == 78, str(_huge_resp72)[:160])
+    check("[72] recover_id：坏 JSON 也尽力关联（抠不到才回 null，规范允许）",
+          _mcp72.recover_id('{"jsonrpc":"2.0","id":5,"method":"x"') == 5
+          and _mcp72.recover_id('{"jsonrpc":"2.0","id":"abc","method":"x"') == "abc"
+          and _mcp72.recover_id("完全不是 JSON") is None)
 
     def _boom72(name, args):
         raise RuntimeError("引擎炸了")

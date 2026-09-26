@@ -13460,6 +13460,55 @@ if _want("70"):
     _j_b = _home_j.render_home(_j_secs, lambda k: k, header="H", meta="")
     check("J2 render_home 的 meta 可选（不传 = 传空，逐行一致）", _j_a == _j_b and _j_a[1] == "",
           str(_j_a[:3]))
+
+    # ── K1–K3：MSI 生成器（packaging/make_wix.py）的目录归属 ──
+    # v3.42.0 打 tag 发版时 CI 红在 WiX：ICE30「同一个文件被两个组件安装」。根因是生成器
+    # **把所有文件都挂在一个 `<DirectoryRef Id="INSTALLFOLDER">` 下**（`dir_id_for()` 写了却没人调），
+    # 于是载荷全平铺进 ACE\ 根目录 —— `_internal/README.md` 与 `_internal/vendor/README.md`、
+    # 两个包的 `py.typed` 同名词一撞就报错；就算压掉 ICE 编出来，PyInstaller 单目录包的模块
+    # 也不在 `_internal/` 下了，装完就是坏的。这条守卫不需要 WiX：直接对生成的 .wxs 验
+    # ICE30 的那条规则（同一目录里不许有两个同名文件）。
+    import importlib.util as _iu_k  # noqa: E402
+    import re as _re_k  # noqa: E402
+    _spec_k = _iu_k.spec_from_file_location("_make_wix_k", FOLDER / "packaging" / "make_wix.py")
+    _mw_k = _iu_k.module_from_spec(_spec_k)
+    _spec_k.loader.exec_module(_mw_k)
+    _pay_k = mktemp("wixpayload")
+    (_pay_k / "ace.exe").write_bytes(b"dummy")
+    for _rel_k in ("_internal/README.md", "_internal/vendor/README.md",
+                   "_internal/rich/py.typed", "_internal/textual/py.typed",
+                   "_internal/b-c/x.txt", "_internal/b_c/y.txt"):
+        (_pay_k / _rel_k).parent.mkdir(parents=True, exist_ok=True)
+        (_pay_k / _rel_k).write_text("x", encoding="utf-8")
+    _wxs_k = _pay_k.parent / "ace_k.wxs"
+    _n_k, _ = _mw_k.build_wxs(_pay_k, "3.42.0", _wxs_k)
+    _txt_k = _wxs_k.read_text(encoding="utf-8")
+
+    _cur_k, _dirs_k = None, {}
+    for _ln_k in _txt_k.splitlines():
+        if _mo_k := _re_k.search(r'<DirectoryRef\s+Id="([^"]+)"', _ln_k):
+            _cur_k = _mo_k.group(1)
+        if "</DirectoryRef>" in _ln_k:
+            _cur_k = None
+        if _mc_k := _re_k.search(r'<Component\s([^>]*)>', _ln_k):
+            _ma_k = dict(_re_k.findall(r'(\w+)="([^"]*)"', _mc_k.group(1)))
+            _pending_k = _ma_k.get("Directory") or _cur_k or "INSTALLFOLDER"
+        if _mf_k := _re_k.search(r'<File\s([^>]*)/>', _ln_k):
+            _src_k = dict(_re_k.findall(r'(\w+)="([^"]*)"', _mf_k.group(1))).get("Source", "")
+            _dirs_k.setdefault(_pending_k, []).append(Path(_src_k).name)
+
+    _dupes_k = {d: sorted({n for n in names if names.count(n) > 1})
+                for d, names in _dirs_k.items()}
+    _dupes_k = {d: v for d, v in _dupes_k.items() if v}
+    check("K1 MSI：同一个安装目录里没有同名文件（ICE30 的那条规则）",
+          not _dupes_k, f"{_dupes_k}（重名文件会被两个组件安装，CI 上直接编译失败）")
+    check("K2 MSI：嵌套文件装进各自目录，不是全部平铺进根目录",
+          len(_dirs_k) >= 4 and len(_dirs_k.get("INSTALLFOLDER", [])) == 1,
+          f"目录 {sorted(_dirs_k)}")
+    _ids_k = _re_k.findall(r'<Directory\s+Id="(D_[^"]+)"', _txt_k)
+    check("K3 MSI：目录 ID 不重复（压字符撞车会给两个目录同一个 ID → 文件装错地方）",
+          len(_ids_k) >= 5 and len(_ids_k) == len(set(_ids_k)),
+          f"重复的 ID: {sorted({i for i in _ids_k if _ids_k.count(i) > 1})}")
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

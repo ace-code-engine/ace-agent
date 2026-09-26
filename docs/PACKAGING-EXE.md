@@ -139,6 +139,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps
 少一个文件就少一个组件引用。编译完还会把 MSI 读回来，确认里面真有 `ace.exe` 的引用——
 只信 `light` 的退出码不够，一个空壳 MSI 也能编出来。
 
+**每个文件必须落在它自己那一层的 `<DirectoryRef>` 下**（v3.42.0 修，打 tag 时 CI 就红在这里）：
+PyInstaller 单目录包的模块与资源都在 `_internal/` 下，而生成器原先把所有组件都挂在
+`<DirectoryRef Id="INSTALLFOLDER">` 这一个下面，等于**全部平铺进 `ACE\` 根目录**。后果有两层，
+第二层更致命：
+
+- **ICE30 / 编译直接失败**：根目录里出现两个同名文件就报"同一个文件被两个组件安装"。载荷里
+  `_internal/README.md` 与 `_internal/vendor/README.md`、两个包的 `py.typed` 正是这种情况（报错
+  原文点名 `README.md` 与 `py.typed`）。
+- **就算压掉 ICE 编出来也是坏的**：运行时找不到 `_internal/` 下的东西。
+
+两种错法都别用：给 `<Component>` 补 `Directory=` 属性会被 **candle 直接拒绝**
+（`CNDL0062`：组件既然嵌在 `<Directory>` 里就不能再声明目录）；正确写法是**每个目录一个
+`<DirectoryRef>`，组件挂在它自己的目录下**。另外目录 ID 是把路径压成字母数字得来的，压字符会
+撞车（`a/b-c` 与 `a/b_c` 都是 `D_a_b_c`）—— 撞了就会把两个目录的文件装进同一处，所以撞车时加
+确定性后缀（`_2`）。
+
+本地可以真验，不必靠 CI：本机装了 electron-winstaller 的 WiX v3（`candle.exe` / `light.exe`），
+`packaging/make_wix.py --payload <载荷> --build` 就会连带跑 **WiX 自己的 ICE 校验**。不装 WiX 也能
+验的那条不变量（同一目录里不许有两个同名文件 = ICE30 的规则）由 `test_all [70]` 的 **K1–K3** 盯着。
+
 ### 为什么是 WiX，不是 Inno Setup
 
 两者都能做"自带环境、双击安装"。选 WiX 的理由只有一条，但很硬：**能用的 WiX 工具链在这台机器上

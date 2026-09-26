@@ -24,6 +24,7 @@
 | `disarm` 不再被别的实例写回 | 恢复需显式 `resume` |
 | `/status`、主页、`/audit stats` 各多一行 | 老日志的耗时/token 显示 0（"当时没记"，不是"没算"） |
 | 四张演示图已重录 | 顺带修掉"折叠路径时框缺一角、路径长度进产物"的老问题 |
+| **MSI 装不对地方（已修）** | 首个 tag 构建就红在这里：生成器把所有文件平铺进 `ACE\` 根目录 → WiX **ICE30**（`README.md` / `py.typed` 重名）。改为每个目录一个 `<DirectoryRef>`，并加目录 ID 撞车消歧；**本机用真 WiX v3 跑通含 ICE 校验的完整编译** |
 
 ## 怎么开始
 
@@ -39,8 +40,8 @@ python ai_code.py --mock   # 离线演示：模型 ↔ 执行层完整闭环
 
 ## 验证到什么程度
 
-- 端到端套件 **2310 / 2310 通过**，跳过 3 项（本机缺 Windows Job Object 档能力时的探测项）。
-- 本版新增断言 **56 条**（52 条对应**先复现过**的缺陷 + 4 条演示录制不变量）；全量随平台浮动，以 `python test_all.py` 输出为准。
+- 端到端套件 **2313 / 2313 通过**，跳过 3 项（本机缺 Windows Job Object 档能力时的探测项）。
+- 本版新增断言 **59 条**（对应**先复现过**的缺陷 + 4 条演示录制不变量）；全量随平台浮动，以 `python test_all.py` 输出为准。
 - 引擎侧：单元测试 20、自检 16、真实数据对拍 8。**CI 现在会真的编译并测试引擎** —— 此前它从未被编译，`test_all` 里"引擎路径 == 纯 Python 降级路径"那批断言等于自己跟自己比。
 - 用户数据完好：记忆文件仍 517 条，无隔离文件。
 
@@ -80,6 +81,7 @@ Artifacts are unchanged from v3.41.0 (five executor platforms plus a Windows bun
 | `disarm` is no longer overwritten by other instances | Resuming requires an explicit `resume` |
 | `/status`, the landing page and `/audit stats` each gained a line | Old logs show 0 for elapsed/tokens — "not recorded then", not "not computed" |
 | All four demo SVGs re-recorded | Along with the old "folded path leaves the box missing a corner and bakes the path length into the artifact" defect |
+| **MSI installed files in the wrong place (fixed)** | The first tag build died here: the generator flattened every payload file into `ACE\`, which trips WiX **ICE30** (`README.md` / `py.typed` name clashes). Now one `<DirectoryRef>` per directory, plus directory-ID collision disambiguation; verified locally with real WiX v3, ICE validation included |
 
 ## Getting started
 
@@ -95,8 +97,8 @@ Three commands verify this release: `python test_all.py --only 70` (every regres
 
 ## How far it is verified
 
-- End-to-end suite: **2310 / 2310 passing**, 3 skipped (capability probes for the Windows Job Object tier on this machine).
-- This release adds **56 assertions** (52 tied to defects that were **reproduced first**, plus 4 demo-recorder invariants); totals float by platform, `python test_all.py` output is authoritative.
+- End-to-end suite: **2313 / 2313 passing**, 3 skipped (capability probes for the Windows Job Object tier on this machine).
+- This release adds **59 assertions** (each tied to a defect that was **reproduced first**, plus 4 demo-recorder invariants); totals float by platform, `python test_all.py` output is authoritative.
 - Kernel side: 20 unit tests, 16 self-test checks, 8 real-data cross-checks. **CI now actually compiles and tests the kernel** — it was never compiled before, which made the "engine path == pure-Python fallback" assertions compare the fallback with itself.
 - Your data is intact: the memory file still holds 517 entries, with no quarantine files.
 

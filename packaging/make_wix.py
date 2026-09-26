@@ -112,12 +112,28 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> 
             node = node.setdefault(part, {})
 
     dir_ids = {}
+    used_ids = {}
+
+    def dir_id(key: str) -> str:
+        """目录 ID：路径里的非字母数字压成 `_`，**撞车时加确定性后缀**。
+
+        为什么必须防撞：这个 ID 直接决定文件装进哪个目录。两个不同目录映射到同一个 ID，
+        它们的同名文件就会落进同一个 MSI 目录 —— 轻则装错地方，重则 ICE30 直接编译失败。
+        `a/b-c` 与 `a/b_c` 是一对现成的反例（都被压成 `D_a_b_c`）。
+        """
+        base = "D_" + "".join(c if c.isalnum() else "_" for c in key)
+        did, n = base, 2
+        while used_ids.get(did, key) != key:
+            did = f"{base}_{n}"
+            n += 1
+        used_ids[did] = key
+        return did
 
     def emit_tree(node, prefix_parts, depth):
         pad = "  " * depth
         for part in sorted(node):
             key = "/".join(list(prefix_parts) + [part])
-            did = "D_" + "".join(c if c.isalnum() else "_" for c in key)
+            did = dir_id(key)
             dir_ids[key] = did
             add(f'{pad}<Directory Id="{did}" Name="{escape(part)}">')
             emit_tree(node[part], list(prefix_parts) + [part], depth + 1)
@@ -132,23 +148,33 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> 
     add('      </Directory>')
     add('    </Directory>')
 
-    # 每个文件一个组件。目录 ID 由文件所在层决定。
+    # 每个文件一个组件，**挂在它自己那一层的 `<DirectoryRef>` 下**。为什么不是给组件写
+    # `Directory` 属性：WiX v3 明令禁止（CNDL0062 —— 组件既然嵌在 <Directory> 里，就不能
+    # 再自己声明目录），本机 candle 实测直接报错退出 62。而"全部塞进 INSTALLFOLDER 这一个
+    # DirectoryRef"更不行：那等于所有文件平铺进根目录，实测在 CI 上触发 ICE30
+    # （`_internal/README.md` 与 `_internal/vendor/README.md`、两个包的 `py.typed` 同名），
+    # 就算压掉 ICE 编出来，PyInstaller 单目录包的模块/资源也全都不在 `_internal/` 下了。
     def dir_id_for(f: Path) -> str:
         if f.parent == payload:
             return "INSTALLFOLDER"
         key = "/".join(f.parent.relative_to(payload).parts)
         return dir_ids.get(key, "INSTALLFOLDER")
 
-    add('    <DirectoryRef Id="INSTALLFOLDER">')
+    by_dir: dict = {}
     for f in files:
-        rel = f.relative_to(payload).as_posix()
-        cid = guid_for(rel)
-        add(f'      <Component Id="C_{cid.strip("{}").replace("-", "_")}" '
-            f'Guid="{cid}" DiskId="1">')
-        add(f'        <File Id="F_{cid.strip("{}").replace("-", "_")}" '
-            f'Source="{escape(str(f))}" KeyPath="yes" />')
-        add('      </Component>')
-    add('    </DirectoryRef>')
+        by_dir.setdefault(dir_id_for(f), []).append(f)
+
+    for did in sorted(by_dir):
+        add(f'    <DirectoryRef Id="{did}">')
+        for f in by_dir[did]:
+            rel = f.relative_to(payload).as_posix()
+            cid = guid_for(rel)
+            add(f'      <Component Id="C_{cid.strip("{}").replace("-", "_")}" '
+                f'Guid="{cid}" DiskId="1">')
+            add(f'        <File Id="F_{cid.strip("{}").replace("-", "_")}" '
+                f'Source="{escape(str(f))}" KeyPath="yes" />')
+            add('      </Component>')
+        add('    </DirectoryRef>')
 
     add('    <DirectoryRef Id="AceProgramMenuDir">')
     # 控制台程序必须借 cmd 起一个窗口，否则点开一闪而过

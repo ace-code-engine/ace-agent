@@ -141,7 +141,9 @@ Textual 界面 ─┼─→ AgentCLI / ExecutionLayer（唯一裁决点）─→
 **M1–M7 的完成证据**（都是实测，不是"应该"）：
 
 - `test_all [72]`：**32 条**断言全绿（暴露面 4 · 协议层 13 · 行长与 id 3 · 真实裁决 5 ·
-  翻译 3 · 授权令 3 · 对照差异 1），全量 **2370 → 2402**（+32，实测对得上）。其中三组值得单说：
+  翻译 3 · 授权令 3 · 对照差异 1）。全量 2370 → **2405**：其中 +32 是本段，
+  另 +3 不是新增断言，而是 Job Object 能力探测**这次没被跳过**（上一轮宿主令牌不允许
+  `PROCESS_SUSPEND_RESUME` 时它们走 SKIPPED 通道）。其中三组值得单说：
   - **真实裁决**用的是真 `ExecutionLayer`（不是假引擎）：write 档项目内真落盘、项目外
     **已存在**对象返回 `PERMISSION_REQUEST` 且文件内容一字未变、`terminal_exec` 返回
     `PERMISSION_REQUEST`、readonly 档写工具 `PERMISSION_REQUEST`。

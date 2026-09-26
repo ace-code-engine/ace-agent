@@ -71,8 +71,10 @@ Claude Code / Cursor / Codex 各自的文件与键名见 `docs/MCP-SERVER.md` �
 - `e2e/mcp_probe.py`（新）：假装 MCP host 跟**真的** `ace --mcp` 子进程说 JSON-RPC，**39/39**。
   额外证明：stdout **一行杂音都没有** · host 断开（EOF）干净收工（退出码 0）· 台账有
   `source=mcp` 与那次拒绝且每条带 MAC · 配置里的令真会生效 · 2 MiB 写入真落盘且字节数正确。
-- 全量以 `python test_all.py` 的实际输出为准（本次记录：本机 **2402 / 2402** 通过，跳过 3 项
-  能力探测）；`ruff` 零命中；四张演示图重录并自校验通过（图内版本 → 3.44.0）。
+- 全量以 `python test_all.py` 的实际输出为准（本次记录：本机 **2405 / 2405** 通过、**0 跳过** ——
+  这次跑在非受限宿主下，那 3 项 Job Object 能力探测（上一轮因宿主令牌不允许
+  `PROCESS_SUSPEND_RESUME` 被跳过）真的跑了；`ruff` 零命中；四张演示图重录并自校验通过
+  （图内版本 → 3.44.0）。
 - CI：三个 Python（3.10/3.11/3.12）× Linux + Windows + Docker 冒烟 + Rust 引擎 + Go 执行器
   全绿（`[72]` 在 Linux 上也跑）。
 

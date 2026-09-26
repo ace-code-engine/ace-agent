@@ -39,7 +39,7 @@ python ai_code.py --mcp --project-root /path/to/project --permission write
 
 - `test_all` 新增段 `[72]` **32 条**（含真 `ExecutionLayer` 的裁决与授权令两半）；
   `e2e/mcp_probe.py` 以真进程验 **39 条**（stdout 零杂音 / EOF 干净收工 / 台账 / 配置里的令生效 /
-  2 MiB 真落盘）；全量 **2402 / 2402**、`ruff` 零命中、CI 三平台全绿。
+  2 MiB 真落盘）；全量 **2405 / 2405**（0 跳过）、`ruff` 零命中、CI 三平台全绿。
 - **没有在任何真实 MCP host 上跑过。** 本机装了 Claude Code，但它被配置成接 DeepSeek 的
   Anthropic 兼容端点，headless 模式报 `unrecognized_model` —— 我没有继续动那台机器上的凭据与额度。
   **"某个真 host 通过 ACE 写了一个文件"这件事还没有发生**，本版不把它说成已经发生。
@@ -96,7 +96,8 @@ python ai_code.py --mcp --project-root /path/to/project --permission write
 - 32 new assertions in section `[72]` (including real-`ExecutionLayer` verdicts and both halves of
   the mandate story); `e2e/mcp_probe.py` drives a **real** `ace --mcp` subprocess for 39 more
   (pristine stdout, clean EOF exit, ledger, a config-file mandate taking effect, a 2 MiB write
-  landing on disk); full suite **2402 / 2402**, `ruff` clean, CI green on three Python versions.
+  landing on disk); full suite **2405 / 2405** (nothing skipped this run), `ruff` clean, CI green on
+  three Python versions.
 - **It has not been run against any real MCP host.** Claude Code is installed on this machine but is
   pointed at DeepSeek's Anthropic-compatible endpoint and reports `unrecognized_model` in headless
   mode — we did not touch that machine's credentials or quota. So **"a real host wrote a file

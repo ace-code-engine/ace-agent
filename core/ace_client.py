@@ -462,9 +462,13 @@ def chat_once(base_url: str, api_key: str, model: str, fmt: str,
         text = stream_anthropic(base_url, api_key, system, messages, model=model,
                                 on_retry=on_retry)
         return {"choices": [{"message": {"role": "assistant", "content": text}}]}
-    payload = openai_payload(model,
-                             [{"role": "system", "content": system}] + list(messages),
-                             stream=False, tools=tools)
+    # system 为空时**不要**塞一条空 system 消息：调用方（agent_runner）本来就把
+    # system 拼在 messages[0] 里，于是 headless 每条请求都会发**两条 system、
+    # 第一条是空串**。宽容的端点看不出问题，严格的端点会拒（空 system 是合法的但可疑），
+    # 而且白付 token。CLI 侧的口径正好相反（messages 里没有 system，真 system 走参数），
+    # 所以这个统一必须在这里做，不能靠调用方各自注意。
+    head = [{"role": "system", "content": system}] if str(system or "").strip() else []
+    payload = openai_payload(model, head + list(messages), stream=False, tools=tools)
     return chat_complete(base_url, api_key, payload, on_retry=on_retry, **kwargs)
 
 

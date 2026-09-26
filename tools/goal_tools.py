@@ -95,6 +95,30 @@ class GoalStore:
 
     # ---------- 持久化 ----------
 
+    def _reload(self) -> None:
+        """变更前先从磁盘重读 —— 否则写回的是**本实例的旧视图**。
+
+        为什么必须（实测复现过）：启动时会 `disarm()`（"重启后不自动续跑"），而另一个
+        仍在跑的实例（子代理、或同一进程里更早构造的 GoalStore）内存里 armed 还是 True，
+        它下一次 `start_round()` 就把整个目标对象写回、**把 disarm 静默改回 armed=True**
+        —— 用户按下的暂停被复活，目标又开始自动续跑。同一个模式也适用于
+        `update`/`resume`：revision CAS 该比的是**磁盘上的当前值**，不是过期副本。
+        """
+        data = None
+        try:
+            if self.path.exists():
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, TypeError):
+            data = None
+        if isinstance(data, dict):
+            try:
+                self._goal = Goal.from_dict(data)
+                return
+            except (TypeError, KeyError):
+                pass
+        # 文件不存在或坏了：**不要**凭旧视图重建（那等于复活一个已被别的实例改过的目标）
+        self._goal = None
+
     def _load(self) -> None:
         try:
             if self.path.exists():
@@ -143,6 +167,7 @@ class GoalStore:
                phase: Optional[str] = None,
                reason_code: str = "", reason_message: str = "") -> Goal:
         with self._lock:
+            self._reload()          # CAS 该比的是磁盘上的当前 revision，不是过期副本
             g = self._goal
             if g is None:
                 raise GoalError("GOAL_NOT_FOUND", "当前没有活动目标（先用 goal_create 创建）")
@@ -216,8 +241,13 @@ class GoalStore:
     # ---------- 轮次驱动 ----------
 
     def start_round(self) -> Optional[Goal]:
-        """轮次驱动：active + armed + 预算内 → 记一轮并返回；否则返回 None。"""
+        """轮次驱动：active + armed + 预算内 → 记一轮并返回；否则返回 None。
+
+        **先 `_reload()` 再判**：判定与写回都必须基于磁盘上的当前状态，否则本实例的旧
+        视图会把另一个实例刚做的 disarm/resume 覆盖掉（实测：disarm 被静默改回 armed=True）。
+        """
         with self._lock:
+            self._reload()
             g = self._goal
             if g is None or g.phase != PHASE_ACTIVE or not g.armed:
                 return None
@@ -231,6 +261,7 @@ class GoalStore:
     def disarm(self) -> None:
         """重启/会话结束时调用：保留 phase，但不再自动续跑。"""
         with self._lock:
+            self._reload()          # 别对着旧视图写回（可能已有人 resume 过）
             if self._goal is not None:
                 self._goal.armed = False
                 self._save()
@@ -238,6 +269,7 @@ class GoalStore:
     def resume(self, goal_id: str, expected_revision: int) -> Goal:
         """人类显式恢复：重新武装（phase 必须是 paused/blocked 之外的 active，或任何可继续态）。"""
         with self._lock:
+            self._reload()          # 同上：resume 的 CAS 也必须对磁盘当前值
             g = self._goal
             if g is None or g.id != goal_id:
                 raise GoalError("GOAL_NOT_FOUND", "目标不存在")

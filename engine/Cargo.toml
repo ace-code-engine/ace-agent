@@ -1,0 +1,20 @@
+[package]
+name = "ace-engine"
+version = "0.1.0"
+edition = "2021"
+description = "ACE 内置计算引擎：把 Word 体系里「无裁决权的纯计算」收进一个常驻进程"
+license = "MIT"
+# 零依赖是有意的：与 ACE「安全核心零依赖」同一立场，也让离线构建成立
+# （本机 cargo build --offline 通过；不需要 crates.io，不需要 C 工具链）
+[dependencies]
+
+[[bin]]
+name = "ace-engine"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

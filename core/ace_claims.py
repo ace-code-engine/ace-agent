@@ -20,14 +20,24 @@ __all__ = ["claims_completed_action", "PROMPT_UNVERIFIED_CLAIM"]
 
 # 模型"声称已完成写操作"的措辞。只匹配完成态（已…/…了/created/has been），
 # 不匹配"我将要创建"这类意图陈述，否则正常的计划说明会被误判。
+#
+# 2026-09 补课：原词典漏掉了**最常用的一批口语完成态** —— 实测 `改好了` /
+# `已经改好了，你看一下` / `弄好了，文件在桌面上` / `我已经把那个 bug 修复了` /
+# `帮你处理完了` 全部漏检（只认「创建/修改/删除」这类书面动词）。漏的方向恰好是
+# 危险方向：零工具调用 + 这几句 = 幻觉被当成最终回复放行。现在补上
+# 改/弄/做/修复/处理/清理/搞定/删/建 这组，并让"…好了/完了/掉了/干净了"独立成一条
+# （不要求前面有"已"，因为 `改好了` 这种口语本来就不带）。
+_CLAIM_VERBS = (r"(?:创建|建立|新建|写入|保存|生成|修改|更新|删除|移动|重命名|执行"
+                r"|改|弄|做|修复|处理|清理|搞定|删|建)")
 _CLAIM_DONE_RE = re.compile(
-    r"已(?:经)?(?:为你|帮你|在)?[^。\n]{0,12}?"
-    r"(?:创建|建立|新建|写入|保存|生成|修改|更新|删除|移动|重命名|执行)"
-    r"|(?:创建|写入|保存|生成|修改|删除|执行)(?:好|完)了"
-    r"|文件已(?:经)?(?:成功)?(?:创建|保存|生成|写入|修改|删除)"
-    r"|(?:created|wrote|saved|generated|deleted|updated|executed)\s+(?:the\s+)?file"
+    r"已(?:经)?(?:为你|帮你|在)?[^。\n]{0,12}?" + _CLAIM_VERBS
+    + r"|" + _CLAIM_VERBS + r"(?:好|完|掉|干净)(?:了)?"
+    + r"|搞定(?:了)?"
+    r"|文件已(?:经)?(?:成功)?(?:创建|保存|生成|写入|修改|删除|改)"
+    r"|(?:created|wrote|saved|generated|deleted|updated|executed|fixed|patched)"
+      r"\s+(?:the\s+)?(?:file|it|that)"
     r"|file\s+(?:has\s+been|was)\s+(?:created|written|saved|updated|deleted)"
-    r"|I(?:'ve|\s+have)\s+(?:created|written|saved|updated|deleted|executed)",
+    r"|I(?:'ve|\s+have)\s+(?:created|written|saved|updated|deleted|executed|fixed)",
     re.IGNORECASE)
 
 

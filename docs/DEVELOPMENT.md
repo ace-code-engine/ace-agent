@@ -81,3 +81,29 @@ python demo/record_demo.py --check          # 演示动画一致性
 ```
 
 受限环境(无 Go Job Object/禁联网/系统临时区只读)下的测试应走 SKIPPED 通道如实标注(BACKLOG Q-03),不许假绿、不许整脚本崩。
+
+### 改了界面输出,演示图要一起重录
+
+`demo/record_demo.py --check` 会把**重新录制的结果**与提交的 SVG 逐行比对（数字归一化成 `#` 后比骨架，
+版本号另有一条断言对 `core/version.py`），所以任何进入演示剧本的输出变化（典型：`/status`、主页、
+聊天卡片、版本号）都会让那几张图过期，CI 的演示一致性那一步会一直红到重录为止。**四张图都在这条闸门里**：
+
+```bash
+python demo/record_demo.py --session happy      # demo/demo.svg
+python demo/record_demo.py --session blocked    # demo/demo_blocked.svg
+python demo/record_demo.py --session diff       # demo/demo_diff.svg
+python demo/record_demo.py --session landing    # demo/demo_landing.svg
+python demo/record_demo.py --check              # 判据：四张全绿
+```
+
+**在哪台机器上录都行 —— 这一条被修过。** 本文件此前写的是"重录**必须在与 CI 同源的环境**做"，
+理由是当时在开发机上重录后，失败"转移到了下一个没重录的文件"。**那个归因是错的**：真正的原因
+不是"列宽补白不同源"，而是录制脚本把临时目录的绝对路径**直接换成了一个 `…`**，于是路径长度以
+补白的形式留在了 SVG 里 —— 本机 work 路径 50 列、CI 69 列，`--check` 在 CI 上必然对不上；
+顺带还让面板里那一行比同框其它行短掉一截，**发布出去的图里那个框本来就是缺一角的**
+（实测已提交的 `demo.svg`：其余行 96 列，`目录` 那行只有 28 列）。
+
+现在 `capture_session` 折叠路径时分两种口径（`_fold_path` 的 docstring 里有理由与实测数字）：
+**框内行保宽**（否则框缺角）、**自由行折成一列**（否则行宽仍随路径长度变）。于是录制结果与
+"在哪录"无关 —— 实测把临时目录加长 17 列，四套剧本录出的骨架逐字节一致；`test_all [61]`
+有一条断言钉住这个不变量。**所以本机重录是安全的，不必再去找同源的机器。**

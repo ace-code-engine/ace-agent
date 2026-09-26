@@ -23,7 +23,7 @@
 - 验收:
   1) `test_all` 0 失败(回归即行为不变);新增阶段顺序/上下文不泄漏断言若干;
   2) 函数体明显缩短,阶段可在不执行整轮的情况下单测;
-  3) `execution_layer.py` 顶层 docstring 画出阶段流程图(与 README 架构图对应)。
+  3) `execution_layer.py` 顶层 docstring 画出阶段流程图(与 `docs/ARCHITECTURE.md` 的架构图对应)。
 - 风险:高(核心路径);建议切分按“先抽纯函数/后合并状态”两小步各提交一次。
 
 ## R-02 · `FileTools`(tools/file_tools.py,约 1237 行)拆分

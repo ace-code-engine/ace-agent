@@ -6307,7 +6307,11 @@ if _want("38"):
         了两次"这类错误它永远看不见（实测 `ui/ace_keys.py` 被列了两遍，[38] 一直是
         绿的）。解析结果保留列表形态，重复性由调用方单独断言。
         """
-        _blocks = _re.findall(r"```\n(.*?)```", _TREE_DOC.read_text(encoding="utf-8"), _re.S)
+        # 围栏语言标记要吃掉（```mermaid / ```bash）—— 否则**配对会整体错位**：
+        # 带标记的围栏「开」不匹配 ```\n，它的**闭**围栏反而被当成「开」，于是它和
+        # 权威树的开围栏配成一对、树的闭围栏又去找下一个开围栏 —— 树内容永远抓不到，
+        # 报出来的是"权威树不可解析"。实测：在本文档架构图前加一个 ```mermaid 块就复现。
+        _blocks = _re.findall(r"```[^\n]*\n(.*?)```", _TREE_DOC.read_text(encoding="utf-8"), _re.S)
         _blk = next((b for b in _blocks if b.lstrip().startswith("ace-agent/")), None)
         if _blk is None:
             return None
@@ -10179,6 +10183,31 @@ if _want("61"):
     check("[61] 演示图把转轮帧归一（帧号与「卡住」渐变色都是采集时机，不是会话内容）",
           "_canon_spinner(" in _demo61 and "if _SPINNER_RE.match(plain):" in _demo61, "")
 
+    # —— 折叠本机路径：框内行保宽、自由行折成一列 ——
+    # 两种口径各有一个必须满足的约束，混用哪一种都会坏掉一个（v3.42.0 实测踩过两次）：
+    #   一律折成一个 `…`  → 面板那一行比同框其它行短一截，**发布出去的图里框缺一角**
+    #                        （已提交的 demo.svg：其余行 96 列，`目录` 行 28 列）；
+    #   一律保宽          → 路径长度留在图里，`--check` 在 CI 上必然对不上
+    #                        （本机 work 路径 50 列 vs CI 69 列），且会把补白插进
+    #                        `知识库: <项目>/.ace_kb` 这类**前缀命中**的路径中间。
+    import importlib.util as _iu61  # noqa: E402
+    _spec61 = _iu61.spec_from_file_location("_demo61_mod", FOLDER / "demo" / "record_demo.py")
+    _demo61_mod = _iu61.module_from_spec(_spec61)
+    _spec61.loader.exec_module(_demo61_mod)
+    _path61 = "C:\\tmp\\demo_ab12cd34\\project"
+    _boxed61 = _demo61_mod._fold_path(f"│ 目录    {_path61}         │", _path61)
+    _free61 = _demo61_mod._fold_path(f"知识库: {_path61}\\.ace_kb", _path61)
+    check("[61] 折叠本机路径：框内行保宽（否则图里那个框缺一角）",
+          _boxed61.count("│") == 2 and len(_boxed61) == len(f"│ 目录    {_path61}         │"),
+          repr(_boxed61))
+    check("[61] 折叠本机路径：自由行折成一列（否则路径长度会留在图里）",
+          _free61 == "知识库: …\\.ace_kb", repr(_free61))
+    check("[61] 折叠本机路径：先剥 ANSI 再判边框（边框总带 \\x1b[0m，不剥就永远判不出框内行）",
+          len(_demo61_mod._fold_path(f"│ 目录    \x1b[0m{_path61}\x1b[0m   \x1b[0m│", _path61))
+          == len(f"│ 目录    \x1b[0m{_path61}\x1b[0m   \x1b[0m│"), "")
+    check("[61] 录制路径走 _fold_path 折叠（不是又退回一句裸的 str.replace）",
+          "_fold_path(raw, form)" in _demo61, "")
+
     # ============================================================
 
 if _want("62"):
@@ -12869,6 +12898,568 @@ if _want("70"):
     # [8] 段那条"违规自动回滚（仅本轮快照）"用的正是 terminal_exec 造文件 ——
     # 它同时是这一档的存在性证明：把 tree 档去掉，那条会当场红。
     _el08.close()
+
+    # ── 2026-09 缺陷修复回归（本批：D1 任务身份 / D2 权限单源 / D3 判据补课 /
+    #    D4 code_execute job 档 / D5 守门聚合 / D6 MCP 信任门 / D7 飞轮不落原文 /
+    #    D8 operator 路径 / D9 headless 信封 / D10 serve 版本字段）──
+    # 每条都对应一个**实测复现过**的缺陷；断言写成"能从修之前/修之后分出真假"的形式，
+    # 不写成"看看有没有这个字段"。
+    _d_root = mktemp("fixreg")
+    # 项目里必须有内容：空项目按 H-06 是"没有可失去的东西"，本来就不会建快照 ——
+    # 那不是被测行为，别让它把 D8 的断言带偏。
+    (_d_root / "seed.txt").write_text("seed\n", encoding="utf-8")
+    from execution_layer import ExecutionLayer as _D_EL  # noqa: E402
+
+    _TOOLCALL = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] datetime_now\n[/INTERNAL_THINKING]\n"
+                 "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
+                 '{"tool": "datetime_now", "format": "YYYY-MM-DD"}\n</EXTERNAL>')
+    _CLAIMP = ("<INTERNAL>\n[INTERNAL_THINKING]\n[REASON] 完成\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+               "<EXTERNAL>\nanswer.\n我已经帮你创建了 example.py\n</EXTERNAL>")
+
+    # D1：同一段 user_input 两次，但**不同 task_id** → 必须按两个任务算
+    _d1a = _D_EL(project_root=str(mktemp("d1a")), permission_level="readonly",
+                 config={"bait": {"enabled": False}})
+    _d1a.process_agent_output(_TOOLCALL, "看看时间", "t1")
+    _d1r = _d1a.process_agent_output(_CLAIMP, "看看时间", "t2")
+    check("D1 同一句话的新任务不再被反幻觉闸门放过（文本比较改显式 task_id）",
+          _d1r["status"] in ("FORMAT_ERROR", "GUARD_VIOLATION"), _d1r["status"])
+    _d1b = _D_EL(project_root=str(mktemp("d1b")), permission_level="readonly",
+                 config={"bait": {"enabled": False}})
+    _d1b.process_agent_output("这不是协议", "修 bug", "t3")
+    _d1r2 = _d1b.process_agent_output("这不是协议", "修 bug", "t4")
+    check("D1 新任务第 1 轮不再被上一次的畸形指纹误熔断",
+          _d1r2["status"] == "FORMAT_ERROR" and not _d1r2.get("abort"), _d1r2.get("abort"))
+    _d1c = _D_EL(project_root=str(mktemp("d1c")), permission_level="readonly",
+                 config={"bait": {"enabled": False}})
+    _d1c.process_agent_output(_TOOLCALL, "看看时间", "t5")
+    _d1r3 = _d1c.process_agent_output(_CLAIMP, "看看时间", "t5")
+    check("D1 同一个 task_id 内判据仍然继承（工具跑过 → 允许说完成）",
+          _d1r3["status"] == "FINAL_REPLY", _d1r3["status"])
+    _d1d = _D_EL(project_root=str(mktemp("d1d")), permission_level="readonly",
+                 config={"bait": {"enabled": False}})
+    _d1d.process_agent_output(_TOOLCALL, "看看时间")
+    _d1r4 = _d1d.process_agent_output(_CLAIMP, "看看时间")
+    check("D1 不传 task_id 时保持旧行为（既有熔断用例依赖它）",
+          _d1r4["status"] == "FINAL_REPLY", _d1r4["status"])
+
+    # D2：权限只有一份真源 —— 源码级断言（行为级要起 CLI + 假传输，成本不划算）
+    _ai_src = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("D2 三处模型调用都现算权限（不是 client 里的副本）",
+          _ai_src.count("permission=self.el.permission.level") >= 3,
+          _ai_src.count("permission=self.el.permission.level"))
+    check("D2 工具清单按入参裁剪（副本只作兜底）",
+          "level = permission or self.permission_level" in _ai_src
+          and "tools_for_permission(level)" in _ai_src)
+
+    # D3：反幻觉判据补课
+    from core.ace_claims import claims_completed_action as _d3f  # noqa: E402
+    _d3_miss = [c for c in ("已经改好了，你看一下", "改好了", "弄好了，文件在桌面上",
+                            "我已经把那个 bug 修复了", "帮你处理完了", "搞定了")
+                if not _d3f(c)]
+    check("D3 口语完成态不再漏检（改好了/弄好了/修复了/处理完了…）", not _d3_miss, str(_d3_miss))
+    check("D3 意图陈述不误伤", not _d3f("我将会创建 example.py"))
+
+    # D4：job 档拿不到边界必须 503，绝不回落宿主
+    _d4 = _D_EL(project_root=str(mktemp("d4")), permission_level="write",
+                config={"bait": {"enabled": False}, "sandbox": {"mode": "job"},
+                        "snapshot_required": False})
+    _d4x = _d4.executor
+    _d4x.use_go_executor = True
+    _d4x._go_client = None
+    _d4x._go_executor = lambda: None
+    _d4r = _d4x.execute({"tool": "code_execute", "code": "print('NOPE')"})
+    check("D4 code_execute 在 job 档且执行器不可用时返回 503（与 terminal_exec 同口径）",
+          _d4r.status == "error" and _d4r.error_code == "503",
+          f"{_d4r.status}/{_d4r.error_code}")
+
+    # D5：L4 守门聚合，block 优先于 warn
+    from gateway_v2.guard import InstinctGuard as _D5G  # noqa: E402
+    _d5 = _D5G().check("def h(r):\n    api_key = 'sk-live-abcdef1234567890'\n    return r\n",
+                       code_rules=True)
+    check("D5 缺类型注解不再遮蔽硬编码密钥（warn 不得先于 block 返回）",
+          (not _d5.passed) and _d5.action == "block"
+          and _d5.failed_rule == "no_hardcoded_secrets",
+          f"{_d5.action}/{_d5.failed_rule}")
+
+    # D6：项目级 .ace/mcp.json 默认不加载（与 hooks 同一道信任门）
+    _d6p = mktemp("d6")
+    (_d6p / ".ace").mkdir(parents=True, exist_ok=True)
+    (_d6p / ".ace" / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"evil": {"command": "echo", "args": ["x"]}}}),
+        encoding="utf-8")
+    _d6 = _D_EL(project_root=str(_d6p), permission_level="readonly",
+                config={"bait": {"enabled": False},
+                        "mcp_project_file": str(_d6p / ".ace" / "mcp.json")})
+    check("D6 未受信任仓库的项目级 MCP 不加载，且如实说明原因",
+          _d6.mcp is None and bool(_d6.mcp_ignored), f"mcp={_d6.mcp} note={_d6.mcp_ignored[:30]}")
+
+    # D7：飞轮不落违规原文
+    from gateway_v2.flywheel import Flywheel as _D7F  # noqa: E402
+    from gateway_v2.intent import Intent as _D7I  # noqa: E402
+    _d7path = mktemp("d7") / "fw.jsonl"
+    _d7f = _D7F(str(_d7path))
+    _d7f.log_violation(_D7I(raw_input="写脚本"), "api_key='sk-live-abcdef1234567890'",
+                       "no_hardcoded_secrets", extra={"action": "block"})
+    _d7raw = _d7path.read_text(encoding="utf-8")
+    check("D7 违规原文不落盘，但留 sha256/长度可复核",
+          "sk-live" not in _d7raw and "output_sha256" in _d7raw)
+    check("D7 SFT 导出里也没有原文",
+          "sk-live" not in (_d7f.export_for_sft()[0]["prompt"] if _d7f.export_for_sft() else ""))
+
+    # D8：用户自己敲的路径（!命令 / /review）也要权限 + 快照 + 审计
+    _d8log = mktemp("d8") / "sess.jsonl"
+    _d8ro = _D_EL(project_root=str(_d_root), permission_level="readonly",
+                  config={"bait": {"enabled": False}, "session_log": str(_d8log)})
+    _d8r1 = _d8ro.run_tool_direct({"tool": "file_write", "path": "no.txt", "content": "x"},
+                                  source="review")
+    check("D8 只读档下 operator 写被拒（修之前直接落到 executor，等级被绕过）",
+          _d8r1.status == "error" and _d8r1.error_code == "403", _d8r1.error_code)
+    _d8w = _D_EL(project_root=str(_d_root), permission_level="write",
+                 config={"bait": {"enabled": False}, "session_log": str(_d8log)})
+    _d8n = len(_d8w.guardian.list_snapshots()) if _d8w.guardian else -1
+    _d8r2 = _d8w.run_tool_direct({"tool": "file_write", "path": "yes.txt", "content": "hi"},
+                                 source="review")
+    _d8m = len(_d8w.guardian.list_snapshots()) if _d8w.guardian else -1
+    check("D8 operator 写成功", _d8r2.status == "success", _d8r2.status)
+    check("D8 operator 写前建了快照（修之前没有 → /undo 回不去）", _d8m > _d8n,
+          f"{_d8n}→{_d8m}")
+    _d8t = _d8log.read_text(encoding="utf-8") if _d8log.exists() else ""
+    check("D8 operator 调用进了审计日志", "tool/call" in _d8t and "file_write" in _d8t)
+    _d8r3 = _d8w.run_tool_direct({"tool": "terminal_exec", "command": "rm -rf /tmp/nope"},
+                                 source="bash")
+    check("D8 `!rm` 仍被 execpolicy fail-close 拦住（没被 confirmed 放开）",
+          _d8r3.status != "success", f"{_d8r3.status}/{_d8r3.error_code}")
+
+    # D9：headless 不再发空 system
+    from core import ace_client as _D9C  # noqa: E402
+    _d9cap = {}
+    _d9p, _d9c = _D9C.openai_payload, _D9C.chat_complete
+    _D9C.openai_payload = lambda m, msgs, **kw: (_d9cap.update(msgs=list(msgs)) or {"m": m})
+    _D9C.chat_complete = lambda *a, **kw: {"choices": [{"message": {"content": "x"}}]}
+    try:
+        _D9C.chat_once("https://e.invalid/v1", "k", "m", "openai", "",
+                       [{"role": "system", "content": "真 system"},
+                        {"role": "user", "content": "hi"}])
+    finally:
+        _D9C.openai_payload, _D9C.chat_complete = _d9p, _d9c
+    _d9sys = [m for m in _d9cap["msgs"] if m.get("role") == "system"]
+    check("D9 system 为空时不前置空 system（headless 曾每条请求发两条 system）",
+          len(_d9sys) == 1 and _d9sys[0]["content"] == "真 system", str(_d9sys))
+
+    # D10：--serve 版本字段必填，且坏值不抛裸异常
+    from core.ace_serve import ServeError as _D10E, parse_frame as _D10P  # noqa: E402
+    _d10bad = ['{"type":"req","id":"1","method":"x"}',
+               '{"v":"abc","type":"req","id":"1","method":"x"}',
+               '{"v":1.9,"type":"req","id":"1","method":"x"}']
+    _d10esc = []
+    for _ln in _d10bad:
+        try:
+            _D10P(_ln)
+            _d10esc.append("accepted")
+        except _D10E:
+            pass
+        except Exception as _e:  # noqa: BLE001 —— 裸异常会穿出 serve_forever 带走进程
+            _d10esc.append(type(_e).__name__)
+    check("D10 缺 v / v 非整数 / v 是小数 一律 ServeError（不再裸 ValueError）",
+          not _d10esc, str(_d10esc))
+
+    # ── 元处理引擎切片①（会话事件流索引）回归：E1–E5 ──
+    # 引擎只算不裁；拿不到就降级。这几条守的是"两条路径同口径"与"降级不是消失"。
+    from core import ace_engine as _AE  # noqa: E402
+    _e_log = mktemp("meta") / "sess.jsonl"
+    _e_log.write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t1","model":"m"}',
+        '{"seq":2,"kind":"user/message","ts":"t2","content":"ping"}',
+        # 内容相同、seq/ts 不同 —— 真实日志里 system/snapshot 每轮写一遍就是这样
+        '{"seq":3,"kind":"system/snapshot","ts":"t3","system":"SAME"}',
+        '{"seq":4,"kind":"system/snapshot","ts":"t4","system":"SAME"}',
+        '{"seq":5,"kind":"tool/call","ts":"t5","tool":"file_read","params":{}}',
+        '{"seq":5,"kind":"tool/result","ts":"t6","tool":"file_read","status":"403"}',
+        # 真缺口：从 5 跳到 12（重复的 5 紧跟 5 不算缺口 —— 那是回退，不是缺口）
+        '{"seq":12,"kind":"tool/result","ts":"t7","tool":"file_write","status":"success"}',
+        '{"seq":13}',
+        "坏行",
+    ]), encoding="utf-8")
+    _e_saved = _AE.engine_path
+    _e_exe = _AE.engine_path()
+    try:
+        _e_engine = _AE.session_meta(_e_log)
+        _AE.engine_path = lambda: None
+        _e_py = _AE.session_meta(_e_log)
+        if _e_exe:
+            _e_fields = ("events", "bad_json", "missing_fields", "duplicate_lines",
+                         "kinds", "tools", "bytes", "seq", "unknown_kinds")
+            _e_diff = [f for f in _e_fields if _e_engine.get(f) != _e_py.get(f)]
+            check("E1 引擎与纯 Python 降级逐字段相等（9 个字段）", not _e_diff, str(_e_diff))
+        else:
+            print("     （engine 二进制不存在：只验降级路径）")
+            check("E1 引擎不存在时降级仍给出结果", isinstance(_e_py, dict))
+        check("E2 降级如实标注来源（不是静默失败）",
+              _e_py.get("source") == "python"
+              and (_e_engine.get("source") == "ace-engine" or not _e_exe),
+              f"{_e_engine.get('source')}/{_e_py.get('source')}")
+        check("E3 元信息算得出重复体积（按内容算，不是按整行 —— 整行带唯一 seq）",
+              _e_py["bytes"]["redundant"] > 0 and _e_py["duplicate_lines"] >= 1,
+              str(_e_py["bytes"]))
+        _e_v = _AE.session_verify(_e_log)
+        _e_codes = {p["code"] for p in _e_v["problems"]}
+        check("E4 append-only 体检抓得到坏行/缺字段/重复/缺口",
+              not _e_v["ok"]
+              and {"bad_json", "missing_seq_or_kind", "seq_duplicate", "seq_gap"} <= _e_codes,
+              str(sorted(_e_codes)))
+    finally:
+        _AE.engine_path = _e_saved
+    # E5：跨语言白名单不许漂移（Python 的 KNOWN_KINDS ↔ Rust 的 KNOWN_KINDS）
+    _e_rs = (FOLDER / "engine" / "src" / "events.rs").read_text(encoding="utf-8")
+    _e_blk = _e_rs.split("pub const KNOWN_KINDS", 1)[-1].split("];", 1)[0]
+    _e_rs_kinds = set(_re.findall(r'"([^"]+)"', _e_blk))
+    check("E5 KNOWN_KINDS 两侧一致（core/ace_engine.py ↔ engine/src/events.rs）",
+          _e_rs_kinds == set(_AE.KNOWN_KINDS),
+          f"只在 Rust: {sorted(_e_rs_kinds - set(_AE.KNOWN_KINDS))} / "
+          f"只在 Python: {sorted(set(_AE.KNOWN_KINDS) - _e_rs_kinds)}")
+
+    # ── 快照校验并行化回归：F1–F4 ──
+    # 实测结论：单次 snapshot() 的成本几乎全在"读回校验刚复制出来的副本"，而那不是
+    # CPU（大文件 SHA256 788 MB/s），是**每个新文件的首次读取代价**（顺序 2.84 ms/文件，
+    # 同一批再读一遍只要 0.06 ms/文件 = 51× 落差）。所以并行读回是真收益（夹具 4.4×）。
+    # 这几条守的是"加速没有改变判定"。
+    from core import guardian as _G_F  # noqa: E402
+    _f_root = mktemp("hashes")
+    (_f_root / "a").mkdir()
+    (_f_root / "a" / "one.py").write_text("print(1)\n", encoding="utf-8")
+    (_f_root / "a" / "empty.py").write_text("", encoding="utf-8")     # 空文件
+    (_f_root / "big.bin").write_text("x" * 200_000, encoding="utf-8")  # 大文件
+    _f_g = _G_F.Guardian(str(_f_root))
+    _f_paths = [p for p in sorted(_f_root.rglob("*")) if p.is_file()]
+    _f_seq = [_f_g._sha256(p) for p in _f_paths]
+    check("F1 并行批量哈希与顺序逐文件一致（含空文件/大文件）",
+          _f_g._sha256_many(_f_paths) == _f_seq)
+    _f_workers = _G_F._HASH_WORKERS
+    try:
+        _G_F._HASH_WORKERS = 1
+        check("F2 ACE_HASH_WORKERS=1 退化为顺序且结果一致",
+              _f_g._sha256_many(_f_paths) == _f_seq)
+    finally:
+        _G_F._HASH_WORKERS = _f_workers
+    _f_sid = _f_g.snapshot("fixreg")
+    _f_meta = json.loads((_f_g.snap_dir / _f_sid / "meta.json").read_text(encoding="utf-8"))
+    _f_rel = sorted(_f_meta["files"].keys())[0]
+    (_f_g.snap_dir / _f_sid / "files" / _f_rel).write_text("TAMPER\n", encoding="utf-8")
+    _f_ok, _f_why = _f_g.verify_snapshot(_f_sid)
+    check("F3 篡改副本仍被检出，且点名那个文件（顺序确定，不随调度漂）",
+          _f_ok is False and f"不匹配: {_f_rel}" in _f_why, _f_why)
+    _f_vsrc = (FOLDER / "core" / "guardian.py").read_text(encoding="utf-8")
+    _f_vsrc = _f_vsrc.split("def verify_snapshot", 1)[-1].split("def rollback", 1)[0]
+    check("F4 verify_snapshot 走批量哈希（源码级：防有人改回顺序循环）",
+          "_sha256_many" in _f_vsrc)
+
+    # ── 快照校验时机开关（snapshot_verify）：F5–F9 ──
+    # 默认 create（建完即校验）保持改动前行为；换到 rollback 把同一遍校验挪到 /undo
+    # 那一刻（真实规模夹具 1958 ms → 162 ms，12×）。守的是：**换档只改"何时发现坏快照"，
+    # 不改"坏快照会不会被恢复"** —— 后半条是这条开关能存在的前提。
+    def _mk5(tag):
+        r = mktemp(f"sv{tag}")
+        (r / "src").mkdir()
+        (r / "src" / "a.py").write_text("A=1\n" * 500, encoding="utf-8")
+        (r / "src" / "b.py").write_text("B=2\n" * 500, encoding="utf-8")
+        return r
+
+    class _VerifyFails5(_G_F.Guardian):
+        """让创建后的自检必然失败：把"校验发生在哪一刻"变成可观测差别。"""
+
+        def verify_snapshot(self, snap_id):
+            return False, "模拟校验失败"
+
+    _g5a = _VerifyFails5(str(_mk5("a")))
+    _g5_before = {d.name for d in _g5a.snap_dir.iterdir()} if _g5a.snap_dir.exists() else set()
+    _g5_raised = False
+    try:
+        _g5a.snapshot("x")
+    except _G_F.SnapshotError:
+        _g5_raised = True
+    _g5_after = {d.name for d in _g5a.snap_dir.iterdir()} if _g5a.snap_dir.exists() else set()
+    check("F5 默认档（create）：建完即校验，失败即抛且不留孤儿目录",
+          _g5_raised and _g5_after == _g5_before and _g5a.verify_policy == "create",
+          f"raised={_g5_raised} orphans={sorted(_g5_after - _g5_before)}")
+    _g5b = _VerifyFails5(str(_mk5("b")), verify_policy="rollback")
+    _g5_sid = None
+    try:
+        _g5_sid = _g5b.snapshot("y")
+    except _G_F.SnapshotError:
+        pass
+    check("F6 rollback 档：同一条件下不因创建期校验而失败（校验挪到使用点）",
+          bool(_g5_sid), str(_g5_sid))
+
+    _g5c_root = _mk5("c")
+    _g5c = _G_F.Guardian(str(_g5c_root), verify_policy="rollback")
+    _g5_sid3 = _g5c.snapshot("real")
+    (_g5c_root / "src" / "a.py").write_text("CHANGED BY USER\n", encoding="utf-8")
+    _g5_meta = json.loads((_g5c.snap_dir / _g5_sid3 / "meta.json").read_text(encoding="utf-8"))
+    _g5_victim = sorted(_g5_meta["files"].keys())[0]
+    (_g5c.snap_dir / _g5_sid3 / "files" / _g5_victim).write_text("TAMPERED\n", encoding="utf-8")
+    _g5_refused = False
+    try:
+        _g5c.rollback(_g5_sid3, only=[_g5_victim])
+    except _G_F.SnapshotError:
+        _g5_refused = True
+    check("F7 rollback 档：坏快照在恢复时被拒绝（fail-close，绝不静默恢复）", _g5_refused)
+    check("F7 rollback 档：被拒后用户内容没被动过",
+          "CHANGED BY USER" in (_g5c_root / "src" / "a.py").read_text(encoding="utf-8"))
+    check("F8 未知取值退回默认 create（不静默变成 rollback）",
+          _G_F.Guardian(str(_mk5("d")), verify_policy="nonsense").verify_policy == "create")
+    _g5_el = _D_EL(project_root=str(_mk5("e")), permission_level="readonly",
+                   config={"bait": {"enabled": False}})
+    _g5_el2 = _D_EL(project_root=str(_mk5("f")), permission_level="readonly",
+                    config={"bait": {"enabled": False}, "snapshot_verify": "rollback"})
+    check("F9 执行层接线：默认 create / 配了 config.snapshot_verify 才换档",
+          _g5_el.guardian.verify_policy == "create"
+          and _g5_el2.guardian.verify_policy == "rollback",
+          f"{_g5_el.guardian.verify_policy}/{_g5_el2.guardian.verify_policy}")
+
+    # ── 状态文件静默丢数据回归：G1–G5 ──
+    # 实测复现过的三个缺陷（都是"静默"的：不报错、用户看不见）：
+    #   G1/G2 记忆：一条坏 entry 带走全部；整个文件坏则下一次写把用户记忆抹平
+    #   G3   记忆：主会话与子代理各持一个 MemoryArchive，后写的把先写的整批覆盖
+    #   G4/G5 目标：另一个实例的 disarm 被 start_round 写回；CAS 比的是过期副本
+    from core.archive import MemoryArchive as _MA_G  # noqa: E402
+    import time as _time_g  # noqa: E402
+    from tools.goal_tools import (GoalError as _GE_G, GoalStore as _GS_G,  # noqa: E402
+                                  PHASE_PAUSED as _PAUSED_G)
+
+    def _mk_g(name):
+        return mktemp(f"st{name}") / name
+
+    # G1：一条坏 entry 不许带走好记忆
+    _g1p = _mk_g("memory.json")
+    _g1p.write_text(json.dumps({"entries": [
+        {"text": "第一条记忆内容", "simhash": 1, "ts": _time_g.time(), "urgent": False,
+         "weight": 1.0, "session": "default"},
+        {"text": "第二条记忆内容", "simhash": 2, "ts": _time_g.time(), "urgent": False,
+         "weight": 1.0, "session": "default"},
+        {"text": "坏掉的第三条", "session": "default"},          # 缺字段
+    ], "topic_anchors": {}, "topic_texts": {}, "shift_count": 0}, ensure_ascii=False),
+        encoding="utf-8")
+    _g1 = _MA_G(str(_g1p), session_tag="default")
+    _g1.add("新写入的一条记忆，应该只增不减")
+    _g1_disk = json.loads(_g1p.read_text(encoding="utf-8"))
+    check("G1 一条坏 entry 只丢它自己（此前 3 条→内存 0 条→磁盘剩 1 条）",
+          _g1.skipped_entries == 1
+          and any("第一条记忆内容" in e["text"] for e in _g1_disk["entries"])
+          and any("第二条记忆内容" in e["text"] for e in _g1_disk["entries"])
+          and any("新写入的一条记忆" in e["text"] for e in _g1_disk["entries"]),
+          f"mem={len(_g1.entries)} skipped={_g1.skipped_entries} "
+          f"disk={[e['text'][:6] for e in _g1_disk['entries']]}")
+
+    # G2：整个文件坏 → 原文被隔离，绝不就地抹平
+    _g2p = _mk_g("memory.json")
+    _g2p.write_text('{"entries": [{"text": "半截写', encoding="utf-8")   # 非法 JSON
+    _g2 = _MA_G(str(_g2p), session_tag="default")
+    _g2_quarantined = bool(_g2.quarantined) and Path(_g2.quarantined).exists()
+    _g2_kept = "半截写" in Path(_g2.quarantined).read_text(encoding="utf-8") if _g2_quarantined else False
+    check("G2 整个文件读不出来时隔离原文（不就地覆盖，原文还在）",
+          _g2_quarantined and _g2_kept and bool(_g2.load_error),
+          f"q={_g2.quarantined} err={_g2.load_error}")
+    _g2.add("隔离之后新写的一条记忆")
+    check("G2 隔离后新写入不覆盖被隔离的原文",
+          Path(_g2.quarantined).exists() and "半截写" in Path(_g2.quarantined).read_text(encoding="utf-8"))
+
+    # G3：两个实例交叉写，谁都不许抹掉谁
+    _g3p = _mk_g("memory.json")
+    _g3_main = _MA_G(str(_g3p), session_tag="default")
+    _g3_main.add("主会话写入的第一条内容，够长足够存下来")
+    _g3_sub = _MA_G(str(_g3p), session_tag="default")
+    _g3_sub.add("子代理写入的一条内容，也够长足够存下来")
+    _g3_main.add("主会话在子代理写完之后再写一条新的内容")
+    _g3_texts = [e["text"] for e in json.loads(_g3p.read_text(encoding="utf-8"))["entries"]]
+    check("G3 主会话与子代理交叉写：三条都在（此前子代理那条被整批覆盖）",
+          len(_g3_texts) == 3 and any("子代理写入" in t for t in _g3_texts),
+          str([t[:8] for t in _g3_texts]))
+
+    # G4：另一个实例的 disarm 不许被 start_round 写回
+    _g4_root = mktemp("stgoal")
+    _g4a = _GS_G(str(_g4_root))
+    _g4a.create("目标：把这件事做完", max_rounds=5)
+    _g4b = _GS_G(str(_g4_root))                    # 另一个实例（子代理/另一进程）
+    _g4a.disarm()
+    _g4_r = _g4b.start_round()
+    _g4_disk = json.loads((_g4_root / ".ace_goals.json").read_text(encoding="utf-8"))
+    check("G4 另一实例 disarm 后，start_round 不再复活它（返回 None 且磁盘仍 False）",
+          _g4_r is None and _g4_disk.get("armed") is False,
+          f"round={_g4_r} armed={_g4_disk.get('armed')}")
+
+    # G5：CAS 比的是磁盘当前 revision（过期副本必须被拒）
+    _g5_root = mktemp("stgoal")
+    _g5a = _GS_G(str(_g5_root))
+    _g5_goal = _g5a.create("目标：CAS 也要看得见别人的改动", max_rounds=5)
+    _g5b = _GS_G(str(_g5_root))
+    _g5a.update(_g5_goal.id, _g5_goal.revision, phase=_PAUSED_G)   # 磁盘 revision 前进
+    _g5_rejected = False
+    try:
+        _g5b.update(_g5_goal.id, _g5_goal.revision, phase="active")
+    except _GE_G as e:
+        _g5_rejected = "STALE" in str(getattr(e, "code", "") or e)
+    check("G5 过期 revision 的更新被拒（此前会用旧副本静默覆盖别人改过的状态）",
+          _g5_rejected)
+
+    # ── 运行度量聚合回归：H1–H4（元处理切片③）──
+    # 度量此前算不出来，不是因为难，而是因为**字段根本没落进日志**：
+    # 耗时只活在 result.metadata、token 只活在 self._cost；而 ts 只有秒级粒度
+    # （实测 262 份真实日志：平均 11.2 事件却只有 1.8 个不同 ts）。
+    _h_log = mktemp("metrics") / "sess.jsonl"
+    _h_log.write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+        '{"seq":2,"kind":"user/message","ts":"t","content":"hi"}',
+        '{"seq":3,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+        '"permission":"write","system_len":2000,"messages_count":10,"subagent":""}',
+        '{"seq":4,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+        '"permission":"write","system_len":3000,"messages_count":30,"subagent":"spawn"}',
+        '{"seq":5,"kind":"permission/decision","ts":"t","tool":"file_write",'
+        '"decision":"allowed","level":"write","detail":""}',
+        '{"seq":6,"kind":"permission/decision","ts":"t","tool":"terminal_exec",'
+        '"decision":"denied_by_rule","level":"write","detail":"r"}',
+        '{"seq":7,"kind":"tool/call","ts":"t","tool":"file_write","params":{}}',
+        '{"seq":8,"kind":"tool/result","ts":"t","tool":"file_write","status":"success",'
+        '"message":"","elapsed_ms":1200}',
+        '{"seq":9,"kind":"tool/result","ts":"t","tool":"file_write","status":"403",'
+        '"message":"越界","elapsed_ms":300}',
+        '{"seq":10,"kind":"model/usage","ts":"t","model":"m1","in_tokens":1000,'
+        '"out_tokens":200,"usd":0.0004}',
+        '{"seq":11,"kind":"assistant/message","ts":"t","content":"done"}',
+    ]), encoding="utf-8")
+    _h_met = _AE.session_metrics(_h_log)
+    check("H1 度量按已知值聚合（轮次/工具/耗时/授权/档位/模型/上下文/用量）",
+          _h_met["rounds"] == 2 and _h_met["subagent_rounds"] == 1
+          and _h_met["tool_calls"] == 1 and _h_met["tool_results"] == 2
+          and _h_met["tool_errors"] == 1 and _h_met["tool_elapsed_ms"] == 1500
+          and _h_met["tools"]["file_write"] == {"calls": 1, "errors": 1, "elapsed_ms": 1500}
+          and _h_met["decisions"] == {"allowed": 1, "denied_by_rule": 1}
+          and _h_met["levels"] == {"write": 2}
+          and _h_met["models"] == {"m1": 3}
+          and _h_met["context"] == {"rounds": 2, "max_system_len": 3000, "max_messages": 30}
+          and _h_met["usage"] == {"rounds": 1, "in_tokens": 1000, "out_tokens": 200,
+                                  "by_model": {"m1": {"rounds": 1, "in_tokens": 1000,
+                                                      "out_tokens": 200}}},
+          json.dumps({k: _h_met[k] for k in ("rounds", "tool_elapsed_ms", "tools",
+                                             "usage", "context")}, ensure_ascii=False)[:200])
+    _h_saved = _AE.engine_path
+    try:
+        _AE.engine_path = lambda: None
+        _h_py = _AE.session_metrics(_h_log)
+    finally:
+        _AE.engine_path = _h_saved
+    _h_a, _h_b = dict(_h_met), dict(_h_py)
+    _h_a.pop("source", None)
+    _h_b.pop("source", None)
+    check("H2 引擎路径与降级路径的度量完全相等（只允许 source 不同）",
+          _h_a == _h_b, f"{_h_a} != {_h_b}")
+    check("H3 度量内部自洽（rounds == request/snapshot 计数；tools 计数 == tool/call）",
+          _h_met["rounds"] == _h_met["counts"].get("request/snapshot", 0)
+          and _h_met["tool_calls"] == _h_met["counts"].get("tool/call", 0))
+    # H4：源码级守卫 —— 引擎侧必须先 events.load（新进程索引是空的）。
+    # 第一版漏了这一步：source 报 "ace-engine" 而事件数为 0，实测抓到。
+    _h_src = (FOLDER / "core" / "ace_engine.py").read_text(encoding="utf-8")
+    _h_fn = _h_src.split("def session_events", 1)[-1].split("def session_metrics", 1)[0]
+    check("H4 session_events 在取时间线前先 events.load（防「报引擎却零事件」回归）",
+          "events.load" in _h_fn)
+
+    # ── 跨会话汇总 + 成本：I1–I3 ──
+    # 成本此前答不出来：token 从不落日志（`model/usage` 是新的），而 `self._cost` 只活在内存里。
+    # 价格表仍是 `core/ace_cost` 的单一来源 —— 引擎只带 token 事实，不持有价格。
+    _i_dir = mktemp("cross")
+    for _i_i, _i_tok in ((1, (1000, 200)), (2, (500, 100))):
+        (_i_dir / f"s{_i_i}.jsonl").write_text("\n".join([
+            '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+            '{"seq":2,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+            '"permission":"write","system_len":100,"messages_count":2,"subagent":""}',
+            '{"seq":3,"kind":"tool/call","ts":"t","tool":"file_read","params":{}}',
+            '{"seq":4,"kind":"tool/result","ts":"t","tool":"file_read","status":"success",'
+            '"message":"","elapsed_ms":%d}' % (100 * _i_i),
+            '{"seq":5,"kind":"model/usage","ts":"t","model":"m1","in_tokens":%d,'
+            '"out_tokens":%d}' % _i_tok,
+        ]), encoding="utf-8")
+    _i_cs = _AE.cross_session_metrics(_i_dir)
+    check("I1 跨会话汇总把多份日志加在一起（段数/轮次/工具/耗时/token）",
+          _i_cs["sessions"] == 2 and _i_cs["rounds"] == 2 and _i_cs["tool_calls"] == 2
+          and _i_cs["tool_elapsed_ms"] == 300
+          and _i_cs["usage"]["in_tokens"] == 1500
+          and _i_cs["usage"]["out_tokens"] == 300
+          and _i_cs["usage"]["by_model"]["m1"] == {"rounds": 2, "in_tokens": 1500,
+                                                   "out_tokens": 300},
+          json.dumps({k: _i_cs[k] for k in ("sessions", "rounds", "usage")},
+                     ensure_ascii=False)[:180])
+    # 成本 = 价格表(每百万 token) × token：in 1500/1e6*1.0 + out 300/1e6*2.0 = 0.0021
+    _i_cost = _AE.cross_session_metrics(_i_dir, pricing={"m1": {"in": 1.0, "out": 2.0}})
+    check("I2 成本按 core/ace_cost 的价格表算（引擎不持有价格）",
+          _i_cost.get("usd") is not None and abs(_i_cost["usd"] - 0.0021) < 1e-9,
+          f"usd={_i_cost.get('usd')}")
+    _i_saved = _AE.engine_path
+    try:
+        _AE.engine_path = lambda: None
+        _i_py = _AE.cross_session_metrics(_i_dir, pricing={"m1": {"in": 1.0, "out": 2.0}})
+    finally:
+        _AE.engine_path = _i_saved
+    _i_a, _i_b = dict(_i_cost), dict(_i_py)
+    _i_a.pop("sources", None)
+    _i_b.pop("sources", None)
+    check("I3 引擎路径与降级路径的跨会话汇总相等（含成本）",
+          _i_a == _i_b, f"{_i_a} != {_i_b}")
+    check("I4 没有价格表时 usd 如实为 None（不编数字）",
+          _AE.cross_session_metrics(_i_dir).get("usd") is None)
+
+    # I5：集成路径 —— `/status` 必须**真的**把这一行打出来。
+    # 这条是刚踩出来的：那段里原本是 `except Exception: pass`，于是"算出来是空"与
+    # "异常被吞"在界面上长得一模一样（我自己的探针就被骗过一次：静默少一行）。
+    # 根因是 `ace_cost` 在 ai_code 里是局部导入，我按模块级名字用了 → NameError。
+    _i5_root = mktemp("statusline")
+    (_i5_root / ".ace_sessions").mkdir()
+    (_i5_root / ".ace_sessions" / "s1.jsonl").write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+        '{"seq":2,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+        '"permission":"write","system_len":100,"messages_count":2,"subagent":""}',
+        '{"seq":3,"kind":"model/usage","ts":"t","model":"m1","in_tokens":42000,'
+        '"out_tokens":3800}',
+    ]), encoding="utf-8")
+    _i5_cli = ai_code.AgentCLI({"project_root": str(_i5_root), "permission": "readonly",
+                                "mock": True, "pricing": {"m1": {"in": 1.0, "out": 2.0}}},
+                               mock=True)
+    _i5_buf = io.StringIO()
+    with contextlib.redirect_stdout(_i5_buf):
+        _i5_cli.run_command("/status")
+    _i5_out = _i5_buf.getvalue()
+    check("I5 /status 真的打出跨会话累计行（防「异常被吞 → 静默少一行」回归）",
+          "跨会话累计" in _i5_out and "42.0k" in _i5_out
+          and "跨会话统计不可用" not in _i5_out,
+          _i5_out[-300:])
+
+    # ── 主页度量行：J1–J2 ──
+    # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。
+    # 主页那一行挂在标题**下面**，不占分区、不进入选择序列 —— 它不需要被选中。
+    from cli.ace_sessionlog import SessionLog as _SL_j  # noqa: E402
+    _j_root = mktemp("homemeta")
+    (_j_root / ".ace_sessions").mkdir()
+    (_j_root / ".ace_sessions" / "s1.jsonl").write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+        '{"seq":2,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+        '"permission":"write","system_len":100,"messages_count":2,"subagent":""}',
+        '{"seq":3,"kind":"model/usage","ts":"t","model":"m1","in_tokens":42000,'
+        '"out_tokens":3800}',
+    ]), encoding="utf-8")
+    _j_cli = ai_code.AgentCLI({"project_root": str(_j_root), "permission": "readonly",
+                               "mock": True}, mock=True)
+    _j_cli.session_log = _SL_j(str(_j_root / ".ace_sessions" / "s1.jsonl"))
+    _j_lines = _j_cli.home_lines(width=92)
+    check("J1 主页标题下带跨会话累计行（标题仍在第一行，且没有不可用告警）",
+          any("跨会话累计" in x for x in _j_lines)
+          and _j_lines[0].startswith("ACE ")
+          and not any("跨会话统计不可用" in x for x in _j_lines),
+          str(_j_lines[:3]))
+    # J2：meta 是可选的 —— 不传与传空串逐行一致（既有调用/测试不受影响）
+    from ui import ace_home as _home_j  # noqa: E402
+    _j_secs = _home_j.build_home({"permission": "readonly"}, [])
+    _j_a = _home_j.render_home(_j_secs, lambda k: k, header="H")
+    _j_b = _home_j.render_home(_j_secs, lambda k: k, header="H", meta="")
+    check("J2 render_home 的 meta 可选（不传 = 传空，逐行一致）", _j_a == _j_b and _j_a[1] == "",
+          str(_j_a[:3]))
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

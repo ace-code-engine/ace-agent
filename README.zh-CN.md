@@ -4,7 +4,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="安全核心依赖" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="模型调用" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.41.0%20(2026--09--24)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.42.0%20(2026--09--26)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
@@ -165,47 +165,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
 
 ## 架构概览
 
-### 分层一览
+每层一句话：`ai_code.py`（终端：登录页 / REPL / 斜杠命令）→ `agent_runner.py`（模型 ↔ 执行层闭环，最多 20 轮）→ **`execution_layer.py`**（解析 → 权限裁决 → 安全闸门 → 写前快照 → 执行；14 阶段状态机，**安全裁决的强制边界所在**）→ `tools/registry.py`（工具单点声明）→ `core/`（快照、记忆、元处理）。
 
-```mermaid
-flowchart LR
-    U["用户 / 终端"]
-    CLI["ai_code.py<br/>登录页 · REPL · 提供商切换"]
-    LOOP["agent_runner.py<br/>模型 ↔ 执行层 多轮闭环"]
-    GW["gateway_v2/<br/>L1 意图 · L2 技能 · L4 守门 · L5 飞轮"]
-    EL["execution_layer.py<br/>解析 → 权限 → 闸门 → 快照 → 执行"]
-    T["tools/ 工具集<br/>file / code / network / db / parse / browser"]
-    EX["executor/ (Go)<br/>Job Object 边界"]
-    U --> CLI --> LOOP --> EL --> T
-    LOOP -.-> GW
-    EL --> EX
-```
+Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 —— 不是独立的第二道安全流水线。
 
-### 每层职责
-
-- **用户层** —— 登录页、REPL、斜杠命令。
-- **交互循环** —— 模型 ↔ 执行层闭环，最多 20 轮。
-- **执行层** —— 协议解析 → 权限裁决 → 安全闸门 → 写前快照 → 工具执行。**14 阶段状态机**，安全裁决的强制边界所在。
-- **工具集** —— `registry.py` 单点声明 + 按域执行器。
-- **支撑模块** —— `core/work.py`、`core/guardian.py`、`core/archive.py`、`core/nuwa.py` 挂在执行层与循环上。
-
-> **Gateway 与执行层的关系。** 网关（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略与辅助层，不是独立的第二道安全流水线 —— 图中虚线即此意。
-
-### 项目结构
-
-```
-ace-agent/
-├── ai_code.py / agent_runner.py   # 前端（登录页/REPL）+ 交互循环
-├── execution_layer.py             # 执行层：安全裁决的强制边界所在
-├── ui/  cli/  core/               # 终端表现层 / 操作者工具 / 引擎支撑
-├── tools/  gateway_v2/  executor/ # 工具集 / 网关策略 / Go 沙箱执行器
-├── test_all.py  benchmarks/  e2e/ # 测试 / 基准 / 冒烟
-├── packaging/                     # 发行打包：PyInstaller spec + 带冒烟门禁的构建脚本
-├── examples/  docker/  docs/  demo/
-└── SECURITY.md  CHANGELOG.md  LICENSE
-```
-
-**延伸阅读** —— 逐文件清单、分层详表与 ADR 索引：`docs/ARCHITECTURE.md`。
+**架构图（Mermaid，GitHub 自动渲染）、分层职责表与权威目录树** → **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**。
 
 ---
 

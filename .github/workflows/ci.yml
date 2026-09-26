@@ -35,7 +35,7 @@ jobs:
           pip install requests
 
       - name: Compile check
-        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py setup_env.py test_all.py gateway_v2 tools e2e benchmarks cli core ui tui demo docker packaging
+        run: python -m compileall -q ai_code.py agent_runner.py execution_layer.py setup_env.py test_all.py gateway_v2 tools e2e benchmarks cli core ui tui demo docker packaging engine
 
       # 失败时把失败项打成 GitHub **注解**：注解不需要登录就能读（REST 的 job log
       # 要 admin 权限），本机复现不了平台差异时，这是唯一能拿到原因的路子。
@@ -57,6 +57,77 @@ jobs:
       - name: Demo 动画与当前 CLI 输出一致
         if: matrix.python-version == '3.12'
         run: python demo/record_demo.py --check
+
+  # Rust 元处理引擎（engine/）：CI 此前**从不编译它** —— 那句 compileall 只语法检查了
+  # `engine/tools/xcheck.py`。于是引擎那 20 条单测、`--selftest`、以及 test_all [70] 里
+  # "引擎路径 == 纯 Python 降级路径"那几条断言，在 CI 上**都在拿降级路径和它自己比**
+  # （二进制不在 → 两边都是 Python，恒等成立、必过）。那不是覆盖率低，是**承诺没人在验**：
+  # 引擎烂掉 CI 也不会响。
+  engine:
+    name: Rust engine (build + unit tests + parity with the Python fallback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTFLAGS: -D warnings        # 与仓库对 ruff 零命中的取态一致：警告即红
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      # 零依赖 crate：`--offline` 顺便证明"真的没有隐藏的 crate 依赖"（评审过的那条边界）
+      - name: Build (release, offline)
+        working-directory: engine
+        run: cargo build --release --offline
+
+      - name: Unit tests
+        working-directory: engine
+        run: cargo test --release --offline
+
+      - name: Self-test
+        working-directory: engine
+        run: ./target/release/ace-engine --selftest
+
+      # 先证明"引擎真的被找到"，再跑断言 —— 否则下一步照样会在降级路径上空转，
+      # 也就是这个作业要消灭的那个问题本身。
+      - name: 断言引擎真的被发现（否则下一步空转）
+        run: |
+          python -c "import sys; from core import ace_engine as ae; p = ae.engine_path(); print('engine_path() ->', p); sys.exit(0 if ae.engine_available() else 'engine NOT found: 下面的断言会空转')"
+
+      # 带着引擎跑：`--only 70` 会连带把依赖段完整跑一遍（实测 65 段 / 2308 条 / 约 71 s），
+      # 于是 E1–E5 与 H1–H4 / I1–I3 那些"两条路径同口径"的断言才真的在比两个实现。
+      - name: 带引擎跑断言（引擎路径 ↔ 纯 Python 降级路径必须同口径）
+        run: |
+          set +e
+          python test_all.py --only 70 2>&1 | tee "$RUNNER_TEMP/engine_tests.log"
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=ace-engine-tests-failed::test_all.py --only 70 退出码 $code（最多列 8 条）"
+            grep -E '^  - ' "$RUNNER_TEMP/engine_tests.log" | head -8 | while IFS= read -r line; do
+              echo "::error title=ace-engine-test-failure::${line}"
+            done
+          fi
+          exit "$code"
+
+      # 真实数据对拍（xcheck）要读用户的 .agent_memory.json / .ace_sessions，仓库里没有；
+      # 它是本地工具而不是 CI 门禁，所以有就跑、没有就如实说跳过。
+      - name: 真实数据对拍（有真实记忆才跑）
+        run: |
+          if [ -f .agent_memory.json ]; then
+            python engine/tools/xcheck.py
+          else
+            echo "无 .agent_memory.json（CI 的正常情况），跳过真实数据对拍"
+          fi
 
   # 容器那套加固参数（--init / --ulimit nofile / HOME=/tmp / --read-only / cap-drop ALL …）
   # 是不是真被 daemon 接受、--network none 与 --read-only 边界是不是真成立，

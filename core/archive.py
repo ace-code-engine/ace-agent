@@ -22,6 +22,7 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -103,6 +104,10 @@ class MemoryArchive:
         self.topic_anchors: Dict[str, Optional[int]] = {}   # 每会话独立主题锚点
         self.topic_texts: Dict[str, str] = {}
         self.shift_count = 0
+        # 加载期的"如实上报"字段（供 /memory 显示）：跳过几条坏 entry、文件是否被隔离
+        self.skipped_entries = 0
+        self.load_error = ""
+        self.quarantined = ""
         self._load()
 
     def set_session(self, tag: str) -> None:
@@ -206,37 +211,114 @@ class MemoryArchive:
             "current_topic": self.topic_texts.get(self.session_tag, "")[:40],
             "threshold": self.threshold,
             "persist_path": str(self.path) if self.path else None,
+            # 加载期异常必须能被看见：跳过几条、要不要去 recov 那个隔离文件
+            "skipped_entries": self.skipped_entries,
+            "load_error": self.load_error,
+            "quarantined": self.quarantined,
         }
+
+    # ---------- 持久化（容错 + 合并） ----------
+
+    @staticmethod
+    def _entry_key(e: "MemoryEntry") -> tuple:
+        """条目身份：写回前合并去重用（同一批反复写不会翻倍）。"""
+        return (e.session, round(float(e.ts or 0), 3), e.text)
+
+    def _quarantine(self) -> str:
+        """把**读不出来**的记忆文件挪到一边（绝不就地覆盖），返回新路径。
+
+        为什么：老实现读失败就 `entries=[]`，而接着任何一次 `add()` 都会把内存里
+        这份空表写回磁盘 —— 一次半截写/手改 = 用户全部记忆永久丢失。实测复现过：
+        3 条里 1 条坏 → 内存 0 条 → 磁盘剩 1 条。挪走至少让原文还在，能被人工捡回来。
+        """
+        try:
+            dst = self.path.with_name(f"{self.path.name}.corrupt-{int(time.time())}")
+            self.path.replace(dst)
+            return str(dst)
+        except OSError:
+            return ""
+
+    def _merge_with_disk(self) -> List["MemoryEntry"]:
+        """写回前，把磁盘上"别人的"条目并进来（按身份去重，磁盘顺序在前）。
+
+        为什么必须：主会话与子代理各持一个 `MemoryArchive`（子代理每次新建），而老实现
+        把**内存视图**整表写回 —— 子代理写完、主会话再写时，它那份旧视图会把子代理的
+        条目整批抹掉。实测复现过：磁盘只剩主会话的两条，子代理那条不见了。
+        合并之后是"只见增加、不见减少"；最后写者赢的只剩同一身份的重复项。
+        """
+        disk: List[MemoryEntry] = []
+        if self.path and self.path.exists():
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8", errors="replace"))
+                for item in (data.get("entries") or []):
+                    if not isinstance(item, dict):
+                        continue
+                    item.setdefault("session", "default")
+                    try:
+                        disk.append(MemoryEntry(**item))
+                    except TypeError:
+                        continue            # 磁盘上单条坏 → 跳过，不影响其它
+            except (json.JSONDecodeError, ValueError, OSError):
+                disk = []
+        seen = {self._entry_key(e) for e in disk}
+        out = list(disk)
+        for e in self.entries:
+            k = self._entry_key(e)
+            if k not in seen:
+                seen.add(k)
+                out.append(e)
+        return out
 
     def _persist(self) -> None:
         if not self.path:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        merged = self._merge_with_disk()
         data = {
-            "entries": [asdict(e) for e in self.entries],
+            "entries": [asdict(e) for e in merged],
             "topic_anchors": self.topic_anchors,
             "topic_texts": self.topic_texts,
             "shift_count": self.shift_count,
         }
-        tmp = self.path.with_suffix(".json.tmp")
+        # 临文件名带随机后缀：共享的 `.json.tmp` 在两个实例同时写时会互相踩
+        tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex[:8]}.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.path)
+        self.entries = merged        # 内存视图跟上磁盘，后续写不再拿旧视图
 
     def _load(self) -> None:
+        """逐条容错加载：单条坏只丢那一条；整个文件读不出来则隔离原文，**绝不自我清空**。"""
         if not self.path or not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            entries = []
-            for e in data.get("entries", []):
-                e.setdefault("session", "default")
-                entries.append(MemoryEntry(**e))
-            self.entries = entries
-            self.topic_anchors = data.get("topic_anchors", {})
-            self.topic_texts = data.get("topic_texts", {})
-            self.shift_count = data.get("shift_count", 0)
-        except (json.JSONDecodeError, TypeError):
+            raw = self.path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            self.load_error = f"{type(e).__name__}: {e}"
+            return
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError) as e:
+            self.load_error = f"{type(e).__name__}: {e}"
+            self.quarantined = self._quarantine()
             self.entries = []
+            return
+        entries: List[MemoryEntry] = []
+        skipped = 0
+        for item in (data.get("entries") or []):
+            if not isinstance(item, dict):
+                skipped += 1
+                continue
+            item = dict(item)
+            item.setdefault("session", "default")
+            try:
+                entries.append(MemoryEntry(**item))
+            except TypeError:
+                skipped += 1          # 单条坏（缺字段/多字段）→ 只丢这一条
+        self.entries = entries
+        self.skipped_entries = skipped
+        self.topic_anchors = data.get("topic_anchors") or {}
+        self.topic_texts = data.get("topic_texts") or {}
+        self.shift_count = data.get("shift_count") or 0
 
 
 if __name__ == "__main__":

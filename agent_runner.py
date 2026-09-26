@@ -29,6 +29,7 @@ import os
 import shutil
 import re
 import sys
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -67,6 +68,12 @@ SYSTEM_PROMPT_PATH = PROMPT_DIR / "agent_system_prompt_v7.md"
 SYSTEM_PROMPT_V8_PATH = PROMPT_DIR / "agent_system_prompt_v8.md"
 SYSTEM_PROMPT_TOOLS_PATH = PROMPT_DIR / "agent_system_prompt_tools.md"
 MAX_ROUNDS = 20
+
+# 授权通过/拒绝的提示词（语义与 execution_layer 的 PROMPT_PERM_* 同一件事）。
+# 脚本化模型据此知道"刚才那个调用被拦下了"，从而**重发同一个调用** —— 真模型就是
+# 这么做的（`PROMPT_PERM_GRANTED` 的字面要求）。脚本不重发就会造出"批准了、但从没
+# 执行过"的假流程，让反幻觉闸门（正确地）把它拦下，一路烧到轮数上限。
+_MOCK_GRANT_MARKERS = ("用户已授权", "请重试刚才被拦截的工具")
 
 
 def load_system_prompt(tools_mode: bool = False) -> str:
@@ -356,6 +363,8 @@ class ModelProvider:
         self.mock_step = 0
         self.mock_tool_result: Optional[str] = None
         self.mock_script: Optional[str] = None
+        # 上一次给出的工具调用（协议文本）。授权通过后要**重发它** —— 见 generate_mock。
+        self.mock_last_call: Optional[str] = None
 
     # ---------- 脚本化假模型（离线演示完整循环） ----------
 
@@ -372,7 +381,22 @@ class ModelProvider:
         为什么要有后两套：演示"全流程跑通"和演示"执行层真的拦得住"是两件事；
         而"能改文件"和"改了哪一行看得见"又是两件事。关键词只在第一轮判定，
         之后按 `mock_script` 走完，不靠每轮重新嗅探。
+
+        **授权后重发同一个调用**：真模型被拦下再获授权时，执行层喂给它的是
+        `PROMPT_PERM_GRANTED`（"请重试刚才被拦截的工具"），它就该重发那个调用。
+        脚本化模型此前不重发、而是继续推进剧本 —— 于是造出一条"批准了、但从没执行过"
+        的假流程：文件没写成、`tools_ran_this_task` 还是 0，最后那句"改好了"被反幻觉
+        闸门（正确地）拦下，一路烧到轮数上限、连 final 事件都不发。
+        mock 与真实路径分叉时，"测试通过"代表的就不再是"能跑"。
         """
+        if self.mock_last_call and any(k in prompt for k in _MOCK_GRANT_MARKERS):
+            return self.mock_last_call                       # 不推进剧本步数
+        text = self._generate_mock_script(prompt)
+        if '"tool"' in text:
+            self.mock_last_call = text
+        return text
+
+    def _generate_mock_script(self, prompt: str) -> str:
         self.mock_step += 1
         if self.mock_step == 1:
             if any(k in prompt for k in self.MOCK_BLOCKED_KEYS):
@@ -762,6 +786,10 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
     # 每次会话重置 mock 状态，防止跨会话串号
     provider.mock_step = 0
     provider.mock_tool_result = None
+    # 任务身份：一次用户请求一个 id，本次请求的**所有轮次**共用它。
+    # 不能靠 user_input 文本判断"是不是同一个任务"——同一句话重发（↑ 回车、goal 续跑）
+    # 会让反幻觉计数与畸形输出指纹跨请求残留（见 execution_layer._task_identity）。
+    task_id = uuid.uuid4().hex
     # 记忆预注入：在模型生成之前把相关历史记忆放进 prompt（无记忆时原样返回）
     next_prompt = el.prepare_context(user_input)
     for round_no in range(1, MAX_ROUNDS + 1):
@@ -776,7 +804,7 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
         if verbose:
             print(f"\n--- 第 {round_no} 轮模型输出 ---\n{output}")
         try:
-            result = el.process_agent_output(output, user_input)
+            result = el.process_agent_output(output, user_input, task_id)
         except Exception as e:
             print(f"\n⚠ 执行层异常: {e}（已要求模型调整输出格式）")
             next_prompt = PROMPT_EXEC_EXCEPTION.format(err=e)
@@ -861,6 +889,11 @@ def main() -> None:
     # 实际上没有任何边界。档位不一致比没有档位更糟：它是个错误的心理预期。
     parser.add_argument("--sandbox", default="off", choices=["off", "job", "docker"],
                         help="执行位置档位：off=宿主直跑 / job=Job Object / docker=一次性容器")
+    parser.add_argument("--snapshot-verify", default="create",
+                        choices=["create", "rollback"],
+                        help="快照完整性校验的时机：create=建完即校验（默认，坏快照挡在写之前）/ "
+                             "rollback=只在恢复时校验（每次写快约 10×，坏快照等到 /undo 才暴露，"
+                             "但同样拒绝恢复）")
     parser.add_argument("--egress-allowlist", default="",
                         help="出站域名白名单，逗号分隔（缺省 = 闸门关闭）")
     parser.add_argument("--approval-policy", default=None,
@@ -893,6 +926,9 @@ def main() -> None:
                 # 空列表的含义是"配了，但除内置端点外全拦"，两者不能混。
                 "egress_allowlist": _egress or None,
                 "approval_policy": args.approval_policy,
+                # 与 ai_code 的 `snapshot_verify` 同一口径：两个入口都接，别只接一个
+                # （SEC-010 的成因正是"两个入口各写一遍、漏了一个"）
+                "snapshot_verify": args.snapshot_verify,
                 "sandbox_base": str(Path(args.project_root).resolve() / ".sandbox_tmp")},
     )
     print(f"Agent 已启动 | 模型: {provider.mode} | 权限: {args.permission} | "

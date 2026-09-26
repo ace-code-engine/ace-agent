@@ -1,7 +1,26 @@
 # 架构（Architecture）
 
-> 本文档承接原 README「项目结构」权威清单与架构分层（docs/design/README-RESTRUCTURE.md，v3.7）；完整目录树**以本文档为准**（CONTRIBUTING/维护者索引指向这里）。
-> README 只展示架构级短树，深读从这里进入。
+> 本文档承接原 README「项目结构」权威清单与架构分层（docs/design/README-RESTRUCTURE.md，v3.7）；**架构图与完整目录树以本文档为准**（README 只给一句话概览，然后链到这里）。
+
+## 架构图（GitHub 直接渲染）
+
+```mermaid
+flowchart LR
+    U["用户 / 终端"]
+    CLI["ai_code.py<br/>登录页 · REPL · 提供商切换"]
+    LOOP["agent_runner.py<br/>模型 ↔ 执行层 多轮闭环"]
+    GW["gateway_v2/<br/>L1 意图 · L2 技能 · L4 守门 · L5 飞轮"]
+    EL["execution_layer.py<br/>解析 → 权限 → 闸门 → 快照 → 执行"]
+    T["tools/ 工具集<br/>file / code / network / db / parse / browser"]
+    EX["executor/ (Go)<br/>Job Object 边界"]
+    ENG["core/ace_engine.py → engine/ (Rust)<br/>只读元处理（可选 · 不进发布包）"]
+    U --> CLI --> LOOP --> EL --> T
+    LOOP -.-> GW
+    EL --> EX
+    CLI -.-> ENG
+```
+
+实线是**执行路径**，虚线是**旁路增强**：Gateway 与元处理引擎都**不持有执行权**，坏掉只损失增强（前者降级为无策略辅助，后者退回纯 Python 同口径实现），不会放宽任何闸门。
 
 ## 1. 分层职责
 
@@ -24,7 +43,7 @@
 - `L4 守门`：模型产出经过文本守门与成功结果守门（`_stage_final_reply` / `_stage_output_guard`，违规回滚本轮快照）；
 - `L5 飞轮`：守门违规落盘为 SFT 数据（`flywheel_path`）。
 
-README 架构图以虚线（旁路）连接 Gateway 与交互循环，即表达此意——每轮裁决的强制边界仍在 `execution_layer.py`。
+上面的架构图以虚线（旁路）连接 Gateway 与交互循环，即表达此意——每轮裁决的强制边界仍在 `execution_layer.py`。
 
 ## 3. 完整目录树（权威）
 
@@ -78,10 +97,11 @@ ace-agent/
 │   ├── ace_http.py             #   模型调用的重试与退避（Retry-After + full jitter，纯判定可单测）
 │   ├── ace_client.py           #   模型 HTTP 客户端：唯一的出网实现（OpenAI/Anthropic 两种格式 + tools 降级，两个前端共用，R-03）
 │   ├── ace_executor.py         #   Go 执行器客户端（NDJSON 协议，纯 stdlib）
+│   ├── ace_engine.py           #   Rust 元处理引擎客户端（会话事件流索引等；引擎不可用时降级为纯 Python 同口径实现）
 │   ├── ace_model.py            #   模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
 │   ├── work.py                 #   诱饵工厂 + AST 行为检测（ASTDetector）
 │   ├── guardian.py             #   物理快照回滚：快照 / 完整性预检 / HMAC / 自动清理
-│   ├── archive.py              #   SimHash 记忆引擎
+│   ├── archive.py              #   SimHash 记忆引擎（逐条容错加载 + 写回前与磁盘合并：单条坏/多实例并发都不会静默丢记忆；读不出来的原文隔离成 .corrupt-*）
 │   ├── nuwa.py                 #   POC 报告（HTML + JSON）
 │   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
 │   ├── ace_mcp.py              #   MCP 客户端：stdio JSON-RPC 2.0（握手 / tools-list / tools-call + 子进程生命周期）
@@ -102,6 +122,7 @@ ace-agent/
 │   ├── ace_claims.py           #   「模型声称完成了操作」的措辞判据（编排层与执行层共用，H-20）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
+├── engine/                     # Rust 内置计算引擎：分词/指纹/召回等**无裁决权**的纯计算 sidecar（NDJSON，同 ADR-002；不碰文件系统、不判权限）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）
 │   ├── __init__.py             #   包入口：组合各域 mixin 的 ToolExecutor（__all__ 导出）
@@ -130,7 +151,7 @@ ace-agent/
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
 ├── e2e/                        # 端到端冒烟三件：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
-├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview）
+├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview；本机绝对路径按"框内保宽/自由行折一列"折叠，故录制位置无关）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
 │   ├── 01_security_lab/        #   权限裁决 + 写前快照 + /undo 回滚 + terminal_exec 逐次确认
@@ -142,6 +163,7 @@ ace-agent/
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
+│   ├── RELEASE-NOTES-v3.42.0.md #  本版更新介绍（执行层承诺对齐 / 元处理内核 / 运行度量）
 │   ├── RELEASE-NOTES-v3.40.2.md #  本版更新介绍（可直接贴进 GitHub Release；修回 README 的编码错误）
 │   ├── RELEASE-NOTES-v3.40.1.md #  v3.40.1 更新介绍（终端编码防线）
 │   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
@@ -228,6 +250,7 @@ ace-agent/
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    ├── RELEASE-ANNOUNCEMENT-v3.42.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：执行层承诺对齐 / 元处理内核 / 运行度量）
     ├── RELEASE-ANNOUNCEMENT-v3.41.0.md  #   中英双语发布公告（可直接当 Release 说明）
     └── pull_request_template.md#   PR 模板
 ```

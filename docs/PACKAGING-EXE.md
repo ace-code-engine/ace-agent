@@ -26,9 +26,41 @@
 | `code_execute` | ❌ **501** | 它靠 `subprocess.run([sys.executable, tmp_file])` 跑 Python 代码；冻结后 `sys.executable` 是 `ace.exe` 自己，不是解释器，而最小环境又把 PATH 洗掉，找不到第二个解释器。已加冻结探测（`tools/code_tools.py: _is_frozen()`），`test_all [10]` 有 5 条断言盯着 |
 | `--install-ui` / `--setup` | ❌ 无意义 | 包内已自带解释器与界面依赖；`setup_env.py` 那套"找/建解释器"逻辑在冻结包里没有用武之地 |
 | `--install-executor` | ⚠️ 视情况 | 打包时 `executor/` 里有 Go 二进制就一并带上；没带则需要联网下载 |
+| Rust 元处理引擎（`engine/`） | ❌ **不进包** | 冻结版自动走同口径纯 Python 路径，功能不缺、只是部分命令略慢；理由与实测见下节 |
 
 **不悄悄退回"找系统 Python"是有意的**：那会把"宿主机装没装 Python"变成行为差异，同一份
 发行包在两台机器上能力不同——比明确禁用更难排查。这与 ACE 其余"不静默降级"的取态一致。
+
+## Rust 引擎不进包（冻结尾包行为）
+
+`packaging/ace.spec` 的 `datas` 只收 `prompts/ locales/ assets/ vendor/` 与三个根级文档（`README.md`
+`SECURITY.md` `LICENSE`），外加打成二进制时存在的 `executor/`，**`engine/` 不在其中**——既没有 Rust
+源码，也没有编出来的 `ace-engine` 二进制。这不是漏了，是决定：
+
+- **实测在热路径上没有收益。** 记忆召回（memory recall）引擎 **0.7×**，即比 Python 慢；262 个小日志
+  的跨会话聚合引擎 164 ms、本地解析 76 ms，引擎只在**单个大日志**上赢（长文本指纹 11×）。
+  唯一真正用得上引擎的交互命令是 `/audit stats`，它省下的是毫秒级。
+- **进包的成本是实的。** 二进制要按平台编（Windows/Linux/macOS），意味着 `release-exe.yml` 要多带一套
+  Rust 工具链、多一道 smoke，且引擎与纯 Python 实现的输出必须长期保持逐字节一致（现在靠
+  `engine/tools/xcheck.py` 8/8 与 `test_all [70]` 的 H/I 段盯着）——为一个没有热路径收益的东西付这份
+  长期同步成本不划算。
+
+冻结版里 `core/ace_engine.engine_path()` 找不到引擎，于是 `session_events/session_metrics/
+cross_session_metrics` 全部走 `_python_events/_python_meta`：**字段集与引擎路径逐字段对齐**（`_NORM_KEYS`
+固定字段集），所以输出一样、只是慢一点，不构成能力缺失——因此不与本文上面那条"不静默降级"冲突
+（那条针对的是能力有无，不是快慢）。
+
+**要改回去**：在打包机（或 CI）上先 `cargo build --release --offline`，再在 `ace.spec` 的 `datas` 里加
+
+```python
+(ROOT / "engine" / "target" / "release" / "ace-engine.exe", "engine/target/release"),
+```
+
+**目标目录必须照抄 `engine/target/release`**——`core/ace_engine.engine_path()` 找的是
+`_repo_root()/engine/target/release/ace-engine[.exe]`（冻结后 `__file__` 落在 PyInstaller 的解包目录，
+`_repo_root()` 就是它），写成 `"engine"` 会打进包却永远找不到。不想动 spec 也可以走环境变量：
+`ACE_ENGINE=<绝对路径>` 优先级最高（但它**显式指定却不存在时就直接放弃**，不会回退去别处找）。
+除路径外无需改代码，降级判据照旧。
 
 ## 怎么构建
 

@@ -4,7 +4,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Safety core dependencies" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="Model API" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.41.0%20(2026--09--24)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.42.0%20(2026--09--26)-brightgreen"></a>
 </p>
 
 <h1 align="center">ACE · AI Code Engine</h1>
@@ -147,47 +147,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
 
 ## Architecture
 
-### Layers at a glance
+One line per layer: `ai_code.py` (terminal: landing, REPL, slash commands) → `agent_runner.py` (the model ↔ execution-layer loop, up to 20 rounds) → **`execution_layer.py`** (parse → permission ruling → safety gates → pre-write snapshot → execute; a 14-stage state machine and **the only place safety is actually enforced**) → `tools/registry.py` (single-point tool declaration) → `core/` (snapshots, memory, meta-processing).
 
-```mermaid
-flowchart LR
-    U["User / terminal"]
-    CLI["ai_code.py<br/>landing · REPL · provider switch"]
-    LOOP["agent_runner.py<br/>model ↔ execution layer loop"]
-    GW["gateway_v2/<br/>L1 intent · L2 skills · L4 guard · L5 flywheel"]
-    EL["execution_layer.py<br/>parse → permission → gates → snapshot → execute"]
-    T["tools/ registry<br/>file / code / network / db / parse / browser"]
-    EX["executor/ (Go)<br/>Job Object boundary"]
-    U --> CLI --> LOOP --> EL --> T
-    LOOP -.-> GW
-    EL --> EX
-```
+Gateway (L1 / L2 / L4 / L5) is a policy layer **called inside each round** by the execution layer — not a second, independent security pipeline.
 
-### What each layer owns
-
-- **User layer** — landing page, REPL and slash commands.
-- **Loop** — the model ↔ execution-layer closed loop, up to 20 rounds.
-- **Execution layer** — protocol parsing → permission ruling → safety gates → pre-write snapshot → tool execution. A **14-stage state machine**, and the only place safety is actually enforced.
-- **Tool set** — single-point declaration in `registry.py` plus per-domain executors.
-- **Support modules** — `core/work.py`, `core/guardian.py`, `core/archive.py`, `core/nuwa.py` hang off the layer and the loop.
-
-> **Gateway vs. execution layer.** The gateway (L1 / L2 / L4 / L5) is a policy and assist layer *called inside each round* by the execution layer — not a second, independent security pipeline. The dashed edge in the diagram says exactly that.
-
-### Project layout
-
-```
-ace-agent/
-├── ai_code.py / agent_runner.py   # terminal frontends (landing/REPL) + agent loop
-├── execution_layer.py             # the layer where safety is actually enforced
-├── ui/  cli/  core/               # terminal presentation / operator tools / engine support
-├── tools/  gateway_v2/  executor/ # tool registry / gateway policy / Go sandbox executor
-├── test_all.py  benchmarks/  e2e/ # tests / benchmarks / smoke tests
-├── packaging/                     # release build: PyInstaller spec + smoke-gated build script
-├── examples/  docker/  docs/  demo/
-└── SECURITY.md  CHANGELOG.md  LICENSE
-```
-
-**Further reading** — layer table, authoritative directory tree and the ADR index: `docs/ARCHITECTURE.md`.
+**Diagram (Mermaid, rendered by GitHub), the per-layer table and the authoritative directory tree** → **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
 ---
 

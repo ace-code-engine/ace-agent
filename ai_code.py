@@ -742,6 +742,12 @@ def _handle_enter_key(buf) -> None:
     buf.validate_and_handle()
 
 
+def _fmt_k(n: int) -> str:
+    """大数走 k 记法：状态行宽度有限，120000 → 120.0k（小于 1 万就原样，免得 12 变怪样）。"""
+    n = int(n or 0)
+    return f"{n / 1000:.1f}k" if n >= 10_000 else str(n)
+
+
 def mask_secret(s: str) -> str:
     s = s or ""
     if len(s) <= 8:
@@ -885,8 +891,17 @@ class ModelClient:
                 f"(api: {self.api_format}, key: {mask_secret(self.api_key)})")
 
     def stream_generate(self, system: str, messages: List[Dict],
-                        on_delta: Optional[Callable] = None) -> str:
-        """on_delta(full_text)：接收增量完整文本，用于自定义展示（不打印原始输出）"""
+                        on_delta: Optional[Callable] = None,
+                        permission: Optional[str] = None) -> str:
+        """on_delta(full_text)：接收增量完整文本，用于自定义展示（不打印原始输出）
+
+        `permission`：当前权限档，**由调用方在请求时传入**。工具清单按它裁剪，而权限的
+        唯一真源是 `el.permission.level`（`/permission` 与 Shift+Tab 都只改那里）。
+        此前按 `self.permission_level` 裁剪 —— 那是构造时从 cfg 抄的一份**副本**，
+        于是 `/permission write` 之后执行层已放行、发给模型的清单里却仍然没有 file_write
+        （实测：client='readonly' / layer='write'）。不传则退回该副本，兼容直接构造
+        ModelClient 的测试与嵌入方。
+        """
         if self.mock:
             return self._stream_mock(messages, on_delta)
         if not self.base_url or not self.api_key:
@@ -895,7 +910,7 @@ class ModelClient:
                 "或写入 ~/.ai_code.json；也可 --mock 离线演示")
         if self.api_format == "anthropic":
             return self._stream_anthropic(system, messages, on_delta)
-        return self._stream_openai(system, messages, on_delta)
+        return self._stream_openai(system, messages, on_delta, permission)
 
     def _stream_mock(self, messages: List[Dict], on_delta: Optional[Callable] = None) -> str:
         """脚本化假模型 —— 逐行吐字的实现与 agent_runner 共用（core/ace_client.py）。
@@ -907,7 +922,8 @@ class ModelClient:
                                       on_delta)
 
     def _stream_openai(self, system: str, messages: List[Dict],
-                       on_delta: Optional[Callable] = None) -> str:
+                       on_delta: Optional[Callable] = None,
+                       permission: Optional[str] = None) -> str:
         """OpenAI 兼容调用 + tools 协议降级。传输在 ace_client，语义在这里。
 
         降级判据（400/404 = 端点不认 tools 参数）由本函数提供、循环由 ace_client 跑：
@@ -915,6 +931,8 @@ class ModelClient:
         结果就是一次 429 也会把 tools 永久关掉。
         """
         degraded = {"hit": False}
+        # 权限以调用方现算的为准；副本只作兜底（见 stream_generate 的说明）
+        level = permission or self.permission_level
 
         def _degrade(exc: BaseException) -> bool:
             if isinstance(exc, ace_client.ChatHTTPError) and exc.status in (400, 404):
@@ -925,7 +943,7 @@ class ModelClient:
         try:
             full, calls = ace_client.chat_stream(
                 self.base_url, self.api_key, self.model, "openai", system, messages,
-                tools=tools_for_permission(self.permission_level) if self.tools_ok else None,
+                tools=tools_for_permission(level) if self.tools_ok else None,
                 on_delta=on_delta, on_retry=retry_notice, should_degrade=_degrade)
         finally:
             if degraded["hit"]:
@@ -1337,7 +1355,16 @@ class _AtCommands:
                 picked = rows[_idx]
         if picked is None:
             for _r in rows:
-                if arg in str(_r.get("path") or ""):
+                _p = str(_r.get("path") or "")
+                if arg.isdigit():
+                    # 纯数字参数：只做**文件名主干精确匹配**（`@session 1000` → `1000.jsonl`）。
+                    # 不做子串匹配 —— 否则 `@session 99` 会因为随机临时目录名或毫秒时间戳里
+                    # 恰好含 "99" 而"成功"引用到一段**无关会话**，越界编号再也报不出错。
+                    # 实测：既有断言"越界编号如实报错"因此变成时间/随机相关的假失败。
+                    if Path(_p).stem == arg:
+                        picked = _r
+                        break
+                elif arg in _p:
                     picked = _r
                     break
         if picked is None:
@@ -2047,10 +2074,14 @@ class _SlashCommands:
                 model=self.client.model, base_url=self.client.base_url,
                 permission=str(self.cfg.get("permission", "readonly")),
                 system_len=len(sub_sys), messages_count=len(msgs), subagent=mode)
+            # 子代理一次运行 = 一个任务身份：它自己的 8 轮循环共用同一个 id，
+            # 但两次独立 spawn/fork（哪怕 prompt 一模一样）绝不会互相继承判据。
+            sub_task = secrets.token_hex(8)
             for _r in range(1, 9):
-                output = self.client.stream_generate(sub_sys, msgs)
+                output = self.client.stream_generate(sub_sys, msgs,
+                                                     permission=self.el.permission.level)
                 self.session_log.record_assistant(output)
-                result = sub_el.process_agent_output(output, prompt)
+                result = sub_el.process_agent_output(output, prompt, sub_task)
                 status = result["status"]
                 if status == "FINAL_REPLY":
                     return True, result["message"]
@@ -2570,7 +2601,13 @@ class _SlashCommands:
     def _show_audit(self, parts: List[str]) -> None:
         """/audit [n] [kind]：展示会话事件日志（默认最近 20 条，可按类型过滤）。
         日志是 append-only 事实源：用户输入 → 模型请求/输出 → 工具往返 →
-        权限裁决 → 快照/回滚 → 守卫违规，全部可逐事件回放。"""
+        权限裁决 → 快照/回滚 → 守卫违规，全部可逐事件回放。
+
+        `/audit stats`：同一份日志的**元信息** —— 见 `_show_audit_stats`。
+        """
+        if len(parts) > 1 and parts[1].lower() in ("stats", "meta"):
+            self._show_audit_stats()
+            return
         n = 20
         kind_filter = ""
         for p in parts[1:]:
@@ -2596,6 +2633,62 @@ class _SlashCommands:
             detail = self._audit_summary(kind, ev)
             print(f"  {c('dim', f'#{seq} {ts}')} {c('magenta', kind):<22} {detail[:100]}")
         print(c("dim", t("audit_file", path=str(self.session_log.path))))
+
+    def _show_audit_stats(self) -> None:
+        """/audit stats：会话日志的**元信息**（元处理引擎；引擎不可用则自动降级为纯 Python）。
+
+        与 `/audit` 的分工：那个回答"发生了什么"，这个回答"**这份日志本身是什么样**"：
+        事件构成、工具成/败、体积账（同一段系统提示词每轮都写一遍 —— 实测一份 132 KB 的
+        日志里 95% 是重复内容），以及 append-only 契约体检（seq 重复/缺口/坏行）。
+        最后一项此前**写好了却没人消费**（`seq_contiguous()` 只有测试在调）。
+
+        降级不是"功能没了"：引擎不在时用 `core/ace_engine` 的纯 Python 同口径实现，
+        输出里如实标出来源（`src=ace-engine` / `src=python`）。
+        """
+        from core import ace_engine  # noqa: PLC0415 —— 只有用到时才 import
+        p = self.session_log.path
+        meta = ace_engine.session_meta(p)
+        seq = meta.get("seq") or {}
+        by = meta.get("bytes") or {}
+        tools = meta.get("tools") or []
+        kinds = [k for k in (meta.get("kinds") or []) if k.get("count")]
+        print(c("bold", t("audit_stats_title", file=p.name)))
+        print("  " + t("audit_stats_line",
+                       events=meta.get("events", 0),
+                       kinds=len(kinds),
+                       calls=sum(x.get("calls", 0) for x in tools),
+                       errors=sum(x.get("errors", 0) for x in tools),
+                       total=f"{by.get('total', 0) / 1024:.1f}",
+                       unique=f"{by.get('unique', 0) / 1024:.1f}",
+                       src=meta.get("source", "python")))
+        if kinds:
+            top = "  ".join(f"{k['kind']}×{k['count']}" for k in kinds[:5])
+            print("  " + c("dim", top))
+        if (seq.get("duplicates") or seq.get("gaps")
+                or meta.get("bad_json") or meta.get("missing_fields")):
+            print("  " + c("yellow", t("audit_stats_seq_bad",
+                                       dup=len(seq.get("duplicates") or []),
+                                       gaps=len(seq.get("gaps") or []))))
+        # 运行度量（轮次/工具/耗时/授权/token）。耗时与 token 是 v3.42 起才落进日志的
+        # 字段 —— 老日志这两项会是 0，那是"如实"而不是"没算"（ts 只有秒级粒度，推不出耗时）。
+        met = ace_engine.session_metrics(p)
+        _tools = met.get("tools") or {}
+        _slow = max(_tools.items(), key=lambda kv: kv[1].get("elapsed_ms", 0), default=None)
+        _slow_txt = "—"
+        if _slow and _slow[1].get("elapsed_ms"):
+            _slow_txt = f"{_slow[0]} {_slow[1]['elapsed_ms'] / 1000:.1f}s"
+        _dec = ", ".join(f"{k}×{v}" for k, v in sorted((met.get("decisions") or {}).items()))
+        _usage = met.get("usage") or {}
+        print("  " + t("audit_metrics_line",
+                       rounds=met.get("rounds", 0),
+                       calls=met.get("tool_calls", 0),
+                       errors=met.get("tool_errors", 0),
+                       elapsed=f"{met.get('tool_elapsed_ms', 0) / 1000:.1f}",
+                       slow=_slow_txt,
+                       dec=_dec or "—",
+                       tin=_usage.get("in_tokens", 0),
+                       tout=_usage.get("out_tokens", 0)))
+        print(c("dim", t("audit_file", path=str(p))))
 
     @staticmethod
     def _audit_summary(kind: str, ev: Dict) -> str:
@@ -3523,8 +3616,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(c("dim", t("review_unchanged")))
             return True
         rel = os.path.relpath(str(target), str(self.cfg.get("project_root", ".")))
-        res = self.el.executor.execute({"tool": "file_write", "path": rel,
-                                        "content": new_text})
+        res = self.el.run_tool_direct({"tool": "file_write", "path": rel,
+                                       "content": new_text}, source="review")
         if res.status != "success":
             print(c("red", t("review_write_failed", err=res.message)))
             return True
@@ -3564,7 +3657,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(c("dim", t("bash_usage")))
             return
         print(c("cyan", t("bash_running", cmd=command)))
-        res = self.el.executor.execute({"tool": "terminal_exec", "command": command})
+        res = self.el.run_tool_direct({"tool": "terminal_exec", "command": command},
+                                      source="bash")
         out = ""
         if res.status == "success":
             data = res.data or {}
@@ -4196,17 +4290,52 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             "version": version.__version__,
         }
 
+    def _cross_session_line(self) -> str:
+        """跨会话累计一行（`/status` 与主页**共用同一份口径与文案**）。
+
+        为什么要有它：轮次/工具/token/成本此前只在内存里滚（`self._cost`），会话一结束就没了；
+        token 用量也从不落日志（`model/usage` 是本轮才补的），所以"我在这台机器上花了多少"
+        根本答不出来。现在由日志算，代价与口径一处定义。
+        取不到时**如实返回一句告警**，不静默留白 —— 静默留白与"算出来是空"在界面上没法区分
+        （这个坑我自己踩过一次）。
+        """
+        try:
+            from core import ace_engine as _ae  # noqa: PLC0415
+            from core import ace_cost as _ace_cost  # noqa: PLC0415 —— 与本文件其它处一致
+            _cur = Path(str(self.cfg.get("session_log") or ""))
+            _paths = ([_cur] if _cur and _cur.is_file() else []) + self._session_files()
+            _cs = _ae.cross_session_metrics(_paths, pricing=self.cfg.get("pricing"))
+            # 只有**真有累计数据**时才值得占一行：
+            #   · 全新项目 / 刚开的会话这里是 0 轮 0 token，占一行只是噪声；
+            #   · 更要紧的是：主页会被录进 `demo/*.svg`，而录制是 CI 门禁
+            #     （`demo/record_demo.py --check` 逐行比对）。录制的首屏发生在任何一轮
+            #     之前，所以这里判 0 就天然让那张图**不随会话数变化** —— 否则每录一次
+            #     数字都不一样，那张图会永久过期。
+            if not (_cs.get("rounds") or _cs["usage"].get("in_tokens")):
+                return ""
+            return t("status_cross_session",
+                     n=_cs["sessions"], rounds=_cs["rounds"], tools=_cs["tool_calls"],
+                     errors=_cs["tool_errors"],
+                     tin=_fmt_k(_cs["usage"]["in_tokens"]),
+                     tout=_fmt_k(_cs["usage"]["out_tokens"]),
+                     cost=_ace_cost.format_cost(_cs.get("usd")))
+        except Exception as e:  # noqa: BLE001 —— 汇总失败不该让 /status 或主页崩
+            return f"⚠ 跨会话统计不可用: {type(e).__name__}: {e}"
+
     def home_lines(self, width: int = 0) -> List[str]:
         """主页 → 待打印行（`/home`、启动首屏、`--preview` 共用同一份渲染）。"""
         st = self.home_state()
         sections = ace_home.build_home(st, self._sessions_brief())
         w = int(width) if int(width or 0) > 0 else self._panel_width()
+        _meta = self._cross_session_line()
         return ace_home.render_home(
             sections, t, width=w,
             header=ace_home.title_line(str(st["version"]), str(st["model"]),
                                        str(st["permission"]), str(st["sandbox"]), c,
                                        folder=str(st.get("folder") or ""),
                                        folder_label=t("home_folder_label")),
+            # 标题下的度量行：主页第一眼要回答"接着干什么"，累计用量是它的背景信息
+            meta=c("dim", _meta) if _meta else "",
             footer=ace_home.hint_line(t, c))
 
     def _cmd_home(self, parts: List[str]) -> bool:
@@ -4501,7 +4630,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             _sys = self._build_system_prompt() + "\n\n" + t("btw_system")
             # 用**临时**消息列表：`self.messages` 一个字节都不动
             _msgs = list(self.messages or []) + [{"role": "user", "content": question}]
-            answer = self.client.stream_generate(_sys, _msgs, self._make_display().get("on_delta"))
+            answer = self.client.stream_generate(_sys, _msgs,
+                                                 self._make_display().get("on_delta"),
+                                                 permission=self.el.permission.level)
         except Exception as e:      # noqa: BLE001 —— 侧问失败不该影响主对话
             print(c("red", t("btw_failed", err=e)))
             return True
@@ -5016,6 +5147,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # 配置写了不生效比没这个键更坏 —— 用户以为闸门开着。
                 "signing_key": self.cfg.get("signing_key"),
                 "max_snapshots": self.cfg.get("max_snapshots", 20),
+                # 快照完整性校验的时机：create（默认）/ rollback。
+                # 缺省保持"建完就校验"；换成 rollback 把同一遍校验挪到 /undo 那一刻
+                # （夹具实测每次写 2.0 s → 0.2 s，代价是坏快照暴露得更晚，仍拒绝恢复）。
+                "snapshot_verify": self.cfg.get("snapshot_verify"),
                 "confine_files": self.cfg.get("confine_files", True),
                 "email_smtp": self.cfg.get("email_smtp"),
                 "egress_allowlist": self.cfg.get("egress_allowlist"),
@@ -5311,7 +5446,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self.events.emit("model_request", round=round_no,
                                  messages_count=len(msgs), system_len=len(system),
                                  model=self.client.model)
-            output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"])
+            output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"],
+                                                 permission=self.el.permission.level)
             # 流式正文收尾：渲染器按行交付，最后一行往往没有换行符，
             # 不 flush 就会把回答的最后一句话永远留在缓冲里（探针里踩到过）。
             disp["flush"]()
@@ -5338,7 +5474,24 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             spinner.stop()
         # 会话事件日志：记录模型本轮完整输出（原文，可重放）
         self.session_log.record_assistant(output)
-        self._cost["out_tokens"] += ace_context.estimate_tokens(output)
+        _out_toks = ace_context.estimate_tokens(output)
+        self._cost["out_tokens"] += _out_toks
+        # 每轮用量落进日志（**增量**，重放求和才是真值）：`self._cost` 只活在内存里，
+        # 会话一结束就没了 —— 跨会话的用量/成本此前无处可查，而日志是唯一事实源。
+        # 成本估算仍由 `core/ace_cost` 单一来源算（引擎只聚合事实，不持有价格表）。
+        try:
+            _in_toks = ace_context.measure(msgs) + ace_context.estimate_tokens(system)
+            _usd = None
+            try:
+                _table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
+                _usd = ace_cost.estimate_cost(_in_toks, _out_toks,
+                                              ace_cost.price_for(self.client.model, _table))
+            except Exception:      # noqa: BLE001 —— 价格表查不到就不写 usd，不影响记账
+                _usd = None
+            self.session_log.record_usage(model=self.client.model, in_tokens=_in_toks,
+                                          out_tokens=_out_toks, usd=_usd)
+        except Exception:          # noqa: BLE001 —— 记账失败不该影响对话
+            pass
         self.messages = self.client.trim_messages(
             msgs + [{"role": "assistant", "content": output}], self.max_history)
         return output, system, disp
@@ -5447,6 +5600,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 看板按"一问"重置：上一问的残留行留在屏幕上只会让人以为它还在跑
         self._board = ace_tools.ToolBoard()
         self.clear_stop()          # 新的一问：上一轮的中断请求不该影响它
+        # 任务身份：一问一个 id，本次请求的全部轮次共用（含 goal 续跑时新起的每一问）。
+        # 执行层用它决定"哪些跨轮状态属于这一次请求"——不能靠 user_input 文本比较，
+        # 否则同一句话重发会继承上一问的反幻觉计数与畸形输出指纹（H-20/H-21 两个方向都错）。
+        task_id = secrets.token_hex(8)
         for _round in range(1, MAX_ROUNDS + 1):
             if self._stop_requested():
                 # 中断请求：在**轮边界**停下来（不在工具跑到一半时扔掉线程，
@@ -5519,7 +5676,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 print(c("yellow", "\n" + t("interrupt_before_tool", tool=_tool_name)))
                 return
             try:
-                result = self.el.process_agent_output(output, user_input)
+                result = self.el.process_agent_output(output, user_input, task_id)
             except KeyboardInterrupt:
                 if exec_spinner:
                     exec_spinner.stop(newline=True)
@@ -5830,6 +5987,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         print(c("dim" if _cost["usd"] is not None else "yellow",
                 t("status_cost", text=_cost["text"], tin=_cost["in_tokens"],
                   tout=_cost["out_tokens"])))
+        # 跨会话累计（含本次）：与主页共用 `_cross_session_line()`（一处口径、一处文案）
+        _cs_line = self._cross_session_line()
+        if _cs_line:
+            print(c("dim", _cs_line))
         _cu = self.context_usage()
         if _cu["state"] != "unknown":
             # 先给一条可视化的度量（条 + 百分比），再给口径明细 —— 数字要看，趋势也要看。

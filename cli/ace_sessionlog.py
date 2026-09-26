@@ -22,9 +22,10 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Optional
 
 # 事件种类（与 DSH SessionEventMap 对齐的 ACE 子集）
+K_SESSION_START = "session/start"        # 会话头（在哪个文件夹里开的）
 K_USER_MESSAGE = "user/message"          # 到达模型的用户输入（含注入的记忆/目标续跑）
 K_ASSISTANT_MESSAGE = "assistant/message"  # 模型本轮完整输出（原文，含协议/JSON）
 K_REQUEST_SNAPSHOT = "request/snapshot"  # 每次模型请求的 envelope 摘要（可重建"模型看到了什么"）
@@ -39,6 +40,7 @@ K_SNAPSHOT_ROLLBACK = "snapshot/rollback"  # 回滚
 K_SNAPSHOT_FAIL = "snapshot/unavailable"  # 快照不可用（H-05：fail-close 的决定必须留痕）
 K_GOAL_ROUND = "goal/round"              # 目标轮次推进
 K_MODEL_ERROR = "model/error"            # 模型 API 调用失败
+K_MODEL_USAGE = "model/usage"            # 每轮 token 用量与成本估算（本轮**增量**，不是累计）
 K_COMPACTION = "compaction/event"        # 上下文压缩
 K_MODEL_SWITCH = "model/switch"          # 模型/提供商切换
 
@@ -134,7 +136,7 @@ class SessionLog:
         是比时间更有用的线索（同一天可能在三个项目里各聊过一段）。不记的话，
         列表只能显示"昨天 · 3 轮 · 帮我改一下 X"，用户根本认不出是哪一段。
         """
-        return self.append("session/start", {
+        return self.append(K_SESSION_START, {
             "project_root": str(project_root or ""),
             "cwd": str(cwd or ""),
             "model": str(model or ""),
@@ -160,10 +162,34 @@ class SessionLog:
     def record_tool_call(self, tool: str, params: Dict[str, Any]) -> int:
         return self.append(K_TOOL_CALL, {"tool": tool, "params": params})
 
-    def record_tool_result(self, tool: str, status: str, message: str = "") -> int:
-        return self.append(K_TOOL_RESULT, {
-            "tool": tool, "status": status, "message": (message or "")[:300],
-        })
+    def record_tool_result(self, tool: str, status: str, message: str = "",
+                           elapsed_ms: int = 0) -> int:
+        """工具结果。`elapsed_ms` 是**实测耗时**（执行层 `result.metadata["elapsed"]`，秒 → 毫秒）。
+
+        为什么要记它：耗时此前只活在内存里，落进日志之前谁也聚合不了 —— 而 `ts` 只有秒级
+        粒度（实测 262 份真实日志：平均 11.2 事件却只有 1.8 个不同 ts），所以"哪个工具慢"
+        根本推不出来。这个字段一落，度量就能算。
+        """
+        payload = {"tool": tool, "status": status, "message": (message or "")[:300]}
+        if elapsed_ms:
+            payload["elapsed_ms"] = int(elapsed_ms)
+        return self.append(K_TOOL_RESULT, payload)
+
+    def record_usage(self, *, model: str, in_tokens: int, out_tokens: int,
+                     usd: Optional[float] = None, subagent: str = "") -> int:
+        """每轮 token 用量（**增量**）与成本估算。
+
+        为什么是增量：累计值写进 append-only 日志，重放时会一路翻倍；增量重放求和才是真值。
+        为什么由这里记：`self._cost` 只活在内存里，会话一结束就没了，跨会话的用量/成本
+        无从聚合 —— 而日志是唯一事实源。
+        """
+        payload = {"model": model, "in_tokens": int(in_tokens),
+                   "out_tokens": int(out_tokens)}
+        if usd is not None:
+            payload["usd"] = round(float(usd), 6)
+        if subagent:
+            payload["subagent"] = subagent
+        return self.append(K_MODEL_USAGE, payload)
 
     def record_goal_round(self, rounds_started: int, max_rounds: int) -> int:
         return self.append(K_GOAL_ROUND, {

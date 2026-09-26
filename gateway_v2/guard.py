@@ -98,8 +98,18 @@ class InstinctGuard:
             self._ast_detector = None
 
     def check(self, text: str, code_rules: bool = True) -> GuardResult:
+        """跑完**全部**启用的规则，再按 block > warn 汇总。
+
+        修之前是"第一个失败的规则就 return"（无论 block 还是 warn），而 RULE_NAMES 的
+        前两条 `type_hints` / `try_except` 都是 warn —— 于是一段**带未注解 def、或有 I/O
+        没包 try/except** 的代码会让后面的 `no_hardcoded_secrets` / `no_sql_injection` /
+        `v1_ast_check` 一次都不执行。而输出内容由模型写，所以"写密钥时顺手带一个 def"
+        就等于**模型可控地关掉了密钥检查**。聚合之后 block 永远赢，warn 只在没有 block 时上报。
+        """
         text = text or ""
         checked: Dict[str, bool] = {}
+        blocked: Optional[str] = None
+        warned: Optional[str] = None
         for rule in self.RULE_NAMES:
             if not self.enabled[rule]:
                 continue
@@ -107,10 +117,19 @@ class InstinctGuard:
                 continue   # 非代码输出跳过代码风格规则
             ok = self._check_rule(rule, text)
             checked[rule] = ok
-            if not ok:
-                action = "block" if rule in self.BLOCK_RULES else "warn"
-                return GuardResult(False, rule, action,
-                                   self.RULE_DESCRIPTIONS.get(rule, rule), checked)
+            if ok:
+                continue
+            if rule in self.BLOCK_RULES:
+                if blocked is None:
+                    blocked = rule
+            elif warned is None:
+                warned = rule
+        if blocked is not None:
+            return GuardResult(False, blocked, "block",
+                               self.RULE_DESCRIPTIONS.get(blocked, blocked), checked)
+        if warned is not None:
+            return GuardResult(False, warned, "warn",
+                               self.RULE_DESCRIPTIONS.get(warned, warned), checked)
         return GuardResult(True, "", "", "", checked)
 
     def _check_rule(self, rule: str, text: str) -> bool:

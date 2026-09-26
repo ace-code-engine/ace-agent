@@ -712,13 +712,23 @@ class ExecutionLayer:
         self.mcp = None
         self.mcp_registered: List[str] = []
         self.mcp_error = ""
+        self.mcp_ignored = ""
         _mcp_cfg = (config or {}).get("mcp_servers")
-        if _mcp_cfg or (config or {}).get("mcp_project_file"):
+        _mcp_project_file = (config or {}).get("mcp_project_file")
+        if _mcp_project_file and not self.project_hooks_trusted:
+            # 与 H-17 同一个威胁模型：`.ace/mcp.json` 来自**你打开的那份仓库**，
+            # 它指定的是要执行的**二进制**，而且子进程会继承整个环境（含模型 API key）。
+            # 钩子默认不信任，MCP 此前却默认加载 —— 同一个坑两种口径，且 MCP 这侧更严重
+            # （钩子至少只跑一条命令，MCP 是长期驻留的进程）。默认拒绝，并**说出来**。
+            self.mcp_ignored = ("项目级 MCP 未加载：本仓库未被信任（.ace/mcp.json 会起子进程"
+                                "并把环境交给它）。要启用请在配置里写 trust_project_hooks: true，"
+                                "或把项目路径加进 trusted_workspaces")
+            _mcp_project_file = None
+        if _mcp_cfg or _mcp_project_file:
             try:
                 from core import ace_mcp as _mcp
                 from tools import registry as registry_mod
-                _cfgs = _mcp.load_server_configs(
-                    _mcp_cfg, (config or {}).get("mcp_project_file"))
+                _cfgs = _mcp.load_server_configs(_mcp_cfg, _mcp_project_file)
                 if _cfgs:
                     self.mcp = _mcp.McpManager(
                         _cfgs, str(self.project_root),
@@ -772,7 +782,11 @@ class ExecutionLayer:
         self.guardian = Guardian(
             str(self.project_root),
             signing_key=(config or {}).get("signing_key"),
-            max_snapshots=int((config or {}).get("max_snapshots", 20))) if V1_GUARDIAN_AVAILABLE else None
+            max_snapshots=int((config or {}).get("max_snapshots", 20)),
+            # 完整性校验的时机：create（默认，建完立刻校验）/ rollback（只在恢复时校验）。
+            # 缺省行为与改动前逐字一致；换档只改"坏快照何时被发现"，不改"会不会被恢复"。
+            verify_policy=(config or {}).get("snapshot_verify") or "create"
+        ) if V1_GUARDIAN_AVAILABLE else None
         # H-05：写工具拿不到写前快照时，默认**拒绝写入**（fail-close），与沙箱档位
         # （不可用返回 503 而非静默降级）和审批（非交互一律拒）保持同一立场。
         # 显式配 `snapshot_required: false` 才放行 —— 那时失败仍会记进事件日志并
@@ -797,6 +811,13 @@ class ExecutionLayer:
         self.violation_count = 0
         self.ast_fail_count = 0
         self.last_user_input = ""
+        # 任务身份（H-20/H-21 的判据基础）：**由调用方显式给**，不再靠"用户输入文本相等"推断。
+        # 为什么必须换：同一句话发两遍（按 ↑ 回车重发、/goal 续跑、子代理同一 prompt）时，
+        # 文本比较会认为"还是同一个任务"，于是 tools_ran_this_task 与 _retry_fingerprints
+        # 都不重置 —— 实测两个方向都错：① 第二次请求里"零工具调用 + 已完成措辞"被放行
+        # （反幻觉闸门被绕过）；② 第二次请求第 1 轮就被指纹判成"重复畸形输出"而中止。
+        # 调用方没给 task_id 时退回文本比较，保证直接 new ExecutionLayer 的嵌入方与既有测试不受影响。
+        self._task_identity = ""
         # 记忆预注入缓存：prepare_context 记录后，process_agent_output 不再重复写入
         self._last_memory_input: Optional[str] = None
         self._last_memory_shift = "stable"
@@ -888,7 +909,8 @@ class ExecutionLayer:
         return wrap_untrusted("\n".join(lines), source="历史对话记忆",
                               origin="memory_archive") + "\n\n" + user_input
 
-    def process_agent_output(self, agent_output: str, user_input: str) -> Dict[str, Any]:
+    def process_agent_output(self, agent_output: str, user_input: str,
+                             task_id: Optional[str] = None) -> Dict[str, Any]:
         """
         处理 Agent 的一轮输出
 
@@ -896,24 +918,28 @@ class ExecutionLayer:
         阶段；轮末（含异常路径）经 finally 回收——本轮临时状态（confirmed/snapshot_id）
         不泄漏到下一轮。阶段流程图见文件顶部 docstring（与 README 架构图对应）。
 
+        `task_id`：**一次用户请求**的标识，由前端生成并在该请求的所有轮次里保持不变。
+        它决定"哪些跨轮状态属于这一次请求"（反幻觉计已执行工具数、畸形输出指纹、诱饵与
+        计划残留）。不传则退回按 user_input 文本比较 —— 那正是本参数要修掉的老行为。
+
         返回标准化结果，Agent 收到后继续下一轮
         """
         ctx = RoundCtx()
         self._round = ctx
         try:
-            return self._run_round(ctx, agent_output, user_input)
+            return self._run_round(ctx, agent_output, user_input, task_id)
         finally:
             self._round = None
 
     def _run_round(self, ctx: RoundCtx, agent_output: str,
-                   user_input: str) -> Dict[str, Any]:
+                   user_input: str, task_id: Optional[str] = None) -> Dict[str, Any]:
         """单轮状态机：按 ①~⑭ 顺序执行 _stage_* 阶段（流程见文件顶部 docstring）。
 
         阶段约定：返回 dict = 本轮结束、直接返回该结果；返回 None = 继续下一阶段。
         ctx 只承载本轮临时状态（确认标志/本轮快照），跨轮状态直接读写 self。
         """
-        # ① 新任务重置：用户输入变化时清空跨任务诱饵/计划/权限残留
-        self._stage_new_task(user_input)
+        # ① 新任务重置：任务身份变化时清空跨任务诱饵/计划/权限残留
+        self._stage_new_task(user_input, task_id)
         # ② L1 意图识别 + L2 技能推荐（五层网关，仅新输入时计算一次）
         route_meta = self._stage_route(user_input)
         # ③ 解析 Agent 输出（含 Windows 路径反斜杠修复）；格式错误立即返回
@@ -958,17 +984,74 @@ class ExecutionLayer:
         return self._stage_result(tool_name, result, parsed, injected_memory,
                                   ctx, gate_warnings, route_meta)
 
+    def run_tool_direct(self, tool_call: Dict[str, Any], source: str = "operator"):
+        """**用户自己敲的**工具调用（`!命令` / `/review` 回填）：权限、快照、审计一个不少。
+
+        为什么要有这个入口：那两处此前直接调 `self.executor.execute(...)`，绕过的是
+        权限等级、逐次确认闸门、项目外确认、**快照**（guardian 只在执行层被创建）与
+        **审计**（`record_tool_call` 的唯一入口在 `_stage_execute`）—— 而 `ai_code.py`
+        的 docstring 写着"改完回填走的是同一道执行层闸门（快照、权限、审计都在）"。
+        文档说了假话，这里把事实补上：实测过的后果是**只读会话里 `!mkdir test` 能落盘、
+        `/undo` 回不去、审计里没有这条**。
+
+        与模型路径的两点刻意不同：
+
+        · **不设 `ctx.confirmed`**。人敲了命令不等于"批准这个工具"，execpolicy 的
+          `prompt` 档仍然 fail-close 拒绝（`!rm -rf` 依旧被拦）。把它设真看着"更顺手"，
+          实际是把 `!` 变成绕过审批的通道 —— 方向朝安全。
+        · **权限按等级判，但用不消费授权的读法**（`can_execute` 会吃掉一次性授权，
+          那对"人自己敲的这条"是错的）。等级不够就明说要提权，而不是静默放行。
+        """
+        from tools.result import ExecutionResult as _ER
+
+        tool_name = str(tool_call.get("tool") or "")
+        pm = self.permission
+        allowed = (tool_name in pm.session_grants or tool_name in pm.temp_grants
+                   or tool_name in pm.allowed_tools(pm.level))
+        if not allowed:
+            return _ER(status="error", error_code="403",
+                       message=(f"当前权限档（{pm.level}）不允许 {tool_name}。"
+                                "这是用户自己敲的路径，所以不走模型的授权流程 —— "
+                                "要执行请先提权：`/permission write`（或 full）。"))
+
+        ctx = RoundCtx()
+        # 刻意不设 ctx.confirmed、也不动跨任务状态（_stage_new_task 会重置反幻觉计数与
+        # 指纹，而这是模型那一问之外的插曲，不该替它改账）。
+        prev = self._round
+        self._round = ctx
+        try:
+            early = self._stage_snapshot(tool_name, ctx, {}, tool_call)
+            if early is not None:
+                return _ER(status="error",
+                           error_code=str(early.get("status") or "500"),
+                           message=str(early.get("message")
+                                       or "写前快照不可用，已拒绝执行（H-05 fail-close）"))
+            result = self._stage_execute(tool_call, tool_name)
+            if self.session_log:
+                self.session_log.record_guard(f"operator:{source}", "allow", tool_name)
+            return result
+        finally:
+            self._round = prev
+
     # ---------- 单轮阶段（_stage_*）：每个阶段只读写明确入参/返回值 ----------
     # 约定：返回 dict = 本轮直接返回该结果并结束；返回 None = 继续下一阶段。
 
-    def _stage_new_task(self, user_input: str) -> None:
-        """① 新任务重置：用户输入变化时清空跨任务诱饵/计划/权限残留，防止跨任务泄漏。"""
-        if user_input != self.last_user_input:
+    def _stage_new_task(self, user_input: str, task_id: Optional[str] = None) -> None:
+        """① 新任务重置：任务身份变化时清空跨任务诱饵/计划/权限残留，防止跨任务泄漏。
+
+        **身份优先取调用方给的 `task_id`**（前端一次用户请求生成一个，该请求所有轮次复用）；
+        没给才退回 `user_input` 文本比较。文本比较的问题不是"不够精确"，而是**判错方向**：
+        同一句话重发会被当成同一任务，于是反幻觉计数与畸形输出指纹跨请求残留（详见
+        `__init__` 里 `_task_identity` 的注释与两条回归测试）。
+        """
+        identity = task_id if task_id else ("text:" + user_input)
+        if identity != self._task_identity:
             self.pending_bait = None
             self.bait_fail_count = 0
             self.ast_fail_count = 0
             self.bait_armed = True
             self.last_user_input = user_input
+            self._task_identity = identity
             self.pending_plan = None
             self.plan_approved = False
             self.pending_permission = None
@@ -1682,8 +1765,11 @@ class ExecutionLayer:
                     except Exception:  # noqa: BLE001 —— 附注挂不上不该影响工具结果
                         pass
         if self.session_log:
+            # 实测耗时一起落盘（秒 → 毫秒）：它只活在 result.metadata 里的话，
+            # 谁也聚合不了 —— 而 ts 只有秒级粒度，推不出"哪个工具慢"。
+            _elapsed_ms = int(round(float(result.metadata.get("elapsed") or 0.0) * 1000))
             self.session_log.record_tool_result(
-                tool_name, result.status, result.message)
+                tool_name, result.status, result.message, elapsed_ms=_elapsed_ms)
         return result
 
 

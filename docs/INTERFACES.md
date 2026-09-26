@@ -52,6 +52,7 @@ ctx = el.prepare_context(user_input)          # 记忆预注入(可独立调用)
 
 `config` 已知键(`benchmarks/bench_core.py`、`test_all.py` 在用):
 `bait.enabled/frequency`、`sandbox_base`、`confine_files`、`signing_key`、`max_snapshots`、
+`snapshot_verify`（`create` 默认 / `rollback`）、
 `session_id`、`guard.rules`、`egress_allowlist`、`sandbox.mode`、`flywheel_path`、`email_smtp`。
 
 `process_agent_output` 返回 dict(契约字段,测试依赖):
@@ -174,7 +175,7 @@ class ToolSpec:
 - ✅ `parse_document` 未走文件路径闸门(只读越界) → 已修(v3.2, SEC-02)
 - ✅ `code_execute` AST 精确名拦截可被别名/lambda 绕过 → 已修(v3.2, SEC-01，改危险内建引用级拦截)
 - ✅ 模块命名风格(旧 `archive/nuwa/work/guardian` vs 新 `ace_*`) → 已定(v3.3, R-06)：新模块统一 `ace_` 前缀，旧名补导流 docstring
-- 仍开放项以 `docs/BACKLOG.md` 为准。**截至 v3.41.0,SEC-/Q-/R-/REL- 全部已闭环**;
+- 仍开放项以 `docs/BACKLOG.md` 为准。**截至 v3.42.0,SEC-/Q-/R-/REL- 全部已闭环**;
   新一批(安全边界加固 H-01 ~ H-23)见 `docs/design/SAFETY-HARDENING.md`
   —— 编号 `H-` 独占命名空间,不与既有前缀共享。
 

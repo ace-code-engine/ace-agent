@@ -164,6 +164,39 @@ def _seed_sessions(work: Path) -> None:
         os.utime(p, (mtime, mtime))
 
 
+def _fold_path(raw: str, form: str) -> str:
+    """把出现过的绝对路径折叠成 `…`。
+
+    **保宽还是折成一列，取决于该路径是不是被补齐到框宽** —— 这两种情况各有一个必须满足的
+    约束，用同一种做法都会坏掉一个：
+
+    - **框内行**（路径后面只剩补白与右边框 `│`）：必须**保持显示宽度**。面板是按真实路径
+      算好补白的，直接换成 1 列的 `…` 会让这一行比同框其它行短掉（路径长度 - 1）列 ——
+      已提交的 demo.svg 里「当前会话」那个框就是这样缺了一角（其余行 96 列，`目录` 行 28 列）。
+    - **自由行**（路径后面还有别的文本，或路径就在行尾）：必须**折成 1 列**。这类行的宽度
+      本身就是"前缀 + 路径 + 后缀"，保宽等于把机器上的路径长度留在图里；例如
+      `知识库: <项目>/.ace_kb` —— 保宽会把补白插进路径中间，变成
+      `知识库: …<一堆空格>\\.ace_kb`，既难看又随路径长度变。
+
+    路径长度因此不再左右 SVG（`--check` 才能跨机器成立），框也保持满宽。
+    """
+    out, i, n = [], 0, len(form)
+    keep_width = display_width(form) - 1
+    while True:
+        j = raw.find(form, i)
+        if j < 0:
+            out.append(raw[i:])
+            return "".join(out)
+        out.append(raw[i:j])
+        line_end = raw.find("\n", j)
+        tail = raw[j + n:line_end if line_end >= 0 else len(raw)]
+        # 判"框内行"要先剥 ANSI：边框前后总带 SGR 重置（`\x1b[0m│`），不剥就永远判不出来，
+        # 于是框内行走了折成一列那条路 —— 框重新缺角，且宽度又随路径长度变。
+        tail_plain = _ANSI_OTHER_RE.sub("", _SGR_RE.sub("", tail))
+        out.append("…" + " " * keep_width if tail_plain.strip() == "│" else "…")
+        i = j + n
+
+
 def capture_session(name: str = "happy") -> str:
     """真的把 CLI 跑起来，拿它打印的原始字节（含 ANSI）。
 
@@ -207,9 +240,12 @@ def capture_session(name: str = "happy") -> str:
     # 临时目录/临时 home 的绝对路径一律折叠成占位符：SVG 里不留任何本机路径。
     # 分隔符统一成 "/" —— 否则 Windows 录的 "…\.ace_kb" 与 Linux CI 的 "…/.ace_kb"
     # 对不上，--check 会在 CI 上误报。
+    # 折叠的两种口径（保宽 / 折成一列）与各自的理由见 `_fold_path` 的 docstring ——
+    # 这里曾经一律折成一个 `…`，代价是：① 发布出去的图里那个框缺一角；② 路径长度
+    # （本机 50 列、CI 69 列）以补白形式留在 SVG 里，`--check` 在 CI 上必然对不上。
     for path in (work, home):
         for form in (str(path), path.as_posix()):
-            raw = raw.replace(form, "…")
+            raw = _fold_path(raw, form)
     return raw.replace("…\\", "…/")
 
 

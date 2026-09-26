@@ -165,8 +165,19 @@ def parse_frame(line: str) -> Dict[str, Any]:
     ftype = frame.get("type")
     if ftype not in ("req", "resp", "event"):
         raise ServeError("E_UNKNOWN_TYPE", f"不认识的 type: {ftype!r}")
+    # 版本字段：**必填**，且坏值一律转成 ServeError —— 不能让裸异常穿出去。
+    # 修之前是 `if v is not None and int(v) != PROTOCOL_VERSION`：缺 v 直接接受、
+    # v=1.9 被 int() 截断成 1 也接受，而 v="abc" 抛的是裸 ValueError，serve_forever
+    # 只捕 ServeError → **一条畸形帧就能把服务进程带走**（前端发错一次，整条会话没了）。
     v = frame.get("v")
-    if v is not None and int(v) != PROTOCOL_VERSION:
+    if v is None:
+        raise ServeError("E_BAD_REQUEST", "缺 v（协议版本必填；本协议不做版本推断）",
+                         {"supported": [PROTOCOL_VERSION]})
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ServeError("E_BAD_REQUEST",
+                         f"v 必须是整数版本号，收到 {v!r}",
+                         {"supported": [PROTOCOL_VERSION]})
+    if v != PROTOCOL_VERSION:
         raise ServeError("E_BAD_REQUEST",
                          f"协议版本 {v} 不支持（本端为 {PROTOCOL_VERSION}）",
                          {"supported": [PROTOCOL_VERSION]})

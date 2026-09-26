@@ -28,8 +28,21 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+
+# 并行哈希的线程数。为什么要并行：**瓶颈不是 CPU，是"新写入文件的首次读取代价"**。
+# 实测（本机 Windows，347 文件 / 11.4 MB 的夹具，即真实仓库同规模）：
+#   · 单个 12 MB 大文件 SHA256        : 788 MB/s  ← CPU 完全不是瓶颈
+#   · 顺序读回刚复制出来的 347 个副本  : 987 ms（2.84 ms/文件）
+#   · 同一批再读一遍                  :  20 ms（0.06 ms/文件）← 51× 落差
+#   · 8 线程读回同一批**全新**副本     : 210 ms（4.7×，逐文件结果一致）
+# 也就是说这 1 秒是每文件的首次读取代价（写回/实时防护类），并行能把延迟重叠掉。
+# hashlib 对 >2047 字节的 buffer 会释放 GIL，所以这里的线程是真并行。
+# `ACE_HASH_WORKERS=1` 可关掉并行（对照/排障用）。
+_HASH_WORKERS = max(1, min(8, int(os.environ.get("ACE_HASH_WORKERS") or 0)
+                           or (os.cpu_count() or 4)))
 
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", ".ace_env", "node_modules",
                 ".idea", ".vscode", ".guardian", ".agent_flywheel",
@@ -41,7 +54,13 @@ EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", ".ace_env", "node_module
                 # `.ace_sessions` 尤其不该被回滚：那是 append-only 的审计记录，
                 # 把它还原等于抹掉取证材料。
                 ".ruff_cache", ".pytest_cache", ".mypy_cache",
-                ".ace_sessions", ".ace-cc-zh"}
+                ".ace_sessions", ".ace-cc-zh",
+                # Rust 引擎（engine/）的构建产物。`target/` 是 Rust/Maven/Gradle
+                # 的通用约定名，与 node_modules 同类，所以按**名字**排除。
+                # 代价说清楚：用户自己那个叫 target/ 的目录也不会进快照
+                # （也就不会被回滚重建）—— 与 node_modules 同一取舍。
+                # 口径与 .gitignore 的 `engine/target/` 成对，别只改一边。
+                "target"}
 # SEC-04：快照是明文副本，绝不能把用户凭据/密钥文件再复制一份进 .guardian。
 # 命中这些名字的文件不进快照（也就不进 meta、不会被回滚重建）。
 #
@@ -66,7 +85,8 @@ class Guardian:
     """物理快照管理器"""
 
     def __init__(self, project_root: str, store_dir: Optional[str] = None,
-                 signing_key: Optional[str] = None, max_snapshots: int = 20) -> None:
+                 signing_key: Optional[str] = None, max_snapshots: int = 20,
+                 verify_policy: str = "create") -> None:
         self.project_root = Path(project_root).resolve()
         self.store = Path(store_dir) if store_dir else self.project_root / ".guardian"
         self.snap_dir = self.store / "snapshots"
@@ -85,6 +105,20 @@ class Guardian:
                 self.signing_key = secrets.token_hex(32)
                 _key_path.write_text(self.signing_key, encoding="utf-8")
         self.max_snapshots = max_snapshots  # 快照数量硬上限，超出自动清理最旧的
+        # 完整性校验的**时机**。实测：单次 snapshot() 的成本 92% 在这一步
+        # （读回刚复制出来的 347 个副本要 2.2 s；而大文件 SHA256 有 788 MB/s，
+        #   所以那不是 CPU，是新文件首次读取代价）。
+        #   "create"   —— 建完立刻校验（**默认**）。H-02 那条"复制不完整/损坏要在写之前
+        #                 发现"就是它：坏的快照会被 fail-close 挡在写操作之前。
+        #   "rollback" —— 只在**恢复时**校验。`rollback()` 里那一步无论如何都在
+        #                 （见 rollback 第 1 步），所以坏的快照仍然**永远不会被静默恢复**。
+        # 换成 "rollback"：夹具实测 snapshot() 约 2.0 s → 约 0.2 s。
+        # 代价说清楚：不是"少校验"，是"校验挪到使用点"，坏快照暴露得更晚（/undo 那一刻）。
+        if verify_policy not in ("create", "rollback"):
+            print(f"⚠ 未知的 snapshot_verify={verify_policy!r}，按默认 create 处理",
+                  file=sys.stderr)
+            verify_policy = "create"
+        self.verify_policy = verify_policy
         for d in (self.snap_dir, self.backup_dir):
             d.mkdir(parents=True, exist_ok=True)
 
@@ -114,6 +148,24 @@ class Guardian:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
+
+    def _sha256_many(self, paths: "Iterable[Path]") -> List[str]:
+        """批量哈希（线程池）—— 用于**读回校验**这种整批顺序访问。
+
+        · 走 `self._sha256` 而不是内联实现：测试会用子类覆盖它（H-02 的"复制中途失败"
+          用例），覆盖必须继续生效。
+        · 线程起不来就退回顺序：**校验本身绝不能因为"并行失败"而消失**（这是安全网，
+          不是优化开关）。
+        · 单文件不走线程池：起池的开销比省下的多。
+        """
+        items = list(paths)
+        if len(items) <= 1 or _HASH_WORKERS <= 1:
+            return [self._sha256(p) for p in items]
+        try:
+            with ThreadPoolExecutor(max_workers=min(_HASH_WORKERS, len(items))) as ex:
+                return list(ex.map(self._sha256, items))
+        except RuntimeError:
+            return [self._sha256(p) for p in items]
 
     def count_credential_only_files(self) -> int:
         """数出"文件存在、却只因为像凭据而进不了快照"的个数（H-06）。
@@ -204,10 +256,12 @@ class Guardian:
             if self.signing_key:
                 (dest_root / "meta.json.sig").write_text(
                     self._sign(meta_text), encoding="utf-8")
-            # 创建后立即自检
-            ok, reason = self.verify_snapshot(snap_id)
-            if not ok:
-                raise SnapshotError(f"快照创建后完整性校验失败: {reason}")
+            # 创建后立即自检（`snapshot_verify="rollback"` 时挪到使用点，见 __init__：
+            # 校验一步都没少，只是从"每次写"变成"每次恢复"）
+            if self.verify_policy == "create":
+                ok, reason = self.verify_snapshot(snap_id)
+                if not ok:
+                    raise SnapshotError(f"快照创建后完整性校验失败: {reason}")
             created = True
         finally:
             if not created:
@@ -243,11 +297,20 @@ class Guardian:
         files_dest = dest_root / "files"
         if not files_dest.is_dir() or meta["file_count"] <= 0 or not meta["files"]:
             return False, "快照为空（无文件内容）"
+        # 存在性检查（元数据 stat，便宜）先按 meta 顺序跑完，再**整批并行读回**，
+        # 最后按同一顺序逐条比对 —— 于是"第一个不匹配的文件"依旧是确定的，
+        # 不随线程调度顺序变（错误文案与顺序在测试里被依赖）。
+        checked: List[Tuple[str, Path, str]] = []
         for rel, info in meta["files"].items():
             fp = files_dest / rel
             if not fp.exists():
                 return False, f"快照文件缺失: {rel}"
-            if info.get("sha256") and self._sha256(fp) != info["sha256"]:
+            want = info.get("sha256")
+            if want:
+                checked.append((rel, fp, want))
+        digests = self._sha256_many([c[1] for c in checked])
+        for (rel, _fp, want), got in zip(checked, digests):
+            if got != want:
                 return False, f"快照文件校验和不匹配: {rel}"
         return True, "ok"
 

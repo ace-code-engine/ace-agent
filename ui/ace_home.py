@@ -204,16 +204,23 @@ def render_home(sections: Sequence[HomeSection],
                 selected: int = 0,
                 styler: Optional[Callable[[str, str], str]] = None,
                 header: str = "",
+                meta: str = "",
                 footer: str = "") -> List[str]:
     """主页 → 待打印行（纯文本；`styler(kind, text)` 可注入，测试传 no-op）。
 
     选中标记只在**可选中**的条目上走，并且不会因为禁用的条目而错位 ——
     "看得见的行"和"能选的行"是两件事，这里明确分开。
+
+    `meta`：标题下面的一行**背景度量**（跨会话累计用量）。刻意做成一行纯文本而不是
+    一个分区条目 —— 它不需要被选中、也不该挤进"接着干什么"的选择序列。
     """
     st = styler or (lambda _k, x: x)
     lines: List[str] = []
     if header:
         lines.append(header)
+    if meta:
+        lines.append(meta)
+    if header or meta:
         lines.append("")
     cursor = 0
     for sec in sections:

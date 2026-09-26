@@ -45,6 +45,13 @@
 | ✅ R-06 | 命名/检索索引(INTERFACES §11)+ 新模块 ace_ 前缀约定;深层改名不强制 | | 新模块统一 ace_ 前缀;旧模块补导流 docstring | S |
 | ✅ R-07 | 根目录瘦身：20 个根级模块下沉 `ui/` `cli/` `core/` | 已完成(v3.10.0)：根级 `.py` **24 → 4**（`ai_code.py` / `agent_runner.py` / `execution_layer.py` / `test_all.py`）。表现层→`ui/`、操作者工具→`cli/`、引擎支撑→`core/`；导入机械改写 **77 处 / 19 文件**，另修 3 处 `__file__` 相对资源、2 处 `mock.patch` 点号字符串、1 条源码守卫、`ci.yml` compileall 与 `release-executor.yml` 的 `import version`。`locales/` 与 `executor/` 保持根级。见 `docs/design/STRUCT-REFACTOR.md` R-07 | M |
 
+## P3 — v3.42.0 之后新登记(本版实测发现；两条都已按实测收口，留档备查)
+
+| ID | 事项 | 证据/说明 | 建议 | 工作量 |
+|---|---|---|---|---|
+| ✅ Q-16 | `snapshot_verify` 的**默认值**取舍(`create` vs `rollback`) | **已决定：默认保持 `create`，一行代码都不动。** 两档下坏快照都**不会被静默恢复**（`rollback()` 第一步就是完整性预检，有回归 F7 钉住），差别只是"坏快照何时暴露"：`create` 挡在写操作之前，`rollback` 等到想撤销时。夹具 347 文件 / 11.7 MB：只拷贝 **164 ms**、`create` **1929 ms**（8 线程）、`rollback` **162 ms**。本轮新测把"这 1.8 s 能不能降下来"问到了底，三条都指向**不能**：① **冷读 vs 热读**——对刚复制出来的副本校验 **24.4 ms/文件（8458 ms）**，紧接着对**同一份快照**再验一遍只要 **0.07 ms/文件（24 ms）**，**348×**，字节完全相同，差的只是"新写入文件的首次读盘"；② **哈希不要钱**——347 文件 / 11.7 MB 全部热读算 sha256 只要 **34 ms**（比那条冷读便宜约 50×；单个 12 MB 大文件 788 MB/s），所以不是"哈希慢"；③ **并发已到顶**——1/2/4/8 线程 8646/4850/2646/**1929** ms，而 12/16/24/32/48 线程 **2215/2392/2604/2635/2504 ms 全部比 8 线程更慢**，默认 `min(8, CPU)` 正是实测最优点（`ACE_HASH_WORKERS` 只是对照/排障旋钮，"调大它"是错的方向；以上均在本机 Windows 测得，跨平台最优线程数**未测**，别当跨平台结论）。而快照是**每个写工具调用**都建一次（`execution_layer.py` 的写工具分支），所以这个默认 = **每次写多花约 1.8 s 换坏快照早暴露**，是一个明码标价的取舍，不是待修的慢点 | 保持默认；成本拆解与"别再调大线程数"一并写进 `docs/CONFIGURATION.md`；不接受这个价就显式改成 `rollback` | S |
+| ✅ Q-17 | L4 守门聚合后的**开销**已实测,如需再优化可加内容哈希缓存 | 修 warn 遮蔽 block 后,`check()` 从"第一条失败就返回"变成"跑满 8 条再按 block>warn 汇总"。实测 3349 字符代码载荷:**旧路径 53.6 µs**(在第 1 条 `type_hints` 就返回,于是密钥/SQL/AST 全没跑)→ **现在 5.4 ms**,其中 **4.65 ms 是 `v1_ast_check` 一条**(其余七条合计约 0.67 ms);纯文本 4 KB 0.51 ms;短输出 7.2 µs | **已决定：不要为它做优化**——多出来的时间正是"以前被跳过的检查现在真的跑了"(即修复本身)。**不登记为待办**;若将来单轮跑大量工具后真觉得慢,再给 `v1_ast_check` 加**按内容哈希缓存**(同一份输出每轮重复检查是纯浪费) | S |
+
 ## REL — 对外发布前
 
 - ✅ REL-01 已建 `SECURITY.md` + Issue/PR 模板（`v3.3`）；GitHub topics/主页属仓库设置，需人工在网页维护
@@ -52,6 +59,8 @@
 - ✅ REL-03 真实 Windows 冒烟：**已走通**（`ace.cmd` → 解释器自解析 → 真实控制台对话，离线 `--mock`，退出码 0，中文与 emoji 正常）。固化为 `e2e/rel03_native_smoke.ps1` 三档（启动器 / 直接入口 / `chcp 936` 老终端），脚本纯 ASCII（PowerShell 5.1 按 ANSI 读无 BOM 脚本，第一版被自己的中文注释弄崩）。仍缺：真 TTY 下的 Textual 全屏（缺 `textual` 依赖时相关段跳过）与非 Windows 控制台
 - ✅ REL-04 云端 e2e 激活说明已落文档(README secrets 指引 + e2e 头注释);配置 ACE_E2E_* 后 CI 自动启用
 - ✅ REL-05 仓库落到组织名下（2026-09-18）：新建组织 **`ace-code-engine`**（个人号保留不动 —— 著作权署名仍是它），仓库过继为 `github.com/ace-code-engine/ace-agent`。实测过继后 **Issues / PR / Releases（v3.7.0 六件产物）、全部 tag、Actions 运行历史与两个 workflow 状态（active）都跟过来了**，旧地址 302 到新地址。仓库内 9 处"仓库地址"意义上的硬编码已换（`README.md`×3、`README.zh-CN.md`×3、`docs/GETTING-STARTED.md`、`docs/design/EXECUTOR-RELEASE.md`、`ai_code.py:194` 的 `_EXECUTOR_REPO` —— 最后一个不是装饰，`ace --install-executor` 就照它下载 Release 资产）；署名行（`LICENSE`、两份 README 页脚）与 `docs/history/**` 按纪律**不换**。遗留：组织侧 Actions 权限策略若日后收紧，注意 `release-executor.yml` 依赖 `permissions: contents: write`（workflow 内已显式声明）
+- ✅ REL-06 **演示图重录**：四张全部重录（`demo.svg` / `demo_blocked.svg` / `demo_diff.svg` / `demo_landing.svg`），`python demo/record_demo.py --check` **四张全绿**（本机 exit 0）。**顺带推翻了这条事项的前提**：原判据写的是"必须在与 CI 同源的环境重录"，依据是"开发机上重录后失败转移到下一个没重录的文件"。真因不是列宽渲染不同源，而是录制脚本把临时目录的绝对路径**一律折成一个 `…`**，而面板补白是**按真实路径算好之后**才折叠的 —— ① 路径长度以补白形式留在 SVG 里（本机 work 路径 50 列、CI 69 列，CI 上 `--check` 必然对不上）；② 那一行比同框其它行短掉一大截，**已提交的图里那个框本来就是缺角的**（实测 HEAD 的 `demo.svg`：其余行 96 列，`目录` 行 28 列）。修法：折叠分两种口径（**框内行保宽**、**自由行折成一列**），并把判"框内行"前的 ANSI 剥掉（边框总带 `\x1b[0m`，不剥就永远判不出来）。**验收证据**：把临时目录路径加长 17 列，happy/blocked/landing/diff 四套剧本录出的**骨架逐字节一致**（修复前每 8 列路径差就让那一行窄 9 列）；`test_all [61]` 四条断言钉住（保宽、折一列、剥 ANSI、录制真的走 `_fold_path`）。**已知残余**：CI 那一次运行仍需观察（本机是 Windows/3.13、CI 是 ubuntu/3.12）；已知的平台差异（转轮帧与配色、时间戳）早已归一化，且修复前 `landing` 在数字归一化口径下就已与本机逐字节一致，说明渲染口径本身是通的
+- ✅ REL-07 **Rust 引擎（`engine/`）不进发布产物** —— 选路②并已写明。取证：`packaging/ace.spec` 的 `datas` 收的是 `prompts/ locales/ assets/ vendor/` + 三个根级文档（外加存在时的 `executor/`），**`engine/` 既不在列表里、也没有编好的二进制可带**，所以冻结版 `core/ace_engine.engine_path()` 必然找不到引擎、走 `_python_events/_python_meta`。为什么选②而不是①：实测引擎在热路径上**没有收益**（记忆召回 0.7×，即比 Python 慢；262 个小日志的跨会话聚合引擎 164 ms vs 本地 76 ms，只在单个大日志上赢），唯一用得上它的交互命令 `/audit stats` 省下的是毫秒级；而进包要给 `release-exe.yml` 加一套按平台编的 Rust 工具链 + 冒烟门禁，并长期维持引擎与 Python 两份实现的输出逐字节一致（现由 `engine/tools/xcheck.py` 8/8 与 `test_all [70]` H/I 段盯着）——为一个没有热路径收益的东西付这份长期同步成本不划算。降级不是能力缺失（字段集由 `_NORM_KEYS` 对齐、输出一致），故不与"不静默降级"取态冲突。文档：`docs/PACKAGING-EXE.md`（能力表新增一行 + "Rust 引擎不进包"整节，含实测数字与**改回去的方法**）、`docs/CONFIGURATION.md`（`ACE_ENGINE` → 源码树 → `PATH` 的发现顺序与降级行为）
 
 ## 建议顺序
 
@@ -59,3 +68,4 @@
 2. ✅ **P1 快速项全清**（Q-01 ~ Q-15）：2026-09-18 的 v3.8 一轮把最后四项（Q-04/Q-06/Q-07/Q-11）连同 Q-08/Q-12/Q-15 的核对一起收口
 3. ✅ **P2 结构重构**：R-01 / R-02 / R-04 / R-05 / R-06 / R-07 已闭环（v3.9 + v3.10.0）；**R-03 的引擎合并也已落地并两侧验收通过**（唯一客户端 `core/ace_client.py` + 无凭证契约冒烟 7/7 + **2026-09-25 在真实厂商端点 DeepSeek 上跑通**）。详见 `docs/design/STRUCT-REFACTOR.md`
 4. ✅ **REL-03 真机冒烟已走通**（Windows，三档全过），并因此抓出并修掉一处真缺陷：`_generate_text` 把裸文本直接递给执行层，导致不带 `--tools` 时永远到不了最终回复（见 `CHANGELOG`）。剩余人工项：v3.7.0 Release 上那个多余的 `logo.svg` 资产（非必需）；darwin/amd64 执行器仍无 Intel Mac 原生冒烟（本机无 Go 工具链，无法在此复现）
+5. ✅ **v3.42.0 一轮**（2026-09-26）：执行层 6 处"承诺了但没做"对齐 + Rust 元处理内核（会话事件流索引）+ 运行度量与跨会话成本 + 写前快照校验并行化 4.4×（另有 `snapshot_verify=rollback` 的 12× 档）。新增回归断言 D1–D10 / E1–E5 / F1–F9 / G1–G5 / H1–H4 / I1–I5 / J1–J2，详见 `CHANGELOG.md` 与 `docs/RELEASE-NOTES-v3.42.0.md`。**这一轮的四件未闭环事项已全部收口**：REL-06（演示图四张重录 + 录制位置无关已修）、REL-07（永不进包 + 写明降级）、Q-16（默认保持 `create` + 成本拆解）、Q-17（不优化，留档）

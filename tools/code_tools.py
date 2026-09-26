@@ -174,6 +174,18 @@ class CodeTools:
         # 探测错了也不至于把黑名单直接变成逃逸口。
         if self.use_go_executor:
             client = self._go_executor()
+            if client is None and self.sandbox_mode == "job":
+                # job 档要的就是这个边界：执行器拿不到就报 503，绝不静默回落到宿主。
+                # 修之前这里**直接掉出 if 块** → 往下走宿主 subprocess.run；而同一个
+                # "没有边界"的状态下 terminal_exec 是返回 503 的（terminal_exec.py 里
+                # 的 `if self.sandbox_mode == "job"`）。同档位两种行为已经很糟，
+                # 更糟的是静默的那一个恰好是更危险的 code_execute。
+                return ExecutionResult(
+                    status="error", error_code="503",
+                    message=("Job Object 沙箱不可用（执行器未编译、起不来，或本平台"
+                             "不支持 Tier-1），已拒绝执行。在 executor/ 下跑 "
+                             "`go build -o ace-executor.exe .`，或用 --sandbox off "
+                             "显式改回宿主执行。"))
             if client is not None:
                 from core import ace_executor as _ax
                 try:

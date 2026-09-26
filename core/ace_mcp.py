@@ -276,7 +276,15 @@ class McpStdioClient:
 
     def start(self, timeout: float = 20.0) -> None:
         cmd = [self.cfg["command"]] + list(self.cfg.get("args") or [])
-        env = dict(os.environ)
+        # 与钩子同口径：不把模型 API key 交给外部 server（名单见 core/ace_hooks._HOOK_ENV_DENY）。
+        # 注意这只是"少给一点"，**不是边界** —— 边界是执行层的项目级信任门（未受信任的
+        # 仓库里 `.ace/mcp.json` 根本不加载）。环境变量的全集无法穷举，这一点 H-06/H-11
+        # 已经证明过一次，所以别把它写成安全声明。
+        try:
+            from core.ace_hooks import _HOOK_ENV_DENY as _deny
+        except Exception:  # noqa: BLE001 —— 名单拿不到也要起得来
+            _deny = frozenset()
+        env = {k: v for k, v in os.environ.items() if k not in _deny}
         env.update(self.cfg.get("env") or {})
         env.setdefault("PYTHONIOENCODING", "utf-8")
         cwd = self.cfg.get("cwd") or self.project_root

@@ -2669,6 +2669,13 @@ class _SlashCommands:
             print("  " + c("yellow", t("audit_stats_seq_bad",
                                        dup=len(seq.get("duplicates") or []),
                                        gaps=len(seq.get("gaps") or []))))
+        # RG-02：整链校验。三态必须分开报 —— "验过没问题"与"根本没法验"混在一起，
+        # 正是这类机制最常见的失效方式（旧日志/锚丢失会被读成"一切正常"）。
+        _chain, _chain_why = self.session_log.verify_chain()
+        _chain_key = {"ok": "audit_chain_ok", "broken": "audit_chain_bad"}.get(
+            _chain, "audit_chain_note")
+        print("  " + c({"ok": "green", "broken": "red"}.get(_chain, "yellow"),
+                       t(_chain_key, detail=_chain_why)))
         # 运行度量（轮次/工具/耗时/授权/token）。耗时与 token 是 v3.42 起才落进日志的
         # 字段 —— 老日志这两项会是 0，那是"如实"而不是"没算"（ts 只有秒级粒度，推不出耗时）。
         met = ace_engine.session_metrics(p)

@@ -121,6 +121,26 @@ def anchor_dir_for(project_root: Path, override: Optional[str] = None) -> Path:
     return root / hashlib.sha256(ident.encode("utf-8")).hexdigest()[:16]
 
 
+def load_or_create_anchor_secret(secret_path: Path) -> str:
+    """读锚里的一把密钥；没有就建一把（POSIX 0600）。失败抛 `OSError`，由调用方定怎么办。
+
+    抽出来是为了让**别的组件也用同一个锚**（会话日志台账就用它），而不是各自发明一个存密钥的
+    地方 —— 后者正是"同一判据抄多份、漏改一份"的来源。注意这里**不做迁移**：迁移是 Guardian
+    的事（它知道老位置在哪）。
+    """
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    if secret_path.is_file():
+        val = secret_path.read_text(encoding="utf-8").strip()
+        if val:
+            return val
+    val = secrets.token_hex(32)
+    secret_path.write_text(val, encoding="utf-8")
+    _restrict_key_file(secret_path)
+    if secret_path.read_text(encoding="utf-8").strip() != val:
+        raise OSError(f"锚写入后读回不一致：{secret_path}")
+    return val
+
+
 def _restrict_key_file(key_path: Path) -> None:
     """把密钥文件权限收到所有者可读写（POSIX 0600）。Windows 上靠 `%LOCALAPPDATA%` 的 ACL。
 

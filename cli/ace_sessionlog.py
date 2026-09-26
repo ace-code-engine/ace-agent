@@ -13,16 +13,26 @@ DSH 的第一原则是「模型可见 ⟺ 可记录」：任何到达模型的�
 - 线程安全：CLI 与执行层并发追加不交错
 
 阶段 2（surface 投影 / 无损压缩）留给后续：先有"事实源"，再做"从事实源派生"。
+
+**RG-02（链式签名）**：append-only 只保证"只追加"，不保证"没被改过"。实测（探针
+`_rel_test/rg02_probe.py`）：把一条 `permission/decision` 从 `deny` 改成 `allow`、
+或往尾部追加一条伪造事件，`seq_contiguous()` 都返回 True，日志里也**没有任何字段**能说明
+它被动过 —— 一份可被静默重写的审计记录，恰好能重写掉安全裁决那一行。所以每条事件带一个
+`mac = HMAC(台账密钥, prev_mac ‖ 该条正文)`：改内容、删中间一条、剥掉某条的 mac、尾部伪造
+都会让整链对不上。密钥来自 `core/guardian` 的**锚**（工作区之外），与快照签名密钥分开派生。
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 # 事件种类（与 DSH SessionEventMap 对齐的 ACE 子集）
 K_SESSION_START = "session/start"        # 会话头（在哪个文件夹里开的）
@@ -45,21 +55,59 @@ K_COMPACTION = "compaction/event"        # 上下文压缩
 K_MODEL_SWITCH = "model/switch"          # 模型/提供商切换
 
 
+MAC_FIELD = "mac"
+_CHAIN_DOMAIN = b"ace-sessionlog-chain-v1"
+
+
+def _canonical_body(ev: Dict[str, Any]) -> str:
+    """事件正文的规范形式（**不含 `mac` 本身**）：键排序 + 紧凑分隔符。
+
+    为什么必须规范化：校验时要拿"文件里那条"重新算一遍 MAC，而写的时候是插入序 ——
+    只要按解析后的 dict 直接重算，键序一变就对不上。排序键 + 固定分隔符让两边恒等。
+    """
+    return json.dumps({k: v for k, v in ev.items() if k != MAC_FIELD},
+                      ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _event_mac(key: bytes, prev_mac: str, ev: Dict[str, Any]) -> str:
+    """`mac = HMAC(key, prev_mac ‖ 本条正文)`。
+
+    把**上一条的 MAC** 一起签进去，才有"链"：单条独立签名挡不住**删中间一条**
+    （剩下的每条自己都还是自洽的），而链一断就全露。
+    """
+    msg = _CHAIN_DOMAIN + prev_mac.encode("utf-8") + b"\n" + \
+        _canonical_body(ev).encode("utf-8")
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
 class SessionLog:
     """append-only 会话事件日志。path 指向 .jsonl 文件。"""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, mac_key: Optional[bytes] = None,
+                 project_root: Optional[str] = None,
+                 anchor_dir: Optional[str] = None) -> None:
         self.path = Path(path)
         self._lock = threading.Lock()
         self._next_seq = 1
+        self._prev_mac = ""
+        self._legacy_prefix = 0          # 早于链式签名、无法核验的前缀条数
+        self._mac_key: Optional[bytes] = mac_key
+        self._mac_key_tried = mac_key is not None
+        self._mac_error = ""
+        self._mac_warned = False
+        # 锚的定位需要项目根：默认取日志目录的上一级（`.ace_sessions/x.jsonl` → 项目根）
+        self._project_root = Path(project_root) if project_root else self.path.parent.parent
+        self._anchor_dir = anchor_dir    # 与 Guardian 同义的注入点（受限环境/测试）
         self._load_seq()
 
     def _load_seq(self) -> None:
-        """从已有文件恢复 seq：任何时刻重放都能接着写（跨进程续记）。"""
+        """从已有文件恢复 seq **与链尾**：任何时刻重放都能接着写（跨进程续记）。"""
         try:
             if self.path.exists():
                 with open(self.path, "r", encoding="utf-8") as f:
                     last = 0
+                    prefix = 0
+                    started = False
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -69,30 +117,113 @@ class SessionLog:
                             last = max(last, int(ev.get("seq", 0)))
                         except (json.JSONDecodeError, ValueError, TypeError):
                             continue   # 半截尾部（崩溃残留）跳过，不阻塞续记
+                        mac = ev.get("mac")
+                        if isinstance(mac, str) and mac:
+                            started = True
+                            self._prev_mac = mac
+                        elif not started:
+                            prefix += 1        # 老日志：这一段没签名，续写时另起链段
                     self._next_seq = last + 1
+                    self._legacy_prefix = prefix
         except OSError:
             pass
+
+    # ---------- 链式签名（RG-02） ----------
+
+    def _get_mac_key(self) -> Optional[bytes]:
+        """台账密钥：从锚派生（与快照签名密钥**分开**：各用各的，互不牵连）。
+
+        取不到时返回 None 并记下原因 —— 调用方据此**如实标记**这批事件没有签名，
+        而不是假装签过。台账是"记录"，不是"闸门"：写不下去会让整轮对话挂掉，
+        而攻击者本来就能删掉整份日志，所以这里不 fail-close，只 fail-loud。
+        """
+        if self._mac_key_tried:
+            return self._mac_key
+        self._mac_key_tried = True
+        try:
+            from core.guardian import anchor_dir_for, load_or_create_anchor_secret
+            secret = load_or_create_anchor_secret(
+                anchor_dir_for(self._project_root, self._anchor_dir) / "sessionlog_key")
+            self._mac_key = hmac.new(secret.encode("utf-8"),
+                                     b"ace-sessionlog-v1", hashlib.sha256).digest()
+        except Exception as e:      # noqa: BLE001 —— 锚不可用不该让对话挂掉，但要看得见
+            self._mac_error = f"{type(e).__name__}: {e}"
+            self._mac_key = None
+        return self._mac_key
 
     def append(self, kind: str, payload: Dict[str, Any]) -> int:
         """追加一个事件，返回其 seq。payload 必须是可 JSON 序列化的 dict（深冻结）。"""
         with self._lock:
+            ev: Dict[str, Any] = {
+                "seq": self._next_seq,
+                "kind": kind,
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                **payload,
+            }
+            # 深冻结契约要在**算 MAC 之前**兑现：不可序列化的 payload 必须在这里当场失败，
+            # 抛既有的 ValueError（有断言盯着）；否则会在规范化那步漏出 TypeError。
             try:
-                line = json.dumps({
-                    "seq": self._next_seq,
-                    "kind": kind,
-                    "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    **payload,
-                }, ensure_ascii=False, separators=(",", ":"))
+                _canonical_body(ev)
             except (TypeError, ValueError) as e:
                 raise ValueError(f"事件 payload 不可序列化（kind={kind}）: {e}") from e
+            key = self._get_mac_key()
+            if key is not None:
+                ev[MAC_FIELD] = _event_mac(key, self._prev_mac, ev)
+            elif not self._mac_warned:
+                self._mac_warned = True
+                print(f"⚠ 台账密钥不可用（{self._mac_error}）：本次会话的事件不带 MAC，"
+                      f"`/audit stats` 会如实报『不可核验』", file=sys.stderr)
+            line = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
             self.path.parent.mkdir(parents=True, exist_ok=True)
+
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            if key is not None:
+                self._prev_mac = ev[MAC_FIELD]
             seq = self._next_seq
             self._next_seq += 1
             return seq
+
+    def verify_chain(self) -> Tuple[str, str]:
+        """校验整链。返回 `(status, detail)`：
+
+        - `"ok"`：每条（链段内）的 MAC 都对得上 —— 没被改、没被删、没被插；
+        - `"broken"`：第几条对不上，或某条被剥掉了 MAC；
+        - `"unverifiable"`：整份都没有 MAC（早于链式签名），或拿不到台账密钥；
+        - `"empty"`：空日志（没东西可验，也不假装"通过"）。
+
+        为什么不是布尔：**"验过了没问题"与"根本没法验"必须能区分** —— 把后者当 ok
+        正是这类机制最常见的失效方式（旧日志、锚丢失都会被读成"一切正常"）。
+        """
+        evs = list(self.events())
+        if not evs:
+            return "empty", "空日志"
+        signed = [e for e in evs if isinstance(e.get(MAC_FIELD), str) and e[MAC_FIELD]]
+        if not signed:
+            return "unverifiable", f"整份日志都没有 MAC（早于链式签名），{len(evs)} 条"
+        key = self._get_mac_key()
+        if key is None:
+            return "unverifiable", f"拿不到台账密钥，无法核验（{self._mac_error}）"
+        prev = ""
+        started = False
+        prefix = 0
+        for i, e in enumerate(evs, 1):
+            mac = e.get(MAC_FIELD)
+            if not (isinstance(mac, str) and mac):
+                if not started:
+                    prefix += 1
+                    continue
+                return "broken", f"第 {i} 条缺少 MAC（被剥离或伪造）"
+            started = True
+            if not hmac.compare_digest(mac, _event_mac(key, prev, e)):
+                return "broken", f"第 {i} 条内容与 MAC 不符（被改过或被插进链里）"
+            prev = mac
+        detail = f"链完整，{len(signed)} 条"
+        if prefix:
+            detail += f"；前缀 {prefix} 条不可核验（早于链式签名）"
+        return "ok", detail
 
     def events(self) -> Iterator[Dict[str, Any]]:
         """按序重放全部事件（生成器，可流式消费）。"""

@@ -80,6 +80,12 @@ config = {
   `docs/design/RGTC-LANDING.md` 的 RG-01。
 - 配置 `signing_key` 仍然可以显式指定一把（它优先于锚）；**显式配空字符串**会在启动时告警 ——
   那是"关掉签名"，此时篡改只能靠摘要比对发现。
+- **会话台账另有一把**（`<锚>/sessionlog_key`，与快照密钥域分离）：每条事件带
+  `mac = HMAC(台账密钥, 上一条的 mac ‖ 该条正文)`，`/audit stats` 会打一行整链校验。
+  三态必须分清：`ok`（链完整）/ `broken`（改过、删过、插过、或某条的 mac 被剥掉）/
+  `unverifiable`（老日志没有 mac，或拿不到密钥）。**台账密钥不可用时不 fail-close**：
+  照样记录、打一次告警、校验如实报"不可核验" —— 台账是记录不是闸门，因为写不了签名就让
+  整轮对话挂掉换不来任何安全收益（细节与实测见 `docs/design/RGTC-LANDING.md` RG-02）。
 
 ### 界面与成本（`vim_mode` / `keybindings` / `pricing`）
 

@@ -5169,6 +5169,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # ExecutionLayer 时才生效**：写进 ~/.ai_code.json 会被静静忽略。
                 # 配置写了不生效比没这个键更坏 —— 用户以为闸门开着。
                 "signing_key": self.cfg.get("signing_key"),
+                # RG-05a-2：授权令（默认没有 = 行为与以前逐字相同）。用
+                # `python -m cli.ace_mandate issue ...` 签一张，把它贴进配置的 "mandate" 键即可。
+                "mandate": self.cfg.get("mandate"),
                 "max_snapshots": self.cfg.get("max_snapshots", 20),
                 # 快照完整性校验的时机：create（默认）/ rollback。
                 # 缺省保持"建完就校验"；换成 rollback 把同一遍校验挪到 /undo 那一刻

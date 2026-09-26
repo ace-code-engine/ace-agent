@@ -814,6 +814,14 @@ class ExecutionLayer:
         # RG-03（测量版）：来源账本 —— 记"用户说过什么 / 读了哪些外部内容 / 哪次写入的目标
         # 用户提过"。**第一阶段只测量、不改裁决**（core/ace_taint.py 的 docstring 写了为什么）。
         from core.ace_taint import TaintLedger
+        # RG-05a-2：授权令（默认**不配就没有**，行为与以前逐字相同）。配了之后，令可以
+        # 把"本来会问人"的那两处（项目外对象确认、CONFIRM_TOOLS 逐次确认）变成放行；
+        # **不能**覆盖硬拒绝（持久规则 deny / 未注册 MCP / 工具自身的敏感目标判定），
+        # 也不覆盖外发确认（那是"目的地"轴，令管的是"对象"）与权限等级
+        # （与既有先例一致：`/rules` 的 allow 也不提权，想放开请显式升级等级）。
+        self.mandate = (config or {}).get("mandate") or None
+        self._mandate_key: Optional[bytes] = None
+        self._mandate_warned = ""
         self.taint = TaintLedger()
         # 任务身份（H-20/H-21 的判据基础）：**由调用方显式给**，不再靠"用户输入文本相等"推断。
         # 为什么必须换：同一句话发两遍（按 ↑ 回车重发、/goal 续跑、子代理同一 prompt）时，
@@ -1420,6 +1428,71 @@ class ExecutionLayer:
             return f"{_what}项目外已存在的文件（项目外没有快照可回滚）: {p}"
         return None
 
+    def _mandate_decision(self, tool_name: str, tool_call: Dict[str, Any]
+                          ) -> Optional[Dict[str, Any]]:
+        """把当前这次调用对着**授权令**核一遍。返回 None = 没有可用的令（照旧问人）。
+
+        - 没配令 → None（行为与以前逐字相同）。
+        - 令无效/过期/被篡改 → **不拦截这次调用**，而是回落成"照旧问人"，并把原因**说出来**
+          （只在第一次/原因变化时告警一次）。理由：配了一张坏令不该让正常工作变成 403；
+          但更不能把它当成绿灯 —— 所以是"回落"，不是"放行"也不是"拒绝动作"。
+        - 令说 allow → 返回决策（调用方据此跳过那一处问人）。
+        - 令说 escalate → None（照旧问人，理由由令给出，记录在事件里）。
+        """
+        if not self.mandate:
+            return None
+        from core import ace_mandate
+        from core.targets import WRITE_TOOLS_WITH_PATH, destructive_targets
+        try:
+            if self._mandate_key is None:
+                from core.guardian import anchor_dir_for
+                self._mandate_key = ace_mandate.mandate_key(
+                    project_root=str(self.project_root))
+                _ = anchor_dir_for  # 说明来源：密钥由锚派生（RG-01 的座位）
+            targets = (destructive_targets(tool_name, tool_call)
+                       if tool_name in WRITE_TOOLS_WITH_PATH else [])
+            recovery = {}
+            for t in targets:
+                try:
+                    if getattr(self, "_recovery", None) is None:
+                        from core.ace_recovery import RecoveryClassifier
+                        self._recovery = RecoveryClassifier(str(self.project_root))
+                    recovery[str(t)] = self._recovery.classify(str(t))[0]
+                except Exception:      # noqa: BLE001 —— 分类不出来就按 UNKNOWN 处理
+                    recovery[str(t)] = "unknown"
+            res = ace_mandate.authorize(self._mandate_key, self.mandate, tool=tool_name,
+                                        targets=targets, recovery=recovery)
+        except Exception as e:      # noqa: BLE001 —— 令不可用不该让调用挂掉
+            self._warn_mandate(f"{type(e).__name__}: {e}")
+            return None
+        if res["decision"] == ace_mandate.DENY:
+            self._warn_mandate(res["reason"])
+            if self.session_log:
+                self.session_log.record_permission(
+                    tool_name, "mandate_invalid", self.permission.level, res["reason"][:180])
+            return None
+        if res["decision"] == ace_mandate.ESCALATE:
+            if self.session_log:
+                self.session_log.record_permission(
+                    tool_name, f"mandate_{res['rule']}", self.permission.level,
+                    res["reason"][:180])
+            return None
+        # allow：消耗额度（若这次是不可逆的）并重新签名，再记录
+        if res.get("consumes"):
+            self.mandate = ace_mandate.record_use(self.mandate, res["consumes"],
+                                                 self._mandate_key)
+        if self.session_log:
+            self.session_log.record_permission(
+                tool_name, "mandate_allowed", self.permission.level,
+                f"{res['rule']}: {res['reason']}"[:180])
+        return res
+
+    def _warn_mandate(self, reason: str) -> None:
+        """令不可用只告警**一次**（同一原因不刷屏），但必须说出来。"""
+        if reason and reason != self._mandate_warned:
+            self._mandate_warned = reason
+            print(f"⚠ 授权令不可用，本次照旧逐次确认：{reason}", file=sys.stderr)
+
     def _stage_permission(self, tool_call: Dict[str, Any], tool_name: str,
                           route_meta: Dict[str, Any], ctx: RoundCtx
                           ) -> Optional[Dict[str, Any]]:
@@ -1509,6 +1582,9 @@ class ExecutionLayer:
         if (tool_name not in self.permission.temp_grants
                 and tool_name in self.permission.allowed_tools(self.permission.level)):
             _outside = self._outside_destructive_reason(tool_name, tool_call)
+            if _outside and self._mandate_decision(tool_name, tool_call) is not None:
+                # RG-05a-2：令明确覆盖了这个项目外对象 → 跳过这次确认（事件里记了 mandate_allowed）
+                _outside = None
             if _outside:
                 self.pending_permission = {"tool": tool_name, "reason": _outside,
                                            "identity": _identity,
@@ -1557,7 +1633,8 @@ class ExecutionLayer:
                              or self.executor.sandbox_mode == "job"))
             # 同前缀免确认：用户之前确认过同前缀命令（且不是 BANNED 危险包装）→ 跳过确认闸门。
             _cmd = str(tool_call.get("command") or tool_call.get("code") or "")
-            if not _of_fail and not self._prefix_auto_approved(_cmd):
+            if (not _of_fail and not self._prefix_auto_approved(_cmd)
+                    and self._mandate_decision(tool_name, tool_call) is None):
                 preview = _cmd
                 if len(preview) > 300:
                     preview = preview[:300] + " …（已截断）"

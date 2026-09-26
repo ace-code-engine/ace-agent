@@ -14022,6 +14022,87 @@ if _want("71"):
     check("RG-05i 目标可逆性低于下限且未点名 → escalate（recovery_below_floor）",
           _i71["decision"] == _md71.ESCALATE and _i71["rule"] == "recovery_below_floor",
           f"{_i71['rule']} / {_i71['reason']}")
+
+    # ── RG-05a-2：把令接进审批流程 ──
+    # 令只把"本来会问人"的两处（项目外对象确认 / CONFIRM_TOOLS 逐次确认）变成放行；
+    # **不能**覆盖硬拒绝、外发确认与权限等级。默认不配令 = 行为与以前逐字相同。
+    _out_root71 = mktemp("rg05_out")
+    (_out_root71 / "outside.txt").write_text("v1\n", encoding="utf-8")
+    _WRITE_OUT71 = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] file_write\n[/INTERNAL_THINKING]\n"
+                    "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
+                    + json.dumps({"tool": "file_write",
+                                  "path": str(_out_root71 / "outside.txt"),
+                                  "content": "v2"}, ensure_ascii=False) + "\n</EXTERNAL>")
+
+    def _el_md71(tag, mandate=None):
+        _proj = mktemp("rg05_" + tag)
+        (_proj / "src").mkdir(parents=True)
+        _sl = _SL71(str(_proj / ".ace_sessions" / "s.jsonl"))
+        _elx = ExecutionLayer(project_root=str(_proj), permission_level="write",
+                              config={"bait": {"enabled": False}, "mandate": mandate})
+        _elx.session_log = _sl
+        return _proj, _elx, _sl
+
+    _j71p, _j71el, _j71sl = _el_md71("nomandate")
+    _j71status = _j71el.process_agent_output(_WRITE_OUT71, "把那个文件改一下")["status"]
+    check("RG-05j 没配令 → 行为与以前逐字相同（项目外已存在文件仍然问人）",
+          _j71status == "PERMISSION_REQUEST", _j71status)
+
+    _key72 = _md71.mandate_key(anchor_dir=str(_g71_root / "md_anchor"),
+                               project_root=str(_j71p))
+    _k71mand = _md71.issue(_key72, mandate_id="md_int", intents=["file_write"],
+                           roots=[str(_j71p), str(_out_root71)], recovery_floor=_SNAP71,
+                           irreversible_quota=1,
+                           allow_irreversible=[str(_out_root71 / "outside.txt")],
+                           ttl_s=3600)
+    _k71p, _k71el, _k71sl = _el_md71("mandate")
+    _k71el._mandate_key = _key72          # 注入同一把锚密钥（测试里省掉真实锚的往返）
+    _k71el.mandate = _k71mand
+    _k71status = _k71el.process_agent_output(_WRITE_OUT71, "把那个文件改一下")["status"]
+    _k71ev = [e for e in _k71sl.events() if e.get("decision") == "mandate_allowed"]
+    check("RG-05k 有效令覆盖该项目外对象 → 不再问人（事件记 mandate_allowed）",
+          _k71status == "SUCCESS" and bool(_k71ev), f"{_k71status} / {bool(_k71ev)}")
+    check("RG-05l 放行消耗了不可逆额度（令被重新签名，额度 1/1）",
+          _k71el.mandate["usedIrreversible"] == 1
+          and _k71el.mandate["mac"] != _k71mand["mac"],
+          str(_k71el.mandate.get("usedIrreversible")))
+
+    # 令不覆盖（工具不在 intents）→ 仍然问人
+    _l71mand = _md71.issue(_key72, mandate_id="md_scope", intents=["file_read"],
+                           roots=[str(_j71p)], recovery_floor=_SNAP71, ttl_s=3600)
+    _l71p, _l71el, _l71sl = _el_md71("scope")
+    _l71el._mandate_key = _key72
+    _l71el.mandate = _l71mand
+    _l71status = _l71el.process_agent_output(_WRITE_OUT71, "把那个文件改一下")["status"]
+    check("RG-05m 令不覆盖这个工具 → 照旧问人（不是放行）",
+          _l71status == "PERMISSION_REQUEST", _l71status)
+
+    # 被篡改的令 → **不是绿灯**：回落成问人，并记下 mandate_invalid
+    _n71mand = dict(_k71mand)
+    _n71mand["roots"] = ["C:/"]
+    _n71p, _n71el, _n71sl = _el_md71("tampered")
+    _n71el._mandate_key = _key72
+    _n71el.mandate = _n71mand
+    _n71status = _n71el.process_agent_output(_WRITE_OUT71, "把那个文件改一下")["status"]
+    _n71ev = [e for e in _n71sl.events() if e.get("decision") == "mandate_invalid"]
+    check("RG-05n 令被篡改 → 不说放行，回落成问人（并记 mandate_invalid）",
+          _n71status == "PERMISSION_REQUEST" and bool(_n71ev),
+          f"{_n71status} / {bool(_n71ev)}")
+
+    # 硬拒绝不受令影响：未注册的 MCP 工具即使被令点名也照样 503
+    _o71mand = _md71.issue(_key72, mandate_id="md_mcp", intents=["mcp__nope__x"],
+                           roots=[str(_j71p)], recovery_floor=_NEVER71,
+                           irreversible_quota=9, allow_irreversible=["mcp__nope__x"],
+                           ttl_s=3600)
+    _o71p, _o71el, _o71sl = _el_md71("harddeny")
+    _o71el._mandate_key = _key72
+    _o71el.mandate = _o71mand
+    _o71call = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] mcp__nope__x\n[/INTERNAL_THINKING]\n"
+                "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
+                '{"tool": "mcp__nope__x"}\n</EXTERNAL>')
+    _o71status = _o71el.process_agent_output(_o71call, "用它做点事")["status"]
+    check("RG-05o 硬拒绝不受令影响（未注册 MCP 工具即使被点名也是 503，不是放行）",
+          _o71status == "503", _o71status)
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

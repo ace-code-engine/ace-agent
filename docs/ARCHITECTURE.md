@@ -87,7 +87,8 @@ ace-agent/
 │   ├── __init__.py             #   包入口
 │   ├── ace_doctor.py           #   环境自检（python -m cli.ace_doctor）
 │   ├── ace_context.py          #   上下文压缩判定：保住任务锚点，中间段折成摘要
-│   ├── ace_sessionlog.py       #   会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建
+│   ├── ace_sessionlog.py       #   会话事件日志：append-only JSONL，seq 契约，深冻结，replay 重建，链式 MAC（RG-02）
+│   ├── ace_mandate.py          #   授权令操作者工具：签发/检查（python -m cli.ace_mandate issue|show）
 │   └── ace_sessions.py         #   会话派生视图：摘要 / 切到第 n 轮 / rewind（纯函数）
 ├── core/                       # 引擎支撑：策略 / 网络 / 执行器客户端 / 记忆与快照
 │   ├── __init__.py             #   包入口

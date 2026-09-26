@@ -151,6 +151,19 @@ def authorize(key: bytes, mandate: Dict[str, Any], *, tool: str,
     allowed_irr = set(mandate.get("allowIrreversible") or [])
     quota = int(mandate.get("irreversibleQuota") or 0)
     used = int(mandate.get("usedIrreversible") or 0)
+    if not items:
+        # 说不清痕迹的动作（`terminal_exec` / `code_execute` 之类：目标是命令，不是路径）。
+        # 按**不可逆**处理 —— 与可逆性分类器同一条精神（"说不清"不等于"安全"）：
+        # 必须在令里点名（`allowIrreversible`）并消耗额度，否则一律升级。
+        if tool not in allowed_irr:
+            return {"decision": ESCALATE, "rule": "footprint_unknown", "consumes": 0,
+                    "reason": (f"{tool} 的痕迹不可枚举（说不清会动哪些对象），"
+                               f"令里没有点名放行它")}
+        if used >= quota:
+            return {"decision": ESCALATE, "rule": "quota_exhausted", "consumes": 0,
+                    "reason": f"不可逆额度已用尽（{used}/{quota}）"}
+        return {"decision": ALLOW, "rule": "allowed_irreversible", "consumes": 1,
+                "reason": f"{tool} 痕迹不可枚举但被点名放行，消耗 1 个额度（{used}/{quota}）"}
     offending = []
     for t in items:
         lvl = str(cls.get(t, UNKNOWN))

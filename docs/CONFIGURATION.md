@@ -11,6 +11,7 @@ config = {
     "sandbox_base": "...",                     # code_execute 沙箱临时目录（默认系统临时区）
     "confine_files": True,                     # 文件工具限制在项目目录内（含跨盘符检查）
     "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议；不配则自动生成一把）
+    "mandate": {"mandateId": "md_...", ...},    # 授权令（RG-05）：一次任务一张，收拢逐次弹窗；不配 = 行为与以前相同
     "max_snapshots": 20,                       # 快照硬上限，自动清理最旧
     "snapshot_verify": "create",               # 快照完整性校验的时机：create（默认）/ rollback
     "session_id": "会话标识",                   # archive 记忆按会话隔离
@@ -90,7 +91,28 @@ config = {
   照样记录、打一次告警、校验如实报"不可核验" —— 台账是记录不是闸门，因为写不了签名就让
   整轮对话挂掉换不来任何安全收益（细节与实测见 `docs/design/RGTC-LANDING.md` RG-02）。
 
+### 授权令（`mandate`，RG-05）
+
+```bash
+python -m cli.ace_mandate issue --intents file_write,file_delete --roots . \
+    --floor snapshot --quota 1 --allow-irreversible terminal_exec --ttl 3600 --out mandate.json
+python -m cli.ace_mandate show --file mandate.json      # 检查签名/有效期/额度
+```
+
+把 `issue` 打出来的那个对象贴进配置的 `"mandate"` 键即生效。**不配这个键 = 行为与以前逐字相同。**
+
+- **它换来什么**：一次任务签一张令，之后"项目外已存在对象的确认"与 `edit_file` / `terminal_exec`
+  的逐次确认**不再逐次弹窗**（弹窗从 O(危险步数) 变成 O(任务数)）。
+- **它管不了什么**（刻意）：硬拒绝（持久规则 deny / 未注册 MCP / 敏感目标）依旧拒；
+  **外发确认**（egress）是"目的地"轴，令管的是"对象"，不覆盖；**权限等级**也不提权
+  （与 `/rules` 的 allow 同一先例）。
+- **痕迹不可枚举的工具**（`terminal_exec` / `code_execute`）必须写进 `--allow-irreversible` 点名，
+  且每用一次消耗一个 `--quota` 额度 —— "说不清动了什么"不等于"安全"。
+- **令坏了怎么办**：签名不符 / 过期 / 被改过 → **不说放行**，回落成照旧逐次确认，并告警一次。
+- 签名密钥从**信任锚**派生（与快照签名、台账签名域分离）；`ace doctor` 会报锚的状态。
+
 ### 界面与成本（`vim_mode` / `keybindings` / `pricing`）
+
 
 ```json
 "vim_mode": false,                          // vi 编辑模式（也可 /vim on|off 热切换）

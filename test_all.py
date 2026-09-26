@@ -13949,6 +13949,79 @@ if _want("71"):
     _out71f = _buf71f.getvalue()
     check("RG-01h ace doctor 体检信任锚（锚路径与锚根来源都报出来）",
           "信任锚" in _out71f and str(_anchor71) in _out71f, _out71f[-400:])
+
+    # ── RG-05a：授权令（第一阶段：令本身，尚未接入审批流程）──
+    # 粒度从"一次调用一个对象"（H-09）换成"一次任务一张令"，弹窗才能从 O(步数) 降到 O(任务数)。
+    # 本组只钉令本身的四条判定 + 可证伪的篡改/过期路径 —— `_stage_permission` 一行都没动。
+    from core import ace_mandate as _md71  # noqa: E402
+    _key71 = _hmac71.new(b"test-anchor-secret", b"ace-mandate-v1", _hl71.sha256).digest()
+    _ws71 = str(_g71_root / "rg05")
+    _mand71 = _md71.issue(_key71, mandate_id="md1", intents=["file_write", "file_delete"],
+                          roots=[_ws71], recovery_floor=_SNAP71,
+                          irreversible_quota=1, allow_irreversible=[_ws71 + "/keep.txt"],
+                          ttl_s=3600, now=1000.0)
+
+    _a71 = _md71.authorize(_key71, _mand71, tool="file_write",
+                           targets=[_ws71 + "/src/app.py"],
+                           recovery={_ws71 + "/src/app.py": _GIT71}, now=1010.0)
+    check("RG-05a 令内、可逆性达标 → allow", _a71["decision"] == _md71.ALLOW,
+          f"{_a71['rule']} / {_a71['reason']}")
+
+    # 越出 roots → 升级（ATK-7 形状）
+    _b71 = _md71.authorize(_key71, _mand71, tool="file_write",
+                           targets=["C:/Windows/system32/x.dll"], now=1010.0)
+    check("RG-05b 目标越出令的 roots → escalate（不是静默放行）",
+          _b71["decision"] == _md71.ESCALATE and _b71["rule"] == "out_of_roots",
+          f"{_b71['rule']} / {_b71['reason']}")
+
+    # 意图不在令里 → 升级
+    _c71 = _md71.authorize(_key71, _mand71, tool="terminal_exec",
+                           targets=[_ws71 + "/x"], now=1010.0)
+    check("RG-05c 令里没授权的工具 → escalate（intent_scope）",
+          _c71["decision"] == _md71.ESCALATE and _c71["rule"] == "intent_scope",
+          f"{_c71['rule']} / {_c71['reason']}")
+
+    # 篡改：改 roots 保留原签名 → 拒绝（问人没意义：人也只能看到被改过的纸条）
+    _tam71 = dict(_mand71)
+    _tam71["roots"] = ["C:/"]
+    _d71 = _md71.authorize(_key71, _tam71, tool="file_write",
+                           targets=["C:/Windows/x"], now=1010.0)
+    check("RG-05d 令被篡改（改 roots 保留原签名）→ deny（no_mandate 类，不是升级）",
+          _d71["decision"] == _md71.DENY and _d71["rule"] == "no_mandate",
+          f"{_d71['rule']} / {_d71['reason']}")
+
+    # 过期 → 升级（不是拒绝：重签一张就继续）
+    _e71b = _md71.authorize(_key71, _mand71, tool="file_write",
+                            targets=[_ws71 + "/src/app.py"], now=99999.0)
+    check("RG-05e 令过期 → escalate（mandate_expired，而不是拒绝）",
+          _e71b["decision"] == _md71.ESCALATE and _e71b["rule"] == "mandate_expired",
+          f"{_e71b['rule']} / {_e71b['reason']}")
+
+    # 不可逆目标：点名 + 有额度 → 放行并消耗 1；额度用尽 → 升级（ATK-6 形状）
+    _f71 = _md71.authorize(_key71, _mand71, tool="file_write",
+                           targets=[_ws71 + "/keep.txt"],
+                           recovery={_ws71 + "/keep.txt": _NEVER71}, now=1010.0)
+    check("RG-05f 不可逆但被点名放行且有额度 → allow 且消耗 1 个额度",
+          _f71["decision"] == _md71.ALLOW and _f71["consumes"] == 1
+          and _f71["rule"] == "allowed_irreversible", f"{_f71['rule']} / {_f71['reason']}")
+    _used71 = _md71.record_use(_mand71, _f71["consumes"], _key71)
+    check("RG-05g 额度累加后**重新签名**（否则额度可事后随便改）",
+          _md71.verify(_key71, _used71, now=1010.0)[0] == "ok"
+          and _used71["usedIrreversible"] == 1 and _used71["mac"] != _mand71["mac"],
+          str(_md71.verify(_key71, _used71, now=1010.0)))
+    _h71 = _md71.authorize(_key71, _used71, tool="file_write",
+                           targets=[_ws71 + "/keep.txt"],
+                           recovery={_ws71 + "/keep.txt": _NEVER71}, now=1010.0)
+    check("RG-05h 额度用尽 → escalate（quota_exhausted）",
+          _h71["decision"] == _md71.ESCALATE and _h71["rule"] == "quota_exhausted",
+          f"{_h71['rule']} / {_h71['reason']}")
+    # 没点名 + 低于下限 → 升级（recovery_below_floor）
+    _i71 = _md71.authorize(_key71, _mand71, tool="file_write",
+                           targets=[_ws71 + "/untracked-notes.local"],
+                           recovery={_ws71 + "/untracked-notes.local": _UNK71}, now=1010.0)
+    check("RG-05i 目标可逆性低于下限且未点名 → escalate（recovery_below_floor）",
+          _i71["decision"] == _md71.ESCALATE and _i71["rule"] == "recovery_below_floor",
+          f"{_i71['rule']} / {_i71['reason']}")
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

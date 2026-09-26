@@ -250,17 +250,41 @@
 
 ### RG-04b · 判据翻判（L，**待 G2 数据**）
 
-- **改动**：新增 `core/ace_recovery.py`，分类 `GIT / SNAPSHOT / REGENERABLE / NEVER / UNKNOWN`，
-  事实全部来自 ACE 已有能力（git 跟踪状态、`EXCLUDE_DIRS`、能否建快照）。
-  **第一版只把分类写进日志与 `/audit`，不改任何裁决。**
-- **前置门（先测后改）**：跑真实会话 + 全量测试，产出"当前被 deny/escalate、而分类器会判可逆"的清单，
-  **逐条人工看**，产出一张"要退化成 NEVER 判据的黑名单条目"表。
-- **验收**：① gitignore 目录**不得**自动判 REGENERABLE（可再生要白名单，不能拿"被忽略"当"可再生"）；
-  ② 反例测试：`rm -rf` 一个被 gitignore 但不可再生的目录 → 必须 UNKNOWN → escalate；
-  ③ 清单里每一条都有结论（无"待看"）。
-- **风险**：低（只读）。**规模**：测量版 M；翻判版（RG-04b）L，且只在清单支持时才开。
+- **要做什么**：把分类器的结论接进裁决（判 `NEVER`/`UNKNOWN` 的写类调用改为问人），
+  并把 `core/ace_execpolicy.py` 里那批 `_FORBIDDEN_RULES` 逐条对账，产出"哪些条目可以退化成
+  NEVER 判据"的表。
+- **前置门（G2）**：① 拟放开的清单里**零**不可恢复项（逐条人工看）；② gitignore 目录**不得**
+  自动判 `REGENERABLE`；③ 反例测试：`rm -rf` 一个被 gitignore 但不可再生的目录必须
+  `UNKNOWN → escalate`。**这三条现在已经由 `[71]` 的 RG-04c/f 钉住了**，所以剩下的门是"清单逐条看过"。
+- **待办**：用真实会话跑出"被拦但分类器会放行"的清单（`/audit stats` 那两行 + `e2e/rg_probes.py rg04`
+  已经能出数），看过之后再决定翻不翻。
 
-### RG-05 · 授权令（M/L）与影子平台（L，先过成本门）
+### RG-05a · 授权令（M/L）—— **第一阶段（令本身）已实施**
+
+**粒度换向**：ACE 今天的审批粒度是**对象**（H-09：一次调用绑一个对象），弹窗数随危险步数
+线性增长。原型的主张是换成**一次任务一张令** `(intents, roots, recoveryFloor, irreversibleQuota, ttl)`，
+签名用**锚里的密钥**（RG-01 那个座位）；之后每次行动只是对着令核一遍 → 弹窗 O(步数) → O(任务数)。
+
+**第一阶段只做令本身**，`_stage_permission` **一行都没动**（与 RG-03/RG-04 同节奏：先逻辑与
+可证伪测试，接入审批流程是下一步，那一步才会真的改变弹窗行为）。新增 `core/ace_mandate.py`：
+
+- `issue()` 签一张令（含 `issuedAt`/`expiresAt`/`usedIrreversible`），`verify()` 返回**三态**
+  `ok` / `invalid` / `expired`；`authorize()` 是**纯函数**，四条判定按顺序给出
+  `allow` / `escalate` / `deny`；`record_use()` 累加额度并**重新签名**（不重签等于额度可事后随便改）。
+- 口径（都写进模块 docstring，免得以后各处理解不一）：
+  1. **可逆性从强到弱 `GIT > SNAPSHOT > REGENERABLE > UNKNOWN > NEVER`** —— "可再生"比
+     "有快照"弱一档（重装依赖未必同版本）；
+  2. **过期 = 升级**（重签一张即可），**签名不符 / 缺签名 = 拒绝**（令被改过时问人没有意义：
+     人也只能看到一张被改过的纸条）；
+  3. 目标**没有分类信息**时按 `UNKNOWN` 处理（保守）；`NEVER` 类永远达不到任何下限，只能靠
+     `allowIrreversible` 点名 + 额度。
+- **验收（`test_all` 段 `[71]` 的 RG-05a~i）**：a 令内且达标 → allow；b 越出 roots → escalate；
+  c 未授权的工具 → escalate（intent_scope）；d **改 roots 保留原签名 → deny**；e 过期 → escalate；
+  f 点名放行的不可逆动作 → allow 且消耗 1；g 额度累加后重新签名（旧签名对不上）；h 额度用尽 →
+  escalate（quota_exhausted）；i 低于下限且未点名 → escalate（recovery_below_floor）。
+- **风险**：低（新增纯逻辑模块，未接入任何判定路径）。**回滚**：`git revert` 该提交。
+
+### RG-05b · 影子平台（L，先过 G3 成本门）
 
 - **RG-05a 授权令**：`mandate = (intents, roots, recoveryFloor, irreversibleQuota, ttl)`，用 RG-01 的锚签名。
   验收直接翻原型 ATK-6/7/8：额度用尽 → 问人；越出 roots → 问人；自签/篡改 → 拒。

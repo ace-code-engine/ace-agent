@@ -98,6 +98,7 @@ ace-agent/
 │   ├── ace_client.py           #   模型 HTTP 客户端：唯一的出网实现（OpenAI/Anthropic 两种格式 + tools 降级，两个前端共用，R-03）
 │   ├── ace_executor.py         #   Go 执行器客户端（NDJSON 协议，纯 stdlib）
 │   ├── ace_engine.py           #   Rust 元处理引擎客户端（会话事件流索引等；引擎不可用时降级为纯 Python 同口径实现）
+│   ├── ace_taint.py            #   来源归属账本（RG-03 第一阶段：只测量不改裁决 —— 写目标有没有被用户提过）
 │   ├── ace_model.py            #   模型层纯逻辑：历史裁剪 / HTTP 错误码提示（两个前端共用，R-03）
 │   ├── work.py                 #   诱饵工厂 + AST 行为检测（ASTDetector）
 │   ├── guardian.py             #   物理快照回滚：快照 / 完整性预检 / HMAC / 自动清理

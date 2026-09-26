@@ -811,6 +811,10 @@ class ExecutionLayer:
         self.violation_count = 0
         self.ast_fail_count = 0
         self.last_user_input = ""
+        # RG-03（测量版）：来源账本 —— 记"用户说过什么 / 读了哪些外部内容 / 哪次写入的目标
+        # 用户提过"。**第一阶段只测量、不改裁决**（core/ace_taint.py 的 docstring 写了为什么）。
+        from core.ace_taint import TaintLedger
+        self.taint = TaintLedger()
         # 任务身份（H-20/H-21 的判据基础）：**由调用方显式给**，不再靠"用户输入文本相等"推断。
         # 为什么必须换：同一句话发两遍（按 ↑ 回车重发、/goal 续跑、子代理同一 prompt）时，
         # 文本比较会认为"还是同一个任务"，于是 tools_ran_this_task 与 _retry_fingerprints
@@ -1051,6 +1055,8 @@ class ExecutionLayer:
             self.ast_fail_count = 0
             self.bait_armed = True
             self.last_user_input = user_input
+            # RG-03（测量版）：把用户自己说的话记进来源账本（只记事实，不做裁决）
+            self.taint.note_user(user_input)
             self._task_identity = identity
             self.pending_plan = None
             self.plan_approved = False
@@ -1594,8 +1600,23 @@ class ExecutionLayer:
                 **route_meta,
             }
         if self.session_log:
+            # RG-03（测量版，**不改裁决**）：写类工具放行时，顺手记下"这次写入的目标路径
+            # 有没有被用户自己提过"。详见 core/ace_taint.py 的模块 docstring。
+            _attr, _esc = "", False
+            if tool_name in WRITE_TOOLS:
+                try:
+                    from core.targets import WRITE_TOOLS_WITH_PATH, destructive_targets
+                    # 注意：这里的 `tool_call` 本身就是参数 dict（`_stage_snapshot` 也这么收），
+                    # 参数是**平铺**的，没有嵌套的 "params" 键。
+                    _tg = (destructive_targets(tool_name, tool_call)
+                           if tool_name in WRITE_TOOLS_WITH_PATH else [])
+                    _a = self.taint.assess(tool_name, _tg)
+                    _attr, _esc = _a["attribution"], _a["would_escalate"]
+                except Exception:      # noqa: BLE001 —— 测量失败绝不影响裁决
+                    _attr, _esc = "", False
             self.session_log.record_permission(
-                tool_name, "allowed", self.permission.level)
+                tool_name, "allowed", self.permission.level,
+                attribution=_attr, would_escalate=_esc)
         return None
 
     def _stage_code_gate(self, tool_call: Dict[str, Any], tool_name: str
@@ -1764,6 +1785,8 @@ class ExecutionLayer:
                                            + hr.additional_context).strip(" |"))
                     except Exception:  # noqa: BLE001 —— 附注挂不上不该影响工具结果
                         pass
+        # RG-03（测量版）：这一轮读到的东西算不算"外部内容"——只记事实，不参与裁决
+        self.taint.note_tool(tool_name, ok=(str(getattr(result, "status", "")) == "SUCCESS"))
         if self.session_log:
             # 实测耗时一起落盘（秒 → 毫秒）：它只活在 result.metadata 里的话，
             # 谁也聚合不了 —— 而 ts 只有秒级粒度，推不出"哪个工具慢"。

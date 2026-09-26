@@ -331,10 +331,18 @@ class SessionLog:
         return self.append(K_SYSTEM_SNAPSHOT, {"system": system})
 
     def record_permission(self, tool: str, decision: str,
-                          level: str, detail: str = "") -> int:
-        return self.append(K_PERMISSION, {
-            "tool": tool, "decision": decision, "level": level,
-            "detail": (detail or "")[:200]})
+                          level: str, detail: str = "",
+                          attribution: str = "", would_escalate: bool = False) -> int:
+        """`attribution` / `would_escalate` 只在**写类工具放行**那一处传（RG-03 测量版）。
+
+        刻意做成可选：不传时 payload 与旧版**逐字相同**，免得给其余十来处调用点改事件形状。
+        """
+        payload = {"tool": tool, "decision": decision, "level": level,
+                   "detail": (detail or "")[:200]}
+        if attribution:
+            payload["attribution"] = attribution
+            payload["would_escalate"] = bool(would_escalate)
+        return self.append(K_PERMISSION, payload)
 
     def record_guard(self, rule: str, action: str, detail: str = "") -> int:
         return self.append(K_GUARD, {"rule": rule, "action": action,

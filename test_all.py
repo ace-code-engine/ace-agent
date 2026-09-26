@@ -13828,6 +13828,67 @@ if _want("71"):
     check("RG-03f /audit stats 打出归属测量行（G1 的数看得见，且注明未参与裁决）",
           "来源归属" in _out71c and "未参与裁决" in _out71c and "会问人 1 次" in _out71c,
           _out71c[-260:])
+
+    # ── RG-04（第一阶段：只分类，不改裁决）──
+    # 立项理由：ACE 今天用"命令黑名单 + 路径规则"回答"危险吗"，而名单天生补不全。换一个
+    # 可判定的问题：**被写的对象能不能重建**。本组钉的是两条最容易搞错的口径：
+    # ① "被 gitignore" ≠ "可再生"（私有笔记/secrets 也被忽略）；② 凭据与 agent 状态是 NEVER
+    # （快照排除它们，所以删了真没了）。
+    from core.ace_recovery import (RecoveryClassifier as _RC71, GIT as _GIT71,
+                                   SNAPSHOT as _SNAP71, REGENERABLE as _REGEN71,
+                                   NEVER as _NEVER71, UNKNOWN as _UNK71)  # noqa: E402
+    import subprocess as _sp71  # noqa: E402
+
+    _rc_root = mktemp("rg04")
+    (_rc_root / "src").mkdir(parents=True)
+    (_rc_root / "src" / "app.py").write_text("x=1\n", encoding="utf-8")
+    (_rc_root / "secrets").mkdir()
+    (_rc_root / "secrets" / "local.txt").write_text("s\n", encoding="utf-8")
+    (_rc_root / "node_modules" / "dep").mkdir(parents=True)
+    (_rc_root / "node_modules" / "dep" / "i.js").write_text("//\n", encoding="utf-8")
+    (_rc_root / "notes.local").write_text("private\n", encoding="utf-8")
+    (_rc_root / ".gitignore").write_text("secrets/\n*.local\nnode_modules/\n", encoding="utf-8")
+
+    def _git71(*args):
+        return _sp71.run(["git", *args], cwd=str(_rc_root), capture_output=True,
+                         text=True, encoding="utf-8", errors="replace", timeout=30)
+
+    _git71("init", "-q")
+    _git71("add", "src/app.py", ".gitignore")          # 进索引即"被跟踪"，不需要提交身份
+
+    _rc71 = _RC71(str(_rc_root))
+
+    def _lvl71(rel):
+        return _rc71.classify(str(_rc_root / rel))[0]
+
+    check("RG-04a 版本控制内的文件 → GIT（可重建）", _lvl71("src/app.py") == _GIT71,
+          _rc71.classify(str(_rc_root / "src/app.py")))
+    check("RG-04b 白名单里的依赖/构建目录 → REGENERABLE",
+          _lvl71("node_modules/dep/i.js") == _REGEN71 and _lvl71("node_modules") == _REGEN71,
+          _rc71.classify(str(_rc_root / "node_modules/dep/i.js")))
+    check("RG-04c **被 gitignore 但不在白名单 → UNKNOWN**（忽略≠可再生：私有笔记/密钥目录）",
+          _lvl71("secrets/local.txt") == _UNK71 and _lvl71("notes.local") == _UNK71,
+          _rc71.classify(str(_rc_root / "secrets/local.txt")))
+    check("RG-04d 凭据与 agent 状态、版本库自身 → NEVER（快照排除它们，删了真没了）",
+          _lvl71(".git/config") == _NEVER71 and _lvl71(".env") == _NEVER71
+          and _lvl71(".guardian/signing_key") == _NEVER71,
+          f"{_rc71.classify(str(_rc_root / '.git' / 'config'))} "
+          f"{_rc71.classify(str(_rc_root / '.env'))}")
+    check("RG-04e 工作区之外 / 新建目标：前者 NEVER，后者 SNAPSHOT（回滚即删除）",
+          _lvl71("../outside.txt") == _NEVER71
+          and _lvl71("src/new_file.py") == _SNAP71,
+          f"{_rc71.classify(str(_rc_root.parent / 'outside.txt'))} "
+          f"{_rc71.classify(str(_rc_root / 'src' / 'new_file.py'))}")
+    # 反例（立项卡 G2 门）：`rm -rf` 一个被 gitignore、却不可再生的目录 → 分类器不许放行
+    _as71 = _rc71.assess([str(_rc_root / "secrets"), str(_rc_root / "src" / "app.py")])
+    check("RG-04f 反例：删一个 gitignore 的不可再生目录 → would_release=False 并点名拦它的目标",
+          _as71["would_release"] is False
+          and any("secrets" in b for b in _as71["blocking"]),
+          f"{_as71['levels']} blocking={_as71['blocking']}")
+    _as71b = _rc71.assess([str(_rc_root / "src" / "app.py"),
+                           str(_rc_root / "node_modules" / "dep" / "i.js")])
+    check("RG-04g 全部可重建（git 内 + 白名单可再生）→ would_release=True",
+          _as71b["would_release"] is True and not _as71b["blocking"], f"{_as71b}")
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

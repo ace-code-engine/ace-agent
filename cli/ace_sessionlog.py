@@ -332,8 +332,9 @@ class SessionLog:
 
     def record_permission(self, tool: str, decision: str,
                           level: str, detail: str = "",
-                          attribution: str = "", would_escalate: bool = False) -> int:
-        """`attribution` / `would_escalate` 只在**写类工具放行**那一处传（RG-03 测量版）。
+                          attribution: str = "", would_escalate: bool = False,
+                          recovery: str = "", recovery_release: bool = False) -> int:
+        """`attribution` / `recovery` 等只在**写类工具放行**那一处传（RG-03/RG-04 测量版）。
 
         刻意做成可选：不传时 payload 与旧版**逐字相同**，免得给其余十来处调用点改事件形状。
         """
@@ -342,6 +343,9 @@ class SessionLog:
         if attribution:
             payload["attribution"] = attribution
             payload["would_escalate"] = bool(would_escalate)
+        if recovery:
+            payload["recovery"] = recovery
+            payload["recovery_release"] = bool(recovery_release)
         return self.append(K_PERMISSION, payload)
 
     def record_guard(self, rule: str, action: str, detail: str = "") -> int:

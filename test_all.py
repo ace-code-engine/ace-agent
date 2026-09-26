@@ -13889,6 +13889,66 @@ if _want("71"):
                            str(_rc_root / "node_modules" / "dep" / "i.js")])
     check("RG-04g 全部可重建（git 内 + 白名单可再生）→ would_release=True",
           _as71b["would_release"] is True and not _as71b["blocking"], f"{_as71b}")
+
+    # H：**目录目标**也要判对 —— `git ls-files` 只列文件，"删掉整个 src/"在上面几条里
+    # 都会漏过去（落到 SNAPSHOT），而它其实是最典型的可重建目标。
+    _lvl_dir71, _why_dir71 = _rc71.classify(str(_rc_root / "src"))
+    check("RG-04h 被跟踪的**目录**（删整个 src/）→ GIT（不能只因为 ls-files 不列目录就判错）",
+          _lvl_dir71 == _GIT71, f"{_lvl_dir71} / {_why_dir71}")
+
+    # I：分类结果要进**权限事件**（与 RG-03 的归属对齐），否则 G2 的数只能靠手工跑探针。
+    # 目标选白名单目录里的文件：夹具建在 `.test_tmp` 下，而那是**被 gitignore 的**目录 ——
+    # 按本分类器的口径（忽略≠可再生）它一律是 UNKNOWN，那是**判对了**，只是不适合当
+    # "会放行"的样本。所以这里明确用 node_modules 里的目标。
+    _ri71, _eli71, _sli71 = _el71("i")
+    (_ri71 / "node_modules" / "dep").mkdir(parents=True)
+    (_ri71 / "node_modules" / "dep" / "i.js").write_text("//\n", encoding="utf-8")
+    _DEL71B = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] file_delete\n[/INTERNAL_THINKING]\n"
+               "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
+               '{"tool": "file_delete", "path": "node_modules/dep/i.js"}\n</EXTERNAL>')
+    _eli71.process_agent_output(_DEL71B, "把依赖缓存清一下")
+    _pi71 = _perm71(_sli71)
+    check("RG-04i 放行事件里带上了可逆性分类（recovery=regenerable / recovery_release=True）",
+          _pi71.get("recovery") == "regenerable" and _pi71.get("recovery_release") is True,
+          f"perm={_pi71}")
+
+    # J：G2 的数要**看得见**（与 RG-03f 同一条纪律：没有显示就等于没测）
+    _cli71c = ai_code.AgentCLI({"project_root": str(_g71_root / "rg04_cli"),
+                                "permission": "write", "bait": False, "base_url": "",
+                                "api_key": "", "model": "m1", "tools": False}, mock=True)
+    _rg04c = _g71_root / "rg04_cli"
+    (_rg04c / "node_modules" / "dep").mkdir(parents=True, exist_ok=True)
+    (_rg04c / "node_modules" / "dep" / "i.js").write_text("//\n", encoding="utf-8")
+    _cli71c.el.process_agent_output(_DEL71B, "把依赖缓存清一下")
+    _buf71e = io.StringIO()
+    with contextlib.redirect_stdout(_buf71e):
+        _cli71c.run_command("/audit stats")
+    _out71e = _buf71e.getvalue()
+    check("RG-04j /audit stats 打出可逆性测量行（G2 的数看得见，且注明未参与裁决）",
+          "可逆性" in _out71e and "未参与裁决" in _out71e and "可重建会放行 1 次" in _out71e,
+          _out71e[-300:])
+
+    # K：锚是硬依赖（不可写 → 写操作 fail-close），所以**操作者自检工具**要能体检它 ——
+    # 否则用户只会撞上"写不了"，而看不出原因在锚。
+    import cli.ace_doctor as _doc71  # noqa: E402
+    _anchor71 = _g71_root / "doctor_anchor"
+    _old_env71 = os.environ.get("ACE_ANCHOR_DIR")
+    os.environ["ACE_ANCHOR_DIR"] = str(_anchor71)
+    _cwd71 = os.getcwd()
+    _buf71f = io.StringIO()
+    try:
+        os.chdir(str(_g71_root))
+        with contextlib.redirect_stdout(_buf71f):
+            _doc71.main()
+    finally:
+        os.chdir(_cwd71)
+        if _old_env71 is None:
+            os.environ.pop("ACE_ANCHOR_DIR", None)
+        else:
+            os.environ["ACE_ANCHOR_DIR"] = _old_env71
+    _out71f = _buf71f.getvalue()
+    check("RG-01h ace doctor 体检信任锚（锚路径与锚根来源都报出来）",
+          "信任锚" in _out71f and str(_anchor71) in _out71f, _out71f[-400:])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

@@ -13,6 +13,7 @@ ace_doctor.py —— 环境自检(纯 stdlib,只读诊断,不联网必须项)
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -87,6 +88,36 @@ def main() -> int:
         ok("~/.ai_code.json: 存在(ACE 与 ace.cmd 会读取;密钥以星号提示,不回显)")
     else:
         warn("~/.ai_code.json: 不存在 → 首次运行走 ai_code.py 配置向导,或用 --mock 离线演示")
+
+    # 信任锚（RG-01）：快照签名密钥与台账密钥都放**工作区之外**。锚不可写时写操作会
+    # fail-close（拒绝生成未签名快照）—— 所以这里必须体检，而不是等用户撞上 503 才明白。
+    try:
+        from core.guardian import anchor_dir_for, default_anchor_root
+        _proj = Path.cwd()
+        _anchor = anchor_dir_for(_proj)
+        _env = os.environ.get("ACE_ANCHOR_DIR", "").strip()
+        if _anchor.is_dir():
+            _keys = sorted(p.name for p in _anchor.iterdir() if p.is_file())
+            ok(f"信任锚: {_anchor}" + (f"（密钥 {', '.join(_keys)}）" if _keys else "（还没建密钥）"))
+        else:
+            warn(f"信任锚目录尚不存在: {_anchor}（首次写操作时创建；建不出来会 fail-close 拒写）")
+        if str(_anchor).lower().startswith(str(_proj.resolve()).lower()):
+            warn("信任锚落在工作区内 —— 与 RG-01 的设计相反（应移到工作区之外）")
+        if _env:
+            info(f"锚根由 ACE_ANCHOR_DIR 指定: {_env}")
+        else:
+            info(f"锚根(默认): {default_anchor_root()} —— 可用 ACE_ANCHOR_DIR 换位置")
+        # 迁移残留：项目内若还有旧密钥文件，说明那次迁移没删干净（同一把密钥仍在
+        # agent 够得着的地方），这正是"锚白搬"的情形。
+        _legacy = _proj / ".guardian" / "signing_key"
+        if _legacy.is_file():
+            warn(f"项目内仍有旧密钥副本: {_legacy} —— 请删除（否则锚搬了也等于没搬）")
+        if os.name != "nt" and _anchor.is_dir():
+            _kf = _anchor / "signing_key"
+            if _kf.is_file() and (stat.S_IMODE(_kf.stat().st_mode) & 0o077):
+                warn(f"密钥文件权限过宽: {oct(stat.S_IMODE(_kf.stat().st_mode))}（建议 0600）")
+    except Exception as e:      # noqa: BLE001 —— 自检工具本身不该因为探测失败而崩
+        warn(f"信任锚探测失败: {type(e).__name__}: {e}")
 
     # 可选的出网探测
     if os.environ.get("ACE_DOCTOR_NET") == "1":

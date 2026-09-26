@@ -2684,6 +2684,14 @@ class _SlashCommands:
             print("  " + c("dim", t("audit_taint_line", assessed=_attr["assessed"],
                                     unattributed=_attr["unattributed"],
                                     unknown=_attr["unknown"], would=_attr["would_escalate"])))
+        # RG-04（**测量中，未参与裁决**）：可逆性分布 —— 若开判据，多少写入会被判"不可重建/说不清"
+        from core import ace_recovery as _ace_recovery  # noqa: PLC0415
+        _rec = _ace_recovery.recovery_stats(self.session_log.events())
+        if _rec["assessed"]:
+            _lvl = ", ".join(f"{k}×{v}" for k, v in sorted(_rec["levels"].items())) or "—"
+            print("  " + c("dim", t("audit_recovery_line", assessed=_rec["assessed"],
+                                    release=_rec["release"], blocked=_rec["blocked"],
+                                    levels=_lvl)))
         # 运行度量（轮次/工具/耗时/授权/token）。耗时与 token 是 v3.42 起才落进日志的
         # 字段 —— 老日志这两项会是 0，那是"如实"而不是"没算"（ts 只有秒级粒度，推不出耗时）。
         met = ace_engine.session_metrics(p)

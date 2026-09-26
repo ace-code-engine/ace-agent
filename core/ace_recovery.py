@@ -163,6 +163,11 @@ class RecoveryClassifier:
         self._ensure_facts()
         if rel in self._tracked:
             return GIT, "在版本控制内（git ls-files），可重建"
+        # 目录目标：`git ls-files` 只列**文件**，所以"删掉整个 src/"这类目标在上面一条判不出来
+        # —— 而它恰恰最该判 GIT（里面每个文件都能从版本控制里取回）。判据：有没有任何一个
+        # 被跟踪的文件在这个目录之下。
+        if any(t.startswith(rel + "/") for t in self._tracked):
+            return GIT, "该目录下有处于版本控制的文件 → 可重建"
         if not exists:
             return SNAPSHOT, "目标不存在，回滚即删除（新建本身可逆）"
         if not self._repo:
@@ -188,3 +193,27 @@ class RecoveryClassifier:
             "would_release": not blocking,
             "levels": sorted({r["level"] for r in rows}),
         }
+
+
+def recovery_stats(events: Iterable[Dict[str, object]]) -> Dict[str, object]:
+    """从**事件流**里数可逆性分布（只读；给 `/audit stats` 用）。
+
+    与 `attribution_stats` 同样的理由：`/audit stats` 回答的是"**这份日志**里，若开判据会有
+    多少次写入被拦"，而分类器状态只活在当前进程里（跨会话 / 重放都读不到）。
+    """
+    levels: Dict[str, int] = {}
+    assessed = release = blocked = 0
+    for e in events:
+        rec = e.get("recovery")
+        if not rec:
+            continue
+        assessed += 1
+        if e.get("recovery_release"):
+            release += 1
+        else:
+            blocked += 1
+            for lvl in str(rec).split("+"):
+                if lvl:
+                    levels[lvl] = levels.get(lvl, 0) + 1
+    return {"assessed": assessed, "release": release, "blocked": blocked,
+            "levels": levels}

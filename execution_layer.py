@@ -1600,9 +1600,11 @@ class ExecutionLayer:
                 **route_meta,
             }
         if self.session_log:
-            # RG-03（测量版，**不改裁决**）：写类工具放行时，顺手记下"这次写入的目标路径
-            # 有没有被用户自己提过"。详见 core/ace_taint.py 的模块 docstring。
+            # RG-03/RG-04（**测量版，不改裁决**）：写类工具放行时顺手记两件事 ——
+            # ① 目标有没有被用户提过（来源归属）；② 目标能不能重建（可逆性分类）。
+            # 详见 core/ace_taint.py、core/ace_recovery.py 的模块 docstring。
             _attr, _esc = "", False
+            _rec, _rel = "", False
             if tool_name in WRITE_TOOLS:
                 try:
                     from core.targets import WRITE_TOOLS_WITH_PATH, destructive_targets
@@ -1612,11 +1614,19 @@ class ExecutionLayer:
                            if tool_name in WRITE_TOOLS_WITH_PATH else [])
                     _a = self.taint.assess(tool_name, _tg)
                     _attr, _esc = _a["attribution"], _a["would_escalate"]
+                    if _tg:
+                        from core.ace_recovery import RecoveryClassifier
+                        if getattr(self, "_recovery", None) is None:
+                            self._recovery = RecoveryClassifier(str(self.project_root))
+                        _rv = self._recovery.assess(_tg)
+                        _rec = "+".join(_rv["levels"])
+                        _rel = bool(_rv["would_release"])
                 except Exception:      # noqa: BLE001 —— 测量失败绝不影响裁决
-                    _attr, _esc = "", False
+                    _attr, _esc, _rec, _rel = _attr or "", False, "", False
             self.session_log.record_permission(
                 tool_name, "allowed", self.permission.level,
-                attribution=_attr, would_escalate=_esc)
+                attribution=_attr, would_escalate=_esc,
+                recovery=_rec, recovery_release=_rel)
         return None
 
     def _stage_code_gate(self, tool_call: Dict[str, Any], tool_name: str

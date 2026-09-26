@@ -171,8 +171,18 @@ ACE 的审批粒度原来是**对象**（H-09：一次调用绑一个对象）�
 ### ⚙️ 其它
 
 - 回归断言：新增 **55 条**（`test_all` 段 `[71]`：RG-01a~h / RG-02a~m / RG-03a~h / RG-04a~j /
-  RG-05a~o）。全量以 `python test_all.py` 的实际输出为准（本次记录：本机 2369 / 2369 通过，
-  跳过 3 项能力探测）。
+  RG-05a~o），另加 **1 条文档守卫**（`[68]`：演示图里印的版本 == 版本单源）。全量以
+  `python test_all.py` 的实际输出为准（本次记录：本机 2370 / 2370 通过，跳过 3 项能力探测）。
+- **四张演示图重录**（图内版本号 → 3.43.0）。这次是 **CI 先红的**：`demo/record_demo.py --check`
+  只在 CI 的 3.12 job 上跑（3.10/3.11 是 `skipped`），所以升版本号漏重录**本地全量套件看不出来**
+  —— 本地全绿、ruff 零命中，CI 红在"`demo_blocked.svg` 里的版本号是 3.42.0"，而那一刻 tag 已经
+  推上去、Release 正在建。两处收口：① 新增 `[68]` 那条断言把同一判据挪到本地（**反例已验证**：
+  把一张图换回旧版本，它当场点名是哪张、什么版本）；② 重录时查出录制环境的第二处平台不对称：
+  只搬 `HOME` 时签名锚（RG-01）在 Windows 上落到**录制者自己的** `%LOCALAPPDATA%`（Linux 上
+  `Path.home()` 认 `$HOME`，所以此前一直没露出来），受限环境下锚建不出来 → 写路径 fail-close →
+  `diff` 剧本录到的是一条 `403` 并把录制者的真实路径印进了发布出去的图。现在把
+  `LOCALAPPDATA`/`APPDATA`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` 一并搬进临时 HOME；四张图重录后
+  骨架与重录前**逐字相同**（只换了版本号与 mock 时间戳），即"只补版本、没顺手改画面"。
 - `docs/SECURITY-AUDIT.md` 的 SEC-010 记录加**勘误**：该段描述的 `guardian.resolve_signing_key()`、
   `ACE_SIGNING_KEY`、`~/.ace/snapshot_signing_key`、`get_stats()["snapshot_signing"]` 实测
   **全部 0 命中**，而实际实现把密钥放在项目内 —— 与该段自己写的"密钥必须在项目目录之外"相反。

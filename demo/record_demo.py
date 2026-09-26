@@ -223,6 +223,14 @@ def capture_session(name: str = "happy") -> str:
         env["HOME"] = env["USERPROFILE"] = str(home)   # 不读录制者的 ~/.ai_code.json
         env.pop("HOMEDRIVE", None)
         env.pop("HOMEPATH", None)
+        # 平台状态目录也要搬进临时 HOME。只搬 HOME 在 Linux 上够（Path.home() 认 $HOME），
+        # 在 Windows 上不够：签名锚（RG-01）读的是 %LOCALAPPDATA% —— 于是同一份演示在两个
+        # 平台录出两张不同的图：Windows 上锚落在**录制者自己的** AppData 里，建不出来 →
+        # 写路径 fail-close → `diff` 那张录到的是一条 403，还把录制者的真实路径印进了
+        # 发布出去的 SVG（而且 CI 上必然对不上）。2026-09-26 发布 v3.43.0 时就是这么红的。
+        for _var, _sub in (("LOCALAPPDATA", "AppData/Local"), ("APPDATA", "AppData/Roaming"),
+                           ("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache")):
+            env[_var] = str(home / _sub)
         argv = PREVIEW_ARGV.get(name)
         if argv is not None:
             _seed_sessions(work)          # 让「最近会话」面板有确定的素材
@@ -389,6 +397,19 @@ def _mismatch_report(names: str, fresh: str, old: str) -> str:
     return f"{names} 骨架不一致（{len(bad)} 处，最多列 3 处）: " + " | ".join(bits)
 
 
+def svg_version(svg_text: str) -> str | None:
+    """图里印的版本号；取不到返回 None。
+
+    三种横幅形态都要认：聊天图是 `X.Y.Z · AI Code Engine`，会话面板与首屏是 `vX.Y.Z`，
+    主页顶行是 `ACE X.Y.Z · 模型 · 权限`。**抽成函数**是因为 test_all.py 的 [68] 段要用
+    同一口径在本地也钉一遍 —— 正则抄第二份，就是给自己埋"改了一处漏另一处"。
+    """
+    m = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", svg_text)
+         or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", svg_text)
+         or re.search(r"ACE\s+v?([0-9]+\.[0-9]+\.[0-9]+)", svg_text))
+    return m.group(1) if m else None
+
+
 def project_version() -> str:
     """读版本单源（`core/version.py`）。
 
@@ -443,19 +464,14 @@ def main() -> None:
                 raise SystemExit(f"{OUT_SVG.name} 与当前 CLI 输出不一致，请重新录制。{_why}")
             # 骨架比对把数字都归一化了，版本号会因此**静默过期**（改版本后这张图看着还"一致"）。
             # 单列一条：图里印的版本必须等于 core/version.py。
-            # 首屏图里版本号出现在两处（右侧标题栏 + 面板右上角），格式是 `vX.Y.Z`；
-            # 聊天图里是横幅 `X.Y.Z · AI Code Engine`。两种都认。
-            shown = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", old_svg)
-                     or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", old_svg)
-                     # 主页首屏的顶行是 `ACE 3.39.0 · 模型 · 权限`（没有 v 前缀）
-                     or re.search(r"ACE\s+v?([0-9]+\.[0-9]+\.[0-9]+)", old_svg))
+            shown = svg_version(old_svg)
             if not shown:
                 raise SystemExit(f"{OUT_SVG.name} 里找不到版本号横幅，录制格式可能变了")
-            if shown.group(1) != project_version():
+            if shown != project_version():
                 raise SystemExit(
-                    f"{OUT_SVG.name} 里的版本号是 {shown.group(1)}，而 core/version.py 是 "
+                    f"{OUT_SVG.name} 里的版本号是 {shown}，而 core/version.py 是 "
                     f"{project_version()} —— 重新录制这张图")
-            print(f"{OUT_SVG.name} 与当前 CLI 输出一致（{name}，v{shown.group(1)}）")
+            print(f"{OUT_SVG.name} 与当前 CLI 输出一致（{name}，v{shown}）")
             continue
 
         OUT_SVG.write_text(svg, encoding="utf-8")

@@ -11700,6 +11700,20 @@ if _want("68"):
     check("[68] README 徽章版本 == core/version.py（介绍文件不能挂着旧版本号）",
           all(v == _ver68 for v in _badge68.values()), (_badge68, _ver68))
 
+    # 演示图里印的版本号同样必须跟着版本单源走。
+    # 为什么本地也得钉一遍：这一条原本只在 `demo/record_demo.py --check` 里，而 `--check`
+    # 只跑在 CI 的 3.12 job 上（3.10/3.11 是 skipped）—— 于是 v3.43.0 升版本号时漏了重录，
+    # 本地全量全绿、ruff 零命中，CI 却红在"图里的版本号是 3.42.0"，而那一刻 tag 已经推出去、
+    # Release 正在建。判断口径不抄第二份：调录制脚本自己的 `svg_version()`（就是 --check 那个）。
+    import importlib.util as _iu68  # noqa: E402
+    _spec68 = _iu68.spec_from_file_location("_demo68_mod", FOLDER / "demo" / "record_demo.py")
+    _demo68 = _iu68.module_from_spec(_spec68)
+    _spec68.loader.exec_module(_demo68)
+    _svg68 = {_f68.name: _demo68.svg_version(_f68.read_text(encoding="utf-8"))
+              for _f68 in sorted((FOLDER / "demo").glob("*.svg"))}
+    check("[68] 演示图里印的版本 == core/version.py（改了版本号就必须重录，本地就拦）",
+          bool(_svg68) and all(v == _ver68 for v in _svg68.values()), (_svg68, _ver68))
+
     # 这一版是怎么修的也要留个痕：不许有人再"顺手重写"整个 README
     _cli68 = (FOLDER / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     check("[68] 恢复依据写在文档里（从最后一个干净版本还原 + 补徽章，而不是逐字猜）",

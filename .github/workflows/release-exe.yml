@@ -5,10 +5,15 @@ name: release-exe
 # 的离线纪律（vendor/*.whl）只覆盖界面依赖，没有 PyInstaller 的 wheel。
 #
 # 与 release-executor 的关系：两者**共用同一个 tag `v{version}`**。
-# 推荐顺序：先手动跑 release-executor（它会创建 Release 并把 5 平台执行器挂上去），
-# 它打的 tag 会**自动触发本工作流**（见下面的 push.tags），于是同一个 Release 上
-# 又多出一个 exe 附件——一次发布，两样产物都齐。
-# 也可以单独手动跑本工作流（Release 不存在就自己建）。
+# 实测（2026-09-26 发 v3.43.0 时逐条核对过）实际要**两次手动派发**，此处原先写的
+# "跑一次 release-executor，两样产物就齐"是**错的**：
+#   ① release-executor：`gh release create` 建 Release 并挂上 5 平台执行器。它是**用 API 建 tag**
+#      的（不是 push 一个 ref），所以**不会**触发下面的 `push.tags`；
+#   ② 本工作流手动派发（version 填同一个号）：构建 MSI + zip 并挂到那个已存在的 Release 上。
+# 由 tag 触发时**既不建 Release 也不挂附件**（见 `Attach to release` 的 if）—— 这是有意的：
+# 两个工作流同时 `gh release create` 会一个成功、另一个 422 把整条流水线弄红。
+# 于是 tag 触发的那一次只产出 workflow 附件（在 Actions 页面可下载），不进 Release。
+# 两次派发都幂等，先后顺序无所谓。
 on:
   workflow_dispatch:
     inputs:

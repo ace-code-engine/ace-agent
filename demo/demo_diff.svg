@@ -80,8 +80,8 @@ text{white-space:pre;dominant-baseline:middle}
 <rect y="40" width="908" height="898" fill="#11141b"/>
 <circle cx="22" cy="20" r="5.5" fill="#ff5f57"/><circle cx="40" cy="20" r="5.5" fill="#febc2e"/><circle cx="58" cy="20" r="5.5" fill="#28c840"/>
 <text x="454.0" y="21" text-anchor="middle" font-size="12.5" fill="#7d879c">ace-agent — python ai_code.py --mock</text>
-<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.42.0 · AI Code Engine</tspan></text>
-<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.42.0 ─╮</tspan></text>
+<text class="r0" x="22" y="52" xml:space="preserve"><tspan fill="#d7dce5">ACE</tspan><tspan fill="#7d879c"> 3.43.0 · AI Code Engine</tspan></text>
+<text class="r1" x="22" y="76" xml:space="preserve"><tspan fill="#7d879c">╭─ 当前会话 ───────────────────────────────────────────────────────────────────────── v3.43.0 ─╮</tspan></text>
 <text class="r2" x="22" y="100" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 模型    mock（离线演示，无需密钥）                                                           </tspan><tspan fill="#7d879c">│</tspan></text>
 <text class="r3" x="22" y="124" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 边界    权限 readonly · 沙箱 off · 联网 开 · 审批 on_request                                 </tspan><tspan fill="#7d879c">│</tspan></text>
 <text class="r4" x="22" y="148" xml:space="preserve"><tspan fill="#7d879c">│</tspan><tspan fill="#d7dce5"> 目录    …                                                                                    </tspan><tspan fill="#7d879c">│</tspan></text>
@@ -100,7 +100,7 @@ text{white-space:pre;dominant-baseline:middle}
 <text class="r17" x="22" y="460" xml:space="preserve"><tspan fill="#d7dce5">◐ 思考中 0s   ◈</tspan></text>
 <text class="r18" x="22" y="484" xml:space="preserve">&#160;</text>
 <text class="r19" x="22" y="508" xml:space="preserve"><tspan fill="#d7dce5">▅ ⚙ 2 个工具 · 1 完成 · 1 待跑 0s</tspan></text>
-<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#5fd68a">  % str_replace </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.00s · +1 -0</tspan></text>
+<text class="r20" x="22" y="532" xml:space="preserve"><tspan fill="#5fd68a">  % str_replace </tspan><tspan fill="#5fd68a">✓</tspan><tspan fill="#d7dce5"> [SUCCESS] · 0.01s · +1 -0</tspan></text>
 <text class="r21" x="22" y="556" xml:space="preserve"><tspan fill="#7d879c">    已替换 1 处（匹配方式: exact）</tspan></text>
 <text class="r22" x="22" y="580" xml:space="preserve"><tspan fill="#7d879c">    --- a/demo_notes.md</tspan></text>
 <text class="r23" x="22" y="604" xml:space="preserve"><tspan fill="#7d879c">    +++ b/demo_notes.md</tspan></text>
@@ -113,7 +113,7 @@ text{white-space:pre;dominant-baseline:middle}
 <text class="r30" x="22" y="772" xml:space="preserve"><tspan fill="#d7dce5">改好了：只加了一行，卡片里的 + 行就是新增内容。</tspan></text>
 <text class="r31" x="22" y="796" xml:space="preserve"><tspan fill="#d7dce5">已替换 1 处（匹配方式: exact）</tspan></text>
 <text class="r32" x="22" y="820" xml:space="preserve">&#160;</text>
-<text class="r33" x="22" y="844" xml:space="preserve"><tspan fill="#7d879c">⚙   2 次工具调用 · 0.00s · file_write ✓ · str_replace ✓</tspan></text>
-<text class="r34" x="22" y="868" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（3 轮, 1.0s）</tspan></text>
+<text class="r33" x="22" y="844" xml:space="preserve"><tspan fill="#7d879c">⚙   2 次工具调用 · 0.01s · file_write ✓ · str_replace ✓</tspan></text>
+<text class="r34" x="22" y="868" xml:space="preserve"><tspan fill="#5fd68a">  ✓ 完成（3 轮, 1.1s）</tspan></text>
 <text class="r35" x="22" y="892" xml:space="preserve"><tspan fill="#7d879c">  再见，ACE 已退出。</tspan></text>
 </svg>

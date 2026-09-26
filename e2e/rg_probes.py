@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,9 @@ from core import ace_io                       # noqa: E402
 ace_io.harden_streams()
 
 SCRATCH = ROOT / ".test_tmp" / "rg_probes"    # gitignored
+# 影子测量与常规遍历都要跳过的目录：构建产物、缓存、agent 自身状态
+SKIP_DIRS = {".git", ".guardian", ".ace_sessions", ".test_tmp", "target",
+             "node_modules", "__pycache__", ".agent_flywheel", ".poc_reports"}
 # 探针自己把锚指到工作区内：默认锚在 %LOCALAPPDATA%，受限环境建不出来（那是 fail-close 路径，
 # 由 test_all [71] 的 RG-01g 单独覆盖），这里要测的是迁移与伪造，不是锚不可用。
 os.environ.setdefault("ACE_ANCHOR_DIR", str(SCRATCH / "anchor"))
@@ -45,9 +49,13 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def _fresh(tag: str) -> Path:
-    d = SCRATCH / tag
-    if d.exists():
-        shutil.rmtree(d, ignore_errors=True)
+    """新建一个**唯一**的临时目录。
+
+    为什么不用固定名字 + 先删后建：Windows 上 rmtree 可能因为残留句柄/路径过长**静默删不掉**
+    （`ignore_errors=True` 会把它吞掉），于是下一次 `mkdir` 直接 FileExistsError —— 实测就是这么
+    炸的。探针目录本来就是一次性的，加个短后缀最省心。
+    """
+    d = SCRATCH / f"{tag}_{uuid.uuid4().hex[:6]}"
     d.mkdir(parents=True)
     return d
 
@@ -247,13 +255,88 @@ def rg05() -> None:
           quota == n - 2, str(quota))
 
 
+def _volume_fs(path: str) -> str:
+    """这个路径所在卷的文件系统名（Windows 上用来判断有没有 ReFS 块克隆可用）。"""
+    if os.name != "nt":
+        return "posix"
+    try:
+        import ctypes
+        root = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+        fs = ctypes.create_unicode_buffer(261)
+        ok = ctypes.windll.kernel32.GetVolumeInformationW(  # type: ignore[attr-defined]
+            root, None, 0, None, None, None, fs, 261)
+        return fs.value if ok else "unknown"
+    except Exception:      # noqa: BLE001 —— 探测不到就如实说探测不到
+        return "unknown"
+
+
+def rg05b() -> None:
+    """RG-05b 的成本门（G3）：影子平台在**本平台**上值不值得做？
+
+    影子 = 一次动作要「复制工作区 + 在副本里跑 + 前后各指纹一遍」。这里只量**成本模型**，
+    不实现影子（计划里这一版就是"先过成本门，不达标就不做"）。
+    门槛：单次动作 ≤ 300 ms（计划 §5 的 G3）。
+    """
+    print("\n[RG-05b] 影子平台的成本门（G3）：复制 + 前后指纹，在本平台值不值得做")
+    gate_ms = 300.0
+    src = [p for p in ROOT.rglob("*")
+           if p.is_file() and not (SKIP_DIRS & set(p.relative_to(ROOT).parts))]
+    total_bytes = sum(p.stat().st_size for p in src)
+    print(f"       工作区文件 {len(src)} 个 / {total_bytes / 1e6:.1f} MB（已跳过构建/缓存/状态目录）")
+
+    stage = _fresh("rg05b_stage")
+    try:
+        _rg05b_measure(stage, total_bytes, gate_ms)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _rg05b_measure(stage: Path, total_bytes: int, gate_ms: float) -> None:
+    """rg05b 的测量主体（拆出来是为了让 stage 的清理挂在 finally 上，失败也不留垃圾）。"""
+    import hashlib
+    import time
+
+    dst = stage / "shadow"
+    t0 = time.perf_counter()
+    shutil.copytree(str(ROOT), str(dst),
+                    ignore=shutil.ignore_patterns(*SKIP_DIRS), dirs_exist_ok=True)
+    copy_ms = (time.perf_counter() - t0) * 1000
+
+    def fingerprint(root: Path) -> float:
+        t = time.perf_counter()
+        for p in root.rglob("*"):
+            if p.is_file():
+                h = hashlib.sha256()
+                with open(p, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+        return (time.perf_counter() - t) * 1000
+
+    fp_cold = fingerprint(dst)          # 刚复制出来的文件：首次读取代价（实测过的那个大头）
+    fp_warm = fingerprint(dst)          # 紧接着再读一遍
+    fs = _volume_fs(str(ROOT))
+    est_ms = copy_ms + fp_cold * 2      # 前后各一遍，且都是"首次读取"
+    print(f"       复制                {copy_ms:8.0f} ms")
+    print(f"       指纹（冷，刚复制）  {fp_cold:8.0f} ms")
+    print(f"       指纹（热，再读一遍）{fp_warm:8.0f} ms")
+    print(f"       → 单次动作估算      {est_ms:8.0f} ms   （门槛 {gate_ms:.0f} ms）")
+    print(f"       工作区所在卷        {fs}")
+    if fs.lower() != "refs":
+        print("       注：只有 ReFS 才有无拷贝的块克隆；NTFS 上没有廉价写时复制，"
+              "所以只能全量复制。")
+    check(f"影子单次成本 {est_ms:.0f} ms 远超门槛 {gate_ms:.0f} ms → 按 G3 门判定为「不做」",
+          est_ms > gate_ms, f"{est_ms:.0f} ms vs {gate_ms:.0f} ms")
+    check("卷文件系统已探测出来（ReFS 才谈得上块克隆这条替代路）", fs != "unknown", fs)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="RG 系列安全结论的复现脚本")
     ap.add_argument("group", nargs="?", default="all",
-                    choices=["all", "rg01", "rg02", "rg03", "rg04", "rg05"])
+                    choices=["all", "rg01", "rg02", "rg03", "rg04", "rg05", "rg05b"])
     args = ap.parse_args()
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    groups = {"rg01": rg01, "rg02": rg02, "rg03": rg03, "rg04": rg04, "rg05": rg05}
+    groups = {"rg01": rg01, "rg02": rg02, "rg03": rg03, "rg04": rg04, "rg05": rg05,
+              "rg05b": rg05b}
     for name, fn in (groups.items() if args.group == "all" else [(args.group, groups[args.group])]):
         fn()
     print(f"\n{'全部符合预期。' if not _FAILED else '失败项: ' + ', '.join(_FAILED)}")

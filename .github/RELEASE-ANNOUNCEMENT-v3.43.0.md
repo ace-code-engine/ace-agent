@@ -33,6 +33,7 @@
 ## 已知未验证
 
 - 两条判据的**翻判**未做（来源归属需要模型侧引用=协议改动；可逆性需要清单逐条看过），要有真会话数据。
+- **影子平台实测后不做**：真工作区量到单次**11.6 ~ 21.8 s**（门槛 300 ms，超 39 ~ 73 倍），大头是"刚写出来的副本首次被读"（10 s）；且本机在 NTFS 上，Windows 只有 ReFS 才有块克隆 —— 没有廉价写时复制这条替代路。
 - 锚落在不可写目录时写操作被拒（受限环境实测如此，行为正确但陡峭）—— 用 `ACE_ANCHOR_DIR` 指到可写位置。
 - POSIX 路径与 `0600` 有断言但**无实机冒烟**（本机 Windows）。
 
@@ -77,6 +78,7 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 ## Known unverified items
 
 - Enforcing either criterion is **not** done (attribution needs a model-side citation, i.e. a protocol change; reversibility needs the list reviewed item by item) — both require real session data.
+- **The shadow platform was measured and rejected**: a real workspace puts one action at **11.6 ~ 21.8 s** (gate: 300 ms, 39-73x over), dominated by the *first read of freshly written copies* (10 s); the volume here is NTFS and only ReFS offers block cloning on Windows — there is no cheap copy-on-write alternative.
 - With an unwritable anchor, writes are refused (observed in a constrained environment; correct but steep) — point `ACE_ANCHOR_DIR` at a writable location.
 - POSIX paths and `0600` are asserted but have **no native smoke test** (this machine is Windows).
 

@@ -183,13 +183,77 @@ def rg04() -> None:
           str(rc.classify(str(ROOT / ".test_tmp"))))
 
 
+def rg05() -> None:
+    """授权令的收益：同样 N 次"项目外已存在文件"的写，逐次确认次数是多少？"""
+    print("\n[RG-05] 授权令的收益验收：N 次项目外写 → 逐次确认次数（O(步数) → O(任务数)？）")
+    from execution_layer import ExecutionLayer
+    from cli.ace_sessionlog import SessionLog
+    from core import ace_mandate
+
+    n = 5
+    outside = _fresh("rg05_out")
+    calls = []
+    for i in range(n):
+        f = outside / f"f{i}.txt"
+        f.write_text("v1\n", encoding="utf-8")
+        calls.append("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] file_write\n[/INTERNAL_THINKING]\n"
+                     "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
+                     + json.dumps({"tool": "file_write", "path": str(f), "content": "v2"},
+                                  ensure_ascii=False) + "\n</EXTERNAL>")
+
+    def fresh_proj(tag: str) -> Path:
+        proj = _fresh(f"rg05_{tag}")
+        (proj / "src").mkdir(parents=True, exist_ok=True)
+        return proj
+
+    def run(proj: Path, mandate=None) -> int:
+        """跑 N 次写，返回**逐次确认（PERMISSION_REQUEST）**的次数。
+
+        每次收到确认请求就模拟"用户点了同意"（`grant_temp`，用后即焚）—— 这正是今天
+        每写一次问一次的行为；配了令之后应该一次都不需要问。
+        """
+        sl = SessionLog(str(proj / ".ace_sessions" / "s.jsonl"))
+        el = ExecutionLayer(project_root=str(proj), permission_level="write",
+                            config={"bait": {"enabled": False}, "mandate": mandate})
+        el.session_log = sl
+        prompts = 0
+        for c in calls:
+            r = el.process_agent_output(c, "把那一批文件更新一下")
+            if r["status"] == "PERMISSION_REQUEST":
+                prompts += 1
+                el.permission.grant_temp("file_write")
+        return prompts
+
+    def mandate_for(proj: Path, quota: int):
+        key = ace_mandate.mandate_key(project_root=str(proj))
+        return ace_mandate.issue(key, mandate_id="md_" + proj.name, intents=["file_write"],
+                                 roots=[str(outside)], recovery_floor="snapshot",
+                                 irreversible_quota=quota,
+                                 allow_irreversible=[str(outside / f"f{i}.txt")
+                                                     for i in range(n)],
+                                 ttl_s=3600)
+
+    base = run(fresh_proj("nomandate"))
+    proj_md = fresh_proj("mandate")
+    full = run(proj_md, mandate_for(proj_md, n))
+    proj_q = fresh_proj("quota")
+    quota = run(proj_q, mandate_for(proj_q, 2))
+    print(f"       不配令                          → 逐次确认 {base} 次")
+    print(f"       配令（roots 覆盖 + 额度 {n}）      → 逐次确认 {full} 次（期望 0）")
+    print(f"       配令但额度只给 2                → 逐次确认 {quota} 次（期望 {n - 2}）")
+    check(f"不配令时 N={n} 次项目外写要问 N 次（这就是要收拢的 O(步数)）", base == n, str(base))
+    check("配了覆盖的令之后逐次确认降为 0（收益验收）", full == 0, str(full))
+    check(f"额度是**真边界**：额度 2 时就只放行 2 次，其余 {n - 2} 次仍然问人（不虚报）",
+          quota == n - 2, str(quota))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="RG 系列安全结论的复现脚本")
     ap.add_argument("group", nargs="?", default="all",
-                    choices=["all", "rg01", "rg02", "rg03", "rg04"])
+                    choices=["all", "rg01", "rg02", "rg03", "rg04", "rg05"])
     args = ap.parse_args()
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    groups = {"rg01": rg01, "rg02": rg02, "rg03": rg03, "rg04": rg04}
+    groups = {"rg01": rg01, "rg02": rg02, "rg03": rg03, "rg04": rg04, "rg05": rg05}
     for name, fn in (groups.items() if args.group == "all" else [(args.group, groups[args.group])]):
         fn()
     print(f"\n{'全部符合预期。' if not _FAILED else '失败项: ' + ', '.join(_FAILED)}")

@@ -108,6 +108,25 @@
 - **开销（量出来的）**：单条 MAC 计算 **6.5 µs**；`append` 整条路径 **11.4 ms/条**，
   其中绝大部分是**既有的** `os.fsync`，不是本次新增。
 
+### ✍️ RG-05a · 授权令：一次任务一张令（默认不配 = 行为与以前完全相同）
+
+ACE 的审批粒度原来是**对象**（H-09：一次调用绑一个对象），于是弹窗数随危险步数线性增长。
+授权令把粒度换成**一次任务一张**：`(intents, roots, recoveryFloor, irreversibleQuota, ttl)` + 签名
+（密钥从**锚**派生，与快照签名、台账签名域分离）。之后每次行动只是对着令核一遍。
+
+- `python -m cli.ace_mandate issue --intents file_write --roots . --floor snapshot --quota 1 \
+  --allow-irreversible terminal_exec --ttl 3600` 签一张令；`show` 检查签名/有效期/额度；
+  把 JSON 贴进配置的 `"mandate"` 键即生效。
+- **令能覆盖的只有两处"问人"**：项目外**已存在**对象的确认、以及 `edit_file` / `terminal_exec`
+  的逐次确认（后者必须写进 `--allow-irreversible` 点名并消耗额度 —— 这类工具的痕迹**不可枚举**）。
+- **令覆盖不了**（刻意，都有断言钉住）：硬拒绝（持久规则 deny / 未注册 MCP / 敏感目标）；
+  **外发确认**（那是"目的地"轴，令管的是"对象"）；**权限等级**（与 `/rules` 的 allow 同一先例，
+  规则不提权）。
+- **令坏了不装看不见**：签名不符 / 过期 / 被改过 → **不说放行**，回落成照旧逐次确认，
+  并告警一次（事件记 `mandate_invalid`）。
+- **收益实测**（`e2e/rg_probes.py rg05`）：同样 5 次项目外写 —— **不配令 5 次确认 → 配令 0 次**；
+  配额只给 2 时仍有 3 次确认（**额度是真边界**）。
+
 ### 📏 RG-03 · 来源归属（第一阶段：**只测量**，不改裁决）
 
 **先复现**：同一句 `file_delete(notes.txt)`，只改 `user_input` —— "用户明确要求删它"、
@@ -144,8 +163,9 @@
 
 ### ⚙️ 其它
 
-- 回归断言：新增 **34 条**（`test_all` 段 `[71]`：RG-01a~h / RG-02a~i / RG-03a~f / RG-04a~j）。
-  全量以 `python test_all.py` 的实际输出为准（本次记录：本机 2348 / 2348 通过，跳过 3 项能力探测）。
+- 回归断言：新增 **49 条**（`test_all` 段 `[71]`：RG-01a~h / RG-02a~i / RG-03a~f / RG-04a~j /
+  RG-05a~o）。全量以 `python test_all.py` 的实际输出为准（本次记录：本机 2363 / 2363 通过，
+  跳过 3 项能力探测）。
 - `docs/SECURITY-AUDIT.md` 的 SEC-010 记录加**勘误**：该段描述的 `guardian.resolve_signing_key()`、
   `ACE_SIGNING_KEY`、`~/.ace/snapshot_signing_key`、`get_stats()["snapshot_signing"]` 实测
   **全部 0 命中**，而实际实现把密钥放在项目内 —— 与该段自己写的"密钥必须在项目目录之外"相反。

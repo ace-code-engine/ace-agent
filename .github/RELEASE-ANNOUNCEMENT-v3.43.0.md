@@ -12,7 +12,7 @@
 - **写前快照不再可伪造**（缺陷先复现过）：密钥原来住在 `<项目>/.guardian/signing_key`，而 `.guardian` 就在项目里 —— 拿到项目目录读写权限就能读出密钥、改副本、修摘要、重签，`verify_snapshot()` 照样返回 `True`。现在密钥放在**工作区之外**的锚目录，老项目自动迁移（**搬**，不是拷）；锚不可用时写操作直接拒绝（fail-close），不会悄悄生成未签名快照。
 - **审计记录改不动了**：每条会话事件带 `mac = HMAC(台账密钥, 上一条的 mac ‖ 该条正文)` —— 改内容、删中间一条、剥掉某条的签名、尾部追加伪造，`/audit stats` 全部报 `broken` 并指出第几条；老日志如实报 `unverifiable`（不冒充 ok，也不冤枉成 broken）。
 - **两条判据的前置测量**：① 来源归属 —— 同一句删除，配"用户要求"/"指令来自读到的内容"/"用户没提过"，现在三条裁决仍然一样（**这是实测复现的缺陷**），本版先把"目标有没有被用户提过"记下来；② 可逆性 —— 把"命令危险吗"换成"**被写的对象能不能重建**"，真实工作区实测可重建 **85.7%**、说不清 **8.2%**（就是开判据后要问人的那部分）。
-- **锚可自检**：`python -m cli.ace_doctor` 报告锚路径、已有密钥、锚根来源、锚是否误落在工作区内、项目内是否还残留旧密钥副本。
+- **锚可自检**：`python -m cli.ace_mandate issue ...` 签一张**授权令**（一次任务一张，签名用同一个锚），贴进配置的 `mandate` 键之后，"项目外已存在对象的确认"与 `edit_file`/`terminal_exec` 的逐次确认不再逐次弹窗 —— 实测同样 5 次项目外写：**不配令 5 次确认 → 配令 0 次**，配额只给 2 时仍有 3 次（额度是真边界）。`python -m cli.ace_doctor` 报告锚路径、已有密钥、锚根来源、锚是否误落在工作区内、项目内是否还残留旧密钥副本。
 
 ## 升级注意
 
@@ -22,6 +22,7 @@
 | 锚不可写 → 写操作被拒 | 这是 fail-close 不是 bug；`ace doctor` 会说明锚的状态 |
 | 会话日志多 `mac` 字段 | 老日志判 `unverifiable`，如实 |
 | `/audit stats` 多两行 | 台账整链 + 两条测量，均注明"未参与裁决" |
+| 新增配置键 `mandate` | **不配就什么都没有**（行为与以前逐字相同）；配了才收拢逐次确认 |
 
 ## 验证到什么程度
 
@@ -55,7 +56,7 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 - **Snapshots can no longer be forged** (defect reproduced first): the key used to live in `<project>/.guardian/signing_key`, and `.guardian` sits inside the project — so anyone who could read and write the project directory could read the key, tamper with the copy, fix the digests, re-sign, and `verify_snapshot()` still returned `True`. The key now lives in an anchor directory **outside the workspace**, with automatic migration (**moved**, not copied); when the anchor is unusable, writes are refused (fail-close) instead of quietly producing unsigned snapshots.
 - **The audit record can no longer be rewritten**: every event carries `mac = HMAC(ledger key, previous mac ‖ body)` — editing a line, deleting a middle entry, stripping a signature, or appending a forged line all make `/audit stats` report `broken` and name the position; old logs are reported honestly as `unverifiable` (never as ok, never wrongly as broken).
 - **Measurement first for two criteria**: ① source attribution — the same delete, paired with "the user asked", "the instruction came from content we read", or "the user never mentioned it", still gets **identical verdicts today** (that is the reproduced defect); this version starts recording whether the target was ever mentioned by the user. ② reversibility — replacing "is this command dangerous" with "**can the written object be rebuilt**": measured across the real workspace, 85.7% is recoverable, 8.2% is unclassifiable (exactly what would start prompting).
-- **The anchor is now inspectable**: `python -m cli.ace_doctor` reports its path, which keys exist, where the root comes from, whether the anchor mistakenly sits inside the workspace, and whether a stale in-project key copy lingers.
+- **The anchor is now inspectable**: `python -m cli.ace_mandate issue ...` signs a **mandate** (one per task, signed with the same anchor); paste it into the `mandate` config key and the "outside-project object" confirmation plus the per-call `edit_file`/`terminal_exec` confirmations stop prompting — measured on the same 5 outside writes: **5 prompts without a mandate → 0 with one**, and 3 remain when the quota is only 2 (the quota is a real bound). `python -m cli.ace_doctor` likewise reports the anchor path, which keys exist, where the root comes from, whether it mistakenly sits inside the workspace, and whether a stale in-project key copy lingers.
 
 ## Upgrade notes
 
@@ -65,6 +66,7 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 | Unwritable anchor ⇒ writes refused | That is fail-close, not a bug; `ace doctor` explains the anchor state |
 | Session events gained a `mac` field | Old logs report `unverifiable` — honestly |
 | `/audit stats` gained two lines | Ledger chain plus the two measurements, both marked "not enforced" |
+| New config key `mandate` | **Absent means nothing changes** (byte-identical behaviour); present means per-call confirmations collapse into one mandate per task |
 
 ## How far it is verified
 

@@ -40,8 +40,8 @@ python ai_code.py --mock   # 离线演示：模型 ↔ 执行层完整闭环
 
 ## 验证到什么程度
 
-- 端到端套件 **2313 / 2313 通过**，跳过 3 项（本机缺 Windows Job Object 档能力时的探测项）。
-- 本版新增断言 **59 条**（对应**先复现过**的缺陷 + 4 条演示录制不变量）；全量随平台浮动，以 `python test_all.py` 输出为准。
+- 端到端套件 **2314 / 2314 通过**，跳过 3 项（本机缺 Windows Job Object 档能力时的探测项）。
+- 本版新增断言 **60 条**（对应**先复现过**的缺陷 + 4 条演示录制不变量）；全量随平台浮动，以 `python test_all.py` 输出为准。
 - 引擎侧：单元测试 20、自检 16、真实数据对拍 8。**CI 现在会真的编译并测试引擎** —— 此前它从未被编译，`test_all` 里"引擎路径 == 纯 Python 降级路径"那批断言等于自己跟自己比。
 - 用户数据完好：记忆文件仍 517 条，无隔离文件。
 
@@ -97,8 +97,8 @@ Three commands verify this release: `python test_all.py --only 70` (every regres
 
 ## How far it is verified
 
-- End-to-end suite: **2313 / 2313 passing**, 3 skipped (capability probes for the Windows Job Object tier on this machine).
-- This release adds **59 assertions** (each tied to a defect that was **reproduced first**, plus 4 demo-recorder invariants); totals float by platform, `python test_all.py` output is authoritative.
+- End-to-end suite: **2314 / 2314 passing**, 3 skipped (capability probes for the Windows Job Object tier on this machine).
+- This release adds **60 assertions** (each tied to a defect that was **reproduced first**, plus 4 demo-recorder invariants); totals float by platform, `python test_all.py` output is authoritative.
 - Kernel side: 20 unit tests, 16 self-test checks, 8 real-data cross-checks. **CI now actually compiles and tests the kernel** — it was never compiled before, which made the "engine path == pure-Python fallback" assertions compare the fallback with itself.
 - Your data is intact: the memory file still holds 517 entries, with no quarantine files.
 

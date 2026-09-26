@@ -13431,6 +13431,25 @@ if _want("70"):
           and "跨会话统计不可用" not in _i5_out,
           _i5_out[-300:])
 
+    # I6：**记账那条路**也要真算出成本（I5 只守了"显示"这一半，漏了"记录"那一半）。
+    # 上一版 `_model_turn` 里 `ace_cost` 同样没 import（`_usd = None` 的 except 把 NameError
+    # 吞了），于是日志里的 model/usage 永远没有成本；而 I5 是手写日志喂给 /status 的，
+    # 整条记录路径没被碰过 —— 这就是"测试全绿但功能是空的"。驱动一轮真实 mock 对话再读日志。
+    _i6_root = mktemp("usagecost")
+    _i6_cli = ai_code.AgentCLI({"project_root": str(_i6_root), "permission": "write",
+                                "bait": False, "base_url": "", "api_key": "",
+                                "model": "usage-cost-test", "tools": False}, mock=True)
+    # 价格表的键按**客户端真实模型名**配：价格是按最长子串匹配的，键写错了会得到
+    # "价格未知"，那样断言就变成在测一个永远为 None 的东西。
+    _i6_cli.cfg["pricing"] = {str(_i6_cli.client.model).lower(): {"in": 1000.0, "out": 2000.0}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        _i6_cli.converse("你好", echo_input=False)
+    _i6_usage = [e for e in _i6_cli.session_log.events() if e.get("kind") == "model/usage"]
+    check("I6 一轮 mock 对话后日志里的用量带上了成本（不是被吞成 None）",
+          bool(_i6_usage) and all(e.get("usd") is not None and e["usd"] > 0 for e in _i6_usage)
+          and all(e.get("in_tokens", 0) > 0 for e in _i6_usage),
+          f"{_i6_usage[:2]} · model={_i6_cli.client.model}")
+
     # ── 主页度量行：J1–J2 ──
     # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。
     # 主页那一行挂在标题**下面**，不占分区、不进入选择序列 —— 它不需要被选中。

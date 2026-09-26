@@ -5479,19 +5479,20 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 每轮用量落进日志（**增量**，重放求和才是真值）：`self._cost` 只活在内存里，
         # 会话一结束就没了 —— 跨会话的用量/成本此前无处可查，而日志是唯一事实源。
         # 成本估算仍由 `core/ace_cost` 单一来源算（引擎只聚合事实，不持有价格表）。
+        from core import ace_cost    # noqa: PLC0415 —— 与本文件其它处一致（局部导入）
         try:
             _in_toks = ace_context.measure(msgs) + ace_context.estimate_tokens(system)
-            _usd = None
-            try:
-                _table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
-                _usd = ace_cost.estimate_cost(_in_toks, _out_toks,
-                                              ace_cost.price_for(self.client.model, _table))
-            except Exception:      # noqa: BLE001 —— 价格表查不到就不写 usd，不影响记账
-                _usd = None
+            # 价格查不到不是错误：`price_for` 返回 None、`estimate_cost` 收到 None 也返回 None
+            # （就是"价格未知"这条正常语义）。所以这里**不要**再包一层 `except Exception` ——
+            # 上一版正是那样：`ace_cost` 这个模块压根没 import，NameError 被吞成 `usd=None`，
+            # 于是用量照记、成本永远空，而**唯一喊出来的东西是静态检查**（ruff F821）。
+            _table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
+            _usd = ace_cost.estimate_cost(_in_toks, _out_toks,
+                                          ace_cost.price_for(self.client.model, _table))
             self.session_log.record_usage(model=self.client.model, in_tokens=_in_toks,
                                           out_tokens=_out_toks, usd=_usd)
-        except Exception:          # noqa: BLE001 —— 记账失败不该影响对话
-            pass
+        except Exception as e:      # noqa: BLE001 —— 记账失败不该影响对话，但必须说出来
+            print(f"⚠ 用量记账失败（{type(e).__name__}: {e}）", file=sys.stderr)
         self.messages = self.client.trim_messages(
             msgs + [{"role": "assistant", "content": output}], self.max_history)
         return output, system, disp

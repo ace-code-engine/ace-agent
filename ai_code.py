@@ -4317,6 +4317,27 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             "version": version.__version__,
         }
 
+    def _measure_line(self) -> str:
+        """RG-03/RG-04 的**前置测量**摘要（一行；没有数据就返回空串）。
+
+        与 `/audit stats` 那两行同源（都从这份日志里数），但这里只给最短形态 ——
+        `/status` 是常看的，多一行就要多一分存在的理由。数字**不参与任何裁决**，
+        文案里也照写清楚，免得被读成"已经开了判据"。
+        """
+        try:
+            from core import ace_recovery as _rec  # noqa: PLC0415
+            from core import ace_taint as _tn  # noqa: PLC0415
+            _evs = list(self.session_log.events())
+            _a = _tn.attribution_stats(_evs)
+            _r = _rec.recovery_stats(_evs)
+        except Exception:      # noqa: BLE001 —— 测量读不出来不该让 /status 崩
+            return ""
+        if not _a["assessed"]:
+            return ""
+        return t("status_measure_line", writes=_a["assessed"],
+                 unattributed=_a["unattributed"], would_ask=_a["would_escalate"],
+                 blocked=_r["blocked"])
+
     def _cross_session_line(self) -> str:
         """跨会话累计一行（`/status` 与主页**共用同一份口径与文案**）。
 
@@ -6027,6 +6048,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         _cs_line = self._cross_session_line()
         if _cs_line:
             print(c("dim", _cs_line))
+        # RG-03/RG-04 的**前置测量**（只测不判）在 `/status` 里也给一行：G1/G2 两个门要的数据
+        # 就在这份日志里，但它们只能从真实会话里长出来 —— 埋在 `/audit stats`（要想起来才看）
+        # 就等于没人看。没有任何评估记录时**不打**（不制造噪音）。
+        _meas_line = self._measure_line()
+        if _meas_line:
+            print(c("dim", _meas_line))
         _cu = self.context_usage()
         if _cu["state"] != "unknown":
             # 先给一条可视化的度量（条 + 百分比），再给口径明细 —— 数字要看，趋势也要看。

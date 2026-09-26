@@ -14147,6 +14147,26 @@ if _want("71"):
         _cli71d._switch_session(_rlog71)
     check("RG-02m /resume 恢复被改过的日志时**当场**打出告警（不是等谁去翻 /audit）",
           "签名链" in _buf71g.getvalue(), _buf71g.getvalue()[-200:])
+
+    # ── 让 G1/G2 的数**在常看的地方**可见（/status，而不是只埋在 /audit stats）──
+    _cli71e = ai_code.AgentCLI({"project_root": str(_g71_root / "status_meas"),
+                                "permission": "write", "bait": False, "base_url": "",
+                                "api_key": "", "model": "m1", "tools": False}, mock=True)
+    _buf71h = io.StringIO()
+    with contextlib.redirect_stdout(_buf71h):
+        _cli71e.run_command("/status")
+    check("RG-03g 还没有任何评估记录时 /status **不打**那一行（不制造噪音）",
+          "判据前置测量" not in _buf71h.getvalue(), _buf71h.getvalue()[-200:])
+    _sroot71 = _g71_root / "status_meas"
+    (_sroot71 / "notes.txt").write_text("x\n", encoding="utf-8")
+    _cli71e.el.process_agent_output(_DEL71, "今天几号")     # 目标未被用户提过
+    _buf71i = io.StringIO()
+    with contextlib.redirect_stdout(_buf71i):
+        _cli71e.run_command("/status")
+    _out71i = _buf71i.getvalue()
+    check("RG-03h 有评估记录后 /status 打出测量行（数字 + 注明未参与裁决）",
+          "判据前置测量" in _out71i and "未参与裁决" in _out71i and "会问人 1" in _out71i,
+          _out71i[-240:])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

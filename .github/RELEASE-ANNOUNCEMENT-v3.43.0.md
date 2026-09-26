@@ -23,6 +23,7 @@
 | 会话日志多 `mac` 字段 | 老日志判 `unverifiable`，如实 |
 | `/audit stats` 多两行 | 台账整链 + 两条测量，均注明"未参与裁决" |
 | 新增配置键 `mandate` | **不配就什么都没有**（行为与以前逐字相同）；配了才收拢逐次确认 |
+| `/status` 多一行 | 判据前置测量（有写入被评估后才出现；没有评估记录时不打，不制造噪音） |
 
 ## 验证到什么程度
 
@@ -67,6 +68,7 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 | Unwritable anchor ⇒ writes refused | That is fail-close, not a bug; `ace doctor` explains the anchor state |
 | Session events gained a `mac` field | Old logs report `unverifiable` — honestly |
 | `/audit stats` gained two lines | Ledger chain plus the two measurements, both marked "not enforced" |
+| `/status` gained one line | Criterion pre-measurement (appears only after writes have been assessed; silent otherwise) |
 | New config key `mandate` | **Absent means nothing changes** (byte-identical behaviour); present means per-call confirmations collapse into one mandate per task |
 
 ## How far it is verified

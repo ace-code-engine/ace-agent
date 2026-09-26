@@ -100,6 +100,7 @@
   "security_alert_hint": "  如果这不是你让它做的，可能有人在借被读取的文件/网页注入指令——建议先停下核对来源，或直接结束本次会话（/exit）。",
   "unattended_notice": "  ⚠ 无人值守 + 无内核边界（非交互终端、沙箱 off、非只读）：需要审批的动作会被【直接拒绝】（terminal_exec 在 CI 里不可用），而无需审批的写/执行工具（file_write / code_execute / api_post …）照跑，它们只有进程内策略。要跑无人值守请显式给 --sandbox job/docker（可配 --approval-policy on_failure），或改回 --permission readonly。",
   "serve_client_gone": "  （协议前端已断开，收工）",
+  "mcp_ready": "  （MCP server 就绪 · ACE {version} · 权限 {permission} · 沙箱 {sandbox} · 项目 {root}）",
   "sandbox_preflight_job_non_windows": "  ⚠ --sandbox job 是 Windows 专有的 Job Object 原语，本平台用不了：启动不拦，但第一次 terminal_exec / code_execute 会诚实返回 503（不会回退宿主执行）。Linux/macOS 请改用 --sandbox docker（一次性容器），或接受 off 档的进程内策略层。",
   "sandbox_preflight_job_no_executor": "  ⚠ --sandbox job 需要 Go 执行器，但没找到二进制：第一次调用会返回 503。先跑 `ace --install-executor`（官方预编译，无需本机 Go），或 `cd executor && go build -o ace-executor(.exe) .`。",
   "sandbox_preflight_docker_no_cli": "  ⚠ --sandbox docker 需要 Docker CLI，PATH 里没找到 docker：第一次调用会返回 503（不会回退宿主执行）。装好并启动 Docker 后重试，或先用 off 档（仅进程内策略层）。",

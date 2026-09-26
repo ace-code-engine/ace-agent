@@ -17,6 +17,7 @@ python -m compileall -q <改动的模块>          # 编译检查
 python benchmarks/bench_core.py             # 实测基准 → benchmarks/results/bench_report.md
 python benchmarks/bench_core.py --quick     # 样本减半的基准健康门（CI 用）
 python e2e/real_model_smoke.py              # 真实模型端到端（需 ACE_E2E_* env，缺省自动跳过）
+python e2e/mcp_probe.py [-v]                # 假装 MCP host 跟真的 `ace --mcp` 子进程说话（stdout 纯度 / EOF 收工 / 裁决与台账）
 python -m cli.ace_doctor                    # 环境自检（Python/依赖/Go 执行器/Docker/配置）
 python demo/record_demo.py [--check]        # 重录 / 校验 README 顶部演示动画
 ```

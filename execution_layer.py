@@ -1045,6 +1045,48 @@ class ExecutionLayer:
         finally:
             self._round = prev
 
+    def run_tool_external(self, tool_call: Dict[str, Any], source: str = "mcp",
+                          actor: str = "external agent"):
+        """**外部 actor**（MCP host 的 agent）请求的一次工具调用：与模型路径**同一套权限裁决**。
+
+        为什么不复用 `run_tool_direct`：那个入口服务的是"人自己敲的命令"，因此**刻意跳过**
+        整个 `_stage_permission`（逐次确认闸门 / 项目外已存在对象 / 外发闸门 / 持久授权规则
+        / 授权令都在那一阶段）。对人自己敲的命令这是对的 —— 人用"亲手敲"表达了意图；
+        但外部 agent 说的一句话**不是**用户的命令，走那条路等于把第三方指令提升成用户命令。
+
+        这条 docstring 是一次实测换来的：MCP 一开始接的正是 `run_tool_direct`，探针立刻拍到
+        write 档下 `terminal_exec` **直接执行**（`echo hi` → returncode 0）、项目外已存在的文件
+        也能改 —— 全都不问人。现在这条路把裁决补回来：要问人的那几处在 headless 下变成拒绝，
+        由调用方翻成 MCP 的 `isError` + 可执行理由（`ai_code.py::_mcp_call`）。
+
+        刻意**不**包含模型回路专属的几段：`_stage_tool_precheck`（控制工具熔断 / Plan Mode）、
+        诱饵校验（`_stage_code_gate`）、`_stage_output_guard`（L4 输出守门）、`_stage_result`
+        （给模型的错误话术）—— 它们管的是"模型会不会被自己骗"，不是"这一下能不能动"。
+        工具载荷本身的 L4/L5 检查仍在 `_stage_execute` → `executor.execute` 里照跑。
+        """
+        from tools.result import ExecutionResult as _ER
+
+        tool_name = str(tool_call.get("tool") or "")
+        ctx = RoundCtx()
+        prev = self._round
+        self._round = ctx
+        try:
+            early = self._stage_permission(tool_call, tool_name, {}, ctx)
+            if early is not None:
+                return early
+            early = self._stage_snapshot(tool_name, ctx, {}, tool_call)
+            if early is not None:
+                return _ER(status="error",
+                           error_code=str(early.get("status") or "500"),
+                           message=str(early.get("message")
+                                       or "写前快照不可用，已拒绝执行（H-05 fail-close）"))
+            result = self._stage_execute(tool_call, tool_name)
+            if self.session_log:
+                self.session_log.record_guard(f"{source}:{actor}", "allow", tool_name)
+            return result
+        finally:
+            self._round = prev
+
     # ---------- 单轮阶段（_stage_*）：每个阶段只读写明确入参/返回值 ----------
     # 约定：返回 dict = 本轮直接返回该结果并结束；返回 None = 继续下一阶段。
 

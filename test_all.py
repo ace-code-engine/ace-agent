@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71"]
+             "69", "70", "71", "72"]
 _SEEN_SECTIONS: list = []
 
 
@@ -14181,6 +14181,173 @@ if _want("71"):
     check("RG-03h 有评估记录后 /status 打出测量行（数字 + 注明未参与裁决）",
           "判据前置测量" in _out71i and "未参与裁决" in _out71i and "会问人 1" in _out71i,
           _out71i[-240:])
+    # ============================================================
+
+# ============================================================
+if _want("72"):
+    # ── [72] ────
+    print("[72] MCP server —— 协议层 + 真实裁决（外部 agent 借执行层干活）")
+    # ============================================================
+    # 为什么单独一段：`--mcp` 是第四个前端，它的正确性有两半 ——
+    #   ① 协议层（JSON-RPC 形状 / 错误码 / `isError` 语义 / 暴露面）：用假引擎单测，
+    #      不碰 ACE 的其它部分；
+    #   ② **裁决**：外部 agent 说的一句话**不是**用户的命令。这一半必须用真
+    #      ExecutionLayer 验，而且要钉住"与 `run_tool_direct` 的差别是真实的" ——
+    #      立项时接错入口，探针当场拍到 write 档下 `terminal_exec` 直接执行
+    #      （`echo hi` → returncode 0）、项目外**已存在**文件也能改，全都不问人。
+    # 真进程 + stdin/stdout 那一路（stdout 纯度、EOF 收工、台账落盘）在
+    # `e2e/mcp_probe.py`：它是排查工具，不进 CI 的常规闸门。
+    from core import ace_mcp_server as _mcp72  # noqa: E402
+    from execution_layer import ExecutionLayer as _EL72  # noqa: E402
+    from tools.registry import TOOL_SPECS as _SPECS72  # noqa: E402
+
+    # —— ① 暴露面 ——
+    _tools72 = _mcp72.mcp_tools(_SPECS72)
+    _names72 = [t["name"] for t in _tools72]
+    check("[72] tools/list == 白名单（不多不少）",
+          _names72 == list(_mcp72.MCP_TOOL_NAMES), f"{len(_names72)} 条")
+    check("[72] 排除名单与暴露名单不打架，且控制面/嵌套 agent 类工具没漏出去",
+          not (set(_names72) & set(_mcp72.MCP_TOOL_HIDDEN))
+          and not ({"subagent", "goal_create", "goal_update", "goal_status", "todo_write",
+                    "plan_propose", "request_permission", "image_generate"} & set(_names72)),
+          sorted(set(_names72) & set(_mcp72.MCP_TOOL_HIDDEN)))
+    check("[72] 每条 inputSchema 都是 object + properties",
+          all(t["inputSchema"].get("type") == "object" and "properties" in t["inputSchema"]
+              for t in _tools72))
+    _tools72[0]["inputSchema"]["properties"]["__polluted72__"] = {}
+    check("[72] 返回的 schema 是深拷贝（改它不动注册表）",
+          "__polluted72__" not in _mcp72.mcp_tools(_SPECS72)[0]["inputSchema"]["properties"])
+
+    # —— ② 协议层：假引擎（不碰执行层）——
+    _calls72: list = []
+
+    def _fake72(name, args):
+        _calls72.append((name, args))
+        if name == "terminal_exec":
+            return _mcp72.tool_error("403: 需要逐次确认")
+        return _mcp72.tool_text("ok")
+
+    _srv72 = _mcp72.McpServer(lambda: _mcp72.mcp_tools(_SPECS72), _fake72, instructions="x")
+    check("[72] 未握手就发业务请求 → -32002（不是静默按空能力跑）",
+          _srv72.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["error"]["code"]
+          == _mcp72.SERVER_NOT_INITIALIZED)
+    _init72 = _srv72.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                             "params": {"protocolVersion": "2024-11-05", "capabilities": {}}})
+    check("[72] 握手回客户端报的版本 + 声明 tools 能力",
+          _init72["result"]["protocolVersion"] == "2024-11-05"
+          and "tools" in _init72["result"]["capabilities"])
+    check("[72] 未知协议版本回最新版（不假装支持一个没实现的版本）",
+          _mcp72.McpServer(lambda: [], _fake72).handle(
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+               "params": {"protocolVersion": "2099-01-01"}}
+          )["result"]["protocolVersion"] == _mcp72.PROTOCOL_VERSION_LATEST)
+    check("[72] initialize 缺 protocolVersion → -32602",
+          _srv72.handle({"jsonrpc": "2.0", "id": 9, "method": "initialize",
+                         "params": {}})["error"]["code"] == _mcp72.INVALID_PARAMS)
+    check("[72] 通知一律不应答（应了就是协议违规）",
+          _srv72.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+          and _srv72.handle({"jsonrpc": "2.0", "method": "notifications/cancelled"}) is None
+          and _srv72.handle({"jsonrpc": "2.0", "method": "notifications/whatever"}) is None)
+    check("[72] tools/list 与白名单同长",
+          len(_srv72.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+                            )["result"]["tools"]) == len(_mcp72.MCP_TOOL_NAMES))
+    _ok72 = _srv72.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                           "params": {"name": "file_read", "arguments": {"path": "README.md"}}})
+    check("[72] 正常调用 → content，且参数按**扁平**形状交给引擎",
+          _ok72["result"]["content"][0]["text"] == "ok"
+          and not _ok72["result"].get("isError")
+          and _calls72[-1] == ("file_read", {"path": "README.md"}), str(_calls72[-1]))
+    _err72 = _srv72.handle({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                            "params": {"name": "terminal_exec",
+                                       "arguments": {"command": "rm -rf /"}}})
+    check("[72] 工具**被拒**走 content + isError（不是 JSON-RPC error）",
+          "error" not in _err72 and _err72["result"].get("isError") is True)
+    check("[72] 未知工具 → -32602（调用方写错名字，不是工具失败）",
+          _srv72.handle({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                         "params": {"name": "no_such_tool", "arguments": {}}}
+                        )["error"]["code"] == _mcp72.INVALID_PARAMS)
+    check("[72] arguments 里塞 tool / 非对象 → -32602（形状误解要说出来）",
+          _srv72.handle({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                         "params": {"name": "file_read",
+                                    "arguments": {"tool": "file_read", "path": "a"}}}
+                        )["error"]["code"] == _mcp72.INVALID_PARAMS
+          and _srv72.handle({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                             "params": {"name": "file_read", "arguments": "nope"}}
+                            )["error"]["code"] == _mcp72.INVALID_PARAMS)
+    check("[72] 批处理 / 非法 JSON / 缺 jsonrpc / 缺 method / 超长行 / 空行 各有明确答复",
+          _srv72.handle([{"jsonrpc": "2.0", "id": 8, "method": "ping"}]
+                        )["error"]["code"] == _mcp72.INVALID_REQUEST
+          and _srv72.handle_line("{not json")["error"]["code"] == _mcp72.PARSE_ERROR
+          and _srv72.handle({"id": 10, "method": "ping"}
+                            )["error"]["code"] == _mcp72.INVALID_REQUEST
+          and _srv72.handle({"jsonrpc": "2.0", "id": 11}
+                            )["error"]["code"] == _mcp72.INVALID_REQUEST
+          and _srv72.handle_line("x" * (_mcp72.MAX_LINE_BYTES + 1)
+                                 )["error"]["code"] == _mcp72.INVALID_REQUEST
+          and _srv72.handle_line("") is None)
+    check("[72] ping → 空结果",
+          _srv72.handle({"jsonrpc": "2.0", "id": 12, "method": "ping"})["result"] == {})
+
+    def _boom72(name, args):
+        raise RuntimeError("引擎炸了")
+
+    _srv72b = _mcp72.McpServer(lambda: _mcp72.mcp_tools(_SPECS72), _boom72)
+    _srv72b.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": _mcp72.PROTOCOL_VERSION_LATEST}})
+    _boom_resp = _srv72b.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                 "params": {"name": "file_read", "arguments": {}}})
+    check("[72] 引擎抛异常 → -32603 且带类型名（真 bug 不被伪装成业务拒绝）",
+          _boom_resp["error"]["code"] == _mcp72.INTERNAL_ERROR
+          and "RuntimeError" in _boom_resp["error"]["message"])
+
+    # —— ③ 真实裁决：外部 agent 不是用户 ——
+    # 锚指到临时区：不碰跑测试的人自己的 %LOCALAPPDATA% / ~/.local/state
+    # （与 demo 录制同一课：只搬 HOME 在 Windows 上不够）。
+    _prev_anchor72 = os.environ.get("ACE_ANCHOR_DIR")
+    os.environ["ACE_ANCHOR_DIR"] = str(TEST_TMP / "mcp72_anchor")
+    try:
+        _root72 = mktemp()
+        _outside72 = Path(mktemp()) / "outside_existing.txt"
+        _outside72.parent.mkdir(parents=True, exist_ok=True)
+        _outside72.write_text("原有内容\n", encoding="utf-8")
+        _el72 = _EL72(project_root=str(_root72), permission_level="write",
+                      config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+        _w72 = _el72.run_tool_external({"tool": "file_write", "path": "made.txt",
+                                        "content": "hi\n"}, source="mcp")
+        check("[72] write 档：项目内写文件经外部入口成功（真落盘）",
+              getattr(_w72, "status", "") == "success" and (_root72 / "made.txt").is_file(),
+              repr(_w72)[:200])
+        _o72 = _el72.run_tool_external({"tool": "file_write", "path": str(_outside72),
+                                        "content": "被改掉了\n"}, source="mcp")
+        check("[72] 项目外**已存在**对象 → PERMISSION_REQUEST（要问人；headless 由调用方拒）",
+              isinstance(_o72, dict) and _o72.get("status") == "PERMISSION_REQUEST",
+              repr(_o72)[:200])
+        check("[72] 被拒之后项目外文件内容一字未变",
+              _outside72.read_text(encoding="utf-8") == "原有内容\n")
+        _t72 = _el72.run_tool_external({"tool": "terminal_exec", "command": "echo hi"},
+                                       source="mcp")
+        check("[72] terminal_exec → PERMISSION_REQUEST（逐次确认闸门没有被外部入口绕过）",
+              isinstance(_t72, dict) and _t72.get("status") == "PERMISSION_REQUEST",
+              repr(_t72)[:200])
+        # 这一条是**差异本身**：同一个调用、同一个引擎，run_tool_direct（人自己敲的路径）
+        # 直接执行 —— 所以 MCP 不能接在那个入口上。谁把接线改回去，这条会红。
+        _d72 = _el72.run_tool_direct({"tool": "terminal_exec", "command": "echo hi"},
+                                     source="mcp")
+        check("[72] 对照：run_tool_direct 对同一调用**不**问人（正因如此 MCP 没接它）",
+              not (isinstance(_d72, dict) and _d72.get("status") == "PERMISSION_REQUEST"),
+              repr(_d72)[:200])
+        _ro72 = _EL72(project_root=str(_root72), permission_level="readonly",
+                      config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+        _r72 = _ro72.run_tool_external({"tool": "file_write", "path": "nope.txt",
+                                        "content": "x"}, source="mcp")
+        check("[72] readonly 档：写工具 → PERMISSION_REQUEST（权限档拦下，不是静默放行）",
+              isinstance(_r72, dict) and _r72.get("status") == "PERMISSION_REQUEST",
+              repr(_r72)[:200])
+    finally:
+        if _prev_anchor72 is None:
+            os.environ.pop("ACE_ANCHOR_DIR", None)
+        else:
+            os.environ["ACE_ANCHOR_DIR"] = _prev_anchor72
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

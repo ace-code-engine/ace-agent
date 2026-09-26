@@ -109,6 +109,7 @@ ace-agent/
 │   ├── nuwa.py                 #   POC 报告（HTML + JSON）
 │   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
 │   ├── ace_mcp.py              #   MCP 客户端：stdio JSON-RPC 2.0（握手 / tools-list / tools-call + 子进程生命周期）
+│   ├── ace_mcp_server.py       #   MCP **服务端**（ace --mcp）：把执行层借给外部 host；白名单暴露面 + JSON-RPC 错误语义（isError 与协议错误分开）
 │   ├── ace_hooks.py            #   事件钩子：session_start / user_prompt / pre_tool / post_tool / session_end（JSON 进出）
 │   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
@@ -154,7 +155,7 @@ ace-agent/
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
-├── e2e/                        # 端到端冒烟：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rg_probes.py（RG 安全结论的复现脚本：快照伪造 / 台账篡改 / 来源归属 / 可逆性分布）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
+├── e2e/                        # 端到端冒烟：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rg_probes.py（RG 安全结论的复现脚本：快照伪造 / 台账篡改 / 来源归属 / 可逆性分布）/ mcp_probe.py（假装 MCP host 跟真的 `ace --mcp` 子进程说话：stdout 纯度 / EOF 收工 / 裁决与台账）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview；本机绝对路径按"框内保宽/自由行折一列"折叠，故录制位置无关）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
@@ -219,6 +220,7 @@ ace-agent/
 │   ├── ADR-002-executor-boundary.md  #   执行器进程边界 / NDJSON 协议 / Windows 沙箱选型
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
 │   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
+│   ├── MCP-SERVER.md           #   ace --mcp 使用说明：三种 host 的配置片段 / 两个旋钮（权限档 + 授权令）/ 排障 / 真 host 冒烟清单
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
 │   ├── PACKAGING-EXE.md        #   Windows 发行包：PyInstaller 单目录 + 冒烟门禁 + 冻结后能力表
 │   ├── design/                 #   已闭环立项卡（历史设计决策）
@@ -228,6 +230,7 @@ ace-agent/
 │   │   ├── STRUCT-REFACTOR.md      #   P2 结构重构立项卡（R-01~R-05 实测规模 / 顺序 / 验收）
 │   │   ├── SAFETY-HARDENING.md     #   安全边界加固立项卡（H-01~H-22 审计证据 / 工作包 / 验收）
 │   │   └── RGTC-LANDING.md         #   RGTC 落地立项卡（RG-01~RG-05：信任锚外移 / 链式台账 / 来源归属 / 可逆性分类器 / 授权令与影子）
+│   │   └── MCP-SERVER.md           #   MCP server 立项卡（外部 host 借执行层：暴露面 / 审批矩阵 / 非目标 / 验收）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

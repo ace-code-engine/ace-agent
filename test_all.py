@@ -13814,6 +13814,20 @@ if _want("71"):
     check("RG-03e 说不出目标的写工具记为 unknown，不计入 would_escalate（不虚报）",
           _unk71["attribution"] == "unknown" and _unk71["would_escalate"] is False
           and _l71.snapshot()["would_escalate"] == 0, f"{_unk71} {_l71.snapshot()}")
+
+    # F：G1 门要的数必须**看得见** —— 否则"测量"只是个没人读的字段
+    _cli71b = ai_code.AgentCLI({"project_root": str(_g71_root / "rg03_cli"),
+                                "permission": "write", "bait": False, "base_url": "",
+                                "api_key": "", "model": "m1", "tools": False}, mock=True)
+    (_cli71b.session_log.path.parent.parent / "notes.txt").write_text("x\n", encoding="utf-8")
+    _cli71b.el.process_agent_output(_DEL71, "今天几号")          # 目标没被用户提过
+    _buf71c = io.StringIO()
+    with contextlib.redirect_stdout(_buf71c):
+        _cli71b.run_command("/audit stats")
+    _out71c = _buf71c.getvalue()
+    check("RG-03f /audit stats 打出归属测量行（G1 的数看得见，且注明未参与裁决）",
+          "来源归属" in _out71c and "未参与裁决" in _out71c and "会问人 1 次" in _out71c,
+          _out71c[-260:])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

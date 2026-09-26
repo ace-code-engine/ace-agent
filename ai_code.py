@@ -2676,6 +2676,14 @@ class _SlashCommands:
             _chain, "audit_chain_note")
         print("  " + c({"ok": "green", "broken": "red"}.get(_chain, "yellow"),
                        t(_chain_key, detail=_chain_why)))
+        # RG-03（**测量中，未参与裁决**）：来源归属分布 —— 从这份日志里数（不读内存账本，
+        # 那样跨会话/重放就读不到了）。数字是给立项卡 G1 门用的：若开启判据会有多少次写入被问人。
+        from core import ace_taint as _ace_taint  # noqa: PLC0415 —— 只有用到时才 import
+        _attr = _ace_taint.attribution_stats(self.session_log.events())
+        if _attr["assessed"]:
+            print("  " + c("dim", t("audit_taint_line", assessed=_attr["assessed"],
+                                    unattributed=_attr["unattributed"],
+                                    unknown=_attr["unknown"], would=_attr["would_escalate"])))
         # 运行度量（轮次/工具/耗时/授权/token）。耗时与 token 是 v3.42 起才落进日志的
         # 字段 —— 老日志这两项会是 0，那是"如实"而不是"没算"（ts 只有秒级粒度，推不出耗时）。
         met = ace_engine.session_metrics(p)

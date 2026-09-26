@@ -122,3 +122,23 @@ class TaintLedger:
             "would_escalate": self.would_escalate,
             "unknown_target": self.unknown_target,
         }
+
+
+def attribution_stats(events: Iterable[Dict[str, Any]]) -> Dict[str, int]:
+    """从**事件流**里数归属分布（只读）。
+
+    为什么从日志派生而不是读内存账本：`/audit stats` 回答的是"**这份日志**是什么样"，
+    而账本只活在当前进程里（跨会话、`--serve` 重放、排障时都读不到）。这些字段是测量阶段
+    写进 `permission/decision` 事件的，所以日志里本来就有。
+    """
+    out = {"assessed": 0, "user": 0, UNATTRIBUTED: 0, UNKNOWN: 0, "would_escalate": 0}
+    for e in events:
+        attr = e.get("attribution")
+        if not attr:
+            continue
+        out["assessed"] += 1
+        if attr in out:
+            out[attr] += 1
+        if e.get("would_escalate"):
+            out["would_escalate"] += 1
+    return out

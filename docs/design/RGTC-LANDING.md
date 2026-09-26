@@ -178,6 +178,9 @@
 - 接线：`_stage_new_task` 记用户轮；`_stage_execute` 记工具结果；`_stage_permission` 在**放行那一刻**
   把评估写进既有的 `permission/decision` 事件（可选字段，不传时 payload 与旧版逐字相同 ——
   刻意避免给其余十来处调用点改事件形状，也避免动 Rust 侧的 kind 名单）。
+- **数要看得见**：`/audit stats` 增加一行归属分布（`core/ace_taint.attribution_stats()` 从**日志**里数，
+  不读内存账本 —— 后者跨会话/重放读不到），三语同步，并注明"测量中，未参与裁决"。
+  没有这一行，"测量"就只是个没人读的字段。
 - **纪律**：这一阶段**不改变任何裁决**，`RG-03c` 明确断言"同样的注入形状目前仍然放行" ——
   免得把"测量"混成"以为已经修好了"。
 
@@ -186,9 +189,10 @@
 真数据能回答。所以先按立项卡 **G1 门**收集这个代理指标：写入的目标路径有没有被用户提过。
 本次样本很小（A 记到 `user`、B/C 记到 `unattributed`），**不足以**决定开关，需要真实会话数据。
 
-- **验收（`test_all` 段 `[71]` 的 RG-03a~e）**：a 用户提过 → `user` 且 `would_escalate=False`；
+- **验收（`test_all` 段 `[71]` 的 RG-03a~f）**：a 用户提过 → `user` 且 `would_escalate=False`；
   b 用户没提过 → `unattributed` 且 `would_escalate=True`；c **行为未变**（仍放行）；
-  d 外部读取与用户轮次都被记下；e 说不出目标 → `unknown` 且不计入 `would_escalate`。
+  d 外部读取与用户轮次都被记下；e 说不出目标 → `unknown` 且不计入 `would_escalate`；
+  f `/audit stats` 真的打出归属测量行（G1 的数看得见）。
 - **风险**：低（只读测量）。**回滚**：`git revert` 该提交。
 
 ### RG-03b · 判据开关（第二阶段，**待 G1 数据**）

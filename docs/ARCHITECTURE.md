@@ -152,7 +152,7 @@ ace-agent/
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
-├── e2e/                        # 端到端冒烟三件：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
+├── e2e/                        # 端到端冒烟：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rg_probes.py（RG 安全结论的复现脚本：快照伪造 / 台账篡改 / 来源归属 / 可逆性分布）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
 ├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview；本机绝对路径按"框内保宽/自由行折一列"折叠，故录制位置无关）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
@@ -165,7 +165,8 @@ ace-agent/
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
-│   ├── RELEASE-NOTES-v3.42.0.md #  本版更新介绍（执行层承诺对齐 / 元处理内核 / 运行度量）
+│   ├── RELEASE-NOTES-v3.43.0.md #  本版更新介绍（信任锚外移 / 链式台账 / 两条只测量的判据前置）
+│   ├── RELEASE-NOTES-v3.42.0.md #   更新介绍（执行层承诺对齐 / 元处理内核 / 运行度量）
 │   ├── RELEASE-NOTES-v3.40.2.md #  本版更新介绍（可直接贴进 GitHub Release；修回 README 的编码错误）
 │   ├── RELEASE-NOTES-v3.40.1.md #  v3.40.1 更新介绍（终端编码防线）
 │   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
@@ -253,6 +254,7 @@ ace-agent/
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    ├── RELEASE-ANNOUNCEMENT-v3.43.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：信任锚外移 / 链式台账 / 只测量的两条判据）
     ├── RELEASE-ANNOUNCEMENT-v3.42.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：执行层承诺对齐 / 元处理内核 / 运行度量）
     ├── RELEASE-ANNOUNCEMENT-v3.41.0.md  #   中英双语发布公告（可直接当 Release 说明）
     └── pull_request_template.md#   PR 模板

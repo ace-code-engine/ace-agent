@@ -86,7 +86,7 @@
     `get_stats()["snapshot_signing"]`、`signing_key_path`，实测**全部 0 命中**（`execution_layer.py:784`
     那行 `(config or {}).get("signing_key")` 是真的，所以这段确实在说本仓库）。实际实现把密钥放在
     **`<项目>/.guardian/signing_key`**，也就是**项目目录之内** —— 与本段自己写的"密钥必须在项目目录
-    之外"正好相反。后果实测（探针 `_rel_test/rg01_probe.py`）：拿到项目目录读写权限的一方
+    之外"正好相反。后果实测（探针 `e2e/rg_probes.py rg01`）：拿到项目目录读写权限的一方
     读出密钥 → 改快照副本 → 修 `meta.json` 里的摘要 → 用同一把密钥重算 HMAC，
     `verify_snapshot()` **仍然返回 True** —— 写前快照可被伪造。
   - **RG-01 已按本段的原则把它修掉**（2026-09-26，见 `docs/design/RGTC-LANDING.md`）：密钥移到工作区外的

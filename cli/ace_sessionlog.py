@@ -15,7 +15,7 @@ DSH 的第一原则是「模型可见 ⟺ 可记录」：任何到达模型的�
 阶段 2（surface 投影 / 无损压缩）留给后续：先有"事实源"，再做"从事实源派生"。
 
 **RG-02（链式签名）**：append-only 只保证"只追加"，不保证"没被改过"。实测（探针
-`_rel_test/rg02_probe.py`）：把一条 `permission/decision` 从 `deny` 改成 `allow`、
+`e2e/rg_probes.py rg02`）：把一条 `permission/decision` 从 `deny` 改成 `allow`、
 或往尾部追加一条伪造事件，`seq_contiguous()` 都返回 True，日志里也**没有任何字段**能说明
 它被动过 —— 一份可被静默重写的审计记录，恰好能重写掉安全裁决那一行。所以每条事件带一个
 `mac = HMAC(台账密钥, prev_mac ‖ 该条正文)`：改内容、删中间一条、剥掉某条的 mac、尾部伪造

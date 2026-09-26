@@ -13617,7 +13617,7 @@ if _want("71"):
           f"anchor_error={_e71.anchor_error!r} raised={_raised71!r}")
 
     # ── RG-02：会话台账链式签名 ──
-    # 立项缘由（探针 _rel_test/rg02_probe.py 复现过）：append-only 只保证"只追加"。
+    # 立项缘由（探针 e2e/rg_probes.py rg02 复现过）：append-only 只保证"只追加"。
     # 实测把一条 `permission/decision` 从 deny 改成 allow、或往尾部追加一条伪造事件，
     # `seq_contiguous()` 都返回 True，日志里也没有任何字段能说明它被动过 ——
     # 一份可被静默重写的审计记录，恰好能重写掉安全裁决那一行。

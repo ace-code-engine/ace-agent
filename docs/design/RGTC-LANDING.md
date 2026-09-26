@@ -112,7 +112,7 @@
   `python -m cli.ace_doctor` 增加信任锚体检：报锚路径与已有哪些密钥、锚根来自默认还是
   `ACE_ANCHOR_DIR`、**锚是否落在工作区内**（与设计相反时告警）、**项目内是否还残留旧密钥副本**
   （"搬了等于没搬"的那种）、POSIX 下密钥文件权限是否过宽。断言 `RG-01h` 钉住它真的报出来。
-- **实测对照（探针 `_rel_test/rg01_probe.py`）**：修复前"改内容+修摘要+用项目内密钥重签"
+- **实测对照（探针 `e2e/rg_probes.py rg01`）**：修复前"改内容+修摘要+用项目内密钥重签"
   → `verify=True`（安全网可伪造）；修复后同一操作 → `verify=False`（签名校验失败）。
 - **顺带修正的文档**：`docs/SECURITY-AUDIT.md` 的 SEC-010 记录描述的
   `resolve_signing_key()` / `ACE_SIGNING_KEY` / `~/.ace/snapshot_signing_key` /
@@ -154,7 +154,7 @@
   f 老日志（无 mac）→ `unverifiable`，不冒充 ok 也不冤枉成 broken；g 密钥不可用 → 不炸 + `unverifiable`；
   i/i2 **显示**这一半也验：`/audit stats` 真的打出 ok 行、台账被改后打出 broken 行
   （上一轮 I5/I6 的教训：只测记录不测显示，等于没测用户看到的东西）。
-- **实测（探针 `_rel_test/rg02_probe.py`）**：三个真攻击形状——改 `permission/decision`
+- **实测（探针 `e2e/rg_probes.py rg02`）**：三个真攻击形状——改 `permission/decision`
   （deny→allow）、删中间一条、尾部追加伪造事件——修复前 `seq_contiguous()` 只抓得到第二个，
   日志里**没有任何字段**能说明被动过；修复后三条全部 `verify_chain() = broken` 并指出位置。
 - **开销（量出来的，不是"应该很快"）**：单条 MAC 计算 **6.5 µs**；`append` 整条路径 **11.4 ms/条**，
@@ -163,7 +163,7 @@
 
 ### RG-03 · 来源归属：把注入从"越权"降级为"噪声"（M）—— **第一阶段（只测量）已实施**
 
-**先复现（探针 `_rel_test/rg03_probe.py`）**：同一句 `file_delete(notes.txt)`，只改 `user_input`：
+**先复现（探针 `e2e/rg_probes.py rg03`）**：同一句 `file_delete(notes.txt)`，只改 `user_input`：
 
 | 场景 | `user_input` | 裁决 | 文件 |
 |---|---|---|---|

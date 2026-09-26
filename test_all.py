@@ -61,6 +61,13 @@ _SESS_BASELINE = (len(list(_SESS_DIR.glob("*.jsonl"))) if _SESS_DIR.is_dir() els
 KEEP_TMP = "--keep-tmp" in sys.argv
 _TMP_MADE: list = []
 
+# RG-01：签名锚（`core/guardian.py`）默认落在**用户状态目录**（`%LOCALAPPDATA%` / XDG state）。
+# 测试必须把它改到工作区内，否则每跑一轮就往用户真实状态目录里撒几十个锚目录 ——
+# 与 H-26「测试不许写用户真实状态目录」是同一条纪律。子进程继承这个变量。
+_ANCHOR_TMP = TEST_TMP / "anchor"
+os.environ["ACE_ANCHOR_DIR"] = str(_ANCHOR_TMP)
+_TMP_MADE.append(_ANCHOR_TMP)
+
 
 def mktemp(_name: str = "") -> Path:
     d = TEST_TMP / f"tmp_{uuid.uuid4().hex[:8]}"
@@ -232,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70"]
+             "69", "70", "71"]
 _SEEN_SECTIONS: list = []
 
 
@@ -6671,8 +6678,10 @@ if _want("40"):
     (_p40_root / "svc.pem").write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
     _sid40 = _g40.snapshot("audit40")
     _snap40 = _g40.snap_dir / _sid40
-    check("SEC-010 无配置时签名密钥自动生成且签名文件存在（签名默认开）",
-          (_g40.store / "signing_key").exists() and (_snap40 / "meta.json.sig").exists()
+    check("SEC-010 无配置时签名密钥自动生成且签名文件存在（签名默认开）—— RG-01 后密钥在**工作区之外**的锚里，项目目录内不再有它",
+          (_g40.anchor / "signing_key").exists()
+          and not (_g40.store / "signing_key").exists()
+          and (_snap40 / "meta.json.sig").exists()
           and _g40.verify_snapshot(_sid40)[0] is True)
     _snap_names40 = {p.name for p in (_snap40 / "files").rglob("*") if p.is_file()}
     check("SEC-014 .env / *.pem 不进快照（只备份普通文件）",
@@ -13528,6 +13537,84 @@ if _want("70"):
     check("K3 MSI：目录 ID 不重复（压字符撞车会给两个目录同一个 ID → 文件装错地方）",
           len(_ids_k) >= 5 and len(_ids_k) == len(set(_ids_k)),
           f"重复的 ID: {sorted({i for i in _ids_k if _ids_k.count(i) > 1})}")
+    # ============================================================
+
+# ============================================================
+if _want("71"):
+    # ── [71] ────
+    print("[71] RG 组 —— 信任锚外移（RG-01，docs/design/RGTC-LANDING.md）")
+    # ============================================================
+    # 立项缘由（实测复现过）：密钥原来住在 `<项目>/.guardian/signing_key`，而 `.guardian`
+    # 就在项目目录里。拿到项目目录读写权限的一方可以**读出密钥 → 改快照副本 → 修 meta 里的
+    # 摘要 → 用同一把密钥重算 HMAC**，改完 `verify_snapshot()` 返回 True —— 写前快照这道
+    # 安全网可以被伪造。这组断言盯的就是"密钥不在项目里" + "迁移是搬不是拷" + "锚不可用就拒"。
+    import hashlib as _hl71  # noqa: E402
+    import hmac as _hmac71  # noqa: E402
+
+    _g71_root = mktemp("rg01")
+    _proj71 = _g71_root / "proj"
+    _proj71.mkdir(parents=True)
+    (_proj71 / "app.py").write_text("PAYLOAD = 'v1'\n", encoding="utf-8")
+
+    # 造一个"升级前"的项目：先用**显式密钥**签一份快照（那时不经锚），再把那把密钥按老布局
+    # 写进 `.guardian/signing_key` —— 顺序不能反：先建 Guardian 会当场把旧密钥迁走，
+    # 那样后面的 "anchor_migrated" 就永远是 False（第一版就是这么写错的）。
+    _g71_old = Guardian(str(_proj71), signing_key="k" * 64, verify_policy="rollback")
+    _sid71_old = _g71_old.snapshot("legacy")
+    (_g71_old.store / "signing_key").write_text("k" * 64, encoding="utf-8")
+
+    # 升级后第一次启动：迁移
+    _g71 = Guardian(str(_proj71), verify_policy="rollback")
+    check("RG-01a 旧密钥被**搬**到工作区外的锚（不是拷一份留在项目里）",
+          _g71.anchor_migrated
+          and (_g71.anchor / "signing_key").read_text(encoding="utf-8").strip() == "k" * 64
+          and not (_g71.store / "signing_key").exists(),
+          f"anchor={_g71.anchor} migrated={_g71.anchor_migrated} "
+          f"legacy_exists={(_g71.store / 'signing_key').exists()}")
+    check("RG-01b 迁移后旧快照仍验得过（密钥值没变）",
+          _g71.verify_snapshot(_sid71_old)[0] is True)
+    check("RG-01c 锚在项目目录之外（不在工作区路径前缀里）",
+          not str(_g71.anchor).lower().startswith(str(_proj71).lower()))
+
+    # 伪造：攻击者只够得着项目目录时，改副本 + 修摘要之后**没有密钥可重签**
+    _dest71 = _g71.snap_dir / _sid71_old / "files" / "app.py"
+    _dest71.write_text("PAYLOAD = 'attacker'\n", encoding="utf-8")
+    _meta71 = _g71.snap_dir / _sid71_old / "meta.json"
+    _m71 = json.loads(_meta71.read_text(encoding="utf-8"))
+    _m71["files"]["app.py"]["sha256"] = _hl71.sha256(_dest71.read_bytes()).hexdigest()
+    _meta71.write_text(json.dumps(_m71, ensure_ascii=False, indent=2), encoding="utf-8")
+    check("RG-01d 改内容+修摘要后仍被判为坏快照（项目内已无密钥可重签，摘要一致也过不了签名）",
+          _g71.verify_snapshot(_sid71_old)[0] is False,
+          _g71.verify_snapshot(_sid71_old)[1])
+    # 反证：把项目目录内**重新塞回**一把密钥也没用（那不再是签名用的那把）
+    (_g71.store / "signing_key").write_text("f" * 64, encoding="utf-8")
+    _g71_forged = Guardian(str(_proj71), verify_policy="rollback")
+    _sig71 = _g71.snap_dir / _sid71_old / "meta.json.sig"
+    _sig71.write_text(_hmac71.new(b"f" * 64, _meta71.read_bytes(), _hl71.sha256).hexdigest(),
+                      encoding="utf-8")
+    check("RG-01e 攻击者自带一把密钥、重签后仍然过不了（锚里的密钥才是那一把）",
+          _g71_forged.verify_snapshot(_sid71_old)[0] is False,
+          _g71_forged.verify_snapshot(_sid71_old)[1])
+    (_g71.store / "signing_key").unlink()
+
+    # 带签名却没有密钥 → 不许"跳过签名只比摘要"
+    _g71_nokey = Guardian(str(_proj71), signing_key="", verify_policy="rollback")
+    _ok71, _why71 = _g71_nokey.verify_snapshot(_sid71_old)
+    check("RG-01f 拿不到密钥时拒绝验证带签名的快照（不降级成只比摘要）",
+          _ok71 is False and "密钥" in _why71, _why71)
+
+    # 锚不可用 → 拒绝生成未签名快照（fail-close），而不是悄悄降级
+    _blocker71 = _g71_root / "not_a_dir"
+    _blocker71.write_text("x", encoding="utf-8")          # 拿文件当目录用 → mkdir 必失败
+    _e71 = Guardian(str(mktemp("rg01b")), anchor_dir=str(_blocker71 / "sub"))
+    _raised71 = ""
+    try:
+        _e71.snapshot("must_fail")
+    except Exception as e:  # noqa: BLE001 —— 要的就是它抛
+        _raised71 = f"{type(e).__name__}: {e}"
+    check("RG-01g 锚不可用时 snapshot() 直接拒（fail-close，不生成未签名快照）",
+          bool(_e71.anchor_error) and "SnapshotError" in _raised71,
+          f"anchor_error={_e71.anchor_error!r} raised={_raised71!r}")
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

@@ -81,29 +81,93 @@ class SnapshotError(Exception):
     pass
 
 
+# ---- 信任锚（RG-01）：签名密钥必须放在**工作区之外** --------------------------
+# 为什么非出去不可（本工作区实测，见 docs/design/RGTC-LANDING.md RG-01）：密钥原来住在
+# `<项目>/.guardian/signing_key`，而 `.guardian` 就在项目目录里。拿到项目目录读写权限的一方
+# （agent 走 terminal_exec / code_execute 就够）能：读出密钥 → 改快照副本 → 修 meta 里的摘要
+# → 用同一把密钥重算 HMAC。实测这样改完 `verify_snapshot()` 返回 **True** —— 也就是说
+# "写前快照"这道安全网**可以被伪造**。把密钥移到工作区外（由 OS 权限保护）之后，同样的攻击
+# 拿不到密钥，伪造不成立。
+ANCHOR_ENV = "ACE_ANCHOR_DIR"
+
+
+def default_anchor_root() -> Path:
+    """锚的根目录：Windows 用 `%LOCALAPPDATA%`，其它平台用 XDG state。"""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    else:
+        base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "ace-agent" / "state"
+
+
+def anchor_dir_for(project_root: Path, override: Optional[str] = None) -> Path:
+    """本项目专属的锚目录：`<根>/<项目绝对路径的哈希>`，项目之间互不干扰。
+
+    根目录的取值顺序：构造参数 `anchor_dir` > 环境变量 `ACE_ANCHOR_DIR` > 平台默认。
+    测试与冻结版都靠前两者注入；**取不到可写位置时不静默退回项目内**（那等于把边界悄悄拆了），
+    而是由 `Guardian` 记下错误、让写路径 fail-close（读路径不受影响）。
+    """
+    root = None
+    if override:
+        root = Path(override).expanduser()
+    else:
+        env = os.environ.get(ANCHOR_ENV, "").strip()
+        if env:
+            root = Path(env).expanduser()
+    if root is None:
+        root = default_anchor_root()
+    # Windows 路径大小写不敏感：同一项目用 normcase 归一，避免出现两个锚目录
+    ident = os.path.normcase(str(Path(project_root).resolve()))
+    return root / hashlib.sha256(ident.encode("utf-8")).hexdigest()[:16]
+
+
+def _restrict_key_file(key_path: Path) -> None:
+    """把密钥文件权限收到所有者可读写（POSIX 0600）。Windows 上靠 `%LOCALAPPDATA%` 的 ACL。
+
+    不吞异常：设不上权限就如实告警，但**不因此中断** —— 快照能力比这行提示重要，
+    而"没设上"这件事必须说出来，不能让用户以为设上了。
+    """
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError as e:
+        print(f"⚠ 未能把密钥文件权限收到 0600（{key_path}: {e}）", file=sys.stderr)
+
+
 class Guardian:
     """物理快照管理器"""
 
     def __init__(self, project_root: str, store_dir: Optional[str] = None,
                  signing_key: Optional[str] = None, max_snapshots: int = 20,
-                 verify_policy: str = "create") -> None:
+                 verify_policy: str = "create", anchor_dir: Optional[str] = None) -> None:
         self.project_root = Path(project_root).resolve()
         self.store = Path(store_dir) if store_dir else self.project_root / ".guardian"
         self.snap_dir = self.store / "snapshots"
         self.backup_dir = self.store / "rollback_backups"
+        # 信任锚（RG-01）：签名密钥放工作区之外。快照本身**仍留在 `.guardian/snapshots/`** ——
+        # 那是数据不是锚，搬它等于同时动 /undo、/rollback、gc 与一堆既有断言，收益却与 I1 无关。
+        self.anchor = anchor_dir_for(self.project_root, anchor_dir)
+        self.anchor_migrated = False
+        self.anchor_error = ""
         # SEC-04：签名默认开启。显式提供 signing_key 用配置值；
-        # 否则用/建**本项目持久密钥**（存 .guardian/signing_key —— 该目录对 Agent
-        # 只读不可写删，宿主侧同用户可读）。持久化是为了让 /undo、重启后的
-        # rollback 等**另一个 Guardian 实例**能验同一批快照的签名。
+        # 否则从锚取/建**本项目持久密钥**。持久化是为了让 /undo、重启后的 rollback 等
+        # **另一个 Guardian 实例**能验同一批快照的签名。
         self.store.mkdir(parents=True, exist_ok=True)
         self.signing_key = signing_key
         if self.signing_key is None:
-            _key_path = self.store / "signing_key"
-            if _key_path.exists():
-                self.signing_key = _key_path.read_text(encoding="utf-8").strip()
-            if not self.signing_key:
-                self.signing_key = secrets.token_hex(32)
-                _key_path.write_text(self.signing_key, encoding="utf-8")
+            try:
+                self.signing_key = self._load_anchor_key()
+            except OSError as e:
+                # fail-close：锚不可用 → 不生成未签名快照，写路径会被 `snapshot()` 拒绝
+                # （执行层已有"快照不可用 → 503"的处理），而读路径照常工作。
+                self.anchor_error = f"{type(e).__name__}: {e}"
+                print(f"⚠ 签名锚不可用（{self.anchor}）：{self.anchor_error}\n"
+                      f"  因此不生成未签名的快照 —— 写操作会被拒（fail-close），读路径不受影响。",
+                      file=sys.stderr)
+        elif not str(self.signing_key).strip():
+            print("⚠ 显式配置了空的 signing_key —— 快照不带签名，篡改只能靠摘要比对发现",
+                  file=sys.stderr)
         self.max_snapshots = max_snapshots  # 快照数量硬上限，超出自动清理最旧的
         # 完整性校验的**时机**。实测：单次 snapshot() 的成本 92% 在这一步
         # （读回刚复制出来的 347 个副本要 2.2 s；而大文件 SHA256 有 788 MB/s，
@@ -194,6 +258,48 @@ class Guardian:
 
     # ---------- 快照 ----------
 
+    def _load_anchor_key(self) -> str:
+        """从锚取密钥；锚里没有就**迁移**项目内的旧密钥，再把旧文件删掉。
+
+        为什么"迁移"必须是**搬**而不是拷贝：旧文件与锚里是**同一把密钥**，留在项目目录里就等于
+        把秘密继续放在 agent 够得着的地方 —— 那样锚白搬。所以写完读回校验一致后立刻 `unlink()`；
+        删不掉就大声告警（此时锚已就位，但那副本仍在，边界并未真正建立）。
+        """
+        key_path = self.anchor / "signing_key"
+        legacy = self.store / "signing_key"
+        self.anchor.mkdir(parents=True, exist_ok=True)
+
+        if key_path.is_file():
+            key = key_path.read_text(encoding="utf-8").strip()
+            if key:
+                if legacy.is_file():
+                    old = legacy.read_text(encoding="utf-8").strip()
+                    if old and old != key:
+                        print(f"⚠ 项目内仍有一份**不同**的旧密钥（{legacy}）：以锚为准，"
+                              f"旧文件未删（旧快照可能用旧密钥签的）", file=sys.stderr)
+                return key
+
+        if legacy.is_file():
+            key = legacy.read_text(encoding="utf-8").strip()
+            if key:
+                key_path.write_text(key, encoding="utf-8")
+                _restrict_key_file(key_path)
+                if key_path.read_text(encoding="utf-8").strip() != key:
+                    raise OSError(f"锚写入后读回不一致：{key_path}")
+                try:
+                    legacy.unlink()
+                    self.anchor_migrated = True
+                    print(f"✓ 签名密钥已移出工作区（旧快照仍可验证）：{legacy} → {key_path}")
+                except OSError as e:
+                    print(f"⚠ 旧密钥删不掉（{legacy}: {e}）—— 锚已就位，但同一把密钥仍留在"
+                          f"agent 可写处，边界未真正建立；请手动删除该文件。", file=sys.stderr)
+                return key
+
+        key = secrets.token_hex(32)
+        key_path.write_text(key, encoding="utf-8")
+        _restrict_key_file(key_path)
+        return key
+
     def snapshot(self, tag: str = "",
                  touched: Optional[Iterable[str]] = None) -> Optional[str]:
         """创建物理快照（完整拷贝文件树），返回快照 id；无可备份内容返回 None
@@ -205,6 +311,11 @@ class Guardian:
         只吃磁盘、不报警。历史遗留的这类目录用 `guardian --gc` 或
         `gc_orphans()` 清。
         """
+        # RG-01 / fail-close：锚不可用时**拒绝**创建快照，而不是悄悄生成一份未签名快照。
+        # 未签名快照的摘要可以随内容一起被改（伪造成本为零），那等于把这道安全网变成装饰。
+        # 抛出去之后走执行层已有的"快照不可用 → 503"那条路，语义与沙箱档位一致。
+        if self.anchor_error:
+            raise SnapshotError(f"签名锚不可用，拒绝生成未签名的快照：{self.anchor_error}")
         files = self._collect_files()
         if not files:
             return None  # 空项目没有可备份内容
@@ -294,6 +405,11 @@ class Guardian:
             expected = self._sign(meta_path.read_text(encoding="utf-8"))
             if sig_path.read_text(encoding="utf-8").strip() != expected:
                 return False, "快照签名校验失败（元信息可能被篡改）"
+        elif (dest_root / "meta.json.sig").exists():
+            # RG-01 补的 fail-close：快照**带签名**、我们却拿不到密钥（锚不可用，或有人把
+            # signing_key 显式配空了）时，不能"跳过签名校验、只比摘要"就放行 —— 摘要可以随着
+            # 内容一起被改（实测：改副本 + 修 meta 里的 sha256 即可）。拿不到密钥就说拿不到。
+            return False, "快照带签名，但当前没有可用密钥（锚不可用或签名被关闭），拒绝验证"
         files_dest = dest_root / "files"
         if not files_dest.is_dir() or meta["file_count"] <= 0 or not meta["files"]:
             return False, "快照为空（无文件内容）"

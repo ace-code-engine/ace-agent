@@ -10,7 +10,7 @@ config = {
     "flywheel_path": ".../violations.jsonl",   # L5 飞轮落盘路径
     "sandbox_base": "...",                     # code_execute 沙箱临时目录（默认系统临时区）
     "confine_files": True,                     # 文件工具限制在项目目录内（含跨盘符检查）
-    "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议）
+    "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议；不配则自动生成一把）
     "max_snapshots": 20,                       # 快照硬上限，自动清理最旧
     "snapshot_verify": "create",               # 快照完整性校验的时机：create（默认）/ rollback
     "session_id": "会话标识",                   # archive 记忆按会话隔离
@@ -61,6 +61,25 @@ config = {
   调用**都建一次，所以这个默认就是"每次写多花约 1.8 s（347 文件规模）换坏快照早暴露"。
   上面那组数字表明这 1.8 s **降不下来**（读回不可省、哈希不要钱、并发已到顶），所以它是个
   明码标价的取舍，而不是一个待修的慢点；不接受就显式改这一行。
+
+### 签名锚：密钥存在哪（RG-01）
+
+快照的 HMAC 密钥是这套回滚安全网的**信任锚**，它存在**工作区之外**：
+
+- Windows：`%LOCALAPPDATA%\ace-agent\state\<项目绝对路径的哈希>\signing_key`；
+  POSIX：`$XDG_STATE_HOME/ace-agent/state/<哈希>/signing_key`（缺省回落到 `~/.local/state`）。
+- 根目录可用构造参数 `anchor_dir` 或环境变量 **`ACE_ANCHOR_DIR`** 换掉（测试、冻结包、
+  受限环境都靠它注入 —— 取不到可写位置时 **`snapshot()` 直接拒绝**，写操作会被拒，
+  不会悄悄退回"未签名快照"）。
+- **升级迁移**：老项目里那份 `<项目>/.guardian/signing_key` 会在第一次启动时**搬**到锚里
+  （先写锚、读回校验，再把项目内那份删掉），旧快照因为密钥值没变照旧验得过。只拷不删是错的 ——
+  同一把密钥留在 agent 够得着的地方，锚就白搬了。
+- **为什么必须出去**（实测）：密钥在项目内时，拿到项目目录读写权限的一方可以读出密钥、
+  改快照副本、修 `meta.json` 里的摘要、用同一把密钥重算 HMAC，`verify_snapshot()` 照样返回
+  `True` —— 安全网可被伪造。放到工作区外之后同样的操作拿不到密钥。细节与验收见
+  `docs/design/RGTC-LANDING.md` 的 RG-01。
+- 配置 `signing_key` 仍然可以显式指定一把（它优先于锚）；**显式配空字符串**会在启动时告警 ——
+  那是"关掉签名"，此时篡改只能靠摘要比对发现。
 
 ### 界面与成本（`vim_mode` / `keybindings` / `pricing`）
 

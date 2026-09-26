@@ -80,6 +80,33 @@ def _event_mac(key: bytes, prev_mac: str, ev: Dict[str, Any]) -> str:
     return hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 
+def chain_notice(log: "SessionLog") -> str:
+    """**恢复一份已有日志时**的整链体检 → 要打给人看的一行（空串 = 不用说什么）。
+
+    为什么要在恢复时就说，而不是等谁想起来跑 `/audit stats`：日志被改过这件事，
+    早一秒知道就少一分"拿被改过的记录当事实"的机会 —— 恢复动作正是把那份记录**读进上下文**
+    的那一刻。
+
+    三态各自怎么处理（这是本函数存在的全部理由）：
+
+    - `broken` → **必须说出来**（这份日志被改过、删过、或插过条目）；
+    - `unverifiable` 且**它本来带签名**（拿不到密钥）→ 告警；
+    - `unverifiable` 但**整份都没有 mac**（早于链式签名的老日志）→ **静默**：那是历史，
+      每天喊一次只会让人学会忽略告警；
+    - `ok` / `empty` → 静默。
+    """
+    status, detail = log.verify_chain()
+    if status == "broken":
+        return f"⚠ 这份会话日志的签名链对不上：{detail}（它被改过、删过或插过条目）"
+    if status == "unverifiable":
+        try:
+            if any(isinstance(e.get(MAC_FIELD), str) and e[MAC_FIELD] for e in log.events()):
+                return f"⚠ 这份会话日志带签名，但当前验不了：{detail}"
+        except Exception:      # noqa: BLE001 —— 体检失败不该影响恢复
+            return ""
+    return ""
+
+
 class SessionLog:
     """append-only 会话事件日志。path 指向 .jsonl 文件。"""
 

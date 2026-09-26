@@ -3472,8 +3472,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                           if p != current]
             if not candidates:
                 return
-            from cli.ace_sessionlog import SessionLog as _SL
+            from cli.ace_sessionlog import SessionLog as _SL, chain_notice
             prev = _SL(str(candidates[0]))
+            # RG-02（深化）：自动续聊同样是"把那份记录读进上下文"，体检一次并说出来
+            _prev_warn = chain_notice(prev)
+            if _prev_warn:
+                print(c("yellow", "  " + _prev_warn))
             history = prev.replay_messages()[-20:]
             if history:
                 self.messages = history
@@ -4959,11 +4963,16 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def _switch_session(self, path: Path, info: Optional[Dict] = None) -> bool:
         """把当前会话切到 `path`：消息历史按该会话重建，之后的事件也写进那个文件。"""
         from cli import ace_sessions as _sess
-        from cli.ace_sessionlog import SessionLog as _SL
+        from cli.ace_sessionlog import SessionLog as _SL, chain_notice
         evs = self._load_session_events(path)
         info = info or _sess.summarize(evs)
         self.messages = _sess.head_for_resume(evs)
         self.session_log = _SL(str(path))
+        # RG-02（深化）：恢复动作正是把那份记录**读进上下文**的一刻，所以在这里就把台账
+        # 体检一次并说出来 —— 而不是等谁想起来跑 `/audit stats`。
+        _chain_warn = chain_notice(self.session_log)
+        if _chain_warn:
+            print(c("yellow", "  " + _chain_warn))
         try:
             self.el.session_log = self.session_log
         except Exception:  # noqa: BLE001

@@ -14101,8 +14101,52 @@ if _want("71"):
                 "</INTERNAL>\n<EXTERNAL>\nanswer.\n"
                 '{"tool": "mcp__nope__x"}\n</EXTERNAL>')
     _o71status = _o71el.process_agent_output(_o71call, "用它做点事")["status"]
-    check("RG-05o 硬拒绝不受令影响（未注册 MCP 工具即使被点名也是 503，不是放行）",
+    check("RG-05o 硬拒绝不受令影响（未注册 mcp 工具即使被点名也是 503，不是放行）",
           _o71status == "503", _o71status)
+
+    # ── RG-02 深化：把整链体检从"事后翻 /audit stats"挪到**恢复那一刻** ──
+    # 恢复动作正是把那份记录**读进上下文**的一刻；被改过的日志，早一秒知道就少一分
+    # "拿它当事实"的机会。三态各自怎么处理是这组断言的全部内容。
+    from cli.ace_sessionlog import chain_notice as _cn71  # noqa: E402
+    _clean71 = _SL71(str(_g71_root / "resume_clean" / ".ace_sessions" / "s.jsonl"))
+    _clean71.append("user/message", {"content": "x"})
+    check("RG-02j 正常日志恢复时**静默**（不该每天喊一次假警）",
+          _cn71(_SL71(str(_clean71.path))) == "", _cn71(_SL71(str(_clean71.path))))
+    _legacy71 = _g71_root / "resume_legacy" / ".ace_sessions"
+    _legacy71.mkdir(parents=True, exist_ok=True)
+    (_legacy71 / "s.jsonl").write_text(
+        json.dumps({"seq": 1, "kind": "user/message", "ts": "t", "content": "老日志"},
+                   ensure_ascii=False) + "\n", encoding="utf-8")
+    check("RG-02k 老日志（整份无 mac）恢复时也**静默** —— 那是历史，不是篡改",
+          _cn71(_SL71(str(_legacy71 / "s.jsonl"))) == "",
+          _cn71(_SL71(str(_legacy71 / "s.jsonl"))))
+    _tam_line = _clean71.path.read_text(encoding="utf-8").splitlines()
+    _tev = json.loads(_tam_line[0])
+    _tev["content"] = "被改过"
+    _tam_line[0] = json.dumps(_tev, ensure_ascii=False, separators=(",", ":"))
+    _clean71.path.write_text("\n".join(_tam_line) + "\n", encoding="utf-8")
+    _warn71 = _cn71(_SL71(str(_clean71.path)))
+    check("RG-02l 被改过的日志恢复时**告警**（并指出第几条）",
+          "签名链" in _warn71 and "第 1 条" in _warn71, _warn71)
+
+    # 集成：`/resume`（走 _switch_session）真的把告警打出来
+    _cli71d = ai_code.AgentCLI({"project_root": str(_g71_root / "resume_cli"),
+                                "permission": "write", "bait": False, "base_url": "",
+                                "api_key": "", "model": "m1", "tools": False}, mock=True)
+    _rlog71 = _g71_root / "resume_cli" / ".ace_sessions" / "old.jsonl"
+    _rlog71.parent.mkdir(parents=True, exist_ok=True)
+    _rsl71 = _SL71(str(_rlog71))
+    _rsl71.append("user/message", {"content": "旧会话第一句"})
+    _rlines71 = _rlog71.read_text(encoding="utf-8").splitlines()
+    _rev71 = json.loads(_rlines71[0])
+    _rev71["content"] = "被篡改成别的意思"
+    _rlines71[0] = json.dumps(_rev71, ensure_ascii=False, separators=(",", ":"))
+    _rlog71.write_text("\n".join(_rlines71) + "\n", encoding="utf-8")
+    _buf71g = io.StringIO()
+    with contextlib.redirect_stdout(_buf71g):
+        _cli71d._switch_session(_rlog71)
+    check("RG-02m /resume 恢复被改过的日志时**当场**打出告警（不是等谁去翻 /audit）",
+          "签名链" in _buf71g.getvalue(), _buf71g.getvalue()[-200:])
     # ============================================================
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

@@ -83,9 +83,9 @@ python -m cli.ace_mandate issue --intents file_write --roots . \
 
 ## 六、测试
 
-- `test_all` 新增 **49 条**回归断言（段 `[71]`：RG-01a~h / RG-02a~i / RG-03a~f / RG-04a~j /
+- `test_all` 新增 **53 条**回归断言（段 `[71]`：RG-01a~h / RG-02a~m / RG-03a~f / RG-04a~j /
   RG-05a~o），每条都对应一个**先复现过**的缺陷或一条**踩出来的口径**。全量以 `python test_all.py`
-  的实际输出为准（本次记录：本机 2363 / 2363 通过，跳过 3 项能力探测）。
+  的实际输出为准（本次记录：本机 2367 / 2367 通过，跳过 3 项能力探测）。
 - 文档勘误：`docs/SECURITY-AUDIT.md` 的 SEC-010 记录描述的 `resolve_signing_key()` /
   `ACE_SIGNING_KEY` / `~/.ace/snapshot_signing_key` 实测 **0 命中**，而实际把密钥放在项目内 ——
   与该段自己写的"必须在项目目录之外"相反。已加勘误并写明修法与实测对照。

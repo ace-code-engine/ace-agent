@@ -168,6 +168,7 @@ ace-agent/
 ├── docs/                       # 文档（README 是入口，深读按角色分流）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
+│   ├── RELEASE-NOTES-v3.44.0.md #  本版更新介绍（MCP server：把执行层交给别人的 agent）
 │   ├── RELEASE-NOTES-v3.43.0.md #  本版更新介绍（信任锚外移 / 链式台账 / 两条只测量的判据前置）
 │   ├── RELEASE-NOTES-v3.42.0.md #   更新介绍（执行层承诺对齐 / 元处理内核 / 运行度量）
 │   ├── RELEASE-NOTES-v3.40.2.md #  本版更新介绍（可直接贴进 GitHub Release；修回 README 的编码错误）
@@ -259,6 +260,7 @@ ace-agent/
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    ├── RELEASE-ANNOUNCEMENT-v3.44.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：MCP server —— 把自己交给别人的 agent）
     ├── RELEASE-ANNOUNCEMENT-v3.43.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：信任锚外移 / 链式台账 / 只测量的两条判据）
     ├── RELEASE-ANNOUNCEMENT-v3.42.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：执行层承诺对齐 / 元处理内核 / 运行度量）
     ├── RELEASE-ANNOUNCEMENT-v3.41.0.md  #   中英双语发布公告（可直接当 Release 说明）

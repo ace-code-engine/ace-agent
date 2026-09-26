@@ -4,7 +4,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Safety core dependencies" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="Model API" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.43.0%20(2026--09--26)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.44.0%20(2026--09--26)-brightgreen"></a>
 </p>
 
 <h1 align="center">ACE · AI Code Engine</h1>

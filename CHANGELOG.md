@@ -116,6 +116,15 @@
 
 ### ⚙️ 工程 / CI
 
+- **REL-08 发布从"两次手动派发"收成一次**：`release-executor` 用 `gh release create`
+  **经 API 建 tag**（不是 push 一个 ref），所以**不会**触发 `release-exe` 的 `push.tags`；
+  而 `release-exe` 由 tag 触发时又**有意跳过** `Attach to release`（防两个工作流同时 create
+  撞 422）。于是"跑一次拿不到两样产物"：5 平台执行器在 Release 上，MSI/便携 zip 得人工再
+  派发一次。现在 `release-executor` 建完 Release 会自己 `gh workflow run release-exe.yml
+  -f version=…` 主动接手（为此加了 `actions: write`），正常情况下仍只手动触发一次；
+  两条路都幂等，自动派发失败时照旧可以手工再来一次。`release-exe.yml` 顶部注释与
+  `push.tags` 上那行错注释（"打完 tag 后自动接手"）一并对齐现码。
+
 - **REL-09 主前端进 CI（tsc + vitest）** —— 它此前**不被任何 job 覆盖**。`frontend/`
   （TypeScript + Ink）有 17 个测试文件（`npm run build` / `npm test`），而
   `.github/workflows/` 里 grep `node|npm|frontend|tsc` 零命中。其中两条是**跨语言守卫**：

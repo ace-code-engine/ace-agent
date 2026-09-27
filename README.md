@@ -243,6 +243,28 @@ Both halves are here on purpose: the README used to say "not done" about things 
 
 ---
 
+## Engineering debt (what is still not done, with links)
+
+This is a **hand-off list**, not a second copy of the backlog. Each row states what is owed in one line;
+the evidence, the boundaries and the decisions live in the linked **design card** —
+**do not read this table as the whole story, open the card**.
+
+| Owed | In one line | Authoritative record |
+|---|---|---|
+| **Batch 0 is not closed** | The convergences and `RL-01` have landed, but **protocol consumption (W0-B) and the shell downgrade (W0-C) are untouched** — the batch's own exit condition ("four duplicate dialogs merged, `ui/`/`tui/` demoted to fallback") is still open | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · batch table in [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
+| **The Ink path has no anti-misfire grace period** (safety) | Terminal and TUI both gate the first ~200 ms; the declared main shell does not — while a comment in `ai_code.py` says it does (promise vs. code) | the card's "🔴 headline finding" |
+| **The Ink spinner has no stall detection** | Python has the whole thing (threshold · colour ramp · a text form under reduced motion); Ink shows glyph + seconds only | **R-7** of the same card |
+| **One convergence exception** | The home/panel **numbered** menu still uses `❯`, unlike the list-selection marker `▶` (4:1) | **R-8 / R-10** of the same card |
+| **The acceptance gates are half-done** | The machine half is in `test_all`, but **`measured_*` still has no reader**, no threshold rule exists, and `benchmarks/results/` is not wired to the checker | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
+| **Only one of the three spine layers has landed** | `RL-01` (the result envelope) is implemented and verified; `RL-02~04`, `HL-01~05` and `DL-01~04` are all unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
+| **Batches 1–6 and WP-10 are unstarted** | cheap faces · git · prefix cache · workspace layers · session tree · presets · skills · egress & snapshots · sandbox backend · Rust core-ization | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
+| **Process debt** | `CHANGELOG.md` not updated (a version number has to be chosen first) · this batch of changes is **not committed** · W0-A's "a fifth implementation goes red" assertion is deliberately deferred | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
+
+**Why it stops here: the author is heading back to school.** This list is the hand-off —
+every row points at a card carrying the evidence, the boundaries, and what to do next.
+
+---
+
 ## Documentation
 
 **Everything is indexed in [`docs/README.md`](docs/README.md)** — a "what do you want to do?" table plus the full

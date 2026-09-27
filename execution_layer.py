@@ -324,6 +324,27 @@ def command_prefix(cmd: str) -> str:
     parts = text.split()
     return " ".join(parts[:2]).lower()
 
+
+def confirm_subject(tool_call: Dict[str, Any]) -> str:
+    """确认框里"这一次到底动什么"的对象摘要（H-28）。
+
+    为什么单独一条：确认预览与授权 identity 此前都取 `command or code`，而
+    `edit_file` 的参数是 `path` —— 两者对它都是空串，于是用户看到的是
+    「'edit_file' 需要用户逐次确认: 」后面**没有对象**：人在盲批一个自己不知道是什么的
+    东西，而 `tools/base.py` 的 H-14 注释把"任意路径"那一层明确托付给了"每次调用都要
+    人点头"。identity 为空还顺带让 H-09 的"授权绑对象"对这类工具完全不生效。
+
+    `terminal_exec` 走 `command`/`code` 那一支，行为与改动前逐字相同。
+    """
+    cmd = str(tool_call.get("command") or tool_call.get("code") or "").strip()
+    if cmd:
+        return cmd
+    for key in ("path", "dest", "url", "target", "name"):
+        value = tool_call.get(key)
+        if value:
+            return f"{key}={value}"
+    return ""
+
 # 参数报错时给模型的具体示例：见文件顶部 TOOL_EXAMPLES（由注册表 example 字段派生）
 
 # terminal_view 只读白名单（修复：只读工具绝不允许 shell=True 执行任意命令）
@@ -1435,9 +1456,8 @@ class ExecutionLayer:
 
         # ③ 逐次确认工具（terminal_exec）：绑**用户看到的那条命令**
         if tool_name in CONFIRM_TOOLS:
-            cmd = " ".join(str(tool_call.get("command")
-                                or tool_call.get("code") or "").split())
-            return "cmd:" + cmd if cmd else ""
+            subject = " ".join(confirm_subject(tool_call).split())
+            return "cmd:" + subject if subject else ""
 
         # ④ MCP 工具（H-16）：参数形状由对面定义，ACE 认不出"对象"是什么。
         # 那就绑**参数摘要** —— 换参数就等于换对象，必须重新问人；否则一次批准
@@ -1697,7 +1717,9 @@ class ExecutionLayer:
             _cmd = str(tool_call.get("command") or tool_call.get("code") or "")
             if (not _of_fail and not self._prefix_auto_approved(_cmd)
                     and self._mandate_decision(tool_name, tool_call) is None):
-                preview = _cmd
+                # H-28：预览取"对象摘要"而不是只取 command/code —— 否则 edit_file
+                # 这类没有 command 的工具会弹出一个**没有对象**的确认框（人在盲批）。
+                preview = confirm_subject(tool_call)
                 if len(preview) > 300:
                     preview = preview[:300] + " …（已截断）"
                 self.pending_permission = {"tool": tool_name, "reason": preview,
@@ -1722,7 +1744,7 @@ class ExecutionLayer:
             # 权限不足 → 自动弹出临时授权请求（用户 y/a/n），而不是把 403 甩回模型
             # 让模型自己调 request_permission——小模型总是漏 target 参数，最后熔断死循环。
             # 人批准才 grant_temp 放行一次（用后即焚），非交互 fail-close（SEC-004）。
-            preview = str(tool_call.get("command") or tool_call.get("code") or "")
+            preview = confirm_subject(tool_call)
             if len(preview) > 300:
                 preview = preview[:300] + " …"
             self.pending_permission = {"tool": tool_name, "reason": preview,

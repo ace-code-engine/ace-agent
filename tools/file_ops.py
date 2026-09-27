@@ -789,23 +789,23 @@ class FileOps:
                                        data={"path": str(p), "editor": "vscode"})
             except Exception as e:
                 return ExecutionResult(status="error", error_code="500", message=f"打开失败: {e}")
-        try:
-            if os.name == "nt":
-                os.startfile(str(p))
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(p)])
-            else:
-                subprocess.Popen(["xdg-open", str(p)])
-        except Exception as e:
-            # Windows 上 .py 等常无关联默认程序：文本类文件回退记事本
-            if os.name == "nt" and p.suffix.lower() in _TEXT_EXTENSIONS:
-                try:
-                    subprocess.Popen(["notepad.exe", str(p)])
-                    return ExecutionResult(status="success", data={
-                        "path": str(p), "editor": "notepad",
-                        "hint": "该类型无默认打开程序，已用记事本打开"})
-                except Exception as e2:
-                    return ExecutionResult(status="error", error_code="500",
-                                           message=f"打开失败（记事本回退也失败）: {e2}")
-            return ExecutionResult(status="error", error_code="500", message=f"打开失败: {e}")
-        return ExecutionResult(status="success", data={"path": str(p), "editor": "system_default"})
+        # H-28b：**文件不再交给 ShellExecute**（`os.startfile` / `open` / `xdg-open`
+        # 走的都是"该后缀的关联动作"）。实测风险：`.py` 的关联动作就是**运行**它，
+        # 而 `_OS_HANDOFF_BLOCKED_SUFFIXES`（tools/base.py）里恰好没有 `.py` ——
+        # `edit_file` 又是 PERM_READ、这条进程启动路径完全绕开 ace_execpolicy。
+        # 把 `.py` 补进名单是治标：那份名单自己就写着"天生补不全"，而且会连带禁掉
+        # edit_file 编辑 .py 的正当用途。改为只交给**已知编辑器** ——
+        # 文本类回退记事本（已知常量，只编辑不执行），其余一律退回链接由用户决定。
+        if os.name == "nt" and p.suffix.lower() in _TEXT_EXTENSIONS:
+            try:
+                subprocess.Popen(["notepad.exe", str(p)])
+                return ExecutionResult(status="success", data={
+                    "path": str(p), "editor": "notepad",
+                    "hint": "没有找到 code（VS Code），该类型已用记事本打开"})
+            except Exception as e:
+                return ExecutionResult(status="error", error_code="500",
+                                       message=f"打开失败（记事本回退也失败）: {e}")
+        return ExecutionResult(status="success", data={
+            "path": str(p), "opened": False, "link": p.as_uri(),
+            "hint": ("没有可用的编辑器（code / 记事本），已生成可点击链接；"
+                     "不把文件交给系统默认动作（H-28b：.py 的关联动作是运行它）")})

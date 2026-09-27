@@ -2832,19 +2832,39 @@ if _want("10"):
     check("tools 模式分片 JSON（```json+{ 开头）不泄漏",
           "```json" not in _out4 and "{" not in _out4, _out4[:200])
 
-    # —— Windows 无默认程序打开 .py → 记事本回退 ——
+    # —— H-28b：edit_file 只把文件交给**已知编辑器**，文件永不交给 ShellExecute ——
+    # （`os.startfile` / `open` / `xdg-open` 走的都是"该后缀的关联动作"，而 `.py` 的
+    #   关联动作就是**运行**它；把 .py 补进后缀名单是治标，见 tools/file_ops.py 的注释）
+    import unittest.mock as _mock
+    import shutil as _shutil
+    _binf = el_h.project_root / "blob.bin"
+    _binf.write_text("x", encoding="utf-8")
+    with _mock.patch.object(_shutil, "which", return_value=None), \
+         _mock.patch("subprocess.Popen") as _pop3:
+        _r3b = run_confirmed(el_h, "edit_file", path=str(_binf))
+        check("H-28b ★无可用编辑器时只给链接、不启动任何进程",
+              _r3b["status"] == "SUCCESS" and _r3b["data"].get("opened") is False
+              and _r3b["data"]["link"].startswith("file:///")
+              and _pop3.call_count == 0, (_r3b, _pop3.call_count))
+
+    # —— Windows 无默认程序打开 .py → 记事本回退（已知常量，只编辑不执行） ——
     if hasattr(os, "startfile"):
-        import unittest.mock as _mock
-        import shutil as _shutil
         _pyf = el_h.project_root / "open_me.py"
         _pyf.write_text("print(1)", encoding="utf-8")
         with _mock.patch.object(_shutil, "which", return_value=None), \
-             _mock.patch.object(os, "startfile", side_effect=OSError("no app")), \
+             _mock.patch.object(os, "startfile") as _st, \
              _mock.patch("subprocess.Popen") as _pop:
             # H-14：edit_file 逐次确认（它会把文件递给编辑器），先跨过闸门
             r = run_confirmed(el_h, "edit_file", path=str(_pyf))
-            check("edit_file 无默认程序 → 记事本回退",
+            # H-28b：这条断言在修之前是拿 `os.startfile` 抛 OSError 触发回退的 ——
+            # 现在文件根本不走 startfile，回退由"没有 code"决定。
+            check("H-28b ★edit_file(文件) 不经过 os.startfile（.py 的关联动作是运行它）",
+                  _st.call_count == 0, _st.call_count)
+            check("edit_file 无 code → 记事本回退",
                   r["status"] == "SUCCESS" and r["data"].get("editor") == "notepad", r)
+            check("H-28b 记事本回退真的启动了 notepad（不是静默什么都没做）",
+                  any("notepad" in str(_c) for _c in _pop.call_args_list),
+                  _pop.call_args_list)
         with _mock.patch.object(_shutil, "which", return_value=None), \
              _mock.patch.object(os, "startfile", side_effect=OSError("no app")), \
              _mock.patch("subprocess.Popen") as _pop2:
@@ -12744,6 +12764,29 @@ if _want("70"):
           "open_file" not in _CT70, sorted(_CT70))
     check("H-14 ★edit_file 在 CONFIRM_TOOLS（本职就是启动编辑器 ⇒ 每次都要人点头）",
           "edit_file" in _CT70, sorted(_CT70))
+
+    # —— H-28：确认框必须带对象（此前 edit_file 的预览与 identity 都是空串）——
+    # 预览取自 `command or code`，而 edit_file 的参数是 `path` ⇒ 人看到的是
+    # 「'edit_file' 需要用户逐次确认: 」＋空白：等于让人盲批一个自己不知道是什么的东西。
+    _p70h28 = mktemp("h28")
+    _el70h28 = _EL70(project_root=str(_p70h28), permission_level="write",
+                     config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+    _target70h28 = _p70h28 / "read_me.py"
+    _target70h28.write_text("print(1)", encoding="utf-8")
+    _r70h28 = run_agent(_el70h28, "edit_file", path=str(_target70h28), user="H-28 预览")
+    check("H-28 ★edit_file 的确认框带对象（不是空理由）",
+          _r70h28["status"] == "PERMISSION_REQUEST"
+          and "read_me.py" in str(_r70h28.get("reason", "")), _r70h28)
+    _id70h28 = _el70h28._gated_identity("edit_file", {"path": str(_target70h28)})
+    check("H-28 ★edit_file 的授权 identity 非空（H-09 的绑定对 CONFIRM_TOOLS 也生效）",
+          bool(_id70h28) and "read_me.py" in _id70h28, _id70h28)
+    check("H-28 对照：terminal_exec 的 identity 仍是 cmd:那条命令（逐字不变）",
+          _el70h28._gated_identity("terminal_exec", {"command": "git  status"})
+          == "cmd:git status",
+          _el70h28._gated_identity("terminal_exec", {"command": "git  status"}))
+    check("H-28 对照：无参可摘时仍返回空（只改「有没有对象」，不改判定语义）",
+          _el70h28._gated_identity("terminal_exec", {}) == "", "")
+    _el70h28.close()
     check("H-14 open_file 的 schema 里不再有 auto_open（那个模型可传的启动开关）",
           "auto_open" not in (_SPECS70["open_file"].parameters.get("properties") or {}),
           _SPECS70["open_file"].parameters)

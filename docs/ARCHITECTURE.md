@@ -221,6 +221,7 @@ ace-agent/
 │   ├── ADR-002-executor-boundary.md  #   执行器进程边界 / NDJSON 协议 / Windows 沙箱选型
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
 │   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
+│   ├── ROADMAP.md              #   能力路线图（对照 29 个参照系的产品面缺口 / 语言裁决 LANG-* / 工作面 WP-0~WP-10 / 批次与验收门槛）
 │   ├── MCP-SERVER.md           #   ace --mcp 使用说明：三种 host 的配置片段 / 两个旋钮（权限档 + 授权令）/ 排障 / 真 host 冒烟清单
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
 │   ├── PACKAGING-EXE.md        #   Windows 发行包：PyInstaller 单目录 + 冒烟门禁 + 冻结后能力表
@@ -232,7 +233,8 @@ ace-agent/
 │   │   ├── SAFETY-HARDENING.md     #   安全边界加固立项卡（H-01~H-22 审计证据 / 工作包 / 验收）
 │   │   └── RGTC-LANDING.md         #   RGTC 落地立项卡（RG-01~RG-05：信任锚外移 / 链式台账 / 来源归属 / 可逆性分类器 / 授权令与影子）
 │   │   └── MCP-SERVER.md           #   MCP server 立项卡（外部 host 借执行层：暴露面 / 审批矩阵 / 非目标 / 验收）
-│   │   └── CONFIRM-BOUNDARY.md     #   确认与只读边界加固立项卡（H-27~H-31：前缀免确认 / 确认对象 / 只读越界 / 无边界不执行）
+│   │   ├── CONFIRM-BOUNDARY.md     #   确认与只读边界加固立项卡（H-27~H-31：前缀免确认 / 确认对象 / 只读越界 / 无边界不执行）
+│   │   └── THREE-LAYERS.md         #   三层脊柱设计卡（DL 驱动 / RL 响应 / HL 自愈；两个共用账本 / 五级升级阶梯 / 拒绝六分类 / 验收 A1-A8）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

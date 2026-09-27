@@ -64,7 +64,7 @@
 
 - 🆕 REL-09 **主前端从不进 CI**（2026-09-27 发现并已修）：`frontend/`（TypeScript + Ink）有 17 个测试文件、`npm run build`（tsc）与 `npm test`（vitest）两个脚本，而 `.github/workflows/` 里 grep `node|npm|frontend|tsc` **零命中**。其中两条测试是**跨语言守卫**：`theme.test.ts` 直接读 `ui/ace_theme.py`、`protocol.test.ts` 直接读 `core/ace_events.py` / `agent_runner.py` 逐条比对 —— 也就是说 Python 侧改名、前端没跟上时，CI 是绿的，只有本机跑过 `npm test` 的人知道。另有 `integration.test.ts` 起真引擎（真管道 / 真协议 / 真审批往返），那是 `ace --serve` 目前唯一的端到端覆盖。**修法**：ci.yml 新增 `frontend` job（setup-node 20 + npm ci + tsc + vitest，带 setup-python 因为集成测试要 spawn 引擎）；前置条件是 H-31 先做掉（那个测试此前会把 mock 会话写进 checkout）。实测本机 17 文件 / 260 余条用例全绿、约 16 s
 
-- 🆕 REL-08 **发布要两次手动派发**（2026-09-26 发 v3.43.0 时逐条核对过）：`release-executor` 用 `gh release create` **经 API 建 tag**（不是 push 一个 ref），因此**不会**触发 `release-exe` 的 `push.tags`；而 `release-exe` 由 tag 触发时又**有意跳过** `Attach to release`（防两个工作流同时 create 撞 422）。于是"跑一次就两样产物齐全"不成立：Release 上的 5 平台执行器归 `release-executor`，MSI/zip 归**手动**再跑一次 `release-exe`（version 填同一个号）。两次都幂等、先后随意。`release-exe.yml` 顶部那句错注释已改对。**可做的改进（未做：不想在发布当口动 CI 逻辑）**：`release-executor` 建完 Release 后调 `gh workflow run release-exe.yml -f version=$VERSION`（该 job 要加 `actions: write`），把两次派发收成一次
+- ✅ REL-08 **发布要两次手动派发 → 已收成一次**（2026-09-27 实施）：`release-executor` 用 `gh release create` **经 API 建 tag**（不是 push 一个 ref），因此**不会**触发 `release-exe` 的 `push.tags`；而 `release-exe` 由 tag 触发时又**有意跳过** `Attach to release`（防两个工作流同时 create 撞 422）。于是"跑一次就两样产物齐全"不成立：Release 上的 5 平台执行器归 `release-executor`，MSI/zip 归**手动**再跑一次 `release-exe`（version 填同一个号）。**修法**：`release-executor` 的 `release` job 末尾新增一步 `gh workflow run release-exe.yml -f version=$VERSION` 主动接手（该工作流的 `permissions` 相应加了 `actions: write`），正常情况下仍只手动派发一次。两条路都幂等、先后随意，自动派发失败时仍可手工再来一次（`release-exe.yml` 顶部注释与 `push.tags` 那行错注释一并对齐了现码）
 
 ## 建议顺序
 

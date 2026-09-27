@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write   # gh release create / upload 需要
+  actions: write    # REL-08：建完 Release 后主动派发 release-exe.yml（gh workflow run 需要它）
 
 concurrency:
   group: release-executor
@@ -143,3 +144,17 @@ jobs:
           - 自编译：\`cd executor && go build -o ace-executor(.exe) .\` 仍支持
           - 详见 docs/EXECUTOR-RELEASE.md"
           fi
+
+      # REL-08：把"两次手动派发"收成一次（2026-09-27）。
+      # 背景：`gh release create` 是**经 API 建 tag**，不会触发 release-exe 的 `push.tags`；
+      # 而 release-exe 由 tag 触发时又有意跳过 Attach（防两个工作流同时 create 撞 422）。
+      # 结果就是"跑一次拿不到两样产物"：5 平台执行器在这个 Release 上，MSI/zip 得人工再派发。
+      # 这里补上那一次派发 —— 所以正常情况下仍然只手动触发一次。
+      - name: Dispatch release-exe (MSI + 便携 zip 挂到同一个 Release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.resolved }}"
+          gh workflow run release-exe.yml --repo "${{ github.repository }}" -f version="$VERSION"
+          echo "已派发 release-exe（version=${VERSION}）"
+          echo "它的 windows-exe job 会把 MSI/zip 挂到 v${VERSION} 这个已存在的 Release 上。"

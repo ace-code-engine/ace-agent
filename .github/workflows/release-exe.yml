@@ -5,15 +5,17 @@ name: release-exe
 # 的离线纪律（vendor/*.whl）只覆盖界面依赖，没有 PyInstaller 的 wheel。
 #
 # 与 release-executor 的关系：两者**共用同一个 tag `v{version}`**。
-# 实测（2026-09-26 发 v3.43.0 时逐条核对过）实际要**两次手动派发**，此处原先写的
-# "跑一次 release-executor，两样产物就齐"是**错的**：
-#   ① release-executor：`gh release create` 建 Release 并挂上 5 平台执行器。它是**用 API 建 tag**
-#      的（不是 push 一个 ref），所以**不会**触发下面的 `push.tags`；
-#   ② 本工作流手动派发（version 填同一个号）：构建 MSI + zip 并挂到那个已存在的 Release 上。
-# 由 tag 触发时**既不建 Release 也不挂附件**（见 `Attach to release` 的 if）—— 这是有意的：
-# 两个工作流同时 `gh release create` 会一个成功、另一个 422 把整条流水线弄红。
+# 为什么这一层不能省：Release 由 release-executor 用 `gh release create` 创建，而那是
+# **经 API 建 tag**（不是 push 一个 ref），所以**不会**触发下面的 `push.tags`；而由 tag
+# 触发的那一次本工作流又**不建 Release 也不挂附件**（见 `Attach to release` 的 if）——
+# 这是有意的：两个工作流同时 `gh release create` 会一个成功、另一个 422 把整条流水线弄红。
 # 于是 tag 触发的那一次只产出 workflow 附件（在 Actions 页面可下载），不进 Release。
-# 两次派发都幂等，先后顺序无所谓。
+#
+# REL-08（2026-09-27）：此前这一步是**手工**的 —— 发布要派发两次，version 填同一个号
+# （2026-09-26 发 v3.43.0 时逐条核对过）。现在 release-executor 建完 Release 会自己
+# `gh workflow run release-exe.yml -f version=…` **主动接手**（它为此加了 `actions: write`），
+# 所以正常情况下仍然只手动派发一次。两条路都幂等、先后随意，也仍然支持手工再派发一次
+# （比如那次自动派发失败了）。
 on:
   workflow_dispatch:
     inputs:
@@ -23,7 +25,10 @@ on:
         type: string
   push:
     tags:
-      - "v*"      # release-executor 打完 tag 后自动接手，避免"忘了跑第二个"
+      # 只有**用 `git push` 推上去的** tag 会走到这里。release-executor 用
+      # `gh release create`（经 API 建 tag）**不会**触发它 —— 那一次的接手由
+      # release-executor 末尾的 `gh workflow run release-exe.yml` 完成（REL-08）。
+      - "v*"
 
 permissions:
   contents: write   # gh release create / upload 需要

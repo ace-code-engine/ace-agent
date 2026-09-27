@@ -149,4 +149,4 @@ These live in the README's "Known gaps and unverified items" section rather than
 
 ---
 
-**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](docs/GETTING-STARTED.md) · [Security model](docs/SECURITY-MODEL.md) · [Changelog](CHANGELOG.md) · [Why no pip install](docs/PACKAGING.md) · [Packaging notes](docs/PACKAGING-EXE.md)
+**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](../docs/GETTING-STARTED.md) · [Security model](../docs/security/SECURITY-MODEL.md) · [Changelog](../CHANGELOG.md) · [Why no pip install](../docs/PACKAGING.md) · [Packaging notes](../docs/PACKAGING-EXE.md)

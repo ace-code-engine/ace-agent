@@ -50,5 +50,5 @@ python ai_code.py            # 接真实模型后
 | 用一个指向项目外的软链接 | `403` | 命中判定在**解析软链接之后**再确认落点 |
 | `grep` 一个 `../` 开头的 pattern | `403`（不是"无匹配"） | 静静丢掉会让模型以为"没找到"，换个写法接着试 |
 
-读的边界说明见 [`docs/SECURITY-MODEL.md`](../../docs/SECURITY-MODEL.md)，
+读的边界说明见 [`docs/SECURITY-MODEL.md`](../../docs/security/SECURITY-MODEL.md)，
 检索工具的细节见 [`docs/CONFIGURATION.md`](../../docs/CONFIGURATION.md) 的「检索工具的边界」。

@@ -1,7 +1,7 @@
 # ACE v3.17.0 · 更新介绍
 
 > 面向使用者的发布说明，可直接贴进 GitHub Release。技术细节与守卫清单见
-> [`CHANGELOG.md`](../CHANGELOG.md#v3170-2026-09-19)。
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3170-2026-09-19)。
 
 ## 一句话
 
@@ -66,7 +66,7 @@ ACE 现在真的会说 MCP：你配置一个 server，它的工具就出现在�
 # ACE v3.17.0 · Release Notes (English)
 
 > Ready to paste into the GitHub Release. Technical detail and the guard list live in
-> [`CHANGELOG.md`](../CHANGELOG.md#v3170-2026-09-19).
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3170-2026-09-19).
 
 ## In one line
 

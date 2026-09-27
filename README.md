@@ -18,7 +18,7 @@
 
 ### TL;DR
 
-1. **Safety is code, not prompt.** Every tool call passes a separate execution layer that decides permission, detects dangerous behaviour and snapshots before any write — a jailbroken model still cannot delete your files. → **[Security boundary FAQ](docs/SECURITY-FAQ.md)**: what it does and does not stop.
+1. **Safety is code, not prompt.** Every tool call passes a separate execution layer that decides permission, detects dangerous behaviour and snapshots before any write — a jailbroken model still cannot delete your files. → **[Security boundary FAQ](docs/security/SECURITY-FAQ.md)**: what it does and does not stop.
 2. **Local, model-agnostic, zero-dep core.** Pure-stdlib safety core (no cloud in the loop); **9 vendors · 10 endpoints** behind one `/provider` switch, over both the OpenAI and Anthropic wire formats. Model calls need `requests`; the safety core does not.
 3. **One path for everything.** Every tool is declared once in `tools/registry.py`; **MCP servers** and plain `SKILL.md` skills reach it through the same permission, approval and audit path — an MCP server itself runs outside ACE's sandbox.
 
@@ -194,7 +194,7 @@ Landing page: **↑/↓** to move, digits to jump, **Enter** to confirm, **Esc/q
 
 ## Security boundary
 
-> **Start here:** **[Security boundary FAQ](docs/SECURITY-FAQ.md)** — 11 questions on what ACE stops and what it does not, including the two that usually surprise people: *which actions fail closed in unattended runs*, and *what snapshots do not cover*.
+> **Start here:** **[Security boundary FAQ](docs/security/SECURITY-FAQ.md)** — 11 questions on what ACE stops and what it does not, including the two that usually surprise people: *which actions fail closed in unattended runs*, and *what snapshots do not cover*.
 
 ### Four layers, enabled to different degrees
 

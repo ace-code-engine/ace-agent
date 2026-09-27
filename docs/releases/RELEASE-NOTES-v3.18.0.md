@@ -1,7 +1,7 @@
 # ACE v3.18.0 · 更新介绍
 
 > 面向使用者的发布说明，可直接贴进 GitHub Release。技术细节与守卫清单见
-> [`CHANGELOG.md`](../CHANGELOG.md#v3180-2026-09-19)。无破坏性变更。
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3180-2026-09-19)。无破坏性变更。
 
 ## 一句话
 
@@ -69,14 +69,14 @@ argument-hint: [段号]
 ## 📋 兼容性
 
 - 无破坏性变更：不配 `hooks`、不放 `.ace/` 目录时行为与之前完全一致
-- 新增 17 个 i18n 键，中英日三语齐全；完整协议见新增的 [`docs/EXTENDING.md`](../docs/EXTENDING.md)
+- 新增 17 个 i18n 键，中英日三语齐全；完整协议见新增的 [`docs/EXTENDING.md`](../EXTENDING.md)
 
 ---
 
 # ACE v3.18.0 · Release Notes (English)
 
 > Ready to paste into the GitHub Release. Technical detail and the guard list live in
-> [`CHANGELOG.md`](../CHANGELOG.md#v3180-2026-09-19). No breaking changes.
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3180-2026-09-19). No breaking changes.
 
 ## In one line
 
@@ -134,4 +134,4 @@ Two concrete limits: a `pre_tool` block **does not count as a security violation
 ## 📋 Compatibility
 
 - No breaking changes: with no `hooks` configured and no `.ace/` directory, behaviour is identical
-- 17 new i18n keys, complete in Chinese, English and Japanese; the full protocol lives in the new [`docs/EXTENDING.md`](../docs/EXTENDING.md)
+- 17 new i18n keys, complete in Chinese, English and Japanese; the full protocol lives in the new [`docs/EXTENDING.md`](../EXTENDING.md)

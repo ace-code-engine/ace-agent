@@ -1,7 +1,7 @@
 # 安全模型（Security Model）
 
 > 本文档由 README「安全模型」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
-> README 入口见「安全设计」；漏洞报告流程见仓库根 [SECURITY.md](../SECURITY.md)；历史安全审计见 [SECURITY-AUDIT.md](SECURITY-AUDIT.md)。
+> README 入口见「安全设计」；漏洞报告流程见仓库根 [SECURITY.md](../../SECURITY.md)；历史安全审计见 [SECURITY-AUDIT.md](SECURITY-AUDIT.md)。
 
 配置优先级：命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量。
 
@@ -100,7 +100,7 @@ MCP server 是**你自己配置的子进程**（`mcp_servers`，或项目内 `.a
 
 - 不要把"这次没被拦下"读成"安全"；真正的边界是 `--sandbox job/docker` 与低权限账户。
 - 复杂或多步拼装的恶意行为（分多次调用拼装、借合法工具的语义绕过）不在静态检测射程内——这是设计边界，不是漏检。
-- 判定的分层关系见 [`docs/ADR-002-executor-boundary.md`](ADR-002-executor-boundary.md)：宿主判一次、Go 执行器再复检一次，但两次都是**策略**，边界仍在 OS/容器。
+- 判定的分层关系见 [`docs/ADR-002-executor-boundary.md`](../adr/ADR-002-executor-boundary.md)：宿主判一次、Go 执行器再复检一次，但两次都是**策略**，边界仍在 OS/容器。
 
 **联网搜索双通道（免 key 爬虫主通道 + 可选第三方搜索 API）**
 

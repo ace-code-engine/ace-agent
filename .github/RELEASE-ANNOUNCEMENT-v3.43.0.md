@@ -40,9 +40,9 @@
 - 锚落在不可写目录时写操作被拒（受限环境实测如此，行为正确但陡峭）—— 用 `ACE_ANCHOR_DIR` 指到可写位置。
 - POSIX 路径与 `0600` 有断言但**无实机冒烟**（本机 Windows）。
 
-**完整细节** → [`docs/RELEASE-NOTES-v3.43.0.md`](docs/RELEASE-NOTES-v3.43.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
-**设计文档（含每条的前置门与"明确不做"）** → [`docs/design/RGTC-LANDING.md`](docs/design/RGTC-LANDING.md)
-**架构图（Mermaid，GitHub 直接渲染）** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+**完整细节** → [`docs/RELEASE-NOTES-v3.43.0.md`](../docs/releases/RELEASE-NOTES-v3.43.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
+**设计文档（含每条的前置门与"明确不做"）** → [`docs/design/RGTC-LANDING.md`](../docs/design/RGTC-LANDING.md)
+**架构图（Mermaid，GitHub 直接渲染）** → [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md)
 
 本项目有一条纪律：**没真正跑过的，不许说成"应该没问题"。**
 
@@ -89,12 +89,12 @@ Artifacts are unchanged from v3.42.0 (five executor platforms plus a Windows bun
 - With an unwritable anchor, writes are refused (observed in a constrained environment; correct but steep) — point `ACE_ANCHOR_DIR` at a writable location.
 - POSIX paths and `0600` are asserted but have **no native smoke test** (this machine is Windows).
 
-**Full details** → [`docs/RELEASE-NOTES-v3.43.0.md`](docs/RELEASE-NOTES-v3.43.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
-**Design doc (preconditions and explicit non-goals)** → [`docs/design/RGTC-LANDING.md`](docs/design/RGTC-LANDING.md)
-**Architecture diagram (Mermaid, rendered by GitHub)** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+**Full details** → [`docs/RELEASE-NOTES-v3.43.0.md`](../docs/releases/RELEASE-NOTES-v3.43.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
+**Design doc (preconditions and explicit non-goals)** → [`docs/design/RGTC-LANDING.md`](../docs/design/RGTC-LANDING.md)
+**Architecture diagram (Mermaid, rendered by GitHub)** → [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md)
 
 The project has one rule: **anything not actually run does not get described as "should be fine".**
 
 ---
 
-**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](docs/GETTING-STARTED.md) · [Security model](docs/SECURITY-MODEL.md) · [Release notes](docs/RELEASE-NOTES-v3.43.0.md) · [Changelog](CHANGELOG.md)
+**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](../docs/GETTING-STARTED.md) · [Security model](../docs/security/SECURITY-MODEL.md) · [Release notes](../docs/releases/RELEASE-NOTES-v3.43.0.md) · [Changelog](../CHANGELOG.md)

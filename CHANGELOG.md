@@ -198,6 +198,19 @@
   `.git`/`.guardian`/`.ace_sessions` 与凭据文件**（删了就是没了 —— 正是 `core/ace_recovery.py`
   的可逆性分类器把它们判成 `NEVER` 的原因）。链接放在两个 README 的 TL;DR 第 1 条与「安全边界」章节开头。
 
+- **docs 结构整理：`docs/` 扁平文件 59 → 19**，按用途收进三个子目录：`releases/`（36 篇逐版本更新介绍）、
+  `security/`（模型 / FAQ / 审计）、`adr/`（决策记录）；并新增 [`docs/README.md`](docs/README.md)
+  作为**按"我想干什么"分流**的文档索引（根 `README.md` 是产品名片，索引是入口）。
+  引用改写是**机械且精确**的：按 `git status` 的 R 记录建移动映射，对每条相对链接先按**移动前目录**解析、
+  过映射、再相对**当前目录**重新表达 —— 不做"盲目加 `../`"（那会把 `docs/EXTENDING.md` 变成
+  `docs/docs/EXTENDING.md`）。为此写了一次性链接检查器：失效链接 **114 → 6**，剩下 6 条是
+  `sandbox://` / `dsh-session:` 这类**伪 URL 与既有乱码**，不是文件链接。
+  顺带修掉 `.github/RELEASE-ANNOUNCEMENT-*.md` 里**早就存在**的相对路径 bug（那些链接一直少了 `../`）。
+  权威树里 `releases/` **只列一行、不展开**，那 36 个文件因此不需要逐条登记，树反而短 35 行。
+  `test_all.py` 的 `[68]` 乱码豁免名单同步改成新路径（v3.40.1/40.2/38.0 三篇本身就引用了乱码样例）。
+  `evidence-pack/RELEASES.md` 的原始 `git ls-files` 输出表**一字未改** —— 改它就是篡改证据 ——
+  只在表前加了一条带日期的路径变更说明，讲清"重跑同一条命令会看到什么、为什么"。
+
 ## [v3.44.0] · 2026-09-26
 
 > 这一版只有一件事：**把执行层交给别人的 agent 用** —— ACE 从"自己干活的 agent"变成任何
@@ -1609,7 +1622,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 上一版接上了外部**工具**，这一版补上"你自己的规矩"：钩子（拦得住）、文件式自定义
 > 命令（不用每次重敲）、插件目录（一个目录装一套扩展）。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.18.0.md`](docs/RELEASE-NOTES-v3.18.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.18.0.md`](docs/releases/RELEASE-NOTES-v3.18.0.md)
 
 ### ✨ 事件钩子（`pre_tool` / `post_tool` / `user_prompt` / `session_start` / `session_end`）
 
@@ -1658,7 +1671,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 
 > 前面三版改的是呈现与输入，这一版第一次动**能力面**：ACE 现在能接 MCP。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.17.0.md`](docs/RELEASE-NOTES-v3.17.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.17.0.md`](docs/releases/RELEASE-NOTES-v3.17.0.md)
 
 ### ✨ MCP 客户端（stdio JSON-RPC 2.0）
 
@@ -1709,7 +1722,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 前两版改的是"看得见"，这一版改的是**手上**：一句话写不完怎么换行、上次那句话
 > 想找回来怎么找、命令多了怎么分类。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.16.0.md`](docs/RELEASE-NOTES-v3.16.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.16.0.md`](docs/releases/RELEASE-NOTES-v3.16.0.md)
 
 ### ✨ 多行输入
 
@@ -1743,7 +1756,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 上一版改的是"第一眼"，这一版改的是**每一次动手**：Agent 动了哪个文件、改了哪几行、
 > 命令退出码是多少、这一问总共跑了几次工具。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.15.0.md`](docs/RELEASE-NOTES-v3.15.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.15.0.md`](docs/releases/RELEASE-NOTES-v3.15.0.md)
 
 ### ✨ 改动可见：写文件/改文件带 diff
 
@@ -1776,7 +1789,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 用户的原话是"体验还是和以前一样"——他说得对：前两版补的是命令、底栏占比和提醒，
 > 全在细节层面，而**每天第一眼看到的那块屏幕**一行没动。这一版动它。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.14.0.md`](docs/RELEASE-NOTES-v3.14.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.14.0.md`](docs/releases/RELEASE-NOTES-v3.14.0.md)
 
 ### ✨ 首屏重做：面板 + 分组菜单
 
@@ -1814,7 +1827,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 上下文还能撑多久，此前只有"压缩发生了"这一个信号 —— 而那意味着历史已经动过了。
 > 这一版把它变成常驻可见的数（估算，且明确说是估算）。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.13.0.md`](docs/RELEASE-NOTES-v3.13.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.13.0.md`](docs/releases/RELEASE-NOTES-v3.13.0.md)
 
 ### ✨ 上下文占用：底栏占比 + `/status` 明细
 
@@ -1849,7 +1862,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > 三处终端体验，共同的毛病是"界面说了话、代码里没有对应实现"或"信息有、但没摆到
 > 用户看得见的地方"。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.12.0.md`](docs/RELEASE-NOTES-v3.12.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.12.0.md`](docs/releases/RELEASE-NOTES-v3.12.0.md)
 
 ### ✨ `/expand`：把卡片上那句空承诺补成真功能
 
@@ -1905,7 +1918,7 @@ idle ──submit──▶ busy ──finish──▶ idle（有排队就立刻�
 > docker daemon** 上验证它们（此前从来没有人验过）；同时把"发布官方预编译镜像"这条路
 > 试了一遍 —— 结果**不成立**，如实记录在下面。默认行为不变：镜像自己 build 一次。
 >
-> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/RELEASE-NOTES-v3.11.0.md`](docs/RELEASE-NOTES-v3.11.0.md)
+> 面向用户的更新介绍（可直接贴进 GitHub Release）：[`docs/releases/RELEASE-NOTES-v3.11.0.md`](docs/releases/RELEASE-NOTES-v3.11.0.md)
 
 ### 🛡️ 容器运行参数加固（Linux / macOS）
 

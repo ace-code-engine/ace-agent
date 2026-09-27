@@ -11766,8 +11766,9 @@ if _want("68"):
     # 讲乱码这件事本身的文档会引用乱码样例，豁免（豁免名单写死，加一个要说明理由）
     # 豁免：讲乱码本身的文档会**引用样例**；本文件定义特征字符表（自指）。
     # 豁免给的是"最多允许几行"而不是"完全跳过" —— 整文件被写坏时行数会爆掉，照样能抓到。
-    _ALLOW68 = {"docs/RELEASE-NOTES-v3.40.1.md": 6, "docs/RELEASE-NOTES-v3.40.2.md": 6,
-                "docs/RELEASE-NOTES-v3.38.0.md": 2, "CHANGELOG.md": 6,
+    _ALLOW68 = {"docs/releases/RELEASE-NOTES-v3.40.1.md": 6,
+                "docs/releases/RELEASE-NOTES-v3.40.2.md": 6,
+                "docs/releases/RELEASE-NOTES-v3.38.0.md": 2, "CHANGELOG.md": 6,
                 "test_all.py": 3}
 
     def _lines_with_mojibake(text: str):

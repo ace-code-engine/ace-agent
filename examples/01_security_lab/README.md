@@ -43,4 +43,4 @@ python ai_code.py --sandbox docker # 一次性容器：network none + cap-drop A
 ```
 
 拿不到边界时**返回 503，绝不静默回退到宿主执行**——这条语义在 job / docker 两档都一样。
-边际与诚实说明见 [`docs/SECURITY-MODEL.md`](../../docs/SECURITY-MODEL.md)。
+边际与诚实说明见 [`docs/SECURITY-MODEL.md`](../../docs/security/SECURITY-MODEL.md)。

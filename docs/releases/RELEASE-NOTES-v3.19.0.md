@@ -1,7 +1,7 @@
 # ACE v3.19.0 · 更新介绍
 
 > 面向使用者的发布说明，可直接贴进 GitHub Release。技术细节与守卫清单见
-> [`CHANGELOG.md`](../CHANGELOG.md#v3190-2026-09-19)。无破坏性变更。
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3190-2026-09-19)。无破坏性变更。
 
 ## 一句话
 
@@ -61,14 +61,14 @@ ace --json --input "现在几点" | jq -c 'select(.type=="final")'
 ## 📋 兼容性
 
 - 无破坏性变更：不加 `--json` 时输出与之前完全一致
-- 新增 0 个 i18n 键（事件字段是机器契约，不做翻译）；契约表见 [`docs/INTERFACES.md`](../docs/INTERFACES.md)
+- 新增 0 个 i18n 键（事件字段是机器契约，不做翻译）；契约表见 [`docs/INTERFACES.md`](../INTERFACES.md)
 
 ---
 
 # ACE v3.19.0 · Release Notes (English)
 
 > Ready to paste into the GitHub Release. Technical detail and the guard list live in
-> [`CHANGELOG.md`](../CHANGELOG.md#v3190-2026-09-19). No breaking changes.
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3190-2026-09-19). No breaking changes.
 
 ## In one line
 
@@ -118,4 +118,4 @@ Three things come for free: **no ANSI colour codes**, **no `\r` redraws** (spinn
 ## 📋 Compatibility
 
 - No breaking changes: without `--json`, output is exactly as before
-- 0 new i18n keys (event fields are a machine contract and are not translated); the table lives in [`docs/INTERFACES.md`](../docs/INTERFACES.md)
+- 0 new i18n keys (event fields are a machine contract and are not translated); the table lives in [`docs/INTERFACES.md`](../INTERFACES.md)

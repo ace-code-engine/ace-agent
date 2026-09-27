@@ -1,7 +1,7 @@
 # 配置（Configuration）
 
 > 本文档由 README「配置」一节拆分而来（docs/design/README-RESTRUCTURE.md，v3.7），内容与当时 README 保持一致。
-> 配置优先级见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 顶部（命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量）。
+> 配置优先级见 [SECURITY-MODEL.md](security/SECURITY-MODEL.md) 顶部（命令行参数 > `~/.ai_code.json` > `~/.claude/settings.json` > 环境变量）。
 > **下面的键写进 `~/.ai_code.json` 即生效**（CLI 会原样透传给执行层）；`python ai_code.py --save-config` 可把当前命令行参数落盘。
 > v3.8 修正：`signing_key` / `max_snapshots` / `confine_files` / `email_smtp` / `egress_allowlist` / `session_id` 此前**只在程序化构造 `ExecutionLayer` 时生效**，写进配置文件会被静静忽略——配置写了不生效比没这个键更坏（用户以为闸门开着），现已修复并有 test_all 断言盯着。
 
@@ -164,7 +164,7 @@ python -m cli.ace_mandate show --file mandate.json      # 检查签名/有效期
 | `never` | 从不问人：判定为需审批的一律**拒绝**（不是放行）。**必须配真边界**：`never` + `sandbox=off`（或 `sandbox_policy=danger_full_access`）会**拒绝启动**（退出码 2 / 库调用方抛 `PolicyRefused`）——它挡不住不需要审批的工具，所以"没人 + 没边界"没有可辩护的用途 |
 | `untrusted` | 除白名单外一律问 |
 
-无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写工具照跑——见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。
+无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写工具照跑——见 [`SECURITY-MODEL.md`](security/SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。
 **`code_execute` 例外（H-30）**：它不再属于"无需审批就照跑"的那一类 —— 见下一节。
 
 ### 无边界时的 `code_execute`（`sandbox.code_execute_host`，H-30）
@@ -196,7 +196,7 @@ python -m cli.ace_mandate show --file mandate.json      # 检查签名/有效期
 
 内网判定（`ace_net`）管的是"别打到内网去"，白名单管的是"能把数据带到哪个公网站点去"。后者只有宿主知道哪些站点算正当，所以**默认关闭**：不配这个键，`api_get` / `api_post` / `browser_open` / `web_search` 的行为和以前完全一样。
 
-但"默认关闭"不等于"默认没人管"：**没配清单时，外发工具只要目的地不在内置端点里，就会逐次弹确认**（v3.8 起，见 [SECURITY-MODEL.md](SECURITY-MODEL.md) 的「外发闸门」）。清单是给"别再问我了"用的——写好之后清单内直接放行，清单外一律 403。
+但"默认关闭"不等于"默认没人管"：**没配清单时，外发工具只要目的地不在内置端点里，就会逐次弹确认**（v3.8 起，见 [SECURITY-MODEL.md](security/SECURITY-MODEL.md) 的「外发闸门」）。清单是给"别再问我了"用的——写好之后清单内直接放行，清单外一律 403。
 
 配上之后：
 

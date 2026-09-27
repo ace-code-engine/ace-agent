@@ -50,8 +50,8 @@ python ai_code.py --mock   # 离线演示：模型 ↔ 执行层完整闭环
 - `darwin/amd64` 执行器产物没有原生冒烟（交叉编译成功，无 Intel Mac 实机）；真 TTY 下的全屏界面与非 Windows 控制台同样未做真机冒烟。
 - 引擎不进发布包是**刻意的**（实测在热路径上没有收益）：冻结版走同口径纯 Python 路径，见 `docs/PACKAGING-EXE.md`。
 
-**架构图（Mermaid，GitHub 直接渲染）** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-**本版完整细节** → [`docs/RELEASE-NOTES-v3.42.0.md`](docs/RELEASE-NOTES-v3.42.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
+**架构图（Mermaid，GitHub 直接渲染）** → [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md)
+**本版完整细节** → [`docs/RELEASE-NOTES-v3.42.0.md`](../docs/releases/RELEASE-NOTES-v3.42.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
 
 本项目有一条纪律：**没真正跑过的，不许说成"应该没问题"。**
 
@@ -107,11 +107,11 @@ Three commands verify this release: `python test_all.py --only 70` (every regres
 - The `darwin/amd64` executor has no native smoke test (it cross-compiles; no Intel Mac has run it), and neither the full-screen TUI under a real TTY nor non-Windows consoles have a native smoke run.
 - The kernel is deliberately **not shipped in the release bundle** (measurements show no gain on hot paths): a frozen build uses the equivalent pure-Python path — see `docs/PACKAGING-EXE.md`.
 
-**Architecture diagram (Mermaid, rendered by GitHub)** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-**Full details for this version** → [`docs/RELEASE-NOTES-v3.42.0.md`](docs/RELEASE-NOTES-v3.42.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
+**Architecture diagram (Mermaid, rendered by GitHub)** → [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md)
+**Full details for this version** → [`docs/RELEASE-NOTES-v3.42.0.md`](../docs/releases/RELEASE-NOTES-v3.42.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
 
 The project has one rule: **anything not actually run does not get described as "should be fine".**
 
 ---
 
-**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](docs/GETTING-STARTED.md) · [Security model](docs/SECURITY-MODEL.md) · [Release notes](docs/RELEASE-NOTES-v3.42.0.md) · [Changelog](CHANGELOG.md)
+**Source** · [Repository](https://github.com/ace-code-engine/ace-agent) · [README](https://github.com/ace-code-engine/ace-agent#readme) · [Getting started](../docs/GETTING-STARTED.md) · [Security model](../docs/security/SECURITY-MODEL.md) · [Release notes](../docs/releases/RELEASE-NOTES-v3.42.0.md) · [Changelog](../CHANGELOG.md)

@@ -5,7 +5,7 @@
 >
 > - 完整安全模型与生产部署要点：[`SECURITY-MODEL.md`](SECURITY-MODEL.md)
 > - 逐条审计与证据：[`SECURITY-AUDIT.md`](SECURITY-AUDIT.md)
-> - 漏洞上报流程：[`../SECURITY.md`](../SECURITY.md)
+> - 漏洞上报流程：[`../SECURITY.md`](../../SECURITY.md)
 >
 > **一句话前提**：ACE 把"能不能动"从提示词搬进了执行层。但**执行层本身没有 OS 级隔离** ——
 > 真正不可越过的边界是**沙箱档（`--sandbox job` / `--sandbox docker`）+ 最小权限账户**。
@@ -131,7 +131,7 @@
 - **台账**：审计台账会记录**工具调用与参数**。所以如果你把密钥写在命令行参数里，**它会进台账**。
   → **用环境变量或配置文件，不要写在命令里。**
 - **前端**：`ChoiceDialog` 曾明文回显 API key（`getpass` 只在无 UI 时生效）——
-  见 [`ROADMAP.md`](ROADMAP.md) §3.3 的根因表，这是已登记待修项。
+  见 [`ROADMAP.md`](../ROADMAP.md) §3.3 的根因表，这是已登记待修项。
 
 ---
 

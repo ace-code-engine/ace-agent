@@ -165,61 +165,29 @@ ace-agent/
 ├── assets/logo.svg             # 标识（原创几何构图，无第三方素材）
 ├── assets/ace.ico              # 由 logo.svg 生成的多尺寸图标（packaging/make_icon.py，7 个尺寸）
 
-├── docs/                       # 文档（README 是入口，深读按角色分流）
+├── docs/                       # 文档（README 是入口，索引见 docs/README.md）
+│   ├── README.md               #   文档索引：按"想干什么"分流全部文档
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
-│   ├── RELEASE-NOTES-v3.44.0.md #  本版更新介绍（MCP server：把执行层交给别人的 agent）
-│   ├── RELEASE-NOTES-v3.43.0.md #  本版更新介绍（信任锚外移 / 链式台账 / 两条只测量的判据前置）
-│   ├── RELEASE-NOTES-v3.42.0.md #   更新介绍（执行层承诺对齐 / 元处理内核 / 运行度量）
-│   ├── RELEASE-NOTES-v3.40.2.md #  本版更新介绍（可直接贴进 GitHub Release；修回 README 的编码错误）
-│   ├── RELEASE-NOTES-v3.40.1.md #  v3.40.1 更新介绍（终端编码防线）
-│   ├── RELEASE-NOTES-v3.40.0.md #  v3.40 更新介绍（界面手感修复）
+│   ├── releases/               #   逐版本更新介绍（RELEASE-NOTES-vX.md，可直接贴进 GitHub Release）
 │   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
 │   ├── HANDOFF-FRONTEND.md     #  Ink 前端（frontend/ + ace --serve）的交接提示词：自包含、含「未完成/未验证」清单
-│   ├── RELEASE-NOTES-v3.39.0.md #  v3.39 更新介绍（主页与功能面板）
 │   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置
-│   ├── RELEASE-NOTES-v3.38.0.md #  v3.38 更新介绍（与 Claude 对齐的键位）
 │   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由）
-│   ├── RELEASE-NOTES-v3.37.0.md #  v3.37 更新介绍（入口一律走界面/键位真有实现）
-│   ├── RELEASE-NOTES-v3.36.0.md #  v3.36 更新介绍（交互重构：排队/中断/模态/键位）
-│   ├── RELEASE-NOTES-v3.35.1.md #  v3.35.1 更新介绍（演示图不再随采集时机漂移）
-│   ├── RELEASE-NOTES-v3.35.0.md #  v3.35 更新介绍（防误触宽限期/工具看板）
-│   ├── RELEASE-NOTES-v3.34.0.md #  v3.34 更新介绍（组件化界面/环境自带）
-│   ├── RELEASE-NOTES-v3.33.0.md #  v3.33 更新介绍（指示器状态机/通知通道）
-│   ├── RELEASE-NOTES-v3.32.0.md #  v3.32 更新介绍（运行环境一键准备）
-│   ├── RELEASE-NOTES-v3.31.0.md #  v3.31 更新介绍（授权时顺手记规则）
-│   ├── RELEASE-NOTES-v3.30.0.md #  v3.30 更新介绍（持久授权规则）
-│   ├── RELEASE-NOTES-v3.29.0.md #  v3.29 更新介绍（Esc 分层/防抖/Ctrl+T）
-│   ├── RELEASE-NOTES-v3.28.0.md #  v3.28 更新介绍（授权三态/全部展开）
-│   ├── RELEASE-NOTES-v3.27.0.md #  v3.27 更新介绍（补全菜单与无依赖输入行）
-│   ├── RELEASE-NOTES-v3.26.0.md #  v3.26 更新介绍（键位与编辑器集成）
-│   ├── RELEASE-NOTES-v3.25.0.md #  v3.25 更新介绍（布局与状态行全套）
-│   ├── RELEASE-NOTES-v3.24.0.md #  v3.24 更新介绍（对话框与选择器全套）
-│   ├── RELEASE-NOTES-v3.23.0.md #  v3.23 更新介绍（消息渲染全套）
-│   ├── RELEASE-NOTES-v3.22.0.md #  v3.22 更新介绍（输入层全套）
-│   ├── RELEASE-NOTES-v3.21.0.md #  v3.21 更新介绍（编辑器桥/图片/键位/成本）
-│   ├── RELEASE-NOTES-v3.20.0.md #  v3.20 更新介绍（会话管理 + 待办清单）
-│   ├── RELEASE-NOTES-v3.19.0.md #  v3.19 更新介绍（headless 事件流）
-│   ├── RELEASE-NOTES-v3.18.0.md #  v3.18 更新介绍（钩子 + 自定义命令 + 插件）
-│   ├── RELEASE-NOTES-v3.17.0.md #  v3.17 更新介绍（MCP 客户端）
-│   ├── RELEASE-NOTES-v3.16.0.md #  v3.16 更新介绍（多行输入 + /history + 分组）
-│   ├── RELEASE-NOTES-v3.15.0.md #  v3.15 更新介绍（改动可见 + 时间线）
-│   ├── RELEASE-NOTES-v3.14.0.md #  v3.14 更新介绍（首屏重构 + --preview）
-│   ├── RELEASE-NOTES-v3.13.0.md #  v3.13 更新介绍（上下文占用可见）
-│   ├── RELEASE-NOTES-v3.12.0.md #  v3.12 更新介绍（/expand + 跨会话历史 + 状态行计时）
-│   ├── RELEASE-NOTES-v3.11.0.md #  v3.11 更新介绍（容器参数加固；含一次没做成的发布记录）
 │   ├── ARCHITECTURE.md         #   本文档：分层职责 + 权威目录树 + ADR 索引
-│   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读
-│   ├── SECURITY-FAQ.md         #   安全边界 FAQ（11 问：挡住了什么/没挡住什么；含无人值守 fail-close 与快照不覆盖清单）
+│   ├── security/               #   安全文档（模型 / FAQ / 审计）
+│   │   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读
+│   │   ├── SECURITY-FAQ.md         #   安全边界 FAQ（11 问：挡住了什么/没挡住什么；含无人值守 fail-close 与快照不覆盖清单）
+│   │   └── SECURITY-AUDIT.md       #   安全审计（OWASP + STRIDE；部分条目与现码漂移，以代码为准，见 BACKLOG SEC-*）
 │   ├── CONFIGURATION.md        #   配置全项：config 键 + 出站白名单/检索/编码/DB 边界
 │   ├── COMMANDS.md             #   命令参考：斜杠/@ 全表 + 启动参数
 │   ├── EXTENDING.md            #   扩展点：事件钩子 / 自定义命令 / 插件 / MCP（边界写清楚）
 │   ├── TESTING.md              #   测试：全量/CI 矩阵/基准/e2e/ruff
 │   ├── DEVELOPMENT.md          #   开发者标准化流程（改代码到推送八步 + 新增工具八步清单）
 │   ├── INTERFACES.md           #   接口与类型契约（文本协议/状态码/注册表/权限模型/网络）
-│   ├── SECURITY-AUDIT.md       #   安全审计（OWASP + STRIDE；部分条目与现码漂移，以代码为准，见 BACKLOG SEC-*）
-│   ├── ADR.md                  #   架构决策记录（内联序列 001-006）
-│   ├── ADR-002-executor-boundary.md  #   执行器进程边界 / NDJSON 协议 / Windows 沙箱选型
+│   ├── adr/                    #   架构决策记录
+│   │   ├── ADR.md                  #   内联序列 001-006
+│   │   └── ADR-002-executor-boundary.md  #   执行器进程边界 / NDJSON 协议 / Windows 沙箱选型
 │   ├── BACKLOG.md              #   待办事项（P0 安全 / P1 快速项 / P2 结构 / REL）
 │   ├── BACKLOG-P2.md           #   P2 重构立项卡(R-01~R-05 范围/验收/顺序,供新会话照做)
 │   ├── ROADMAP.md              #   能力路线图（对照 29 个参照系的产品面缺口 / 语言裁决 LANG-* / 工作面 WP-0~WP-10 / 批次与验收门槛）

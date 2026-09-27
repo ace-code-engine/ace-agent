@@ -1,7 +1,7 @@
 # ACE v3.13.0 · 更新介绍
 
 > 面向使用者的发布说明，可直接贴进 GitHub Release。技术细节与守卫清单见
-> [`CHANGELOG.md`](../CHANGELOG.md#v3130-2026-09-19)。无破坏性变更，升级不需要改配置。
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3130-2026-09-19)。无破坏性变更，升级不需要改配置。
 
 ## 一句话
 
@@ -54,7 +54,7 @@
 # ACE v3.13.0 · Release Notes (English)
 
 > Ready to paste into the GitHub Release. Technical detail and the guard list live in
-> [`CHANGELOG.md`](../CHANGELOG.md#v3130-2026-09-19). No breaking changes; no config edits needed.
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3130-2026-09-19). No breaking changes; no config edits needed.
 
 ## In one line
 

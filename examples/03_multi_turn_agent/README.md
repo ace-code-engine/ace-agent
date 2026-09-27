@@ -51,5 +51,5 @@ python ai_code.py --sandbox job    # Windows Job Object
 python ai_code.py --sandbox docker # 一次性容器
 ```
 
-机制与残留风险见 [`docs/SECURITY-MODEL.md`](../../docs/SECURITY-MODEL.md)；
+机制与残留风险见 [`docs/SECURITY-MODEL.md`](../../docs/security/SECURITY-MODEL.md)；
 工具与权限的权威清单见 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) 与 `tools/registry.py`。

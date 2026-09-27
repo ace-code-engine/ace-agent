@@ -1,7 +1,7 @@
 # v3.11.0 · 更新介绍
 
 > 这一版是**容器档（Linux / macOS）**的一轮加固，外加一次**没做成**的发布尝试 —— 两件都写在这里。
-> 逐条变更见 [`CHANGELOG.md`](../CHANGELOG.md#v3110-2026-09-19)；容器用法见 [`docker/README-Docker.md`](../docker/README-Docker.md) 与 [`docs/SECURITY-MODEL.md`](SECURITY-MODEL.md)。
+> 逐条变更见 [`CHANGELOG.md`](../../CHANGELOG.md#v3110-2026-09-19)；容器用法见 [`docker/README-Docker.md`](../../docker/README-Docker.md) 与 [`docs/SECURITY-MODEL.md`](../security/SECURITY-MODEL.md)。
 
 ---
 
@@ -73,7 +73,7 @@ python ai_code.py --sandbox docker
 - 新增可选开关：`ACE_SANDBOX_PULL=1`（自建 registry 自动拉）、`ACE_SANDBOX_SECCOMP=<path>`（自定义 seccomp）
 - 工具结果里会带 `sandbox.image_digest` —— 这次到底跑在哪一份镜像上，可追溯；要固定供应链就把镜像写成 `<ref>@sha256:<digest>`
 - Windows 的 `--sandbox job` 那条线不受本版影响（v3.10.1 已重发过预编译执行器产物）
-- 已知未验证项照旧写在 README 的 [Known gaps and unverified items](../README.md#done-and-still-unverified)
+- 已知未验证项照旧写在 README 的 [Known gaps and unverified items](../../README.md#done-and-still-unverified)
 
 ### 五、版本线（最近三个）
 

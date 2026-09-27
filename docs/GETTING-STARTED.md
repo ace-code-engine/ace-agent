@@ -1,7 +1,7 @@
 # 上手路径（Getting Started）
 
 > 写给"第一次打开这个仓库的人"。目标很具体：**5 分钟跑起来 → 30 分钟搞懂三道闸门 → 按场景抄一条配置**。
-> 深度材料各有房间：安全 → [SECURITY-MODEL.md](SECURITY-MODEL.md)、配置 → [CONFIGURATION.md](CONFIGURATION.md)、
+> 深度材料各有房间：安全 → [SECURITY-MODEL.md](security/SECURITY-MODEL.md)、配置 → [CONFIGURATION.md](CONFIGURATION.md)、
 > 命令 → [COMMANDS.md](COMMANDS.md)、架构 → [ARCHITECTURE.md](ARCHITECTURE.md)、测试 → [TESTING.md](TESTING.md)。
 
 ## 0 · 五分钟：不配任何密钥跑起来
@@ -72,7 +72,7 @@ ACE 的所有配置混乱几乎都来自把这三件事混成一件事：
 | 想做的事 | 入口 |
 |---|---|
 | 照剧本动手看行为 | [examples/](../examples/README.md)（安全实验室 / 文档解析 / 多轮任务） |
-| 搞懂安全边界与诚实限制 | [SECURITY-MODEL.md](SECURITY-MODEL.md)（含「无人值守 / 自动化部署」「静态检测的边界」） |
+| 搞懂安全边界与诚实限制 | [SECURITY-MODEL.md](security/SECURITY-MODEL.md)（含「无人值守 / 自动化部署」「静态检测的边界」） |
 | 配 `~/.ai_code.json` | [CONFIGURATION.md](CONFIGURATION.md)（含三维度矩阵与各键语义） |
 | 找回某个命令 / 启动参数 | [COMMANDS.md](COMMANDS.md) |
 | 参与开发 | [DEVELOPMENT.md](DEVELOPMENT.md) + [../CONTRIBUTING.md](../CONTRIBUTING.md) |

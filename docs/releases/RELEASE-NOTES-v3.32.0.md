@@ -1,7 +1,7 @@
 # ACE v3.32.0 · 更新介绍
 
 > 面向使用者的发布说明，可直接贴进 GitHub Release。技术细节见
-> [`CHANGELOG.md`](../CHANGELOG.md#v3320-2026-09-19)。无破坏性变更。
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3320-2026-09-19)。无破坏性变更。
 
 ## 一句话
 
@@ -68,7 +68,7 @@ python setup_env.py --json     # 机器读：{"python": …, "source": …, "can
 # ACE v3.32.0 · Release Notes (English)
 
 > Ready to paste into the GitHub Release. Technical detail lives in
-> [`CHANGELOG.md`](../CHANGELOG.md#v3320-2026-09-19). No breaking changes.
+> [`CHANGELOG.md`](../../CHANGELOG.md#v3320-2026-09-19). No breaking changes.
 
 ## In one line
 

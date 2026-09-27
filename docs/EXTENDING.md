@@ -100,7 +100,7 @@ argument-hint: [段号]
 ## 4. MCP server（外部进程工具）
 
 见 [CONFIGURATION.md](CONFIGURATION.md#mcp-servermcp_servers) 与
-[SECURITY-MODEL.md](SECURITY-MODEL.md) 的「MCP 边界说清楚」：stdio JSON-RPC 2.0，
+[SECURITY-MODEL.md](security/SECURITY-MODEL.md) 的「MCP 边界说清楚」：stdio JSON-RPC 2.0，
 工具注册成 `mcp__<server>__<工具名>`，`/mcp` 看状态。**MCP server 同样不在沙箱里。**
 
 ---

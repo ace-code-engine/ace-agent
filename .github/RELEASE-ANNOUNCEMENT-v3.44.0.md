@@ -47,8 +47,8 @@ python ai_code.py --mcp --project-root /path/to/project --permission write
 - 已知边界：项目外**新建**文件不问人（ACE 既有政策，CLI 与模型路径同口径）；单条消息上限 8 MiB
   且没有分块写工具；请求串行处理。
 
-**完整细节** → [`docs/RELEASE-NOTES-v3.44.0.md`](docs/RELEASE-NOTES-v3.44.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
-**设计文档** → [`docs/design/MCP-SERVER.md`](docs/design/MCP-SERVER.md)　**怎么用/排障** → [`docs/MCP-SERVER.md`](docs/MCP-SERVER.md)
+**完整细节** → [`docs/RELEASE-NOTES-v3.44.0.md`](../docs/releases/RELEASE-NOTES-v3.44.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
+**设计文档** → [`docs/design/MCP-SERVER.md`](../docs/design/MCP-SERVER.md)　**怎么用/排障** → [`docs/MCP-SERVER.md`](../docs/MCP-SERVER.md)
 
 本项目有一条纪律：**没真正跑过的，不许说成"应该没问题"。**
 
@@ -107,7 +107,7 @@ python ai_code.py --mcp --project-root /path/to/project --permission write
   as CLI and model paths); one message is capped at 8 MiB with no chunked write tool; requests are
   handled serially.
 
-**Full details** → [`docs/RELEASE-NOTES-v3.44.0.md`](docs/RELEASE-NOTES-v3.44.0.md) · [`CHANGELOG.md`](CHANGELOG.md)
-**Design doc** → [`docs/design/MCP-SERVER.md`](docs/design/MCP-SERVER.md)　**Usage / troubleshooting** → [`docs/MCP-SERVER.md`](docs/MCP-SERVER.md)
+**Full details** → [`docs/RELEASE-NOTES-v3.44.0.md`](../docs/releases/RELEASE-NOTES-v3.44.0.md) · [`CHANGELOG.md`](../CHANGELOG.md)
+**Design doc** → [`docs/design/MCP-SERVER.md`](../docs/design/MCP-SERVER.md)　**Usage / troubleshooting** → [`docs/MCP-SERVER.md`](../docs/MCP-SERVER.md)
 
 The project has one rule: **anything not actually run does not get described as "should be fine".**

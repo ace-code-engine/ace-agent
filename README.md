@@ -87,35 +87,17 @@ python ai_code.py          # menu 2 runs the setup wizard, then 1 enters chat
 
 ### Prebuilt Windows build, no Python needed
 
-Download `ace-<version>-windows-amd64.zip` from the [Releases page](https://github.com/ace-code-engine/ace-agent/releases), unzip it anywhere, and run `ace\ace.exe`. It is a self-contained bundle, so `python` is **not** required on the machine.
+Download `ace-<version>-windows-amd64.zip` from the [Releases page](https://github.com/ace-code-engine/ace-agent/releases), unzip it anywhere, and run `ace\ace.exe` — a self-contained bundle, so `python` is **not** required on the machine.
 
 ```powershell
-# offline: prove the bundle is intact without any account or key
-.\ace\ace.exe --mock
-
-# or point it at a real model from the landing screen
-.\ace\ace.exe
+.\ace\ace.exe --mock     # prove the bundle is intact: offline, no account, no key
+.\ace\ace.exe            # or point it at a real model from the landing screen
 ```
 
-Two things to know before you run it:
+Two things that surprise people: **SmartScreen will warn you** (the build is not code-signed — *More info* → *Run anyway*),
+and **it is a folder, not a file** (keep `ace.exe` next to its `_internal\`).
 
-- **Windows SmartScreen will warn you.** The build is not code-signed, so a fresh download shows "Windows protected your PC". Choose *More info* → *Run anyway*, or verify the zip yourself first. This is what an unsigned binary looks like, not a sign that something is wrong with it.
-- **It is a folder, not a single file.** Keep `ace.exe` next to its `_internal\` directory; copying the exe out on its own will not work.
-
-Not everything works in the frozen build, and the exe says so instead of failing quietly:
-
-| Capability | In the prebuilt exe | Why |
-|---|---|---|
-| Chat, tools, files, terminal, permissions, snapshots | ✅ | pure-stdlib safety core, resources are bundled |
-| `code_execute` | ❌ returns **501**, stated plainly | it runs Python via `sys.executable`, which is `ace.exe` itself when frozen. Use the source build if you need it. |
-| `--install-ui` / `--setup` | ❌ meaningless | the bundle already contains its interpreter and UI deps |
-| `--install-executor` | ✅ only if the bundle shipped the Go binary | otherwise it downloads it, which needs network |
-
-The build is produced by `packaging/build_exe.ps1`, which **will not report success without smoke-testing the packaged exe** — the bundle is run through `--version`, `--preview`, a mock tool round trip and the `code_execute` 501 path before anything is published.
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
-```
+**What the frozen build cannot do, and the smoke gate that refuses to publish an unverified bundle** — [`docs/PACKAGING-EXE.md`](docs/PACKAGING-EXE.md).
 
 ### See it run
 
@@ -165,11 +147,7 @@ Gateway (L1 / L2 / L4 / L5) is a policy layer **called inside each round** by th
 
 ## Common commands
 
-### Getting around
-
 Landing page: **↑/↓** to move, digits to jump, **Enter** to confirm, **Esc/q** to quit. Inside chat, `exit` returns to the landing page.
-
-### Everyday slash commands
 
 ```bash
 /provider                    # list 9 vendors · 10 endpoints (the current one ticked)
@@ -178,17 +156,10 @@ Landing page: **↑/↓** to move, digits to jump, **Enter** to confirm, **Esc/q
 /undo                        # roll back to the pre-write snapshot
 ```
 
-- **Slash commands** — `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <name>` `/mock` `/open <path>` `/edit <path>` `/search <term>` `/memory` `/report` `/expand` `/history [keyword]`
-- **`@` shortcuts** — `@lang` (zh/en/ja) · `@skill` · `@file` · `@folder` · `@refs`
-- The `/` menu and `/help` group commands into Session / Security / Model / Tools.
+Input and output: `Alt+Enter` / `Ctrl+J` newline · `Ctrl+R` walk history backwards (`/history dsk` fuzzy-finds it) ·
+long tool output is folded into the card, `/expand` reprints it · write cards carry a colourised diff and an `exit N` code.
 
-### Input and output
-
-- **Input** — `Enter` sends, `Alt+Enter` or `Ctrl+J` inserts a newline, `Ctrl+R` walks history backwards, and `/history dsk` fuzzy-finds it.
-- **Long tool output** is folded into the card; `/expand` reprints the full output, up to 4000 characters per call, and says so when truncated.
-- **Write-tool cards** show a colourised diff and an `exit N` code; ↑/↓ and `Ctrl+R` search `~/.ace_history` across sessions (`ACE_NO_HISTORY=1` keeps history in-process only).
-
-**Further reading** — full command table, every `/provider` example and all startup flags: `docs/COMMANDS.md`.
+**Full command table** (every slash command, all `@` shortcuts, every startup flag) — **[`docs/COMMANDS.md`](docs/COMMANDS.md)**.
 
 ---
 
@@ -219,7 +190,7 @@ The gate governs **model-chosen destinations**. Built-in endpoints — search en
 
 `terminal_exec` can still delete the audit log inside the project, but that step is confirmed by a human every time. Both facts are written down rather than hidden.
 
-**Further reading** — full security model and production notes: `docs/SECURITY-MODEL.md`. Vulnerability reports: `SECURITY.md`.
+**Further reading** — full security model and production notes: [`docs/security/SECURITY-MODEL.md`](docs/security/SECURITY-MODEL.md). Vulnerability reports: [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -261,41 +232,30 @@ They exist because "the docs say it asks the human" once turned out to mean "the
 
 Both halves are here on purpose: the README used to say "not done" about things that are now finished, and a stale admission is its own kind of lie. **Read the second half as the actual warning** — do not read it as "probably fine".
 
-**Recently closed** (recorded so the older text does not linger):
-
-- **R-03 engine merge: done.** `core/ace_client.py` is the single model HTTP client — one `ace_http` egress point, one place that builds `/chat/completions`; the two frontends keep only their own contract.
-    - Credential-free half: `python e2e/r03_contract_smoke.py` stands up a real listening socket, answers both wire formats and drives both frontends through it.
-    - Vendor half: `python e2e/real_model_smoke.py` with `ACE_E2E_*` set, run green against DeepSeek — exit 0, the single `🤖 Agent:` line contract held, and the model called `datetime_now` before answering from the real result.
-- **REL-03 native smoke: walked through on Windows.** `ace.cmd` → interpreter self-resolution → a real console conversation, offline `--mock`, exit 0, Chinese and emoji both intact. `e2e/rel03_native_smoke.ps1` reproduces it in three scenarios.
-- **Found by that smoke and fixed:** `_generate_text` (the no-`--tools` fallback) used to hand the model's plain text straight to the execution layer, which expects protocol text — so `agent_runner.py --base-url …` never reached a final reply. It is now wrapped like `_generate_tools`, with assertions in `[8]`.
+**Recently closed** — R-03 engine merge, REL-03 native Windows smoke, and the `--tools` fallback bug that smoke found — recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
 **Still unverified:**
 
 - The **Textual full-screen UI under a real TTY** (those sections skip without `textual` installed), and any **non-Windows console**.
 - The **darwin/amd64 executor artifact has no native smoke test** — it cross-compiles, but no Intel Mac has ever run it.
 
-**Further reading** — framework, CI matrix, benchmarks and e2e details: `docs/TESTING.md`.
+**Further reading** — framework, CI matrix, benchmarks and e2e details: [`docs/TESTING.md`](docs/TESTING.md).
 
 ---
 
 ## Documentation
 
-### Docs map
+**Everything is indexed in [`docs/README.md`](docs/README.md)** — a "what do you want to do?" table plus the full
+grouping. The few you are most likely to want first:
 
 | What you want | Where to go |
 |---|---|
-| **Start here** — 5-minute path, three-axis matrix, ten traps | `docs/GETTING-STARTED.md` |
-| **Demo and screenshots** | `docs/SHOWCASE.md` |
-| **Hands-on scenarios** — security lab / document parsing / multi-turn agent | `examples/` |
-| Layers, full directory tree, ADR index | `docs/ARCHITECTURE.md` |
-| Security model / audit / reporting | `docs/SECURITY-MODEL.md` · `docs/SECURITY-AUDIT.md` · `SECURITY.md` |
-| Every configuration key | `docs/CONFIGURATION.md` |
-| Commands and startup flags | `docs/COMMANDS.md` |
-| Tests and CI | `docs/TESTING.md` |
-| Packaging and the Windows build | `docs/PACKAGING-EXE.md` · `docs/PACKAGING.md` |
-| Development / contracts / backlog | `docs/DEVELOPMENT.md` · `docs/INTERFACES.md` · `docs/BACKLOG.md` |
-| Version history | `CHANGELOG.md` |
-| Design cards / session notes / research | `docs/design/` · `docs/history/` |
+| **Start here** — 5-minute path, three-axis matrix, ten traps | [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) |
+| **What ACE stops and what it does not** | [`docs/security/SECURITY-FAQ.md`](docs/security/SECURITY-FAQ.md) |
+| Demo and screenshots | [`docs/SHOWCASE.md`](docs/SHOWCASE.md) · hands-on scenarios in [`examples/`](examples/) |
+| Layers, full directory tree, ADR index | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Security model / audit / reporting | [`docs/security/`](docs/security/) · [`SECURITY.md`](SECURITY.md) |
+| Version history | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/releases/`](docs/releases/) |
 
 ### Contributing
 

@@ -211,6 +211,15 @@
   `evidence-pack/RELEASES.md` 的原始 `git ls-files` 输出表**一字未改** —— 改它就是篡改证据 ——
   只在表前加了一条带日期的路径变更说明，讲清"重跑同一条命令会看到什么、为什么"。
 
+- **README 瘦身：英文 304 → 274 行、中文 322 → 296 行**，砍掉的全是**在 docs 里已有的重复**，不是信息：
+  `Common commands` 的三段清单（斜杠命令全表 / `@` 快捷 / 输入输出细节）压成一张 4 行示例 + 一行指针
+  → [`docs/COMMANDS.md`](docs/COMMANDS.md)；`Prebuilt Windows build` 那 31 行（SmartScreen、目录 vs 单文件、
+  冻结能力表、构建命令）压成 7 行 + 指针 → [`docs/PACKAGING-EXE.md`](docs/PACKAGING-EXE.md)（那份文档本来就完整覆盖了）；
+  `Testing → Recently closed` 的三条细节收成一行 → [`CHANGELOG.md`](CHANGELOG.md)；
+  `Docs map` 那张 14 行表换成指向新的 [`docs/README.md`](docs/README.md) 索引 + 6 行"最常用"。
+  同时**修掉一个链接检查器抓不到的真缺陷**：`Docs map` 表用的是**反引号纯文本**而不是 markdown 链接，
+  所以结构整理时它仍指向旧路径（`docs/SECURITY-MODEL.md` / `docs/SECURITY-AUDIT.md`）—— 现已改为真链接并指向 `docs/security/`。
+
 ## [v3.44.0] · 2026-09-26
 
 > 这一版只有一件事：**把执行层交给别人的 agent 用** —— ACE 从"自己干活的 agent"变成任何

@@ -104,35 +104,18 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 
 ### 预编译 Windows 发行包，不用装 Python
 
-到 [Releases 页面](https://github.com/ace-code-engine/ace-agent/releases) 下载 `ace-<版本>-windows-amd64.zip`，解压到任意目录，运行 `ace\ace.exe` 即可。**没有安装程序，也不会往你选的目录之外写东西** —— 它是自带解释器的完整包，那台机器上**不需要装 Python**。
+到 [Releases 页面](https://github.com/ace-code-engine/ace-agent/releases) 下载 `ace-<版本>-windows-amd64.zip`，
+解压到任意目录，运行 `ace\ace.exe` 即可 —— 自带解释器的完整包，那台机器上**不需要装 Python**。
 
 ```powershell
-# 离线：不需要账号也不需要密钥，先确认这个包是完整的
-.\ace\ace.exe --mock
-
-# 接真实模型：进首页选 2 走配置向导
-.\ace\ace.exe
+.\ace\ace.exe --mock     # 离线：不需要账号也不需要密钥，先确认这个包是完整的
+.\ace\ace.exe            # 接真实模型：进首页选 2 走配置向导
 ```
 
-跑之前有两件事值得先知道：
+两件容易意外的事：**SmartScreen 会拦一下**（没有代码签名 —— 点 *更多信息* → *仍要运行*），
+以及**它是一整个目录，不是单个文件**（`ace.exe` 必须和旁边的 `_internal\` 待在一起）。
 
-- **Windows SmartScreen 会拦一下。** 这个构建没有代码签名，新下载的 exe 会弹"Windows 已保护你的电脑"——点 *更多信息* → *仍要运行*，或者先自己核对 zip。这是**未签名二进制**的正常样子，不代表这个包有问题。
-- **它是一整个目录，不是单个文件。** `ace.exe` 必须和旁边的 `_internal\` 待在一起；只把 exe 拷出去用不了。
-
-**冻结发行里有几项能力不成立**，而 exe 会**明说**，不会悄悄失败：
-
-| 能力 | 预编译 exe | 原因 |
-|---|---|---|
-| 对话、工具、文件、终端、权限裁决、快照回滚 | ✅ | 纯 stdlib 安全核心，资源已随包带上 |
-| `code_execute` | ❌ 如实返回 **501** | 它靠 `sys.executable` 去跑 Python，而冻结后那就是 `ace.exe` 自己；需要它请用源码运行 |
-| `--install-ui` / `--setup` | ❌ 无意义 | 包里已经自带解释器与界面依赖 |
-| `--install-executor` | ⚠️ 取决于包里带没带 Go 二进制 | 没带就去下载，这一步需要联网 |
-
-构建脚本是 `packaging/build_exe.ps1`，**它不在打包产物上跑过就不算成功** —— 发布前会把 exe 真的跑一遍 `--version`、`--preview`、mock 工具往返、以及 `code_execute` 的 501 路径。
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_exe.ps1
-```
+**冻结发行里哪几项能力不成立、以及"包没跑过就不算构建成功"的那道冒烟门禁** —— [`docs/PACKAGING-EXE.md`](docs/PACKAGING-EXE.md)。
 
 ### 看它跑起来
 
@@ -183,11 +166,7 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 
 ## 常用命令
 
-### 首页与聊天
-
 **首页**：↑/↓ 选择 · 数字直选 · Enter 确认 · Esc/q 退出。聊天内 `exit` 回首页，首页 `7` / `Esc` / `q` 才真正退出。
-
-### 日常斜杠命令
 
 ```bash
 /provider                    # 列出 9 家厂商 · 10 入口（当前标 ✓）
@@ -196,17 +175,10 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 /undo                        # 写入前快照 → 一键回滚
 ```
 
-- **斜杠命令** —— `/help` `/clear` `/status` `/snapshots` `/rollback <id>` `/model <名称>` `/mock` `/open <路径>` `/edit <路径>` `/search <词>` `/memory` `/report` `/expand` `/history [关键词]`
-- **`@` 快捷** —— `@lang`（zh/en/ja）· `@skill` · `@file` · `@folder` · `@refs`
-- `/` 菜单与 `/help` 把命令分成「会话 / 安全 / 模型 / 工具」四组。
+输入输出：`Alt+Enter` / `Ctrl+J` 换行 · `Ctrl+R` 逐条往回翻历史（`/history dsk` 按关键词模糊找）·
+长输出被卡片折叠，`/expand` 重印 · 写入类卡片给上色 diff 与 `exit N` 退出码。
 
-### 输入与输出
-
-- **输入** —— `Enter` 发送，`Alt+Enter` / `Ctrl+J` 换行，`Ctrl+R` 逐条往回翻历史，`/history dsk` 按关键词模糊找。
-- **长输出** 会被卡片折叠，`/expand` 重印完整输出（单次最多 4000 字符，被截断时如实标注）。
-- **写入类卡片** 给上色 diff 与 `exit N` 退出码；↑/↓ 与 `Ctrl+R` 翻的是跨会话的 `~/.ace_history`，`ACE_NO_HISTORY=1` 可让它只留在进程内。
-
-**延伸阅读** —— 完整命令表、`/provider` 全示例、启动参数：`docs/COMMANDS.md`。
+**完整命令表**（全部斜杠命令、所有 `@` 快捷、每个启动参数）—— **[`docs/COMMANDS.md`](docs/COMMANDS.md)**。
 
 ---
 
@@ -238,7 +210,7 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 
 `terminal_exec` 仍能删项目内的审计日志，但那一步**每次都过人**。这两条都写进了文档，不是隐藏行为。
 
-**延伸阅读** —— 完整安全模型与生产部署必读：`docs/SECURITY-MODEL.md`。漏洞报告：`SECURITY.md`。
+**延伸阅读** —— 完整安全模型与生产部署必读：[`docs/security/SECURITY-MODEL.md`](docs/security/SECURITY-MODEL.md)。漏洞报告：[`SECURITY.md`](SECURITY.md)。
 
 ---
 
@@ -280,20 +252,14 @@ ruff check . --select E9,F63,F7,F82     # CI 硬错误子集
 
 这一节两半都留着是有意的：README 曾经把**已经做完**的事写成"未完成"，而过期的坦白本身也是一种不实。**真正需要警惕的是后半段** —— 别把它当成"应该没问题"。
 
-**最近收口**（写在这里，免得旧说法继续挂着）：
-
-- **R-03 双前端引擎合并：已完成，两侧验收都有证据。** `core/ace_client.py` 就是唯一一份模型 HTTP 客户端（唯一出网点、唯一拼 `/chat/completions` 的地方；两个前端只保留各自的调用契约）。
-    - **无凭证那一半**：`python e2e/r03_contract_smoke.py` 起真监听 socket、两种线格式都答、两个前端都真跑一遍。
-    - **厂商那一半**：`python e2e/real_model_smoke.py` + `ACE_E2E_*`，在 DeepSeek 真实端点上跑通 —— exit 0、命中 `🤖 Agent:` 单行契约、模型先调 `datetime_now` 再依据真实结果作答。
-- **REL-03 真机冒烟：已在 Windows 真机走通。** `ace.cmd` → 解释器自解析 → 真实控制台对话，离线 `--mock`，退出码 0，中文与 emoji 都正常。`e2e/rel03_native_smoke.ps1` 把它固化成三档。
-- **这次冒烟抓出并修掉的缺陷。** `_generate_text`（不带 `--tools` 的文本协议回退）过去把模型的纯文本直接交给执行层，而执行层的契约是协议文本；于是 `agent_runner.py --base-url …` 永远走不到最终回复。mock 分支与 `--tools` 分支都会包装，所以此前没有任何测试覆盖到它。现已与 `_generate_tools` 同口径，并在 `[8]` 补了断言。
+**最近收口**（R-03 双前端引擎合并 · REL-03 Windows 真机冒烟 · 以及那次冒烟抓出的 `--tools` 回退缺陷）—— 记在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 **仍未验证：**
 
 - **真 TTY 下的 Textual 全屏界面**（没装 `textual` 时那几段会跳过）、以及任何**非 Windows 控制台**。
 - **darwin/amd64 执行器产物没有原生冒烟** —— 交叉编译出来了，但没有 Intel Mac 实机跑过。
 
-**延伸阅读** —— 测试框架说明、CI 矩阵、基准 / e2e / 冒烟细节：`docs/TESTING.md`。
+**延伸阅读** —— 测试框架说明、CI 矩阵、基准 / e2e / 冒烟细节：[`docs/TESTING.md`](docs/TESTING.md)。
 
 ---
 
@@ -301,20 +267,17 @@ ruff check . --select E9,F63,F7,F82     # CI 硬错误子集
 
 ### 文档地图
 
+**全部文档都索引在 [`docs/README.md`](docs/README.md)** —— 一张"我想干什么 → 读哪篇"的表，外加完整分组。
+最常先要的几篇：
+
 | 想了解 | 去这里 |
 |---|---|
-| **第一次来先看这个** —— 5 分钟跑起来 · 三维度矩阵 · 十个坑 | `docs/GETTING-STARTED.md` |
-| **演示与截图** | `docs/SHOWCASE.md` |
-| **跑起来看场景** —— 安全实验室 / 文档解析 / 多轮任务 | `examples/` |
-| 分层架构 · 完整目录树 · ADR 索引 | `docs/ARCHITECTURE.md` |
-| 安全模型 / 审计 / 漏洞报告 | `docs/SECURITY-MODEL.md` · `docs/SECURITY-AUDIT.md` · `SECURITY.md` |
-| 配置全项与机制 | `docs/CONFIGURATION.md` |
-| 命令与启动参数 | `docs/COMMANDS.md` |
-| 测试与 CI | `docs/TESTING.md` |
-| 打包与 Windows 发行包 | `docs/PACKAGING-EXE.md` · `docs/PACKAGING.md` |
-| 开发流程 / 契约 / 待办 | `docs/DEVELOPMENT.md` · `docs/INTERFACES.md` · `docs/BACKLOG.md` |
-| 版本历史 | `CHANGELOG.md` |
-| 历史立项卡 / 会话纪要 / 调研 | `docs/design/` · `docs/history/` |
+| **第一次来先看这个** —— 5 分钟跑起来 · 三维度矩阵 · 十个坑 | [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) |
+| **它挡住了什么、没挡住什么** | [`docs/security/SECURITY-FAQ.md`](docs/security/SECURITY-FAQ.md) |
+| 演示与截图 · 可直接照做的剧本 | [`docs/SHOWCASE.md`](docs/SHOWCASE.md) · [`examples/`](examples/) |
+| 分层架构 · 完整目录树 · ADR 索引 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| 安全模型 / 审计 / 漏洞报告 | [`docs/security/`](docs/security/) · [`SECURITY.md`](SECURITY.md) |
+| 版本历史 | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/releases/`](docs/releases/) |
 
 ### 开发与贡献
 

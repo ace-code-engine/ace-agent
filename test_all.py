@@ -6464,6 +6464,7 @@ if _want("38"):
                    "[38] 仓库根级条目已登记", "[38] 已展开目录的直接子项已登记",
                    "[38] 权威树里没有重复登记的路径(重复会让 set 静默塌陷)",
                    "[38] 文档不再把已闭环的 BACKLOG 编号当未决项引用",
+                   "[38] H-32 授权令已接线 ⇒ 文档不再说「未接入」（承诺与现码同口径）",
                    "[38] ci.yml compileall 覆盖根级 .py",
                    "[38] ci.yml compileall 覆盖全部 .py(含包目录)",
                    "[38] ci.yml compileall 列出的路径都存在",
@@ -6590,6 +6591,26 @@ if _want("38"):
                     _wf_bad.append(f"{_wf.name}: {_ln.strip()[:70]}")
         check("[38] workflows 里的版本读取都用 from core import version（R-07 后不许裸 import）",
               not _wf_bad, _wf_bad[:4])
+
+        # —— H-32：代码在接线，文档就不许再说"未接入" ——
+        # 此前 `core/ace_mandate.py` 的 docstring、`docs/ARCHITECTURE.md` 的权威树、
+        # 以及 test_all 自己的 RG-05a 段注释都写着授权令"未接入审批流程"，而
+        # `execution_layer.py::_stage_permission` 早就在调 `_mandate_decision()`
+        # （RG-05a-2），同段里还有 RG-05k / RG-05n 两条端到端接线断言。
+        # 上面那条"文档不再把已闭环 BACKLOG 编号当未决项引用"的守卫抓不到这类：
+        # 它只查**引用了已闭环编号**的行，而这几行一个编号都没提。
+        _needle32 = "尚未" + "接入"   # 拼出来：守卫自己的源码里也躲不开这四个字
+        _el32 = (FOLDER / "execution_layer.py").read_text(encoding="utf-8")
+        _md32 = (FOLDER / "core" / "ace_mandate.py").read_text(encoding="utf-8")
+        _arch32 = (FOLDER / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+        _self32 = (FOLDER / "test_all.py").read_text(encoding="utf-8")
+        _wired32 = _el32.count("self._mandate_decision(") >= 2
+        _stale32 = [n for n, t in (("core/ace_mandate.py", _md32),
+                                   ("docs/ARCHITECTURE.md", _arch32),
+                                   ("test_all.py", _self32)) if _needle32 in t]
+        check("[38] H-32 授权令已接线 ⇒ 文档不再说「未接入」（承诺与现码同口径）",
+              _wired32 and not _stale32,
+              (f"接线点 {_el32.count('self._mandate_decision(')} 处", _stale32))
 
         # —— F401 口径：仓库内模块不得有未使用的导入 ——
         # 为什么放在这里：CI 的 lint job 跑 ruff（E9/F63/F7/F82/F401/F841/E711/F811），
@@ -14144,9 +14165,11 @@ if _want("71"):
     check("RG-01h ace doctor 体检信任锚（锚路径与锚根来源都报出来）",
           "信任锚" in _out71f and str(_anchor71) in _out71f, _out71f[-400:])
 
-    # ── RG-05a：授权令（第一阶段：令本身，尚未接入审批流程）──
+    # ── RG-05a：授权令（令本身 + 接线后的两处覆盖）──
     # 粒度从"一次调用一个对象"（H-09）换成"一次任务一张令"，弹窗才能从 O(步数) 降到 O(任务数)。
-    # 本组只钉令本身的四条判定 + 可证伪的篡改/过期路径 —— `_stage_permission` 一行都没动。
+    # 本段前一半钉令本身的四条判定 + 可证伪的篡改/过期路径；后一半（RG-05k ~ RG-05o）钉
+    # **接线**：`_stage_permission` 真的调 `_mandate_decision()`，且它只覆盖"本该问人"的两处，
+    # 不覆盖硬拒绝、也不覆盖权限等级不足。
     from core import ace_mandate as _md71  # noqa: E402
     _key71 = _hmac71.new(b"test-anchor-secret", b"ace-mandate-v1", _hl71.sha256).digest()
     _ws71 = str(_g71_root / "rg05")

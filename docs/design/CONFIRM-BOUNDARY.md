@@ -106,9 +106,17 @@ H-01 ~ H-26 把"判据单一来源 + fail-close"这两条主线收了；本卡�
 
 ---
 
-## 3. 附：审计中被推翻 / 修正的两条（留档）
+### W3 · 承诺与现码同口径（收口时追加）
 
-- **"`open_file` 会把任意文件交给 ShellExecute"** —— 已被 H-14 修掉：`file_ops.py:741-753` 现在对**文件**只返回链接（`opened: False`），`os.startfile` 只用于**目录**（Explorer 不是执行）。本卡据此把 H-28b 的修法定在"文件不再交给 ShellExecute"，而不是"补 `.py` 后缀"。
+| ID | 事项 | 证据 | 改法形状 |
+|---|---|---|---|
+| H-32 | **授权令的"接线状态"在文档里落后于代码** | `execution_layer.py::_stage_permission` 有**两处**调用 `_mandate_decision()`（项目外已存在对象的确认、CONFIRM_TOOLS 逐次确认），`test_all` 也有 RG-05k / RG-05n 两条端到端接线断言；而 `core/ace_mandate.py` 的 docstring、`docs/ARCHITECTURE.md` 的权威树、`test_all` 的 RG-05a 段注释**三处都还写着"未接入审批流程"**。上面那条"文档不再把已闭环 BACKLOG 编号当未决项引用"的守卫抓不到：它只查**引用了已闭环编号**的行，而这三行一个编号都没提 | 三处散文改成现码事实；`[38]` 新增 H-32 守卫：`execution_layer.py` 里 `self._mandate_decision(` 出现 ≥ 2 次 ⇒ `core/ace_mandate.py` / `docs/ARCHITECTURE.md` / `test_all.py` 都不许再出现那四个字（判据本身拼字符串构造，免得守卫自己的源码命中自己） |
+
+**W3 验收**：守卫在**修之前**是红的（三处命中）、修之后绿；且把接线去掉（或把任一处散文改回去）都能让它变红 —— 两个方向都可证伪。
+
+---
+
+## 3. 附：审计中被推翻 / 修正的两条（留档）- **"`open_file` 会把任意文件交给 ShellExecute"** —— 已被 H-14 修掉：`file_ops.py:741-753` 现在对**文件**只返回链接（`opened: False`），`os.startfile` 只用于**目录**（Explorer 不是执行）。本卡据此把 H-28b 的修法定在"文件不再交给 ShellExecute"，而不是"补 `.py` 后缀"。
 - **AST 黑名单不算"边界"** —— `io.open(...)` 读写实测都返回 `""`（放行），而等价的 `open` / `os` / `pathlib` 形态被拦。这不是"补一个 `io`"的问题：`code_tools.py:41` 自己写着"黑名单枚举不可能闭合"。所以 H-30 的修法是**要求真实边界**，不是继续补名单。
 
 ---

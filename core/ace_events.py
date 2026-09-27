@@ -21,16 +21,30 @@
 | `notice` | `text` | 人看的输出被转成事件（这样"人话"也不会丢） |
 | `final` | `text` | 模型的最终回复 |
 | `session_end` | `rounds` `tools` `violations` `elapsed` | 会话结束 |
-| `model_delta` | `text` | 流式增量（**opt-in**，见下） |
-| `status` | `segments` | 状态行分段的结构化形态（数据与样式分离） |
+| `model_delta` | `text` | 流式增量（**opt-in**：serve 握手带 `stream: true` 才发） |
+| `status` | `segments` | 状态行分段（`[{name, text, priority, level}]`） |
 
 **两个时刻（驱动 UI 必须分清）**：`tool_call` 是**事后**发出的 —— 它在"执行层已跑完"
 的分支里（`ai_code.py:5208`），是审计记录，不是意图预告。想画"工具正在跑"必须用
 `tool_start`。两者按出现顺序一一对应（本引擎的工具是串行执行的）。
 
 **`model_delta` 是 opt-in 的**：默认**不发**（一次回复可能几千条 delta，灌进只想要
-结论的脚本消费者那里只会让它自己再攒一遍）。要流式渲染的前端在 `initialize` 时
-带 `stream: true` 打开；不开就只收 `final`。要增量也可以走 SDK 层的 `on_delta`。
+结论的脚本消费者那里只会让它自己再攒一遍）。要流式渲染的前端在 `initialize` 时带
+`stream: true` 打开；不开就只收 `final`。要增量也可以走 SDK 层的 `on_delta`。
+
+> 发射点与屏幕上显示的**是同一份增量**：`ai_code.AgentCLI._make_display` 的
+> `_emit_reply` 里，`reply_printed` 记账之后把那个 delta 同时喂给渲染器与这个出口
+> （`on_delta_out`）。所以"用户看到的字"与"前端收到的字"逐字节一致 —— 另起一条
+> 解析路径必然会与屏幕对不上。`/btw` 这类旁路提问刻意不接（它的正文走 `notice`，
+> 接了会让同一句话画两遍）。
+
+**`status` 的发射时机**（结构化输出模式，即 `--json` 与 `--serve`）：会话开始、
+每轮模型请求之前、每次工具往返之后、每轮收尾。发的是**分段**不是排好版的一行 ——
+去留按宽度与 `priority` 决定，而"有多宽"只有前端知道；CLI 用
+`ui/ace_layout.fit_status_line`、前端用 `fitSegments`，同一份数据各自排版。
+`style` 不发（那是 prompt_toolkit 的样式类名），改发折算过的 `level`
+（`info`/`dim`/`warn`/`danger`/`goal`）—— 那是引擎的判断（"这一段在不在告警"），
+前端按 `level` 上色、并对 `name == "permission"` 那一段用 `meta.permission` 自己决定三档颜色。
 
 纯逻辑（事件构造、schema 校验）与输出分离：前者可单测，后者只负责写一行 JSON。
 """

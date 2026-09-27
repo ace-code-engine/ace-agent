@@ -161,11 +161,25 @@ class ToolSpec:
 | `notice` | `text` | 人看的输出（已剥色、已去重绘） |
 | `final` | `text` | 模型最终回复 |
 | `session_end` | `rounds` `tools` `elapsed` | 会话结束（最后一个事件） |
+| `model_delta` | `text` | **流式增量**：serve 握手带 `stream: true` 才发（见下） |
+| `status` | `segments` | **状态行分段**：`[{name, text, priority, level}]`，前端自己排版 |
+
+`tool_start`（工具**即将**执行，与事后的 `tool_call` 是两个时刻）与
+`choice_request`（要用户做一次选择）同样在契约里；完整表以
+`core/ace_events.EVENT_REQUIRED` 为准。
 
 - 契约的唯一来源是 `core/ace_events.EVENT_REQUIRED`；test_all `[45]` 断言"表覆盖全部类型"，
   并**真的跑一个子进程**把 stdout 逐行解析、校验每个事件。
-- **不发 `model_delta`**：一次回复可能几千条增量，灌进事件流只会让消费者自己再攒一遍。
-  要增量请在 SDK 层接 `on_delta`。
+- **`model_delta` 是 opt-in 的**：`--json` **不发**（一次回复可能几千条增量，灌进只想要
+  结论的脚本消费者那里只会让它自己再攒一遍）；要流式渲染的前端在 serve 握手里带
+  `stream: true` 打开 —— 那时增量与终端上显示的是**同一份**（`_emit_reply` 的同一个 delta），
+  且一定在 `final` 之前到达。不开就只收 `final`。要增量也可以走 SDK 层的 `on_delta`。
+- **`status` 在结构化输出模式（`--json` / `--serve`）下发**，时机是：会话开始、每轮模型
+  请求之前、每次工具往返之后、每轮收尾。发**分段**不发成品行 —— 去留按宽度与 `priority`
+  决定，而"有多宽"只有前端知道（CLI 用 `fit_status_line`、前端用 `fitSegments`）。
+  段里只有 `name`/`text`/`priority`/`level`：`style` 是 prompt_toolkit 的类名，不进协议；
+  而 `level`（`info`/`dim`/`warn`/`danger`/`goal`）是**引擎的判断**折算过来的
+  （`context_badge` 的 docstring 写着"颜色即语义"），前端照它上色即可。
 - 非交互语义不变：需要审批的动作一律拒绝（不是"没人看着所以危险"，是"没人在就拒绝"）。
 
 ## 10. 已知接口级待办(实现时引用 BACKLOG ID)

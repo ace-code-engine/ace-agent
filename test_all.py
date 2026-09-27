@@ -12077,6 +12077,35 @@ if _want("69"):
         check("--serve：本轮应同时有 tool_start 与 tool_call",
               False, _types69)
 
+    # —— 流式增量与底栏分段：前端 **request 了就必须收得到** ——
+    # 此前 `initialize` 的 `stream` 开关被记住、被回报，然后**没有任何地方读它**：
+    # 前端等一个永远不来的 `model_delta`，整段回答只在 `final` 里出现一次
+    # （症状就是"卡住几秒到几十秒，然后整段蹦出来"）。`status` 同样只登记了 schema。
+    _deltas69 = "".join(f["event"].get("text") or "" for f in _ev69
+                        if f["event"]["type"] == "model_delta")
+    _final69 = next((f["event"] for f in _ev69 if f["event"]["type"] == "final"), {})
+    check("--serve ★stream:true 时真的收得到 model_delta（不再是只登记不发射）",
+          bool(_deltas69), _types69)
+    check("--serve ★增量拼起来 == final 正文（屏幕上的字与前端收到的是同一份）",
+          _deltas69.strip() == str(_final69.get("text") or "").strip(),
+          (_deltas69[:70], str(_final69.get("text") or "")[:70]))
+    check("--serve ★model_delta 出现在 final 之前（前端据此画「还在流」）",
+          "model_delta" in _types69 and "final" in _types69
+          and _types69.index("model_delta") < _types69.index("final"), _types69)
+
+    _sts69 = [f["event"].get("segments") for f in _ev69
+              if f["event"]["type"] == "status"]
+    check("--serve ★status 真的带着分段来（底栏的数据源，不是只登记 schema）",
+          bool(_sts69) and all(isinstance(s, list) and s for s in _sts69),
+          _sts69[:1])
+    check("--serve 分段的形状：name/text/priority/level —— 且**没有** prompt_toolkit 的 style",
+          all({"name", "text", "priority", "level"} == set(_s.keys())
+              for _s in _sts69[0]) if _sts69 else False,
+          _sts69[:1])
+    check("--serve 分段里有上下文占用那一段（CLI 说 92% 而前端说 40% 的来源是同一条）",
+          any(_s.get("name") == "context" for _s in (_sts69[0] if _sts69 else [])),
+          _sts69[:1])
+
     # 授权往返：换个会触发审批的输入，答案递上去后引擎要**照着办**。
     _ev69b, _rp69b, _rc69b, _err69b, _killed69b = _serve_round69(
         "once", "帮我改代码，往笔记里加一行")

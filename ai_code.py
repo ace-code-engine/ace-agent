@@ -1075,6 +1075,27 @@ def context_usage(messages: List[Dict], context_window: int,
             "state": state}
 
 
+#: `status` 事件里的 `level`：把 prompt_toolkit 的样式类名折算成**四档语义**。
+#: 为什么折算而不是原样发类名：`class:footer-w` 对 Ink 毫无意义，而"这一段是不是在
+#: 告警"是引擎的判断（`context_badge` 的 docstring 写着"颜色即语义"）。
+#: 注意 `class:footer-w/f` 同时被"权限档"与"告警"两类分段使用 —— 前端对
+#: `name == "permission"` 那一段改用 `meta.permission` 自己上色（三档是产品契约），
+#: 所以这个重叠不影响结果。
+_STATUS_LEVELS = {
+    "class:footer": "info",
+    "class:footer-ro": "info",
+    "class:footer-dim": "dim",
+    "class:footer-w": "warn",
+    "class:footer-f": "danger",
+    "class:footer-goal": "goal",
+}
+
+
+def _status_level(style: str) -> str:
+    """样式类名 → 语义档（未知类名一律 info，不猜）。"""
+    return _STATUS_LEVELS.get(str(style or ""), "info")
+
+
 def context_badge(usage: Dict[str, Any]) -> Tuple[str, str]:
     """底栏那一段：返回 (文本, prompt_toolkit 样式类名)。
 
@@ -2479,6 +2500,35 @@ class _SlashCommands:
                 pass
         return parts
 
+    def _emit_status(self) -> None:
+        """把底栏那套分段发成 `status` 事件（结构化输出模式下底栏的唯一数据源）。
+
+        为什么发**分段**而不是发排好版的一行：去留按宽度与 `priority` 决定，而"有多宽"
+        只有前端知道（终端列数、要不要分栏）。引擎只说"有哪些段、什么优先级"，
+        `ui/ace_layout.fit_status_line` 与前端 `fitSegments` 各自按自己的宽度丢车保帅 ——
+        同一份数据两种排版，不会出现"CLI 说 92%、前端说 40%"。
+
+        **发 `name` 与 `level`，不发 `style`**：`style` 是 prompt_toolkit 的样式类名
+        （`class:footer-ro` 之类），对 Ink 没有意义。名字是稳定的身份；而 `level` 是
+        **引擎的判断**——`context_badge` 自己的 docstring 写着"颜色即语义"
+        （灰=还有余量 / 黄=接近触发点 / 红=下一轮就压缩），把类名折算成四档语义
+        （info/dim/warn/danger）既保住了这个判断，又不用把样式系统搬过去。
+
+        门槛放在 `json_mode`（`--json` 与 `--serve` 都算）：终端里底栏本来就在实时重画，
+        再发一遍没有消费者；而结构化输出的两个消费者都需要它。
+        """
+        if not self.json_mode:
+            return
+        try:
+            segs = self._status_segments()
+        except Exception as e:      # noqa: BLE001 —— 底栏取不到不该打断这一轮
+            print(f"⚠ 状态分段取不到，本次不发 status: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            return
+        self.events.emit("status", segments=[
+            {"name": s.name, "text": s.text, "priority": s.priority,
+             "level": _status_level(s.style)} for s in segs])
+
     def _footer(self, width: int = 0) -> List[Tuple[str, str]]:
         """底栏（prompt_toolkit 的 bottom_toolbar）：分段 + 按宽度丢车保帅。
 
@@ -3329,6 +3379,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.events = (getattr(self._serve, "emitter", None)
                        or cfg.get("_events")
                        or ace_events.EventEmitter(enabled=self.json_mode))
+        # 流式正文的**外部出口**：serve 模式下前端在 `initialize` 里带 `stream: true`
+        # 时装上，把"人正在看到的那一份增量"原样发成 `model_delta`。
+        # None = 不发 —— `--json` 与终端路径保持既有契约（增量只走 `on_delta`，
+        # 不进事件流；见 core/ace_events.py 里 model_delta 是 opt-in 的说明）。
+        #
+        # 为什么挂在 CLI 上而不是散在渲染层：`_emit_reply` 是"正文增量"流过**唯一**
+        # 的那一处（协议解析、标签清理、`reply_printed` 记账都在它里面），
+        # 在这里出口能保证"屏幕上显示的字"与"前端收到的字"是同一份，不另算一遍。
+        self._reply_delta_sink: Optional[Callable[[str], None]] = None
         self.client = ModelClient(cfg, mock=mock)
         self.max_history = int(cfg.get("max_history", 0) or 0)
         self.context_window = int(cfg.get("context_window", 32768) or 32768)
@@ -3415,6 +3474,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                              sandbox=self.cfg.get("sandbox", "off") or "off",
                              project_root=str(self.cfg.get("project_root", ".")),
                              model=self.client.model, mock=bool(self.client.mock))
+            # 底栏的第一帧：前端挂上界面就能画出"模型/权限/沙箱/上下文"，而不是等第一轮。
+            self._emit_status()
         # 无人值守提示：非 tty（管道/CI）下"需要审批的动作会被直接拒绝，而不需要审批的
         # 写/执行工具照跑"——这反直觉，必须在启动时说出来，别让人以为"没人看着更安全"。
         if not sys.stdin.isatty() and execution_layer.unattended_without_boundary(
@@ -4679,6 +4740,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             _sys = self._build_system_prompt() + "\n\n" + t("btw_system")
             # 用**临时**消息列表：`self.messages` 一个字节都不动
             _msgs = list(self.messages or []) + [{"role": "user", "content": question}]
+            # 刻意**不传** `on_delta_out`：`/btw` 是旁路提问，它的正文走"直接 print"
+            # （经 NoticeProxy 变成 notice）。再接一路 `model_delta` 会让前端的
+            # 流式助手气泡与 notice 同时出现同一段字 —— 同一句话画两遍。
             answer = self.client.stream_generate(_sys, _msgs,
                                                  self._make_display().get("on_delta"),
                                                  permission=self.el.permission.level)
@@ -5341,15 +5405,24 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     @staticmethod
     def _make_display(tools_mode: bool = False,
                       spinner: Optional["_Spinner"] = None,
-                      show_thinking: bool = False) -> Dict:
+                      show_thinking: bool = False,
+                      on_delta_out: Optional[Callable[[str], None]] = None) -> Dict:
         """智能展示回调：隐藏 <INTERNAL> 内部思考，◈ 状态行实时反馈过程
 
         状态流转：思考中… → 正在调用工具… → 回复正文流式输出
         用户只会看到 EXTERNAL 的最终内容，内部推理不泄漏。
         tools_mode=True 时模型直接输出纯文本（无 EXTERNAL 标签），流式内容本身就是回复。
         spinner 提供动效：思考/工具阶段持续加点动画，回复正文出现时自动停掉。
+
+        `on_delta_out`：正文增量的**第二个出口**（serve 模式下前端要流式）。
+        复用 `_emit_reply` 已经算好的那一份 delta，而不是另起一条解析路径 ——
+        `reply_printed` 的记账、协议标签的清理、`tools_mode` 的判据全在这里，
+        再算一遍必然会与屏幕上显示的字对不上。
         """
         st = {"state": "thinking", "reply_printed": 0}
+        # 增量出口用**盒子**装（而不是闭包变量）：发失败时要能就地断开，
+        # 否则每个 delta 都会往 stderr 刷一行警告。
+        _sink = {"fn": on_delta_out}
         # 正文流式渲染器：懒建（没正文就不建，`/help` 这类全静态输出的路径不受影响）。
         # 交付方式从"逐字符 print"换成"完整行交给 Markdown 渲染器"，理由是模型吐的是
         # Markdown：原样打印用户看到满屏 `**`，而先全后有又会看起来像卡死。
@@ -5368,6 +5441,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             delta = visible[st["reply_printed"]:]
             st["reply_printed"] = len(visible)
             _renderer().feed(delta)
+            # 同一份增量同步给事件流（只在 serve + `stream: true` 时有出口）。
+            # 发不出去不该打断回答；但也不许静默 —— 断开出口并如实说一句。
+            if _sink["fn"] is not None:
+                try:
+                    _sink["fn"](delta)
+                except Exception as _e:      # noqa: BLE001
+                    _sink["fn"] = None
+                    print(f"⚠ model_delta 发送失败，已停止流式增量: "
+                          f"{type(_e).__name__}: {_e}", file=sys.stderr)
 
         def _flush_reply() -> None:
             """收尾：交出未完结的最后一行与攒着的表格。幂等。"""
@@ -5487,7 +5569,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                            reduce_motion=self._reduce_motion())
         self._spinner = spinner      # /tasks 用：能看出"此刻在跑什么"
         disp = self._make_display(tools_mode=bool(self.client.tools), spinner=spinner,
-                                  show_thinking=self._expand_all())
+                                  show_thinking=self._expand_all(),
+                                  on_delta_out=self._reply_delta_sink)
         spinner.start()
         try:
             # 会话事件日志：记录每次模型请求的 envelope 与完整系统提示词
@@ -5503,6 +5586,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self.events.emit("model_request", round=round_no,
                                  messages_count=len(msgs), system_len=len(system),
                                  model=self.client.model)
+                # 每轮开始刷一次底栏：轮数、上下文占比、目标进度都在这一刻变了。
+                self._emit_status()
             output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"],
                                                  permission=self.el.permission.level)
             # 流式正文收尾：渲染器按行交付，最后一行往往没有换行符，
@@ -5841,6 +5926,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 if self.json_mode:
                     self.events.emit("final", text=str(result["message"] or ""),
                                      round=_round, sec=round(time.time() - t0, 3))
+                    # 收尾那一帧：这一轮的轮数/工具数/上下文已定型（下一轮开工前不再变）。
+                    self._emit_status()
                 print(c("green", t("done", round=_round,
                                    sec=time.time() - t0)))
                 self._maybe_notify_done(time.time() - t0)
@@ -5983,6 +6070,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                         elapsed=round(_elapsed_f, 3), exit_code=_exit_code,
                         message=str(result.get("message") or "")[:500],
                         data=result.get("data") if _st == "SUCCESS" else None)
+                    # 每次工具往返后刷底栏：工具在跑/排队、待办进度、轮数都变了 ——
+                    # 这正是"切到别的窗口回来也知道跑到哪了"要的信息。
+                    self._emit_status()
                 if result["status"] == "SUCCESS":
                     self._print_clickables(result)
                 if result.get("memory_injected"):
@@ -6654,6 +6744,13 @@ def _run_serve(cli: "AgentCLI", srv) -> int:
     def _h_initialize(params: Dict) -> Dict:
         srv.initialized = True
         srv.stream_enabled = bool(params.get("stream"))
+        # 前端 request 了 `stream: true` 就必须真的收得到增量 —— 此前服务端把这个开关
+        # 记住、回报、然后**没有任何地方读它**：前端等一个永远不来的 `model_delta`，
+        # 整段回答只在 `final` 里出现一次（"卡住几秒到几十秒，然后整段蹦出来"）。
+        # 出口接在 CLI 的 `_emit_reply` 上，与屏幕显示的是同一份增量。
+        cli._reply_delta_sink = (
+            (lambda text: srv.send_event("model_delta", text=text))
+            if srv.stream_enabled else None)
         srv.client_info = dict(params.get("client") or {})
         return {
             "protocol": _sv.PROTOCOL_VERSION,

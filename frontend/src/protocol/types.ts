@@ -88,6 +88,14 @@ export interface ToolResultEvent extends AceEvent {
   type: 'tool_result';
   tool: string;
   status: string;
+  /**
+   * **机器通道**（`THREE-LAYERS` RL-01）：闭集 `success | denied | failed | partial | deferred`。
+   *
+   * 与 `status` 各说各的：`status` 是"发生了什么"（给人看），`outcome` 是"下一步该干什么"
+   * （给驱动层判）。`denied` 是**被拒**（此路不通的知识），`failed` 才是**没成**（该升级的状态）。
+   * 唯一来源 `tools.status.outcome_for`；`test_all [36]` 逐条钉住映射。
+   */
+  outcome?: string;
   elapsed: number;
   message: string;
   exit_code?: number | null;
@@ -111,6 +119,12 @@ export interface ChoiceRequestEvent extends AceEvent {
   options?: string[];
   /** `text` 才有：预填值。 */
   default?: string;
+  /**
+   * `text` 才有：**凭据输入**，外壳不许回显（H-33 / H-34a）。
+   *
+   * 引擎侧由 `WizardStep.hidden` 一路传到这里；缺省/缺字段 = 普通文本。
+   */
+  secret?: boolean;
   /** `choose` 才有：是否附带「思考强度」行（只在模型选择框里开）。 */
   with_effort?: boolean;
 }

@@ -321,28 +321,44 @@ class SessionLog:
         return self.append(K_TOOL_CALL, {"tool": tool, "params": params})
 
     def record_tool_result(self, tool: str, status: str, message: str = "",
-                           elapsed_ms: int = 0) -> int:
+                           elapsed_ms: int = 0, outcome: str = "") -> int:
         """工具结果。`elapsed_ms` 是**实测耗时**（执行层 `result.metadata["elapsed"]`，秒 → 毫秒）。
 
         为什么要记它：耗时此前只活在内存里，落进日志之前谁也聚合不了 —— 而 `ts` 只有秒级
         粒度（实测 262 份真实日志：平均 11.2 事件却只有 1.8 个不同 ts），所以"哪个工具慢"
         根本推不出来。这个字段一落，度量就能算。
+
+        `outcome`（RL-01 机器通道）**按需写**：拿到了才写，拿不到就不写那两个键的同一条纪律 ——
+        空串不落盘，免得日志里多出一堆没有信息的 `"outcome": ""`。
         """
         payload = {"tool": tool, "status": status, "message": (message or "")[:300]}
         if elapsed_ms:
             payload["elapsed_ms"] = int(elapsed_ms)
+        if outcome:
+            payload["outcome"] = str(outcome)
         return self.append(K_TOOL_RESULT, payload)
 
     def record_usage(self, *, model: str, in_tokens: int, out_tokens: int,
-                     usd: Optional[float] = None, subagent: str = "") -> int:
+                     usd: Optional[float] = None, subagent: str = "",
+                     measured_in: Optional[int] = None,
+                     measured_out: Optional[int] = None) -> int:
         """每轮 token 用量（**增量**）与成本估算。
 
         为什么是增量：累计值写进 append-only 日志，重放时会一路翻倍；增量重放求和才是真值。
         为什么由这里记：`self._cost` 只活在内存里，会话一结束就没了，跨会话的用量/成本
         无从聚合 —— 而日志是唯一事实源。
+
+        **厂商实测值并列留档（ACC-01）**：`in_tokens`/`out_tokens` 是本地按字符估的
+        （`cli/ace_context.estimate_tokens`），`measured_*` 是厂商响应里报的。两个都留、
+        **互不覆盖** —— 只留一个数的时候，"这个估算到底差多少"永远问不出来。
+        拿不到实测（端点不报 / 流式没带）就**不写这两个键**，绝不拿 0 冒充"没用量"。
         """
         payload = {"model": model, "in_tokens": int(in_tokens),
                    "out_tokens": int(out_tokens)}
+        if measured_in is not None:
+            payload["measured_in_tokens"] = int(measured_in)
+        if measured_out is not None:
+            payload["measured_out_tokens"] = int(measured_out)
         if usd is not None:
             payload["usd"] = round(float(usd), 6)
         if subagent:

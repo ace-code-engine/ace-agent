@@ -195,12 +195,71 @@ def anthropic_payload_variants(system: str, messages: List[Dict], *,
 
 
 # ============================================================
+# 厂商实测用量（ACC-01：自报的数必须有一个**独立来源**）
+# ============================================================
+
+def _int_or_none(v: Any) -> Optional[int]:
+    """取整数；`bool` 不算数（它是 `int` 的子类，`True` 会变成 1）。取不到 → None。"""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _openai_usage(body: Any) -> Optional[Dict[str, int]]:
+    """OpenAI 兼容响应里的用量 → `{"in_tokens", "out_tokens"}`；没有/畸形 → `None`。
+
+    两家端点字段名不同（`prompt_tokens` vs `input_tokens`），所以两个都认。
+    **缺一个就算 `None`** —— 宁可说"不知道"，也不要拿 0 冒充"没花钱"
+    （`ace_cost` 的"价格未知"是同一条口径）。
+    """
+    u = body.get("usage") if isinstance(body, dict) else None
+    if not isinstance(u, dict):
+        return None
+    tin = _int_or_none(u.get("prompt_tokens", u.get("input_tokens")))
+    tout = _int_or_none(u.get("completion_tokens", u.get("output_tokens")))
+    if tin is None or tout is None:
+        return None
+    return {"in_tokens": tin, "out_tokens": tout}
+
+
+def _anthropic_usage(u: Any) -> Optional[Dict[str, int]]:
+    """Anthropic 的 `usage` → 同一形状；缺一个 → `None`（口径同上）。"""
+    if not isinstance(u, dict):
+        return None
+    tin = _int_or_none(u.get("input_tokens"))
+    tout = _int_or_none(u.get("output_tokens"))
+    if tin is None or tout is None:
+        return None
+    return {"in_tokens": tin, "out_tokens": tout}
+
+
+def _note_usage(on_usage: Optional[Callable[[Dict[str, int]], None]],
+                usage: Optional[Dict[str, int]]) -> None:
+    """把实测用量交给调用方。
+
+    **回调抛异常绝不许弄坏这次调用** —— 与 `on_delta` / `on_retry` 同一条纪律：
+    记账失败是记账的事，不能把一次已经成功的模型调用变成失败。
+    """
+    if on_usage is None or not usage:
+        return
+    try:
+        on_usage(dict(usage))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# ============================================================
 # 一次性调用（非流式）
 # ============================================================
 
 def chat_complete(base_url: str, api_key: str, payload: Dict[str, Any], *,
                   timeout: int = CHAT_TIMEOUT,
-                  on_retry: Optional[Callable[..., None]] = None) -> Dict[str, Any]:
+                  on_retry: Optional[Callable[..., None]] = None,
+                  on_usage: Optional[Callable[[Dict[str, int]], None]] = None
+                  ) -> Dict[str, Any]:
     """POST {base}/chat/completions，返回解析后的 JSON。429/5xx/连接抖动按 ace_http 退避。
 
     4xx 规范化成 `ChatHTTPError` 抛出，**在抛出前把错误正文读下来** ——
@@ -212,7 +271,9 @@ def chat_complete(base_url: str, api_key: str, payload: Dict[str, Any], *,
                        "Content-Type": "application/json"},
               payload=payload, stream=False, timeout=timeout,
               on_retry=on_retry) as r:
-        return r.json()
+        body = r.json()
+    _note_usage(on_usage, _openai_usage(body))
+    return body
 
 
 # ============================================================
@@ -253,7 +314,9 @@ def openai_message(body: Dict[str, Any]) -> Tuple[str, List[Dict]]:
 def stream_openai(base_url: str, api_key: str, payload: Dict[str, Any], *,
                   on_delta: Optional[Callable[[str], None]] = None,
                   timeout: int = CHAT_TIMEOUT,
-                  on_retry: Optional[Callable[..., None]] = None) -> Tuple[str, List[Dict]]:
+                  on_retry: Optional[Callable[..., None]] = None,
+                  on_usage: Optional[Callable[[Dict[str, int]], None]] = None
+                  ) -> Tuple[str, List[Dict]]:
     """OpenAI 兼容调用。返回 `(正文, tool_calls 列表)` —— 流式与非流式同构。
 
     流式只把**正文**增量交给 `on_delta`；tool_calls 的参数分片默默累积、不污染显示
@@ -270,6 +333,7 @@ def stream_openai(base_url: str, api_key: str, payload: Dict[str, Any], *,
                   stream=False, timeout=timeout, on_retry=on_retry) as r:
             body = r.json()
         full, calls = openai_message(body)
+        _note_usage(on_usage, _openai_usage(body))
         if full:
             _emit(on_delta, full, full)
         return full, calls
@@ -277,6 +341,7 @@ def stream_openai(base_url: str, api_key: str, payload: Dict[str, Any], *,
     # 重试只覆盖到"拿到响应头"为止，这一点是刻意的：此刻还没有任何字符吐给用户，
     # 重发是安全的。读到一半断流则不在覆盖范围内 —— 那时正文已经在屏幕上了，
     # 重发会造成重复输出，宁可报错。
+    seen_usage: Optional[Dict[str, int]] = None
     with _run(url, method="POST", headers=headers, payload=payload,
               stream=True, timeout=timeout, on_retry=on_retry) as r:
         for line in r.iter_lines():
@@ -294,6 +359,13 @@ def stream_openai(base_url: str, api_key: str, payload: Dict[str, Any], *,
                 continue
             if not isinstance(obj, dict):
                 continue
+            # 用量在收尾分片里（`choices` 常为空数组），所以**在取 choices 之前**读，
+            # 否则会跟着 `delta` 一起被当成"没有内容"跳过。
+            # 注意：这里**不主动**加 `stream_options.include_usage` —— 那是请求参数，
+            # 端点不认就 400；读得到就读，读不到就如实留空（ACC-01 那一侧靠 `estimated` 兜）。
+            _u = _openai_usage(obj)
+            if _u is not None:
+                seen_usage = _u
             choices = obj.get("choices") or []
             delta = ((choices[0] or {}).get("delta", {}) if choices else {})
             if not isinstance(delta, dict):
@@ -317,6 +389,7 @@ def stream_openai(base_url: str, api_key: str, payload: Dict[str, Any], *,
                 if fn.get("arguments"):
                     slot["function"]["arguments"] += fn["arguments"]
     _emit(on_delta, full, "", newline=True, last=last)
+    _note_usage(on_usage, seen_usage)
     return full, [v for _, v in sorted(tool_calls.items())]
 
 
@@ -330,7 +403,8 @@ def anthropic_headers(api_key: str) -> Dict[str, str]:
 def post_anthropic(base_url: str, api_key: str, payload: Dict[str, Any], *,
                    on_delta: Optional[Callable[[str], None]] = None,
                    timeout: int = ANTHROPIC_TIMEOUT,
-                   on_retry: Optional[Callable[..., None]] = None) -> str:
+                   on_retry: Optional[Callable[..., None]] = None,
+                   on_usage: Optional[Callable[[Dict[str, int]], None]] = None) -> str:
     """POST {base}/v1/messages，流式（SSE）与非流式（JSON）两种响应都处理，返回正文。
 
     重试在 ace_http 里，与调用方的变体循环分工明确：变体循环只管 400
@@ -347,10 +421,14 @@ def post_anthropic(base_url: str, api_key: str, payload: Dict[str, Any], *,
             blocks = data.get("content") or []
             full = "".join(b.get("text", "") for b in blocks
                            if isinstance(b, dict) and b.get("type") == "text")
+            _note_usage(on_usage, _anthropic_usage(data.get("usage")))
             _emit(on_delta, full, full, newline=True)
             return full
         full = ""
         last: List[Optional[str]] = [None]
+        # 流式下用量**分两处来**：`message_start` 只有 input，`message_delta` 只有 output。
+        # 所以按字段各收各的，两半都到齐才交出去（缺一半就算"不知道"）。
+        acc: Dict[str, int] = {}
         for line in r.iter_lines():
             if not line:
                 continue
@@ -363,13 +441,29 @@ def post_anthropic(base_url: str, api_key: str, payload: Dict[str, Any], *,
                 continue
             if not isinstance(obj, dict):
                 continue
-            if obj.get("type") == "content_block_delta":
+            _kind = obj.get("type")
+            if _kind == "message_start":
+                _msg = obj.get("message")
+                _mu = (_msg or {}).get("usage") if isinstance(_msg, dict) else None
+                _tin = _int_or_none((_mu or {}).get("input_tokens")) \
+                    if isinstance(_mu, dict) else None
+                if _tin is not None:
+                    acc["in_tokens"] = _tin
+            elif _kind == "message_delta":
+                _du = obj.get("usage")
+                _tout = _int_or_none((_du or {}).get("output_tokens")) \
+                    if isinstance(_du, dict) else None
+                if _tout is not None:
+                    acc["out_tokens"] = _tout
+            if _kind == "content_block_delta":
                 delta = obj.get("delta") or {}
                 text = delta.get("text", "") if isinstance(delta, dict) else ""
                 if text:
                     full += text
                     _emit(on_delta, full, text, last=last)
         _emit(on_delta, full, "", newline=True, last=last)
+        if len(acc) == 2:
+            _note_usage(on_usage, acc)
         return full
 
 
@@ -377,13 +471,15 @@ def stream_anthropic(base_url: str, api_key: str, system: str, messages: List[Di
                      model: str,
                      on_delta: Optional[Callable[[str], None]] = None,
                      timeout: int = ANTHROPIC_TIMEOUT,
-                     on_retry: Optional[Callable[..., None]] = None) -> str:
+                     on_retry: Optional[Callable[..., None]] = None,
+                     on_usage: Optional[Callable[[Dict[str, int]], None]] = None) -> str:
     """Anthropic 调用：多格式变体自动降级，兼容不同服务商。"""
     last_err = ""
     for payload in anthropic_payload_variants(system, messages, model=model):
         try:
             return post_anthropic(base_url, api_key, payload, on_delta=on_delta,
-                                  timeout=timeout, on_retry=on_retry)
+                                  timeout=timeout, on_retry=on_retry,
+                                  on_usage=on_usage)
         except ChatHTTPError as e:
             body = e.body
             last_err = f"{e} | 响应体: {body}"
@@ -412,7 +508,9 @@ def chat_stream(base_url: str, api_key: str, model: str, fmt: str,
                 on_delta: Optional[Callable[[str], None]] = None,
                 on_retry: Optional[Callable[..., None]] = None,
                 should_degrade: Optional[Callable[[BaseException], bool]] = None,
-                max_attempts: int = 2) -> Tuple[str, List[Dict]]:
+                max_attempts: int = 2,
+                on_usage: Optional[Callable[[Dict[str, int]], None]] = None
+                ) -> Tuple[str, List[Dict]]:
     """按接口格式发一次（必要时**关掉 tools** 重来一次）→ `(正文, tool_calls)`。
 
     `should_degrade(exc)` 由调用方判断"这次失败是不是'端点不认 tools 参数'"：
@@ -429,7 +527,8 @@ def chat_stream(base_url: str, api_key: str, model: str, fmt: str,
         try:
             if fmt == "anthropic":
                 text = stream_anthropic(base_url, api_key, system, messages, model=model,
-                                        on_delta=on_delta, on_retry=on_retry)
+                                        on_delta=on_delta, on_retry=on_retry,
+                                        on_usage=on_usage)
                 return text, []
             # tools 模式强制非流式，理由见 openai_payload 的说明
             payload = openai_payload(model,
@@ -437,7 +536,7 @@ def chat_stream(base_url: str, api_key: str, model: str, fmt: str,
                                      stream=not use_tools,
                                      tools=toolkit if use_tools else None)
             return stream_openai(base_url, api_key, payload, on_delta=on_delta,
-                                 on_retry=on_retry)
+                                 on_retry=on_retry, on_usage=on_usage)
         except BaseException as exc:           # noqa: BLE001 —— 判据要看到原始失败
             err = resolve_error(exc, base_url)
             last = err
@@ -451,6 +550,7 @@ def chat_once(base_url: str, api_key: str, model: str, fmt: str,
               system: str, messages: List[Dict], *,
               tools: Optional[List[Dict]] = None,
               on_retry: Optional[Callable[..., None]] = None,
+              on_usage: Optional[Callable[[Dict[str, int]], None]] = None,
               **kwargs) -> Dict[str, Any]:
     """一次性（非流式）调用：不需要流式渲染、只要那句回答时的形状。
 
@@ -460,7 +560,7 @@ def chat_once(base_url: str, api_key: str, model: str, fmt: str,
     """
     if fmt == "anthropic":
         text = stream_anthropic(base_url, api_key, system, messages, model=model,
-                                on_retry=on_retry)
+                                on_retry=on_retry, on_usage=on_usage)
         return {"choices": [{"message": {"role": "assistant", "content": text}}]}
     # system 为空时**不要**塞一条空 system 消息：调用方（agent_runner）本来就把
     # system 拼在 messages[0] 里，于是 headless 每条请求都会发**两条 system、
@@ -469,7 +569,8 @@ def chat_once(base_url: str, api_key: str, model: str, fmt: str,
     # 所以这个统一必须在这里做，不能靠调用方各自注意。
     head = [{"role": "system", "content": system}] if str(system or "").strip() else []
     payload = openai_payload(model, head + list(messages), stream=False, tools=tools)
-    return chat_complete(base_url, api_key, payload, on_retry=on_retry, **kwargs)
+    return chat_complete(base_url, api_key, payload, on_retry=on_retry,
+                         on_usage=on_usage, **kwargs)
 
 
 def stream_mock(text: str, on_delta: Optional[Callable[[str], None]] = None,

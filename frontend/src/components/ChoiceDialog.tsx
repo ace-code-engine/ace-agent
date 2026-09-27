@@ -34,6 +34,13 @@ export interface ChoiceDialogProps {
   disabled?: boolean;
   /** 最多显示几行候选。 */
   height?: number;
+  /**
+   * `text` 才有：**凭据输入，不许回显**（H-34a）。
+   *
+   * 引擎给的提示词里写着"输入时不显示"，而这里此前把键入的每个字符都画了出来 ——
+   * 承诺与事实正好相反。带上这个标志后只画掩码。
+   */
+  secret?: boolean;
 }
 
 export function ChoiceDialog({
@@ -46,10 +53,12 @@ export function ChoiceDialog({
   onAnswer,
   disabled = false,
   height = 10,
+  secret = false,
 }: ChoiceDialogProps): React.ReactElement {
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
-  const [text, setText] = useState(defaultValue);
+  // 凭据步不预填默认值：预填本身就是一次回显（H-34a）
+  const [text, setText] = useState(secret ? '' : defaultValue);
 
   const filtered = useMemo(() => {
     if (kind !== 'choose') return options;
@@ -149,7 +158,7 @@ export function ChoiceDialog({
               const selected = idx === sel;
               return (
                 <Text key={opt + idx} color={selected ? color('accent') : color('text')}>
-                  {gstr(selected ? '❯ ' : '  ')}
+                  {gstr(selected ? '▶ ' : '  ')}
                   {opt}
                 </Text>
               );
@@ -165,7 +174,10 @@ export function ChoiceDialog({
 
       {kind === 'text' ? (
         <Text>
-          <Text color={color('text')}>{text}</Text>
+          {/* 凭据只画掩码：长度仍是用户自己输入的长度，看不出内容 */}
+          <Text color={color('text')}>
+            {secret ? gstr('•').repeat(text.length) : text}
+          </Text>
           <Text color={color('accent')}>{gstr('▌')}</Text>
         </Text>
       ) : null}

@@ -73,6 +73,8 @@ export interface State {
     title: string;
     options: string[];
     defaultValue: string;
+    /** 凭据输入：外壳**不许回显**（H-33 / H-34a）。 */
+    secret: boolean;
     itemId: number;
   } | null;
   /** 是否正在跑一轮（用于输入框禁用 / spinner）。 */
@@ -231,6 +233,9 @@ export function applyEvent(state: State, ev: AceEvent): State {
           title,
           options: Array.isArray(ev.options) ? ev.options.map(str) : [],
           defaultValue: str(ev.default),
+          // 只有**显式 true** 才算凭据：字段缺失（老引擎）按普通文本处理，
+          // 但也意味着老引擎永远不会把密钥标出来 —— 那正是 H-33 要修的那一头。
+          secret: ev.secret === true,
           itemId: next.seq,
         },
       };

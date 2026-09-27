@@ -1963,7 +1963,8 @@ class ExecutionLayer:
             # 谁也聚合不了 —— 而 ts 只有秒级粒度，推不出"哪个工具慢"。
             _elapsed_ms = int(round(float(result.metadata.get("elapsed") or 0.0) * 1000))
             self.session_log.record_tool_result(
-                tool_name, result.status, result.message, elapsed_ms=_elapsed_ms)
+                tool_name, result.status, result.message, elapsed_ms=_elapsed_ms,
+                outcome=str(getattr(result, "outcome", "") or ""))
         return result
 
 

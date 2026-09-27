@@ -521,9 +521,12 @@ def render_wizard(state: WizardState, width: int = 76,
     lines.append(styler("bold", "┌ " + truncate_width(head, inner - 2) + " "
                         + "─" * max(0, inner - display_width(head)) + "┐"))
     if step is not None:
-        lines.append(_kv_line(inner,
-                              f"{step.prompt}  [{step.default}]" if step.default
-                              else step.prompt, styler))
+        # 隐藏步骤**不许**把默认值画出来（H-34c）：这个渲染器是 `ui/` 回落路径的画法，
+        # 而它此前完全不认识 `hidden` —— 只要哪天隐藏步骤带了默认值（例如"已配置的密钥"），
+        # 这里就会把它原样印在屏幕上。
+        _body = step.prompt if step.hidden else (
+            f"{step.prompt}  [{step.default}]" if step.default else step.prompt)
+        lines.append(_kv_line(inner, _body, styler))
         if step.choices:
             lines.append(_kv_line(inner, "可选: " + " / ".join(step.choices[:8]),
                                   styler, "dim"))

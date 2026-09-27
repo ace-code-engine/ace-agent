@@ -125,6 +125,7 @@ ace-agent/
 │   ├── sensitive.py            #   敏感名单唯一来源：①能碰吗（sensitive_target）②内容是秘密吗（is_credential_file），H-11
 │   ├── targets.py              #   破坏性目标唯一入口：destructive_targets（file_move 的 source 也在内，H-13）
 │   ├── ace_claims.py           #   「模型声称完成了操作」的措辞判据（编排层与执行层共用，H-20）
+│   ├── ace_contracts.py        #   两份方法论契约（ACC-02/03）：指标语义五要素 / 缺陷可达性六要素 + 五种偷换的判据
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
 ├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
 ├── engine/                     # Rust 内置计算引擎：分词/指纹/召回等**无裁决权**的纯计算 sidecar（NDJSON，同 ADR-002；不碰文件系统、不判权限）

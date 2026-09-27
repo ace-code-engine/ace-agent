@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72"]
+             "69", "70", "71", "72", "73"]
 _SEEN_SECTIONS: list = []
 
 
@@ -2107,6 +2107,20 @@ if _want("10"):
     check("冻结判据只在 code_execute 生效（其余工具不受影响）",
           run_agent(el_h, "math_calc", expression="1+1")["status"] == "SUCCESS",
           run_agent(el_h, "math_calc", expression="1+1"))
+
+    # WP-0 W0-D（`ROADMAP` §8 R-3）：**打包口径落定** —— exe 不带 Ink 外壳，且两处都写着。
+    # 依据 docs/design/WP-0-FRONTEND-CONVERGENCE.md §2 W0-D（D1/D2/D3 三选一）。
+    _spec73d = (FOLDER / "packaging" / "ace.spec").read_text(encoding="utf-8")
+    _datas73d = _spec73d.split("datas = [", 1)[-1].split("]", 1)[0]
+    _exe73d = (FOLDER / "docs" / "PACKAGING-EXE.md").read_text(encoding="utf-8")
+    check("WP-0 W0-D ★打包口径落定：`ace.spec` 的 `datas` **不含** `frontend/`（exe 不带 Ink 外壳）",
+          "frontend" not in _datas73d, _datas73d.strip()[:160])
+    check("WP-0 W0-D ★这个边界**两处都写着**（spec docstring + PACKAGING-EXE.md）"
+          "——不然就是「悄悄坏」而不是「明说」",
+          "frontend" in _spec73d and "Node" in _spec73d
+          and "Ink" in _exe73d and "Node" in _exe73d,
+          ("frontend in spec:", "frontend" in _spec73d, "Node in spec:", "Node" in _spec73d,
+           "Ink in exe.md:", "Ink" in _exe73d, "Node in exe.md:", "Node" in _exe73d))
 
 
     if hasattr(os, "startfile"):
@@ -6346,6 +6360,62 @@ if _want("36"):
           'result.metadata.get("security_denied")' in _b64
           and "_403_SECURITY_MARKERS" in (FOLDER / "tools" / "base.py").read_text(encoding="utf-8"))
 
+    # ── RL-01 结果信封：`outcome` 是**机器通道**的闭集 ──
+    # 依据 `THREE-LAYERS` §2.2/§2.3；`WP-0` 的 C1 要求它与前端收敛**同批**
+    # （否则新字段会漏给四个外壳一次）。正交新增：`status`/`error_code` 的语义一个都没动。
+    from tools.status import OUTCOMES as _OC36, outcome_for as _of36  # noqa: E402
+    from tools.result import ExecutionResult as _ER36  # noqa: E402
+    check("RL-01 `outcome` 是登记在 tools/status.py 的**闭集**",
+          _OC36 == {"success", "denied", "failed", "partial", "deferred"}, sorted(_OC36))
+    _map36 = [
+        ("SUCCESS", "", "success"), ("success", "", "success"),
+        ("FINAL_REPLY", "", "success"),
+        ("PERMISSION_REQUEST", "", "denied"), ("GUARD_VIOLATION", "", "denied"),
+        ("TOOL_BANNED", "", "denied"), ("BAIT_TRIGGERED", "", "denied"),
+        ("AST_FAILED", "", "denied"), ("HOOK_BLOCKED", "", "denied"),
+        ("error", "403", "denied"),
+        ("PLAN_PENDING", "", "deferred"), ("PLAN_PROPOSED", "", "deferred"),
+        ("PLAN_ALREADY_APPROVED", "", "deferred"),
+        ("FORMAT_ERROR", "", "failed"), ("ERROR", "", "failed"),
+        ("error", "400", "failed"), ("error", "404", "failed"),
+        ("error", "409", "failed"), ("error", "500", "failed"),
+        ("error", "501", "failed"), ("error", "503", "failed"),
+        ("error", "504", "failed"),
+    ]
+    _bad36 = [f"{s}/{c}→{_of36(s, c)}≠{w}" for s, c, w in _map36 if _of36(s, c) != w]
+    check("RL-01 ★「拒绝」与「失败」分得开（%d 条映射逐条）" % len(_map36),
+          not _bad36, _bad36[:5])
+    check("RL-01 ★认不出的状态一律落 `failed`，**绝不落 `success`**"
+          "（认不出却报成功是这里最危险的失败方向）",
+          _of36("完全没见过的状态", "") == "failed" and _of36("", "") == "failed", "")
+    check("RL-01 ★老构造点（不填 outcome）也自动带上机器通道 —— 250+ 处一个都不用改",
+          _ER36().outcome == "success"
+          and _ER36(status="error", error_code="403").outcome == "denied"
+          and _ER36(status="error", error_code="500").outcome == "failed", "")
+    check("RL-01 显式给的值优先（不被自动推导覆盖）",
+          _ER36(status="error", error_code="500", outcome="partial").outcome == "partial", "")
+    check("RL-01 **正交**：`status` / `error_code` 的语义没被改动",
+          (_ER36(status="error", error_code="403").status,
+           _ER36(status="error", error_code="403").error_code) == ("error", "403"), "")
+
+    # ★端到端（**差分对**）：两条账本事件的人通道都是 `error`，机器通道一个 denied 一个 failed
+    _root36 = mktemp("rl01")
+    (_root36 / ".ace_sessions").mkdir()
+    _el36 = ExecutionLayer(project_root=str(_root36), permission_level="readonly",
+                           config={"bait": {"enabled": False},
+                                   "session_log": str(_root36 / ".ace_sessions" / "s1.jsonl")})
+    run_agent(_el36, "file_read", path=str(FOLDER / "README.md"), user="rl01")
+    _den36 = [e for e in _el36.session_log.events() if e.get("kind") == "tool/result"][-1:]
+    run_agent(_el36, "file_read", path="不存在的文件-36.txt", user="rl01")
+    _fail36 = [e for e in _el36.session_log.events() if e.get("kind") == "tool/result"][-1:]
+    check("RL-01 ★★端到端：工具自己返回 403 ⇒ 账本 `outcome=denied`（人通道仍是 `error`）",
+          bool(_den36) and _den36[0].get("status") == "error"
+          and _den36[0].get("outcome") == "denied", _den36 or "没有 tool/result")
+    check("RL-01 ★★端到端对照：404 ⇒ 同一个 `error` 但 `outcome=failed`"
+          "（**这就是 RL-01 存在的理由**：此前两者在日志里长得一模一样）",
+          bool(_fail36) and _fail36[0].get("status") == "error"
+          and _fail36[0].get("outcome") == "failed", _fail36 or "没有 tool/result")
+
 
 
     # ============================================================
@@ -8558,6 +8628,111 @@ if _want("50"):
           == list(_ai50.PROVIDERS[1]["models"][:8]), "")
     check("/config 向导：非法提供商标号当场拒绝并说清范围",
           _cfg_steps50[0].check("99") != "" and _cfg_steps50[0].check("1") == "", "")
+
+    # —— H-35：`hidden` 必须走到外壳（上面那条只钉"步骤**声明了** hidden" = 意图）——
+    # 这一组钉**效果**：通道里有没有这个属性、渲染会不会画出值、兜底会不会用明文 input()。
+    # 依据 `docs/design/CREDENTIAL-HANDLING.md`（H-33/H-34/H-35）。
+    _hid_lines50 = _dl50.render_wizard(
+        _dl50.WizardState([_dl50.WizardStep("k", "密钥", "Key",
+                                            default="sk-preset-leak", hidden=True)]),
+        width=64)
+    check("向导 H-34c：隐藏步骤的默认值不许被渲染出来（ui/ 的纯渲染器也不认识 hidden）",
+          "sk-preset-leak" not in "".join(_hid_lines50), _hid_lines50)
+
+    _host50_log: list = []
+    _answers50_host = ["1", "sk-live-secret", "m-host"]
+
+    class _Host50:
+        """最小界面宿主：`choose` 够 `_ui_can_prompt()` 放行，`ask_text` 把收到的参数记下来。"""
+        def choose(self, _title, options, **_kw):
+            return list(options)[0] if options else None
+
+        def ask_text(self, prompt, default="", **kw):
+            _host50_log.append({"prompt": str(prompt), "default": default,
+                                "kw": dict(kw)})
+            return _answers50_host.pop(0) if _answers50_host else ""
+
+        def confirm(self, _q, **_kw):
+            return False
+
+    _orig_save50h = _ai50.save_cli_config
+    _orig_reload50h = _cli50._reload_client
+    _ai50.save_cli_config = lambda _cfg: None      # H-31 纪律：测试不许写真实配置
+    _cli50._reload_client = lambda: None
+    try:
+        _cli50.attach_ui(_Host50())
+        with _cl50.redirect_stdout(_io50.StringIO()):
+            _cli50._config_wizard()
+    finally:
+        _cli50.attach_ui(None)
+        _ai50.save_cli_config = _orig_save50h
+        _cli50._reload_client = _orig_reload50h
+
+    _key50 = next((r for r in _host50_log if _cfg_steps50[1].prompt in r["prompt"]), None)
+    check("向导 H-33：密钥步必须把「隐藏」送到外壳（不是一个只活在引擎里的标志）",
+          _key50 is not None and _key50["kw"].get("hidden") is True, _host50_log)
+    _model50 = next((r for r in _host50_log if _cfg_steps50[2].prompt in r["prompt"]), None)
+    check("向导 H-33：非隐藏步不许被误标（否则普通输入也会被遮住）",
+          _model50 is None or not _model50["kw"].get("hidden"), _host50_log)
+
+    # 路径 B：宿主**有 `choose`、没有 `ask_text`** ⇒ 今天会掉进明文 `input()`
+    _seen_input50: list = []
+    _answers50_b = ["1", "sk-plain-leak", "m-host"]
+
+    class _Host50B:
+        """只有 `choose`：`_ui_can_prompt()` 放行，而 `_ask_text` 找不到 `ask_text`。"""
+        def choose(self, _title, options, **_kw):
+            return list(options)[0] if options else None
+
+    def _stub_input50(_prompt=""):
+        _seen_input50.append(str(_prompt))
+        return _answers50_b.pop(0) if _answers50_b else ""
+
+    _orig_input50h = _bi50.input
+    _orig_save50b = _ai50.save_cli_config
+    _orig_reload50b = _cli50._reload_client
+    _bi50.input = _stub_input50
+    _ai50.save_cli_config = lambda _cfg: None
+    _cli50._reload_client = lambda: None
+    try:
+        _cli50.attach_ui(_Host50B())
+        with _cl50.redirect_stdout(_io50.StringIO()):
+            _cli50._config_wizard()
+    finally:
+        _cli50.attach_ui(None)
+        _bi50.input = _orig_input50h
+        _ai50.save_cli_config = _orig_save50b
+        _cli50._reload_client = _orig_reload50b
+
+    check("向导 H-34b：有 choose 没 ask_text 时，隐藏步**不许**掉进明文 input()"
+          "（宁可拒绝，也不把凭据画在屏幕上）",
+          not any(_cfg_steps50[1].prompt in p for p in _seen_input50), _seen_input50)
+
+    # H-33 的另一半（W0 验收条文）：**事件字段本身**要带 secret ——
+    # `--serve` 那条路上，前端就是靠这个字段才知道"这一步不许回显"。
+    # 上面两条钉的是"引擎→宿主"，这一条钉"宿主→前端"。
+    from core import ace_serve as _sv50  # noqa: E402
+    _seen_ev50: list = []
+
+    class _Srv50:
+        def send_event(self, type_, **fields):
+            _seen_ev50.append({"type": type_, **fields})
+            return None
+
+        def wait_for(self, _kind, timeout=None):
+            return {"text": "sk-from-bridge-9f3a"}
+
+    _host50c = _sv50.ServeUIHost(_Srv50())
+    _host50c.ask_text("API Key（输入时不显示）: ", "", hidden=True)
+    _host50c.ask_text("模型名: ", "")
+    _ev50a = _seen_ev50[0] if _seen_ev50 else {}
+    _ev50b = _seen_ev50[1] if len(_seen_ev50) > 1 else {}
+    check("向导 H-33：凭据步的 choice_request **带 secret**（前端据此才知道要掩码）",
+          _ev50a.get("type") == "choice_request" and _ev50a.get("secret") is True,
+          _seen_ev50)
+    check("向导 H-33：普通文本步**不带** secret（不误伤）",
+          _ev50b.get("type") == "choice_request" and "secret" not in _ev50b,
+          _seen_ev50)
 
     # 取消：什么都不许改（旧实现是边问边改 cfg，嘴说"没保存"、内存里早改了）
     _before50 = dict(_cli50.cfg)
@@ -10775,9 +10950,13 @@ if _want("63"):
           and "组件界面未启用：没装 textual" in _cli63, "")
 
     # —— 真 CLI：把「要问人」的命令逐个跑一遍，**不许卡住** ——
-    import tempfile as _tmp63  # noqa: E402
+    # 临时目录一律走仓库自己的 `mktemp()`，**不用 `tempfile.mkdtemp()`**：后者按
+    # `mode=0o700` 建目录，在受限环境里那个目录**连自己都写不进去**（实测
+    # `mkdtemp()` 之后 `mkdir('plain')` / `mkdir('.guardian')` / `chmod` 全部 WinError 5），
+    # 于是 `Guardian.__init__` 在 `AgentCLI(...)` 构造时就炸掉整个全量运行。
+    # 这正是本文件第 44 行写下的规矩，[63] 此前是唯一的例外。
     import ai_code as _ai63  # noqa: E402
-    _ai63.CONFIG_PATH = Path(_tmp63.mkdtemp()) / "cfg63.json"
+    _ai63.CONFIG_PATH = mktemp() / "cfg63.json"
 
     class _AutoUI63:
         """自动作答的假界面：记录被问了什么，直接给第一个选项 / 否。"""
@@ -10802,7 +10981,7 @@ if _want("63"):
             self.asked.append(("choose", title))
             return options[0] if options else None
 
-        def ask_text(self, prompt: str, default: str = ""):
+        def ask_text(self, prompt: str, default: str = "", **_kw):
             self.asked.append(("ask_text", prompt))
             return "n"
 
@@ -10814,7 +10993,7 @@ if _want("63"):
             self.asked.append(("permission", tool))
             return "deny"
 
-    _cli63_obj = _ai63.AgentCLI({"project_root": str(_tmp63.mkdtemp()),
+    _cli63_obj = _ai63.AgentCLI({"project_root": str(mktemp()),
                                  "permission": "write", "mock": True}, mock=True)
     _ui63 = _AutoUI63()
     _cli63_obj.attach_ui(_ui63)
@@ -13719,6 +13898,125 @@ if _want("70"):
           and all(e.get("in_tokens", 0) > 0 for e in _i6_usage),
           f"{_i6_usage[:2]} · model={_i6_cli.client.model}")
 
+    # ── ACC-01（A0）：厂商**实测**用量必须有路进账本 ──
+    # 依据 `docs/design/ACC-GATES.md`。修之前全仓 `usage` 零命中：ACE 报出的每个 token 数
+    # 都是 `estimate_tokens` 按字符折的，而厂商早就把真值送回来了 —— 在传输层被丢掉。
+    class _AccResp:
+        """假响应：`_run` 的返回值只被 `json()` / 上下文管理 / `iter_lines()` 三样用到。"""
+        def __init__(self, body=None, lines=None):
+            self._body = body
+            self._lines = [str(x) for x in (lines or [])]
+
+        def json(self):
+            return self._body
+
+        def iter_lines(self):
+            for _ln in self._lines:
+                yield _ln.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    _acc_orig_run = _D9C._run
+    _acc_box = {"resp": None}
+    _acc_cap: list = []
+    _D9C._run = lambda *_a, **_k: _acc_box["resp"]
+    _acc_cli = None
+    try:
+        # ① OpenAI 非流式
+        _acc_box["resp"] = _AccResp(body={
+            "choices": [{"message": {"content": "hi"}}],
+            "usage": {"prompt_tokens": 1200, "completion_tokens": 34}})
+        _D9C.chat_complete("https://acc.invalid/v1", "k", {"stream": False},
+                           on_usage=_acc_cap.append)
+        check("ACC-01 ★OpenAI 非流式：厂商 usage 被读出来（自报数的独立来源）",
+              _acc_cap == [{"in_tokens": 1200, "out_tokens": 34}], _acc_cap)
+
+        # ② OpenAI 流式：用量在**收尾分片**里，而那个分片的 `choices` 是空数组
+        _acc_cap.clear()
+        _acc_box["resp"] = _AccResp(lines=[
+            'data: {"choices":[{"delta":{"content":"你"}}]}',
+            'data: {"choices":[{"delta":{"content":"好"}}]}',
+            'data: {"choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":50}}',
+            "data: [DONE]",
+        ])
+        _acc_txt, _acc_calls = _D9C.stream_openai(
+            "https://acc.invalid/v1", "k", {"stream": True, "model": "m"},
+            on_usage=_acc_cap.append)
+        check("ACC-01 ★OpenAI 流式：收尾分片的 usage 也读得到（`choices:[]` 不算「没内容」）",
+              _acc_txt == "你好" and _acc_calls == []
+              and _acc_cap == [{"in_tokens": 2000, "out_tokens": 50}],
+              (_acc_txt, _acc_cap))
+
+        # ③ Anthropic 非流式
+        _acc_cap.clear()
+        _acc_box["resp"] = _AccResp(body={
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 300, "output_tokens": 12}})
+        _D9C.post_anthropic("https://acc.invalid", "k", {"stream": False},
+                            on_usage=_acc_cap.append)
+        check("ACC-01 Anthropic 非流式：usage 读得到",
+              _acc_cap == [{"in_tokens": 300, "out_tokens": 12}], _acc_cap)
+
+        # ④ Anthropic 流式：input 在 `message_start`、output 在 `message_delta`，两半要合起来
+        _acc_cap.clear()
+        _acc_box["resp"] = _AccResp(lines=[
+            'data: {"type":"message_start","message":{"usage":'
+            '{"input_tokens":400,"output_tokens":1}}}',
+            'data: {"type":"content_block_delta","delta":{"text":"好"}}',
+            'data: {"type":"message_delta","usage":{"output_tokens":77}}',
+        ])
+        _D9C.post_anthropic("https://acc.invalid", "k", {"stream": True},
+                            on_usage=_acc_cap.append)
+        check("ACC-01 ★Anthropic 流式：两半合成一个数（start 给 input / delta 给 output）",
+              _acc_cap == [{"in_tokens": 400, "out_tokens": 77}], _acc_cap)
+
+        # ⑤ 只报一半 → **不回调**：宁可说"不知道"，也不拿 0 冒充"没用量"
+        _acc_cap.clear()
+        _acc_box["resp"] = _AccResp(body={
+            "choices": [{"message": {"content": "hi"}}],
+            "usage": {"prompt_tokens": 1200}})
+        _D9C.chat_complete("https://acc.invalid/v1", "k", {"stream": False},
+                           on_usage=_acc_cap.append)
+        check("ACC-01 用量只报一半 → 不算数（不拿 0 冒充实测）", _acc_cap == [], _acc_cap)
+
+        # ⑥ ★端到端：驱动**一轮真实调用**，日志里必须同时有估算值与实测值
+        _acc_root = mktemp("acc01")
+        _acc_cli = ai_code.AgentCLI({"project_root": str(_acc_root), "permission": "write",
+                                     "bait": False, "base_url": "https://acc.invalid/v1",
+                                     "api_key": "k", "model": "acc-model", "tools": False},
+                                    mock=False)
+        _acc_cap.clear()
+        _acc_box["resp"] = _AccResp(lines=[
+            'data: {"choices":[{"delta":{"content":"好的"}}]}',
+            'data: {"choices":[],"usage":{"prompt_tokens":1234,"completion_tokens":56}}',
+            "data: [DONE]",
+        ])
+        with contextlib.redirect_stdout(io.StringIO()):
+            _acc_cli.converse("你好", echo_input=False)
+        _acc_ev = [e for e in _acc_cli.session_log.events()
+                   if e.get("kind") == "model/usage"]
+        check("ACC-01 ★★端到端：一轮真实调用后，账本里估算与实测**并列**（不互相覆盖）",
+              bool(_acc_ev) and _acc_ev[-1].get("in_tokens", 0) > 0
+              and _acc_ev[-1].get("measured_in_tokens") == 1234
+              and _acc_ev[-1].get("measured_out_tokens") == 56,
+              _acc_ev[-1:] or "没有 model/usage 事件")
+
+        # ⑦ 拿不到实测时**不写那两个键** —— 不是写 0，也不是拿估算顶替
+        _acc_cli.client._last_provider_usage = None
+        _acc_cli._record_turn_usage(100, 9)
+        _acc_ev2 = [e for e in _acc_cli.session_log.events()
+                    if e.get("kind") == "model/usage"][-1]
+        check("ACC-01 拿不到实测时不写那两个键（不拿 0 冒充、也不拿估算顶替）",
+              "measured_in_tokens" not in _acc_ev2
+              and "measured_out_tokens" not in _acc_ev2
+              and _acc_ev2.get("in_tokens") == 100, _acc_ev2)
+    finally:
+        _D9C._run = _acc_orig_run
+
     # ── 主页度量行：J1–J2 ──
     # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。
     # 主页那一行挂在标题**下面**，不占分区、不进入选择序列 —— 它不需要被选中。
@@ -14671,6 +14969,253 @@ if _want("72"):
         else:
             os.environ["ACE_ANCHOR_DIR"] = _prev_anchor72
     # ============================================================
+
+# ============================================================
+if _want("73"):
+    # ── [73] ACC 契约 —— 指标语义（ACC-02）与缺陷可达性（ACC-03）──
+    print("[73] ACC 契约 —— 指标语义五要素 / 缺陷可达性六要素（ROADMAP §6 ACC-02/03）")
+    # 依据 `docs/design/ACC-GATES.md` 的 A1：两份契约必须**可执行**
+    # （模板 + 检查器 + **两条机械链接**），不是文风要求。
+    # 每条都要求两个方向可证伪：删一个要素要红、写回占位符要红。
+    from core import ace_contracts as _acc  # noqa: E402
+    from core import ace_engine as _ae73  # noqa: E402
+
+    check("ACC-02 五要素的名字与卡/ROADMAP 逐字一致",
+          _acc.METRIC_FIELDS == ("metric", "anchor", "population", "excludes", "reads_as"),
+          _acc.METRIC_FIELDS)
+    check("ACC-03 六要素的名字与卡/ROADMAP 逐字一致",
+          _acc.DEFECT_FIELDS == ("constructed_state", "production_producer",
+                                 "transition_path", "persistence_boundary",
+                                 "authority", "observed"), _acc.DEFECT_FIELDS)
+
+    _good_m = _acc.metric(metric="x", anchor="a", population="p",
+                          excludes="e", reads_as="r")
+    check("ACC-02 合格样本零问题", _acc.validate_metric(_good_m) == [],
+          _acc.validate_metric(_good_m))
+    _m_missing = sorted(f for f in _acc.METRIC_FIELDS
+                        if _acc.validate_metric(
+                            {k: v for k, v in _good_m.items() if k != f}))
+    check("ACC-02 ★删掉五要素里**任意一项**都会红（不是只在全缺时才报）",
+          _m_missing == sorted(_acc.METRIC_FIELDS), _m_missing)
+    check("ACC-02 空串与 TODO 都不算契约（占位符不是内容）",
+          _acc.validate_metric(dict(_good_m, excludes="")) != []
+          and _acc.validate_metric(dict(_good_m, reads_as="TODO 待补")) != [], "")
+    check("ACC-02 五要素之外的多余字段会被报出来（形状不许随手扩）",
+          _acc.validate_metric(dict(_good_m, note="x")) != [], "")
+
+    _good_d = _acc.defect(constructed_state="s", production_producer="a/b.py:sym",
+                          transition_path="t", persistence_boundary="p",
+                          authority="au", observed="o")
+    check("ACC-03 合格样本零问题", _acc.validate_defect(_good_d) == [],
+          _acc.validate_defect(_good_d))
+    _d_missing = sorted(f for f in _acc.DEFECT_FIELDS
+                        if _acc.validate_defect(
+                            {k: v for k, v in _good_d.items() if k != f}))
+    check("ACC-03 ★删掉六要素里**任意一项**都会红",
+          _d_missing == sorted(_acc.DEFECT_FIELDS), _d_missing)
+    check("ACC-03 ★★「模型死循环」当生产者**必须被拦下**（H-21 的可执行化）",
+          _acc.validate_defect(dict(_good_d, production_producer="模型死循环")) != [],
+          _acc.validate_defect(dict(_good_d, production_producer="模型死循环")))
+    check("ACC-03 生产者与症状同值也要红（两个字段不许一样）",
+          _acc.validate_defect(dict(_good_d, observed="a/b.py:sym")) != [], "")
+
+    # —— 机械链接 ①：声明 ↔ 那一行的 i18n 占位符（三语一起比）——
+    _loc73 = {}
+    for _lg in ("zh", "en", "ja"):
+        _loc73[_lg] = json.loads((FOLDER / "locales" / f"{_lg}.json")
+                                 .read_text(encoding="utf-8"))["status_cross_session"]
+    check("ACC-02 三语的占位符非空（防「两边都空所以相等」的假绿）",
+          len(_acc.placeholder_set(_loc73["zh"])) >= 5,
+          _acc.placeholder_set(_loc73["zh"]))
+    check("ACC-02 ★声明与「跨会话累计」那一行的占位符**机械对齐**（三语一致）",
+          _acc.audit_metric_declaration(_loc73) == [],
+          _acc.audit_metric_declaration(_loc73))
+    check("ACC-02 ★反例：那一行多一个未声明的数 ⇒ 审计出声",
+          _acc.audit_metric_declaration(
+              dict(_loc73, zh=_loc73["zh"] + " {new_metric}")) != [],
+          "")
+
+    # —— 机械链接 ②：声明 ↔ 汇总**真实**返回的路径 ——
+    _root73 = mktemp("acc73")
+    (_root73 / ".ace_sessions").mkdir()
+    (_root73 / ".ace_sessions" / "s1.jsonl").write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+        '{"seq":2,"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+        '"permission":"write","system_len":10,"messages_count":2,"subagent":""}',
+        '{"seq":3,"kind":"tool/call","ts":"t","tool":"file_read","params":{}}',
+        '{"seq":4,"kind":"tool/result","ts":"t","tool":"file_read","status":"success",'
+        '"message":"","elapsed_ms":5}',
+        '{"seq":5,"kind":"model/usage","ts":"t","model":"m1","in_tokens":100,'
+        '"out_tokens":20}',
+    ]), encoding="utf-8")
+    _tot73 = _ae73.cross_session_metrics([str(_root73 / ".ace_sessions" / "s1.jsonl")])
+    _paths73 = _acc.metric_paths(_tot73)
+    check("ACC-02 汇总确实算出了度量路径（防拿空对象比空的假绿）",
+          len(_paths73) >= 8, _paths73)
+    check("ACC-02 ★★每条路径都**二选一**：有契约，或登记了「不报出」+ 理由"
+          "（新增一个指标不会被静默放过）",
+          _acc.unclassified_metrics(_tot73) == [], _acc.unclassified_metrics(_tot73))
+    check("ACC-02 声明里的路径都真实存在（没有声明的幽灵指标）",
+          sorted(set(_acc.CROSS_SESSION_METRICS) - set(_paths73)) == [],
+          sorted(set(_acc.CROSS_SESSION_METRICS) - set(_paths73)))
+    check("ACC-02 溯源字段与维度分解**不算**度量路径（sources / by_model 不在表里）",
+          "sources" not in _paths73
+          and not any(p.startswith("usage.by_model") for p in _paths73), _paths73)
+    check("ACC-02 登记的「不报出」项都写清了理由（空表不算「都写了」）",
+          _acc.all_assessed([str(v).strip() for v in _acc.INTERNAL_ONLY.values()])
+          and _acc.all_assessed([str(v).strip() for v in _acc.CROSS_SESSION_METRICS.values()]),
+          sorted(_acc.INTERNAL_ONLY))
+
+    # —— ACC-03 的回归样板：H-21 必须留档，且指到**交叉处** ——
+    _h21 = _acc.KNOWN_DEFECTS.get("H-21") or {}
+    check("ACC-03 H-21 作为缺陷样板已留档", bool(_h21), sorted(_acc.KNOWN_DEFECTS))
+    check("ACC-03 ★H-21 样板通过六要素校验",
+          _acc.validate_defect(_h21) == [], _acc.validate_defect(_h21))
+    check("ACC-03 ★★H-21 的生产者指到**两个安全特性的交叉处**（不是模型/提示词）",
+          str(_h21.get("production_producer", "")).startswith("agent_runner.py:")
+          and "render_error_result" in str(_h21.get("production_producer", "")),
+          _h21.get("production_producer"))
+    check("ACC-03 H-21 的 observed 是**症状**（'死循环'），且与生产者不同",
+          "死循环" in str(_h21.get("observed", ""))
+          and _h21.get("observed") != _h21.get("production_producer"),
+          _h21.get("observed"))
+    check("ACC-03 全部已知缺陷都合格（空表**不算**合格 —— 见 ACC-04 ①）",
+          _acc.all_assessed([_acc.validate_defect(_d) == []
+                             for _d in _acc.KNOWN_DEFECTS.values()]),
+          {_k: _acc.validate_defect(_d) for _k, _d in _acc.KNOWN_DEFECTS.items()})
+    check("ACC-03 已声明的指标**每一条**都写清了 `reads_as`（不是只填了名字）",
+          _acc.all_assessed([str(_c.get("reads_as", "")).strip()
+                             for _c in _acc.CROSS_SESSION_METRICS.values()])
+          and _acc.all_assessed([str(_c.get("excludes", "")).strip()
+                                 for _c in _acc.CROSS_SESSION_METRICS.values()]), "")
+
+    # —— 「拒绝 vs 失败」到底怎么算：用**真实执行路径**验，不靠推断 ——
+    # （写 `tool_errors` 的 `reads_as` 时我推断"权限被拒也计入"，查下来是**错的**：
+    #   `_stage_permission` 早退 ⇒ 那次调用根本不落 `tool/result`。这条断言把这个事实钉住。）
+    _root73c = mktemp("acc73c")
+    (_root73c / ".ace_sessions").mkdir()
+    _log73c = _root73c / ".ace_sessions" / "s1.jsonl"
+    _el73c = ExecutionLayer(project_root=str(_root73c), permission_level="readonly",
+                            config={"bait": {"enabled": False},
+                                    "session_log": str(_log73c)})
+    _r73c = run_agent(_el73c, "file_write", path="x.txt", content="x", user="acc73")
+    _m73c = _ae73.session_metrics(str(_log73c))
+    check("ACC-02 ★实测：被权限闸门挡下的**不进** `tool_errors`（只落 "
+          "`permission/decision`，日志里连一条 `tool/result` 都没有）",
+          _r73c.get("status") == "PERMISSION_REQUEST" and _m73c["tool_errors"] == 0
+          and _m73c["counts"].get("tool/result", 0) == 0
+          and _m73c["decisions"].get("denied", 0) >= 1,
+          (_r73c.get("status"), _m73c["tool_errors"], _m73c["counts"], _m73c["decisions"]))
+
+    _root73d = mktemp("acc73d")
+    (_root73d / ".ace_sessions").mkdir()
+    (_root73d / ".ace_sessions" / "s1.jsonl").write_text("\n".join([
+        '{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+        '{"seq":2,"kind":"tool/result","ts":"t","tool":"file_read","status":"403",'
+        '"message":"越界","elapsed_ms":1}',
+        '{"seq":3,"kind":"tool/result","ts":"t","tool":"file_read","status":"500",'
+        '"message":"炸了","elapsed_ms":1}',
+        '{"seq":4,"kind":"tool/result","ts":"t","tool":"file_read","status":"success",'
+        '"message":"","elapsed_ms":1}',
+    ]), encoding="utf-8")
+    _m73d = _ae73.session_metrics(str(_root73d / ".ace_sessions" / "s1.jsonl"))
+    check("ACC-02 ★实测：工具**自己**返回的 403 与真失败（500）在 `tool_errors` 里**同权**"
+          "（这正是 `reads_as` 必须点名的那个歧义）",
+          _m73d["tool_errors"] == 2, _m73d["tool_errors"])
+
+    # —— ACC-04：五种偷换，各一条**可执行样例**（不是文风清单；每条都要有真实样例）——
+    check("ACC-04 声明五栏齐、恰好五条，id 与 ROADMAP 的措辞一一对应",
+          _acc.SUBSTITUTION_FIELDS == ("id", "reads_as", "should_read", "sample", "witness")
+          and len(_acc.SUBSTITUTIONS) == 5
+          and sorted(_s["id"] for _s in _acc.SUBSTITUTIONS)
+          == sorted(["unknown-as-true", "latest-as-all", "accepted-as-closed",
+                     "attempted-as-judged", "unassessed-as-false"]),
+          [_s.get("id") for _s in _acc.SUBSTITUTIONS])
+    check("ACC-04 每条都写全了（读法 / 正确读法 / **本仓真实样例** / 可执行判据）",
+          _acc.all_assessed([_acc.validate_substitution(_s) == []
+                             for _s in _acc.SUBSTITUTIONS]),
+          [_acc.validate_substitution(_s) for _s in _acc.SUBSTITUTIONS])
+
+    # ① unknown → true
+    check("ACC-04 ① unknown → true：空总体**不许**报「全合格」（并排比出 `all()` 的错）",
+          _acc.all_assessed([]) is False and all([]) is True
+          and _acc.all_assessed([True]) is True
+          and _acc.all_assessed([True, False]) is False, "")
+    check("ACC-04 ① **本仓真实样例**：空缺陷表上 `all()` 假通过、`all_assessed` 不通过",
+          _acc.all_assessed([_acc.validate_defect(_d) == [] for _d in {}]) is False
+          and all(_acc.validate_defect(_d) == [] for _d in {}) is True, "")
+
+    # ② latest → all
+    _root73e = mktemp("acc73e")
+    (_root73e / ".ace_sessions").mkdir()
+    _snap73 = ('{{"seq":{n},"kind":"request/snapshot","ts":"t","model":"m1","base_url":"u",'
+               '"permission":"write","system_len":10,"messages_count":2,"subagent":""}}')
+    _p73e1 = _root73e / ".ace_sessions" / "s1.jsonl"
+    _p73e2 = _root73e / ".ace_sessions" / "s2.jsonl"
+    _p73e1.write_text("\n".join(['{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+                                 _snap73.format(n=2)]), encoding="utf-8")
+    _p73e2.write_text("\n".join(['{"seq":1,"kind":"session/start","ts":"t","model":"m1"}',
+                                 _snap73.format(n=2), _snap73.format(n=3)]), encoding="utf-8")
+    _m73e1 = _ae73.session_metrics(str(_p73e1))
+    _m73e2 = _ae73.cross_session_metrics([str(_p73e1), str(_p73e2)])
+    check("ACC-04 ② latest → all：**单会话 1 轮 ≠ 跨会话 3 轮**（读错口径就拿到错数）",
+          _m73e1["rounds"] == 1 and _m73e2["rounds"] == 3 and _m73e2["sessions"] == 2,
+          (_m73e1["rounds"], _m73e2["rounds"], _m73e2["sessions"]))
+
+    # ③ accepted → closed
+    _dir73g = mktemp("acc73g")
+    (_dir73g / ".env").write_text("API_KEY=sk-not-real-73\n", encoding="utf-8")
+    _g73 = Guardian(str(_dir73g), verify_policy="create")
+    check("ACC-04 ③ accepted → closed：快照「创建没报错」≠「有回滚点」"
+          "（只有凭据文件的目录 ⇒ `count_credential_only_files() > 0`）",
+          _g73.count_credential_only_files() > 0, _g73.count_credential_only_files())
+
+    # ④ attempted → judged
+    _bad73 = mktemp("acc73h") / "syntax_ok_import_bad.py"
+    _bad73.write_text("import definitely_not_a_module_anywhere_73\n", encoding="utf-8")
+    _okc73 = True
+    try:
+        import py_compile as _pc73  # noqa: PLC0415
+        _pc73.compile(str(_bad73), doraise=True)
+    except Exception:  # noqa: BLE001
+        _okc73 = False
+    _badimp73 = False
+    try:
+        import importlib.util as _ilu73  # noqa: PLC0415
+        _sp73 = _ilu73.spec_from_file_location("_acc73_bad", str(_bad73))
+        _mod73 = _ilu73.module_from_spec(_sp73)
+        _sp73.loader.exec_module(_mod73)
+    except Exception:  # noqa: BLE001
+        _badimp73 = True
+    check("ACC-04 ④ attempted → judged：编译过（attempted）≠ 能 import（judged）",
+          _okc73 and _badimp73, (_okc73, _badimp73))
+
+    # ⑤ unassessed → false
+    from core import ace_cost as _co73  # noqa: E402
+    _free73 = _co73.cost_line("glm-4.7-flash", 1000, 1000)
+    _unk73 = _co73.cost_line("definitely-not-a-priced-model-73", 1000, 1000)
+    check("ACC-04 ⑤ 未评估 → false：免费（`usd == 0.0`）与**价格未知**（`usd is None`）必须可区分",
+          _free73["usd"] == 0.0 and _unk73["usd"] is None
+          and "价格未知" in str(_unk73["text"]),
+          (_free73["usd"], _unk73["usd"], _unk73["text"]))
+
+    # —— A3：门槛必须接进**流程**，否则前面三包没有入口 ——
+    # 两条机械链接：① 完成流程里的 ruff 口径与 CI 逐字相同；② 流程真的点名了 ACC 物料。
+    _ci73 = (FOLDER / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    _ci_sel73 = re.search(r"ruff check \. --select ([A-Z0-9,]+)", _ci73)
+    _dev73_path = FOLDER / "docs" / "DEVELOPMENT.md"
+    _dev73 = _dev73_path.read_text(encoding="utf-8")
+    _dev_sel73 = re.findall(r"ruff check \. --select ([A-Z0-9,]+)", _dev73)
+    check("ACC-A3 ★★完成流程里的 ruff 口径与 CI **逐字相同**"
+          "（它此前写着「计划扩 F401/F841」，而 CI 早就跑上了那四个码）",
+          bool(_ci_sel73) and bool(_dev_sel73)
+          and all(_s.split(",") == _ci_sel73.group(1).split(",") for _s in _dev_sel73),
+          (_ci_sel73.group(1) if _ci_sel73 else "CI 里没找到",
+           _dev_sel73 or "文档里没找到"))
+    check("ACC-A3 ★完成流程点名了 ACC 门槛、物料与形状的唯一来源",
+          "core/ace_contracts.py" in _dev73 and "[73]" in _dev73
+          and any("ACC-02" in _l and "ACC-03" in _l for _l in _dev73.splitlines()),
+          "DEVELOPMENT.md 少了其中一项")
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
 if not (_ONLY or _SKIP or _UPTO or _LIST):

@@ -80,6 +80,7 @@ from ui import ace_home  # noqa: E402  （主页模型：分区/条目/渲染，
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 from core import ace_effort  # noqa: E402  （思考强度：档位 + 提示词增量，纯逻辑）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
+from tools.status import outcome_for  # noqa: E402  （RL-01：拒绝 vs 失败的唯一判定处）
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -884,6 +885,9 @@ class ModelClient:
         # 按权限等级裁剪发给模型的工具列表（readonly 只给只读+控制工具）
         self.permission_level = str(cfg.get("permission", "readonly") or "readonly").lower()
         self._mock_provider = ModelProvider(_MockArgs()) if mock else None
+        # ACC-01：厂商响应里报的**实测**用量（本轮）。`stream_generate` 每次开始都清空，
+        # 由 `_note_provider_usage` 写入；拿不到就是 None —— **不拿估算冒充实测**。
+        self._last_provider_usage: Optional[Dict[str, int]] = None
 
     def describe(self) -> str:
         if self.mock:
@@ -903,6 +907,8 @@ class ModelClient:
         （实测：client='readonly' / layer='write'）。不传则退回该副本，兼容直接构造
         ModelClient 的测试与嵌入方。
         """
+        # 每轮清空：上一轮的读数不许粘到这一轮（拿不到就是 None，不冒充）
+        self._last_provider_usage = None
         if self.mock:
             return self._stream_mock(messages, on_delta)
         if not self.base_url or not self.api_key:
@@ -921,6 +927,14 @@ class ModelClient:
         """
         return ace_client.stream_mock(self._mock_provider.generate(messages[-1]["content"]),
                                       on_delta)
+
+    def _note_provider_usage(self, usage: Dict[str, int]) -> None:
+        """厂商实测用量的落点（ACC-01）。
+
+        形状由 `core/ace_client` 校验过（两半都到齐才回调），所以这里只管存。
+        它**不参与**上下文预算 —— 那件事仍由 `estimate_tokens` 的估算做（它宁可高估）。
+        """
+        self._last_provider_usage = dict(usage)
 
     def _stream_openai(self, system: str, messages: List[Dict],
                        on_delta: Optional[Callable] = None,
@@ -945,7 +959,8 @@ class ModelClient:
             full, calls = ace_client.chat_stream(
                 self.base_url, self.api_key, self.model, "openai", system, messages,
                 tools=tools_for_permission(level) if self.tools_ok else None,
-                on_delta=on_delta, on_retry=retry_notice, should_degrade=_degrade)
+                on_delta=on_delta, on_retry=retry_notice, should_degrade=_degrade,
+                on_usage=self._note_provider_usage)
         finally:
             if degraded["hit"]:
                 # 端点不认 tools：本次降级为文本协议，并永久关掉以免每轮都撞一次
@@ -1003,7 +1018,8 @@ class ModelClient:
         try:
             return ace_client.stream_anthropic(
                 self.base_url, self.api_key, system, messages, model=self.model,
-                on_delta=on_delta, on_retry=retry_notice)
+                on_delta=on_delta, on_retry=retry_notice,
+                on_usage=self._note_provider_usage)
         except ace_client.ChatHTTPError as e:
             raise e.raw if e.raw is not None else e
 
@@ -2955,7 +2971,12 @@ class _SlashCommands:
                 current = str(step.default or "")
                 if self._ui_can_prompt():
                     # 组件界面在：向导步骤走界面的输入框（`input()` 会和界面抢 stdin）
-                    raw = self._ask_text(f"{step.prompt} [{current}]: ", current)
+                    # 隐藏步骤（凭据）**不带 `[当前值]`、不预填默认值**，并把 `hidden`
+                    # 一路送到外壳（H-33）—— 此前它到此为止，外壳只能当普通文本画。
+                    _ptxt = (f"{step.prompt}: " if step.hidden
+                             else f"{step.prompt} [{current}]: ")
+                    raw = self._ask_text(_ptxt, "" if step.hidden else current,
+                                         hidden=step.hidden)
                     if raw is None:
                         raise CommandCancelled()
                 else:
@@ -4004,19 +4025,35 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return run_selector(title, list(items))
         return None
 
-    def _ask_text(self, prompt: str, default: str = "") -> Optional[str]:
+    def _ask_text(self, prompt: str, default: str = "", *,
+                  hidden: bool = False) -> Optional[str]:
         """读一行文本（向导步骤 / 确认语句 / 拒绝理由）。取消返回 None。
 
         没有界面时就是**原来的 `input()`**（不再自己判 TTY）：调用方本来就已经判过
         "能不能问"（`_interactive_tty()`），这里再判一次会把"测试里喂进来的输入"
         也一起挡掉 —— 那正是"本地过、CI 红"的来源。
+
+        **`hidden=True` 是凭据路径（H-33 / H-34b）**：它必须一路走到外壳，由外壳决定
+        "怎么画"；走不到就**拒绝**，**绝不**回落到明文 `input()` ——
+        与 H-30"没有边界就 503"是同一条立场（宁可拒绝，也不静默降级）。
         """
         ui = self._ui
         if ui is not None and callable(getattr(ui, "ask_text", None)):
             try:
-                return ui.ask_text(prompt, default)
+                return ui.ask_text(prompt, default, hidden=bool(hidden))
+            except TypeError as _exc:
+                # 宿主不认 `hidden`：能力缺口要**说出来**，不许静默降级
+                print(f"⚠ 当前界面不支持隐藏输入（{_exc}）", file=sys.stderr)
+                if hidden:
+                    return None
             except Exception:  # noqa: BLE001
                 return None
+        if hidden:
+            # 明文 `input()` 会把凭据画在屏幕上 —— 宁可取消，也不假装问过了
+            print("⚠ 当前界面无法隐藏输入，已拒绝明文读取密钥"
+                  "（改用 /provider <id> <key>，或在不带组件界面时跑 /config）",
+                  file=sys.stderr)
+            return None
         try:
             return input(prompt)
         except (EOFError, KeyboardInterrupt):
@@ -4520,12 +4557,18 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 try:
                     if self._ui_can_prompt():
                         raw = self._ask_text(f"{step.prompt} [{step.default}]: ",
-                                             str(step.default or ""))
+                                             str(step.default or ""),
+                                             hidden=step.hidden)
                         if raw is None:
                             print(c("yellow", t("wizard_cancelled")))
                             return
                     else:
-                        raw = input(f"  {step.prompt} [{step.default}]: ")
+                        if step.hidden:
+                            # 与 /config 同一条纪律（H-34b）：隐藏步骤不许走明文 input()
+                            import getpass as _gp_probe  # noqa: PLC0415
+                            raw = _gp_probe.getpass(f"  {step.prompt}: ")
+                        else:
+                            raw = input(f"  {step.prompt} [{step.default}]: ")
                 except (EOFError, KeyboardInterrupt):
                     print()
                     print(c("yellow", t("wizard_cancelled")))
@@ -5554,6 +5597,31 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         print(c("yellow", t(key, pct=usage["pct"], tokens=usage["tokens"],
                             trigger=usage["trigger"])))
 
+    def _record_turn_usage(self, in_tokens: int, out_tokens: int) -> None:
+        """把本轮用量写进会话日志：**估算值与厂商实测并列**（ACC-01）。
+
+        为什么并列而不是择优：两个数都在，"这个估算差多少"才是一个**可以回答**的问题；
+        只留一个的时候，谁也没法回头判断该信谁（而 `estimate_tokens` 是刻意的粗估，
+        它的用途是上下文预算，不是记账）。
+
+        抽成方法是为了让它**能被单独驱动**：`_model_turn` 只负责"什么时候记"，
+        价格与并列口径都在这里（ACC-01 的 A0 验收就是这么验的）。
+
+        价格查不到不是错误：`price_for` 返回 None、`estimate_cost` 收到 None 也返回 None
+        （就是"价格未知"这条正常语义）。所以这里**不要**再包一层 `except Exception` ——
+        上一版正是那样：`ace_cost` 这个模块压根没 import，NameError 被吞成 `usd=None`，
+        于是用量照记、成本永远空，而**唯一喊出来的东西是静态检查**（ruff F821）。
+        """
+        from core import ace_cost    # noqa: PLC0415 —— 与本文件其它处一致（局部导入）
+        _table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
+        _usd = ace_cost.estimate_cost(in_tokens, out_tokens,
+                                      ace_cost.price_for(self.client.model, _table))
+        _pu = getattr(self.client, "_last_provider_usage", None) or {}
+        self.session_log.record_usage(model=self.client.model, in_tokens=in_tokens,
+                                      out_tokens=out_tokens, usd=_usd,
+                                      measured_in=_pu.get("in_tokens"),
+                                      measured_out=_pu.get("out_tokens"))
+
     def _model_turn(self, msgs: List[Dict],
                     round_no: int = 0) -> Tuple[Optional[str], str, Dict]:
         """跑一轮"模型调用 + 流式显示"。返回 (输出, 系统提示词, 显示状态)；输出 None = 本轮中止。
@@ -5621,18 +5689,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 每轮用量落进日志（**增量**，重放求和才是真值）：`self._cost` 只活在内存里，
         # 会话一结束就没了 —— 跨会话的用量/成本此前无处可查，而日志是唯一事实源。
         # 成本估算仍由 `core/ace_cost` 单一来源算（引擎只聚合事实，不持有价格表）。
-        from core import ace_cost    # noqa: PLC0415 —— 与本文件其它处一致（局部导入）
         try:
             _in_toks = ace_context.measure(msgs) + ace_context.estimate_tokens(system)
-            # 价格查不到不是错误：`price_for` 返回 None、`estimate_cost` 收到 None 也返回 None
-            # （就是"价格未知"这条正常语义）。所以这里**不要**再包一层 `except Exception` ——
-            # 上一版正是那样：`ace_cost` 这个模块压根没 import，NameError 被吞成 `usd=None`，
-            # 于是用量照记、成本永远空，而**唯一喊出来的东西是静态检查**（ruff F821）。
-            _table = ace_cost.resolve_pricing(self.cfg.get("pricing"))
-            _usd = ace_cost.estimate_cost(_in_toks, _out_toks,
-                                          ace_cost.price_for(self.client.model, _table))
-            self.session_log.record_usage(model=self.client.model, in_tokens=_in_toks,
-                                          out_tokens=_out_toks, usd=_usd)
+            self._record_turn_usage(_in_toks, _out_toks)
         except Exception as e:      # noqa: BLE001 —— 记账失败不该影响对话，但必须说出来
             print(f"⚠ 用量记账失败（{type(e).__name__}: {e}）", file=sys.stderr)
         self.messages = self.client.trim_messages(
@@ -6065,8 +6124,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self._round_tools.append(
                     (result.get("tool", ""), _st, _elapsed_f, _exit_code))
                 if self.json_mode:
+                    # `outcome` = RL-01 的**机器通道**：外壳与驱动层据此区分
+                    # "被拒（此路不通）"与"失败（该升级了）"，不必去解析中文散文。
+                    # 推导只在 `tools.status.outcome_for` 一处（此处按外发词表算）。
                     self.events.emit(
                         "tool_result", tool=result.get("tool", ""), status=_st,
+                        outcome=outcome_for(str(_st), str(result.get("error_code") or "")),
                         elapsed=round(_elapsed_f, 3), exit_code=_exit_code,
                         message=str(result.get("message") or "")[:500],
                         data=result.get("data") if _st == "SUCCESS" else None)

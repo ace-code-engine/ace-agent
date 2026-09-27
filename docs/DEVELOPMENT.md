@@ -11,6 +11,7 @@
 | 会话与格式协议 | `docs/INTERFACES.md` + `execution_layer.py` | ❌ 私自发明第二套输出格式 |
 | 设计取舍 | `docs/ADR.md` | ❌ 无记录地推翻既有决策 |
 | 版本事实 | `CHANGELOG.md` 首条 + README 徽章 | ❌ 双份手抄、只改一边 |
+| **验收门槛的形状**(指标语义五要素 / 缺陷可达性六要素) | **`core/ace_contracts.py`**(形状与检查器的唯一来源) + `docs/design/ACC-GATES.md`(门槛本身) | ❌ 另写一套要素名;把"没评估"读成 `false`(五种偷换见 `test_all [73]`) |
 
 > ✅ 数字纪律(已闭环 v3.8):版本号单源 `core/version.py`(Q-12);文档口径数字由 `test_all.py [39]` 自动校验(Q-04)——凡触及数字一律写"以源码为准"或与 `PROVIDERS`/`TOOL_SPECS` 一致的实测值,不许再写死,也不许手抄断言总数。
 > ✅ 提示词工具清单(已闭环 v3.8,Q-07):`prompts/` 三个运行时提示词里的工具清单必须覆盖全部暴露工具,由 test_all 的同名断言拦住漂移;提示词里"某工具尚未实现"这类可用性表述也要按现码核对。
@@ -24,9 +25,18 @@
 ④ 测试: 为新行为加断言(test_all.py 对应 [N] 段,不要只改不测)
 ⑤ 本地验证(全绿才推):
      python test_all.py                       # 全量,退出码非 0 即失败
+     python test_all.py --only 70,73          # 只跑 ACC 那两段(定契约 / 改度量时用)
      python benchmarks/bench_core.py --quick  # 基准健康;功能 check 失败即红
-     ruff check . --select E9,F63,F7,F82      # 硬错误集(计划扩 F401/F841)
+     ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811   # **与 CI 同一串**,见 .github/workflows/ci.yml
      python demo/record_demo.py --check       # 改了用户可见输出才需要
+   **ACC 验收门槛**:ACC-01~04 的断言就在 `test_all` 里 —— `[70]` 管 ACC-01(自报 token ↔ 厂商实测),
+   `[73]` 管 ACC-02/03 的两份契约与 ACC-04 的五种偷换。所以"全绿"已经含了**机器那一半**。
+   人要交的是另一半,按项分两档:
+     · **轻量项**(改名 / 接线 / 小修):交卡里的**证据**即可,不要求物料;
+     · **重量项**(新增远程执行通道、核心计算下沉、以及任何要对外宣布"完成 / 可发布"的东西):
+       必须在报告里给出 **ACC-02 指标语义(五要素)** 与 **ACC-03 缺陷可达性(六要素)** 物料。
+       形状与检查器的唯一来源是 `core/ace_contracts.py`,门槛本身见 `docs/design/ACC-GATES.md`。
+       交不出物料的**不许说"完成"** —— 不可验证的自主性是赌博,不是自主性。
 ⑥ 文档: 动了行为/数字 → 同步 CHANGELOG(新增条目)、README(如涉及)、docstring
 ⑦ 提交: 信息 = 中文一句主题(前缀 feat/fix/docs/style/refactor)+ 要点列表(参考 git log)
 ⑧ 推送: push → GitHub Actions 核对**全部 job** 全绿(测试矩阵 / Rust 引擎 / 容器 smoke /
@@ -74,9 +84,10 @@
 
 ```bash
 python test_all.py                          # 全量测试
+python test_all.py --only 70,73             # 只跑 ACC(自报↔实测 / 两份契约 / 五种偷换)
 python test_all.py --strict                   # 把“能力不足跳过”当失败(严格复现)(≤2 分钟)
 python benchmarks/bench_core.py --quick     # 基准健康
-ruff check . --select E9,F63,F7,F82         # 硬错误(计划扩 F401/F841)
+ruff check . --select E9,F63,F7,F82,F401,F841,E711,F811   # **与 CI 同一串**(test_all [73] 钉住这条对齐)
 python -m compileall -q <改动的文件>         # 编译检查
 python e2e/real_model_smoke.py              # 真实模型冒烟(需 ACE_E2E_* env,缺省跳过)
 python demo/record_demo.py --check          # 演示动画一致性

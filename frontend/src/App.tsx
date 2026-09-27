@@ -337,6 +337,7 @@ export function App({ client, t, colorOf, initialMessage, menuOptions }: AppProp
             title={choice.title}
             options={choice.options}
             defaultValue={choice.defaultValue}
+            secret={choice.secret}
             t={t}
             color={colorOf}
             onAnswer={handleChoice}

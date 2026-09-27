@@ -474,17 +474,23 @@ class TextScreen(ModalScreen):
 
     BINDINGS = [Binding("escape", "cancel", "取消")]
 
-    def __init__(self, title: str, t, on_done, default: str = "") -> None:
+    def __init__(self, title: str, t, on_done, default: str = "",
+                 password: bool = False) -> None:
         super().__init__()
         self.title_text = title
         self.t = t
         self.on_done = on_done
         self.default = str(default or "")
+        # 凭据（H-34c）：`password=True` 让 Textual 只画掩码，**且不回填默认值** ——
+        # 否则"预填已保存的密钥"本身就是一次泄漏。
+        self.password = bool(password)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="text_box"):
             yield Static(self.title_text)
-            yield Input(value=self.default, placeholder=self.t("text_enter_hint"),
+            yield Input(value="" if self.password else self.default,
+                        password=self.password,
+                        placeholder=self.t("text_enter_hint"),
                         id="text_field")
             yield Static(self.t("text_hint_keys"), classes="dim")
 
@@ -1137,9 +1143,12 @@ class AceTuiApp(App):
             cfg["effort"] = str(level)
         self._host_command("/effort " + str(level))
 
-    def ask_text(self, prompt: str, default: str = "") -> Optional[str]:
-        """文本输入（向导步骤、拒绝理由、确认语句…）。"""
-        return self._modal(lambda done: TextScreen(prompt, self._msg, done, default),
+    def ask_text(self, prompt: str, default: str = "", *,
+                 hidden: bool = False) -> Optional[str]:
+        """文本输入（向导步骤、拒绝理由、确认语句…）。`hidden` = 凭据，只画掩码（H-33）。"""
+        return self._modal(lambda done: TextScreen(prompt, self._msg, done,
+                                                   "" if hidden else default,
+                                                   password=hidden),
                            prompt, None)
 
     def confirm(self, question: str) -> bool:

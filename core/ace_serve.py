@@ -506,9 +506,15 @@ class ServeUIHost:
         ans = self._ask("confirm", question)
         return bool(ans and ans.get("accepted"))
 
-    def ask_text(self, prompt: str, default: str = "") -> Optional[str]:
-        """文本输入（向导步骤、拒绝理由…）。取消 → None。"""
-        ans = self._ask("text", prompt, default=str(default))
+    def ask_text(self, prompt: str, default: str = "", *,
+                 hidden: bool = False) -> Optional[str]:
+        """文本输入（向导步骤、拒绝理由…）。取消 → None。
+
+        `hidden=True`（凭据）时给事件带上 `secret`，外壳据此**不回显**（H-33）——
+        此前这个信息在引擎里就到头了，前端收到的只是一句普通文本提示。
+        """
+        extra = {"secret": True} if hidden else {}
+        ans = self._ask("text", prompt, default=str(default), **extra)
         if ans is None:
             return None
         text = ans.get("text")

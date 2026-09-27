@@ -232,6 +232,7 @@ ace-agent/
 │   │   ├── SAFETY-HARDENING.md     #   安全边界加固立项卡（H-01~H-22 审计证据 / 工作包 / 验收）
 │   │   └── RGTC-LANDING.md         #   RGTC 落地立项卡（RG-01~RG-05：信任锚外移 / 链式台账 / 来源归属 / 可逆性分类器 / 授权令与影子）
 │   │   └── MCP-SERVER.md           #   MCP server 立项卡（外部 host 借执行层：暴露面 / 审批矩阵 / 非目标 / 验收）
+│   │   └── CONFIRM-BOUNDARY.md     #   确认与只读边界加固立项卡（H-27~H-31：前缀免确认 / 确认对象 / 只读越界 / 无边界不执行）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

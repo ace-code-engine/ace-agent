@@ -81,6 +81,9 @@
 
 | 文件 | 是什么 |
 |---|---|
+| [`design/WP-0-FRONTEND-CONVERGENCE.md`](design/WP-0-FRONTEND-CONVERGENCE.md) | **前端收敛（`WP-0`，批次 0 前置）**：重复点名 / 协议消费 / 打包三选一 |
+| [`design/ACC-GATES.md`](design/ACC-GATES.md) | **验收门槛（`ACC-01~04`）**：自报 token ↔ 实测 / 指标语义五要素 / 缺陷可达性六要素 / 五种偷换 |
+| [`design/CREDENTIAL-HANDLING.md`](design/CREDENTIAL-HANDLING.md) | **凭据回显边界（`H-33~H-35`）**：向导 `hidden` 全程丢失 / 两条泄漏路径 / 断言只钉声明 |
 | [`design/THREE-LAYERS.md`](design/THREE-LAYERS.md) | **三层脊柱设计卡**：驱动层 / 响应层 / 自愈层 + 两个共用账本 + 五级升级阶梯 |
 | [`design/CONFIRM-BOUNDARY.md`](design/CONFIRM-BOUNDARY.md) | 确认与只读边界加固（H-27~H-31） |
 | [`design/SAFETY-HARDENING.md`](design/SAFETY-HARDENING.md) | 安全边界加固（H-01~H-22 审计证据 / 工作包 / 验收） |

@@ -22,6 +22,13 @@ prompts/ 与 locales/，那几秒的解包延迟落在每一次冷启动上；�
       同理 --install-ui / --setup 在冻结包里没有意义。
     * ace --install-executor —— 那条路从 GitHub Release 下载 Go 执行器；如果打包时
       executor/ 里有二进制（本 spec 会带上），它就无需再下载。
+    * frontend/ (the Ink main shell) —— NOT shipped: datas has no frontend/, and it needs
+      Node >= 18 plus frontend/node_modules (tsx runs the TS source directly) while there
+      is no build artifact to carry (npm run build is just `tsc --noEmit`; frontend/dist
+      does not exist). The frozen build runs the two Python shells (ui/ and tui/) -- a
+      stated capability boundary, not a silent fallback. Decision D3 and the three
+      options: docs/PACKAGING-EXE.md, section "Ink 主外壳不进包". Kept in ASCII on
+      purpose: see the "不用非 ASCII 字符" note above.
 """
 
 from pathlib import Path

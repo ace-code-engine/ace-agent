@@ -27,9 +27,45 @@
 | `--install-ui` / `--setup` | ❌ 无意义 | 包内已自带解释器与界面依赖；`setup_env.py` 那套"找/建解释器"逻辑在冻结包里没有用武之地 |
 | `--install-executor` | ⚠️ 视情况 | 打包时 `executor/` 里有 Go 二进制就一并带上；没带则需要联网下载 |
 | Rust 元处理引擎（`engine/`） | ❌ **不进包** | 冻结版自动走同口径纯 Python 路径，功能不缺、只是部分命令略慢；理由与实测见下节 |
+| **Ink 主外壳（`frontend/`）** | ❌ **不进包**（exe 只有 Python UI） | 三条实测理由见下节：`datas` 里没有 `frontend/`；它跑起来要 **Node ≥18** + `frontend/node_modules`（`tsx` 直跑 TS 源码）；而且**没有构建产物可带** |
 
 **不悄悄退回"找系统 Python"是有意的**：那会把"宿主机装没装 Python"变成行为差异，同一份
 发行包在两台机器上能力不同——比明确禁用更难排查。这与 ACE 其余"不静默降级"的取态一致。
+
+## Ink 主外壳不进包（打包口径 **D3**，2026-09-27 定）
+
+`frontend/`（TypeScript + Ink，**声明的主外壳**）**不进 exe**。所以冻结发行跑的是
+`ui/`（Python REPL）与 `tui/`（Textual）这两条**回落外壳** —— 这是**明确的能力边界**，
+不是悄悄降级。三条理由都在现码上核过：
+
+1. `packaging/ace.spec` 的 `datas` 只有 `prompts/ locales/ assets/ vendor/` + 三个根级文档
+   （+ 打包时若存在的 `executor/`），**没有 `frontend/`**；
+2. 它跑起来要 **Node ≥18**，且 `frontend/node_modules/tsx/dist/cli.mjs` 存在，然后
+   `pushd frontend` 用 `node node_modules/tsx/dist/cli.mjs src/index.tsx` **直跑 TS 源码**
+   （`ace.cmd:59-86`）；
+3. **没有"构建产物"可以带**：`frontend/package.json` 的 `build` 就是 `tsc --noEmit`
+   （只类型检查），`frontend/dist` 不存在 —— 这条由 `frontend/.gitignore` 自己写着
+   "本包目前 `npm run build` 只做类型检查，不产出文件；留给将来"。`node_modules/` 被同一个
+   `.gitignore` 排除，不进版本库。
+
+### 三条出路，选中 **D3**（另两条为什么没选）
+
+| 选项 | 代价 | 结论 |
+|---|---|---|
+| **D1** 带源码 + `node_modules` | 发行包装几万文件的 `node_modules`（版本库里没有），且用户**仍需 Node ≥18** | ❌ 与 `ROADMAP` §2.7 硬契约 3「终端用户不需要工具链」直接冲突 |
+| **D2** 引入真正的打包（bundle） | 新增一条构建链 | ⏸ **不做，但也没否掉** —— 见下面的关键点 |
+| **D3** 明确"exe 只带 Python UI" | 零成本，代价是**把边界说清楚** | ✅ **选它** |
+
+**关于 D2 的关键点（决定前必须知道）**：把 TS 打成 bundle **只去掉 `npm install`，去不掉 Node** ——
+打包 JavaScript 不会产生 JavaScript 运行时。要真让 exe 用户跑上 Ink，得引入**单文件运行时**
+（Node SEA / `pkg` / `bun build --compile` 之类），而那是一条**新的跨平台产物链**
+（每平台一份 + 校验 + smoke 门禁）。所以 D2 不是"顺手补一下"，而是**一次新的分发决策**；
+在它被单独决策之前，D3 是唯一诚实的口径。
+
+**这条口径由断言钉住**（不是靠本文档自觉）：`test_all [10]` 有两条 ——
+① `ace.spec` 的 `datas` **不含** `frontend/`；② 这个边界**两处都写着**
+（spec 的 docstring + 本文档）。写一处忘一处，或哪天有人往 `datas` 里加了 `frontend/` 却没改文档，
+都会当场红。
 
 ## Rust 引擎不进包（冻结尾包行为）
 

@@ -195,7 +195,10 @@ ace-agent/
 │   ├── MCP-SERVER.md           #   ace --mcp 使用说明：三种 host 的配置片段 / 两个旋钮（权限档 + 授权令）/ 排障 / 真 host 冒烟清单
 │   ├── PACKAGING.md            #   打包与分发评估（Q-13 结论:源运行,布局重构后再 wheel）
 │   ├── PACKAGING-EXE.md        #   Windows 发行包：PyInstaller 单目录 + 冒烟门禁 + 冻结后能力表
-│   ├── design/                 #   已闭环立项卡（历史设计决策）
+│   ├── design/                 #   立项卡（已闭环的历史设计决策 + 在途：THREE-LAYERS / WP-0 / ACC）
+│   │   ├── WP-0-FRONTEND-CONVERGENCE.md #   前端收敛立项卡（批次 0 前置：重复点名 / 协议消费 / 打包三选一；含两处与 ROADMAP 转述的差异）
+│   │   ├── ACC-GATES.md            #   验收门槛立项卡（ACC-01~04：自报 token ↔ 实测 / 指标语义五要素 / 缺陷可达性六要素 / 五种偷换）
+│   │   ├── CREDENTIAL-HANDLING.md  #   凭据回显边界立项卡（H-33~H-35：向导 hidden 全程丢失 / 两条泄漏路径 / 断言只钉声明）
 │   │   ├── EXECUTOR-RELEASE.md     #   执行器发布通道（预编译二进制 + ace --install-executor）
 │   │   ├── README-RESTRUCTURE.md   #   README 瘦身两轮立项（本结构由此演进）
 │   │   └── ARCH-TREE-CHECK.md      #   权威树一致性校验（Q-06：R1-R4 规则 / 实测缺口 / S1-S4）

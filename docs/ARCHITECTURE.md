@@ -156,7 +156,7 @@ ace-agent/
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
 ├── e2e/                        # 端到端冒烟：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rg_probes.py（RG 安全结论的复现脚本：快照伪造 / 台账篡改 / 来源归属 / 可逆性分布）/ mcp_probe.py（假装 MCP host 跟真的 `ace --mcp` 子进程说话：stdout 纯度 / EOF 收工 / 裁决与台账）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）
-├── demo/                       # README 演示动画 + 录制脚本（跑真实 --mock 会话；landing 用 --preview；本机绝对路径按"框内保宽/自由行折一列"折叠，故录制位置无关）
+├── demo/                       # README 演示动画 + 录制脚本 + 2 分钟视频剧本（VIDEO-SCRIPT.md：分镜表 / 三种录法 / 不许出现的说法）
 ├── examples/                   # 场景剧本：安全实验室 / 文档解析 / 多轮任务
 │   ├── README.md               #   索引：三场景 × 目标 / 前置 / 该看什么
 │   ├── 01_security_lab/        #   权限裁决 + 写前快照 + /undo 回滚 + terminal_exec 逐次确认
@@ -167,6 +167,7 @@ ace-agent/
 
 ├── docs/                       # 文档（README 是入口，索引见 docs/README.md）
 │   ├── README.md               #   文档索引：按"想干什么"分流全部文档
+│   ├── BOOTSTRAP.md            #   一条命令跑起来（三条路：Docker / 源码 setup_env / 预编译 exe；三个经典环境坑及其真因）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
 │   ├── releases/               #   逐版本更新介绍（RELEASE-NOTES-vX.md，可直接贴进 GitHub Release）
@@ -232,6 +233,7 @@ ace-agent/
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板
+    ├── RELEASE-ANNOUNCEMENT-v3.45.0.md  #   中英双语发布公告（**英文在前**，可直接当 Release 说明 / 投稿 HN；本版：安全边界再加固 H-27~H-32 + 入口重做）
     ├── RELEASE-ANNOUNCEMENT-v3.44.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：MCP server —— 把自己交给别人的 agent）
     ├── RELEASE-ANNOUNCEMENT-v3.43.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：信任锚外移 / 链式台账 / 只测量的两条判据）
     ├── RELEASE-ANNOUNCEMENT-v3.42.0.md  #   中英双语发布公告（可直接当 Release 说明；本版：执行层承诺对齐 / 元处理内核 / 运行度量）
@@ -245,11 +247,13 @@ ace-agent/
 
 | 想了解 | 去这里 |
 |---|---|
-| 为什么这么设计（SimHash / 双层协议 / 零依赖） | `ADR.md`（内联序列 001-006） |
-| 执行器进程边界 / NDJSON / Windows 沙箱选型 | `ADR-002-executor-boundary.md` |
+| 为什么这么设计（SimHash / 双层协议 / 零依赖） | `adr/ADR.md`（内联序列 001-006） |
+| 执行器进程边界 / NDJSON / Windows 沙箱选型 | `adr/ADR-002-executor-boundary.md` |
 | 协议/状态码/注册表/权限模型/网络契约 | `INTERFACES.md` |
-| 安全机制与边界 | `SECURITY-MODEL.md` + `SECURITY-AUDIT.md`（审计） |
+| **安全边界 FAQ（挡住了什么、没挡住什么）** | `security/SECURITY-FAQ.md` |
+| 安全机制与边界 | `security/SECURITY-MODEL.md` + `security/SECURITY-AUDIT.md`（审计） |
 | 配置项与机制说明 | `CONFIGURATION.md` |
+| 能力路线图与三层脊柱设计 | `ROADMAP.md` + `design/THREE-LAYERS.md` |
 | 提示词规范演进 | `history/prompt-engineering/` |
 | 测试与 CI | `TESTING.md` |
 | 开发流程与规范 | `DEVELOPMENT.md` + `CONTRIBUTING.md` |

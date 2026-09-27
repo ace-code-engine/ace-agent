@@ -7,6 +7,7 @@
 
 **版本目录**
 
+- [v3.45.0 · 2026-09-27 · 安全边界再加固（H-27~H-32）· README 首屏重开 + 安全边界 FAQ · docs 结构整理](#v3450-2026-09-27)
 - [v3.44.0 · 2026-09-26 · MCP server：把执行层交给别人的 agent（第四个前端）](#v3440-2026-09-26)
 - [v3.43.0 · 2026-09-26 · 信任锚移出工作区 · 会话台账链式签名 · 来源归属与可逆性测量（只测不判）· 锚进自检](#v3430-2026-09-26)
 - [v3.42.0 · 2026-09-26 · 执行层承诺对齐（6 处边界失效）· Rust 元处理内核 · 运行度量与跨会话成本 · 快照校验 4.4×/12×](#v3420-2026-09-26)
@@ -65,11 +66,13 @@
 - [v1.1 · 2026-08-20 · 真实工具落地](#v11-2026-08-20)
 - [v1.0 · 2026-08-19 · 初版](#v10-2026-08-19)
 
-## [未发布] · 2026-09-27
+## [v3.45.0] · 2026-09-27
 
-> 这一批只有一件事：**把"人点头"和"只读"这两条边界补成真的**。
-> 来源是对 `tools/` 扩展面的独立对抗性审计（5 条），逐条在现码上复现后立项：
-> `docs/design/CONFIRM-BOUNDARY.md`（H-27 ~ H-31）。
+> 这一版两条线：
+> ① **把"人点头"和"只读"这两条边界补成真的** —— 来源是对 `tools/` 扩展面的独立对抗性审计（5 条），
+>    逐条在现码上复现后立项：`docs/design/CONFIRM-BOUNDARY.md`（H-27 ~ H-32）。
+> ② **把"入口"重做一遍** —— README 首屏从一张三行表格改成 **3 行 TL;DR + 一行 quickstart + 自播放演示图**，
+>    新增 `docs/security/SECURITY-FAQ.md`（安全边界 11 问），并把 `docs/` 按用途分目录（扁平 **59 → 19**）。
 > 全量断言随平台浮动，**以 `python test_all.py` 的实际输出为准，本文不写死数字**。
 
 ### 🛡️ 安全
@@ -219,6 +222,25 @@
   `Docs map` 那张 14 行表换成指向新的 [`docs/README.md`](docs/README.md) 索引 + 6 行"最常用"。
   同时**修掉一个链接检查器抓不到的真缺陷**：`Docs map` 表用的是**反引号纯文本**而不是 markdown 链接，
   所以结构整理时它仍指向旧路径（`docs/SECURITY-MODEL.md` / `docs/SECURITY-AUDIT.md`）—— 现已改为真链接并指向 `docs/security/`。
+
+### 🚀 发布
+
+- **版本单源推进到 `v3.45.0`**：`core/version.py` 一处改动，连带三处必须同步、且都有守卫盯着 ——
+  README 徽章（中英）、CHANGELOG 首条、**演示图上印的版本**。最后一条尤其容易漏：`[68]` 断言
+  "图上印的版本 == `core/version.py`"，所以**改版本号就必须重录演示图**，否则本地就红。
+  四张图（happy / blocked / diff / landing）已全部重录，`record_demo.py --check` 4/4 通过
+  —— 注意不带 `--session` 只录 `happy` 一套，四套要逐个录。
+- **新增 [`docs/releases/RELEASE-NOTES-v3.45.0.md`](docs/releases/RELEASE-NOTES-v3.45.0.md)
+  与 [`.github/RELEASE-ANNOUNCEMENT-v3.45.0.md`](.github/RELEASE-ANNOUNCEMENT-v3.45.0.md)**：
+  公告**英文在前**（可直接投稿 / 贴 Release），中文在后；都带自播放演示图、一行 quickstart、
+  这一版被实测改掉的几处，以及一节「诚实边界」。
+- **新增 [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md)（一条命令跑起来）**：三条路（Docker / 源码 `setup_env` /
+  预编译 exe），每行命令都在本仓库实测过；外加三个经典环境坑的**症状 → 真因 → 怎么办**表 ——
+  "菜单不能上下选"其实是解释器没装界面依赖、"`python` 打开商店"是 Store 占位 exe、
+  离线装机靠 `vendor/*.whl`（`--ensure` 会先用它）。
+- **新增 [`demo/VIDEO-SCRIPT.md`](demo/VIDEO-SCRIPT.md)（2 分钟演示视频剧本）**：7 拍分镜表
+  （输入写死，所以拍第二条也长一样）、三种录法、剪辑注意，以及一节**「不许出现的说法」**
+  —— 视频里同样不许说"绝对安全"、"能回滚一切"，要按 [`docs/security/SECURITY-FAQ.md`](docs/security/SECURITY-FAQ.md) 的口径讲。
 
 ## [v3.44.0] · 2026-09-26
 

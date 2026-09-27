@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from core.sensitive import is_credential_file   # H-11：唯一来源（不再经 guardian 转出）
-from tools.base import sensitive_target
+from tools.base import network_path_reason, sensitive_target
 from tools.file_common import (
     FILE_READ_DEFAULT_LIMIT, GLOB_DEFAULT_MAX_RESULTS, GREP_DEFAULT_MAX_RESULTS,
     _SEARCH_MAX_FILE_BYTES, _SEARCH_MAX_FILES, _SEARCH_MAX_LINE_CHARS,
@@ -715,6 +715,12 @@ class FileOps:
         path_str = str(params.get("path", "")).strip()
         if not path_str:
             return ExecutionResult(status="error", error_code="400", message="path 参数为空")
+        # H-29b：`exists()` 本身就是一次 SMB 认证 —— 判在它**之前**。
+        # 只读会话下这条工具免确认，此前 a UNC path 会一路连出去。
+        _net = network_path_reason(path_str)
+        if _net:
+            return ExecutionResult(status="error", error_code="403",
+                                   message=f"拒绝访问网络路径（{_net}）: {path_str}")
         p = self._resolve_read_path(path_str)
         if not p.exists():
             return ExecutionResult(status="error", error_code="404", message=f"文件不存在: {p}")
@@ -758,6 +764,11 @@ class FileOps:
         path_str = str(params.get("path", "")).strip()
         if not path_str:
             return ExecutionResult(status="error", error_code="400", message="path 参数为空")
+        # H-29b：同 open_file —— 判在 `exists()` 之前（那一步已经是一次出站连接）。
+        _net = network_path_reason(path_str)
+        if _net:
+            return ExecutionResult(status="error", error_code="403",
+                                   message=f"拒绝访问网络路径（{_net}）: {path_str}")
         p = self._resolve_read_path(path_str)
         if not p.exists():
             return ExecutionResult(status="error", error_code="404",

@@ -43,7 +43,7 @@ __all__ = [
     "CREDENTIAL_BASENAMES", "CREDENTIAL_SUFFIXES", "PRIVATE_KEY_PREFIXES",
     "TOOL_BLOCKED_BASENAMES", "AGENT_STATE_DIRNAMES", "AGENT_STATE_FILENAMES",
     "SENSITIVE_DIRNAMES", "SENSITIVE_DIR_PREFIXES", "STARTUP_FRAGMENTS",
-    "is_credential_file", "sensitive_target",
+    "is_credential_file", "sensitive_target", "sensitive_dir_listing_reason",
 ]
 
 # ---------------------------------------------------------------- ② 凭据名单
@@ -164,6 +164,33 @@ def sensitive_target(path: "Path | str") -> Optional[str]:
             continue
         hit = _match(spelled)
         if hit:
+            return hit
+    return None
+
+
+# H-29b：列目录（只出文件名、不出内容）只关心"**名字本身就是情报**"的类别。
+# 系统目录 / 自启动项那两类是"能不能写、能不能读内容"的问题 —— 列 `C:\Windows`
+# 不泄露任何凭据，而 SEC-006 明确"目录名单可越界（'帮我看看桌面'不该因为工具选择
+# 而失败）"。所以这里按类别收窄，而不是给列目录换一套新名单。
+_DIR_LISTING_BLOCKING_PREFIXES = ("敏感文件", "私钥/证书", "敏感目录", "Agent 自身")
+
+
+def sensitive_dir_listing_reason(path: "Path | str") -> Optional[str]:
+    """列目录专用的敏感判定（H-29b）：命中返回原因串，否则 None。
+
+    与 `sensitive_target` 共用 `_match` 这**同一个判据来源**，只在返回的**类别**上
+    收窄：挡凭据 / 私钥 / 敏感目录 / agent 自身状态，放行系统目录与自启动项。
+
+    为什么需要它：`ls`/`dir` 是只读、免确认的工具，此前它们连 `sensitive_target`
+    都不调（只有 `cat` 分支调），于是一份情报 `cat` 挡、`ls` 放 —— 同一个仓库里
+    两套口径。而 `file_ops` 对同一批目录明确拒绝列名，理由是"文件名单本身就是情报"。
+    """
+    raw = str(path)
+    for spelled in (canonical_text(raw), raw):
+        if not spelled:
+            continue
+        hit = _match(spelled)
+        if hit and hit.startswith(_DIR_LISTING_BLOCKING_PREFIXES):
             return hit
     return None
 

@@ -12,10 +12,22 @@ import subprocess
 from pathlib import Path
 from typing import Dict
 
+from core.sensitive import sensitive_dir_listing_reason
 from tools.base import (GIT_READONLY_SUBCOMMANDS, MAX_COMMAND_LENGTH,
                         READ_ONLY_COMMANDS, SHELL_META_RE, VERSION_ONLY_COMMANDS,
-                        VERSION_SUBCOMMANDS, sensitive_target)
+                        VERSION_SUBCOMMANDS, network_path_reason, sensitive_target)
 from tools.result import ExecutionResult
+
+
+# H-29a：`git branch` **不是**只读子命令 —— `-d/-D/-m/-M/-f/-c/-C/-u` 会删分支、
+# 改分支、强推上游。白名单按"子命令名"给整段授权，而名字听起来只读，这就是漏点。
+# 改成**列举旗标**正面清单：只放行"看"的那些，其余以 `-` 开头的一律拒绝。
+_GIT_BRANCH_LIST_FLAGS = {
+    "-a", "-r", "-v", "-vv", "-av", "-va", "--all", "--remotes", "--verbose",
+    "--list", "--show-current", "--contains", "--no-contains", "--merged",
+    "--no-merged", "--points-at", "--format", "--sort", "--column", "--no-column",
+    "--color", "--no-color", "-l",
+}
 
 
 class TerminalView:
@@ -111,6 +123,20 @@ class TerminalView:
 
             target = target_args[0] if target_args else "."
             target = os.path.expanduser(target)
+            # H-29b：只读工具不该因为"命令名字听起来只读"就绕开这两条判定。
+            # 列目录**允许越界**是产品决定（见方法 docstring：'帮我看看桌面'不该因为
+            # 工具选择而失败），但那不等于"敏感目录也能列"：`file_ops` 对同一批目录
+            # 明确拒绝列名，理由是**文件名单本身就是情报**（~/.ssh 下 id_rsa 的名字
+            # 就是情报）。此前只有 cat 分支调 sensitive_target，ls 分支直接 return。
+            _net = network_path_reason(target)
+            if _net:
+                return ExecutionResult(status="error", error_code="403",
+                                       message=f"拒绝列出网络路径（{_net}）: {target}")
+            _sen = sensitive_dir_listing_reason(
+                target if os.path.isabs(target) else self.project_root / target)
+            if _sen:
+                return ExecutionResult(status="error", error_code="403",
+                                       message=f"拒绝列出敏感目录（{_sen}）: {target}")
             # 支持通配符：ls *.py / dir /b *.py
             if any(ch in target for ch in "*?"):
                 import glob
@@ -193,6 +219,18 @@ class TerminalView:
             if len(parts) < 2 or parts[1].lower() not in GIT_READONLY_SUBCOMMANDS:
                 return ExecutionResult(status="error", error_code="403",
                                        message=f"git 仅允许只读子命令: {sorted(GIT_READONLY_SUBCOMMANDS)}")
+            # H-29a：`branch` 的名字只读、动作不读（-D 删分支 / -m 改名 / -f 强移上游）。
+            # 子命令级白名单给不了这个粒度，所以给 `branch` 单列一条**列举旗标**正面清单。
+            if parts[1].lower() == "branch":
+                _bad = next((p for p in parts[2:]
+                             if p.startswith("-")
+                             and p.partition("=")[0].lower() not in _GIT_BRANCH_LIST_FLAGS),
+                            None)
+                if _bad is not None:
+                    return ExecutionResult(
+                        status="error", error_code="403",
+                        message=("git branch 只允许列举（-a/-r/-v/--list/--contains/--merged…），"
+                                 f"不接受会改动引用的选项: {_bad}"))
         elif base not in READ_ONLY_COMMANDS:
             return ExecutionResult(status="error", error_code="403",
                                    message=f"命令 '{base}' 不在 terminal_view 白名单中（只读工具）")

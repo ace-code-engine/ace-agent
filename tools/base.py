@@ -63,6 +63,28 @@ def sensitive_target(path: "Path | str") -> Optional[str]:
     """
     return _sensitive_target(path)
 
+
+# H-29：网络路径（UNC / `\\?\` 设备命名空间）**不是**"本地目录名单"——它是一次出站
+# SMB 连接。出网闸门（`egress_allowlist` / `_egress_confirm_reason`）只管 URL，
+# 管不到文件路径，所以这条判据必须落在路径这一层。位置与 `_FOREIGN_ABS_RE` 同级：
+# 都是"路径形状"，落地的约束在各工具里。
+_NETWORK_PATH_RE = re.compile(r"^(?:\\\\|//)")
+
+
+def network_path_reason(raw: "str | Path") -> Optional[str]:
+    """命中网络路径（UNC / 设备命名空间）返回原因串，否则 None（H-29）。
+
+    为什么单独一条：`\\\\host\\share` 在 Windows 上 `Path.is_absolute()` 为**真**，
+    于是它会一路穿过"绝对路径 = 用户明确意图"的分支，直接进 `os.listdir` /
+    `Path.exists()` —— 那一刻已经完成了一次 SMB 认证（NTLMv2 哈希外泄的经典路径），
+    而 `p.exists()` 这行代码在任何人看到之前就已经连上去了。只读会话即可触发
+    （`ls`、`open_file`、`edit_file` 都是免确认的）。
+    """
+    text = str(raw or "").strip()
+    if text and _NETWORK_PATH_RE.match(text):
+        return "网络路径（UNC / 设备命名空间）：这是一次出站连接，不是本地目录"
+    return None
+
 # Q-10: 403 的“安全限制(路径越界/白名单/沙盒/敏感目标)”语义标记。
 # handler 可直接置 metadata["security_denied"]=True;execute 收口处会按文案兜底标记。
 _403_SECURITY_MARKERS = ("越界", "白名单", "拦截", "仅允许", "沙盒")
@@ -198,6 +220,9 @@ class ToolExecutorBase:
         reason = sensitive_target(path)
         if reason:
             return f"敏感目标，不交给系统打开（{reason}）"
+        net = network_path_reason(path)
+        if net:
+            return f"网络路径，不交给系统打开（{net}）"
         if path.suffix.lower() in self._OS_HANDOFF_BLOCKED_SUFFIXES:
             return (f"可执行/脚本后缀不交给系统打开 —— ShellExecute 会**运行**它: "
                     f"{path.suffix}")

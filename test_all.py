@@ -12819,6 +12819,59 @@ if _want("70"):
           (_el70z.executor._escapes_project("C:/Users/x/leak.txt"),
            _el70z.executor._escapes_project("/tmp/leak.txt")))
 
+    # —— H-29：只读工具的"只读"要真的是只读 ——
+    from core.sensitive import (sensitive_target as _SENS70,  # noqa: E402
+                                sensitive_dir_listing_reason as _SDLR70)
+    from tools.base import network_path_reason as _npr70  # noqa: E402
+
+    _p70h29 = mktemp("h29")
+    _el70h29 = _EL70(project_root=str(_p70h29), permission_level="readonly",
+                     config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+    _sv70 = _el70h29.executor
+    # a) `git branch` 的名字只读、动作不读（-D 删分支 / -m 改名 / -f 强移上游）
+    check("H-29a git branch 仍可列举（-a/-r/--list/--format= 不误伤）",
+          all(_sv70.execute({"tool": "terminal_view", "command": c}).status == "success"
+              for c in ("git branch", "git branch -a", "git branch --list",
+                        "git branch --format=%(refname)")), "")
+    _mut70 = [c for c in ("git branch -D main", "git branch -m main x",
+                          "git branch -M main x", "git branch -f main HEAD~1",
+                          "git branch --delete main", "git branch -c a b")
+              if _sv70.execute({"tool": "terminal_view", "command": c}).error_code != "403"]
+    check("H-29a ★git branch 的变更选项一律 403（只读工具不能删/改引用）",
+          not _mut70, _mut70)
+    # 这条断言的意义在于"没有第二个闸门会挡住它"：只读会话、工具不在 CONFIRM_TOOLS、
+    # 也不建快照 —— 唯一的边界就是这个子命令白名单。
+    check("H-29a terminal_view 不在 CONFIRM_TOOLS（所以只能靠工具自己挡）",
+          "terminal_view" not in _CT70, sorted(_CT70))
+    # b) ls/dir 与 cat 同口径：**名单本身就是情报**的那几类目录不列
+    check("H-29b ★ls 不列敏感目录（~/.ssh 下的文件名本身就是情报）",
+          _sv70.execute({"tool": "terminal_view",
+                         "command": "ls ~/.ssh"}).error_code == "403", "")
+    check("H-29b ★ls 不列 agent 自身的状态目录（列它 = 看自己的审计与回滚）",
+          _sv70.execute({"tool": "terminal_view",
+                         "command": "ls .guardian"}).error_code == "403", "")
+    _out70h29 = "C:\\Windows" if os.name == "nt" else "/tmp"
+    check("H-29b 对照：普通/系统目录仍可列（SEC-006 的「目录名单可越界」不能被吃掉）",
+          _sv70.execute({"tool": "terminal_view",
+                         "command": f"ls {_out70h29}"}).status == "success", _out70h29)
+    check("H-29b 列目录判据是收窄而不是另起一套：sensitive_target 仍挡系统目录",
+          bool(_SENS70("C:/Windows")) and _SDLR70("C:/Windows") is None
+          and bool(_SDLR70(Path.home() / ".ssh")),
+          (_SENS70("C:/Windows"), _SDLR70("C:/Windows"), _SDLR70(Path.home() / ".ssh")))
+    # c) 文件路径也是一条出网通道，而出网闸门（egress_allowlist）只管 URL
+    check("H-29c ★UNC / 设备命名空间一律 403（`exists()` 之前就判，不产生 SMB 连接）",
+          _sv70.execute({"tool": "terminal_view",
+                         "command": r"ls \\attacker.tld\share"}).error_code == "403"
+          and _sv70.execute({"tool": "open_file",
+                             "path": r"\\attacker.tld\share"}).error_code == "403"
+          and _sv70.execute({"tool": "edit_file",
+                             "path": r"\\attacker.tld\share"}).error_code == "403", "")
+    check("H-29c 判据本身：UNC 正反例",
+          bool(_npr70(r"\\h\s")) and bool(_npr70("//h/s")) and bool(_npr70(r"\\?\C:\x"))
+          and _npr70(r"C:\Users\x") is None and _npr70("./rel") is None,
+          (_npr70(r"\\h\s"), _npr70(r"C:\Users\x")))
+    _el70h29.close()
+
     # —— H-19：截断必须与"参数写错"分开（否则工具会被整会话熔断）——
     import agent_runner as _ar70  # noqa: E402
     from types import SimpleNamespace as _SN70  # noqa: E402

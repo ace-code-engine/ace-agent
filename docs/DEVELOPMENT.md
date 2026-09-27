@@ -29,7 +29,9 @@
      python demo/record_demo.py --check       # 改了用户可见输出才需要
 ⑥ 文档: 动了行为/数字 → 同步 CHANGELOG(新增条目)、README(如涉及)、docstring
 ⑦ 提交: 信息 = 中文一句主题(前缀 feat/fix/docs/style/refactor)+ 要点列表(参考 git log)
-⑧ 推送: push → GitHub Actions 核对 8 个 job 全绿(Python 3.10/3.11/3.12、Go×2、ruff、bench、e2e)
+⑧ 推送: push → GitHub Actions 核对**全部 job** 全绿(测试矩阵 / Rust 引擎 / 容器 smoke /
+   Go 执行器×2 / ruff / bench / 真实模型 e2e / 前端 tsc+vitest)。**别在这里抄 job 数量或名称** ——
+   以 `.github/workflows/ci.yml` 为准(这条以前写死过"8 个 job"，早就与文件对不上了)
 ```
 
 分支命名 `feat/xxx` / `fix/xxx`;改行为时把断言旧行为的用例一起改,不许只加新用例。

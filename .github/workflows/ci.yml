@@ -231,3 +231,45 @@ jobs:
             exit 0
           fi
           python e2e/real_model_smoke.py
+
+  # 主前端（frontend/，TypeScript + Ink）：**此前从不进 CI**。仓库里有 17 个测试文件、
+  # 260 余条用例（`npm test`），其中两条是**跨语言守卫** —— `theme.test.ts` 直接读
+  # `ui/ace_theme.py`、`protocol.test.ts` 直接读 `core/ace_events.py` /
+  # `agent_runner.py` 做逐条比对。也就是说：Python 侧改个色名、加个事件类型，
+  # 那边改名这边没跟，**只有本机跑过 npm test 的人才知道**，CI 一直是绿的。
+  # 另有 `integration.test.ts` 起**真引擎**（真管道、真协议、真审批往返）——
+  # 那是 `ace --serve` 目前唯一的端到端覆盖。
+  # H-31 之后它不再写 checkout（引擎拿到临时 --project-root），所以可以安全地进 CI。
+  frontend:
+    name: Frontend (tsc + vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # integration.test.ts 会 spawn `python ai_code.py --serve`，而引擎要 requests
+      # （`resolvePython()` 依次探 ACE_PYTHON → 已知路径 → `python`，setup-python 提供后者）
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run build
+
+      - name: Tests (vitest：单元 + 假引擎界面 + 真引擎集成)
+        run: npm test

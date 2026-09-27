@@ -12,12 +12,45 @@
  * 在输出里说清楚，不会假装通过。
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AceClient, resolvePython } from '../src/protocol/client.js';
 import type { AceEvent } from '../src/protocol/types.js';
 
 const PYTHON = resolvePython();
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+/**
+ * H-31：**给引擎一个临时项目根**，不要让它落在 cwd（= 仓库根）上。
+ *
+ * 此前这里只传 `--mock --permission readonly`，而 `AceClient` 的 cwd 就是仓库根，
+ * 于是引擎按 cwd 落 `project_root` —— 一次 `npm test` 会在开发者**真实仓库**里留下：
+ *
+ *   · 未跟踪的 `demo_notes.md`（mock 剧本 `agent_runner.py` 的 file_write）
+ *   · 真实 `.ace_sessions/` 新增若干条会话日志（实测一次 262 → 276）
+ *   · 真实 `.agent_memory.json` 被改写、`.guardian/snapshots/` 新增目录
+ *
+ * `e2e/mcp_probe.py` 传了 `--project-root`，Python 侧 `test_all` 也有 H-26 守卫盯着
+ * （"测试不许往仓库自己的 .ace_sessions/ 写会话"）—— 只有这个入口漏了。
+ */
+const PROJECT_ROOT = mkdtempSync(join(tmpdir(), 'ace-fe-int-'));
+
+/** 仓库真实会话日志条数：H-26 那条纪律在 JS 侧的同一把尺子。 */
+function repoSessionCount(): number {
+  try {
+    return readdirSync(join(REPO_ROOT, '.ace_sessions')).filter((n) => n.endsWith('.jsonl'))
+      .length;
+  } catch {
+    return 0;
+  }
+}
+
+const SESSIONS_BEFORE = repoSessionCount();
 
 /**
  * 起一个引擎，跑完一轮，收齐事件。
@@ -33,7 +66,15 @@ async function runSession(
   opts: { answer?: 'once' | 'session' | 'deny'; extraArgs?: string[] } = {},
 ): Promise<{ events: AceEvent[]; gaps: number[]; exitOk: boolean; client: AceClient }> {
   const client = new AceClient({
-    extraArgs: ['--mock', '--permission', 'readonly', ...(opts.extraArgs ?? [])],
+    extraArgs: [
+      '--mock',
+      '--permission',
+      'readonly',
+      // H-31：会话落在临时目录，不落仓库
+      '--project-root',
+      PROJECT_ROOT,
+      ...(opts.extraArgs ?? []),
+    ],
   });
   const events: AceEvent[] = [];
   client.on('event', (ev: AceEvent) => events.push(ev));
@@ -71,7 +112,7 @@ beforeAll(async () => {
   // 探一次引擎能不能起来：起不来就整组跳过（并说明原因），
   // 而不是让二十条用例各自失败一遍、把真正的问题淹掉。
   try {
-    const c = new AceClient({ extraArgs: ['--mock'] });
+    const c = new AceClient({ extraArgs: ['--mock', '--project-root', PROJECT_ROOT] });
     await c.start(false);
     await c.shutdown();
   } catch (e) {
@@ -83,6 +124,10 @@ beforeAll(async () => {
     );
   }
 }, 120_000);
+
+afterAll(() => {
+  rmSync(PROJECT_ROOT, { recursive: true, force: true });
+});
 
 describe.skipIf(!engineUsable)('真引擎 · 基本往返', () => {
   it('握手拿到能力，事件流首尾正确', async () => {
@@ -168,4 +213,17 @@ describe.skipIf(!engineUsable)('真引擎 · 授权往返（这个前端存在�
     const c = noticesOf(session);
     expect(new Set([a, b, c]).size).toBe(3);
   }, 300_000);
+});
+
+describe.skipIf(!engineUsable)('H-31 · 测试不写开发者的真实仓库', () => {
+  it('会话落在临时 project-root 里，仓库自己的 .ace_sessions/ 一条不涨', async () => {
+    // 这条按声明顺序跑在**别的用例之后**，所以它测的是"整组跑完"的净变化
+    // （与 Python 侧 test_all 的 H-26 同一条纪律、同一把尺子）。
+    expect(existsSync(join(PROJECT_ROOT, '.ace_sessions'))).toBe(true);
+    expect(repoSessionCount()).toBe(SESSIONS_BEFORE);
+    // mock 剧本会 file_write 一个 demo_notes.md —— 它必须落在临时目录里。
+    // 此前这条路径直接把未跟踪文件留在了仓库根（实测 2026-09-27 12:56）。
+    expect(existsSync(join(PROJECT_ROOT, 'demo_notes.md'))).toBe(true);
+    expect(existsSync(join(REPO_ROOT, 'demo_notes.md'))).toBe(false);
+  }, 30_000);
 });

@@ -131,6 +131,14 @@ class ToolExecutorBase:
         # 执行位置档位：off / job / docker。docker 由上面那行接管，job 由 Go 执行器
         # 接管（Tier-1 Job Object），off 表示宿主直跑。
         self.sandbox_mode = str((sandbox or {}).get("mode", "off")).lower()
+        # H-30：`code_execute` 在**没有任何真实边界**（docker 与 Go 执行器都不可用）时，
+        # 是否允许退回宿主进程内执行。默认 false（fail-close）。
+        # 为什么默认关：唯一的进程内闸门是 AST 黑名单，而那份名单自己写着"枚举不可能
+        # 闭合"（实测 `io.open` 的读写都放行，而 open/os/pathlib 被拦）；`code_execute`
+        # 又是 PERM_WRITE 且**不在** CONFIRM_TOOLS —— 没有边界时它就是"没有人工确认的
+        # 任意 Python"。与 job 档拿不到执行器就 503、冻结发行直接 501 是同一条立场。
+        # 要显式接受无边界，写 `sandbox.code_execute_host = true`。
+        self.code_execute_host = bool((sandbox or {}).get("code_execute_host", False))
         self._go_client = None
         # Go 执行器：job 档是**必需**，off 档是可选增强。
         # 这个区分很要紧，理由见 _go_executor() 的注释。

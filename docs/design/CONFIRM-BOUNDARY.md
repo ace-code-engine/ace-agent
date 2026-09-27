@@ -92,6 +92,17 @@ H-01 ~ H-26 把"判据单一来源 + fail-close"这两条主线收了；本卡�
 - `--sandbox off` + 无执行器时 `code_execute` → 503 且消息里三条出路齐全；显式配置后可执行（断言两条路径）；
 - `cd frontend && npm test` 后 `git status --porcelain` 为空、`.ace_sessions/` 计数不变。
 
+> **实施记录（H-30）**：改动落在 `tools/code_tools.py` 宿主回落之前 + `tools/base.py` 的
+> `code_execute_host`（默认 `false`），文档进 `docs/CONFIGURATION.md`。
+> 顺带**改掉了一条把旧行为写成期望值的断言**：`test_all` 原写着
+> 「code_execute 无执行器时进程内回落仍可用」—— 那正是这里要改掉的行为。现替换为
+> 「无边界 → 503（消息含三条出路）」+「显式 `sandbox.code_execute_host` 后退回宿主仍可用」，
+> 并用**抹掉 `use_go_executor` / `docker_sandbox`** 的方式让这条断言在任何机器上都跑得到
+> （否则它只在"恰好没执行器"的机器上生效，本机永远看不到）。
+> 另有 5 个共用夹具（`el_full` / `el_style` / `el_h` / `el_b` / `_sec1_el`）显式写上
+> `"sandbox": {"code_execute_host": True}`：它们测的是闸门**背后**的诱饵 / AST 逻辑，
+> 不是执行边界本身 —— 显式选择比让它随"本机有没有执行器"漂移更诚实。
+
 ---
 
 ## 3. 附：审计中被推翻 / 修正的两条（留档）

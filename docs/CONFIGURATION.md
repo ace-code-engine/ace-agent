@@ -9,6 +9,8 @@
 config = {
     "flywheel_path": ".../violations.jsonl",   # L5 飞轮落盘路径
     "sandbox_base": "...",                     # code_execute 沙箱临时目录（默认系统临时区）
+    "sandbox": {"mode": "off",                 # 执行位置：off / job / docker（--sandbox 同义）
+                "code_execute_host": False},   # H-30：没有真边界时是否允许 code_execute 退回宿主（默认 false）
     "confine_files": True,                     # 文件工具限制在项目目录内（含跨盘符检查）
     "signing_key": "你的签名密钥",              # Guardian 快照 HMAC 签名（生产建议；不配则自动生成一把）
     "mandate": {"mandateId": "md_...", ...},    # 授权令（RG-05）：一次任务一张，收拢逐次弹窗；不配 = 行为与以前相同
@@ -162,7 +164,33 @@ python -m cli.ace_mandate show --file mandate.json      # 检查签名/有效期
 | `never` | 从不问人：判定为需审批的一律**拒绝**（不是放行）。**必须配真边界**：`never` + `sandbox=off`（或 `sandbox_policy=danger_full_access`）会**拒绝启动**（退出码 2 / 库调用方抛 `PolicyRefused`）——它挡不住不需要审批的工具，所以"没人 + 没边界"没有可辩护的用途 |
 | `untrusted` | 除白名单外一律问 |
 
-无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写/执行工具照跑——见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。
+无人值守（CI / 管道 / 无 tty）请**显式**组合 `--sandbox job|docker` + `approval_policy: on_failure`。默认档下需要审批的动作在非交互里会被直接拒绝（`terminal_exec` 在 CI 里不可用），而无需审批的写工具照跑——见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md) 的「无人值守 / 自动化部署」；启动时也会对"非交互 + `off` 档 + 非只读"这个组合主动打提示。
+**`code_execute` 例外（H-30）**：它不再属于"无需审批就照跑"的那一类 —— 见下一节。
+
+### 无边界时的 `code_execute`（`sandbox.code_execute_host`，H-30）
+
+`code_execute` 有三条可能落到宿主进程内执行的路，改动前后各一条：
+
+| 边界来源 | 有没有边界 | 行为 |
+|---|---|---|
+| `--sandbox docker` 且 daemon 可用 | 有 | 一次性容器里跑（内核约束） |
+| Go 执行器（`ace --install-executor` 或 `executor/` 下自编译） | 有 | Job Object 里跑（Tier-1） |
+| 两者都没有 | **没有** | H-30 起：**503 拒绝**，不再静默退回宿主 |
+
+为什么默认拒：宿主执行时唯一的闸门是 `tools/code_tools.py` 里的 AST 黑名单，而那份名单
+自己写着"**枚举不可能闭合**"（实测 `io.open(...)` 的读写都放行，而同价的 `open` / `os` /
+`pathlib` 被拦）；`code_execute` 又是 `PERM_WRITE` 且**不在** `CONFIRM_TOOLS`（不逐次问人）。
+两者相乘就是"没有边界、也没有人"的任意 Python —— 与 job 档拿不到执行器就 503、冻结发行
+（PyInstaller）直接 501 是同一条立场。
+
+要显式接受无边界（例如本机就是不想装 docker / Go）：
+
+```json
+"sandbox": {"code_execute_host": true}
+```
+
+配了它之后行为与改动前逐字相同（宿主 `subprocess.run` + 最小环境变量 + 30 s 超时）。
+`terminal_exec` 不受这条影响：它一直是"黑名单拦不住 ⇒ 人就是边界"，每次都问。
 
 ### 出站白名单（`egress_allowlist`）
 

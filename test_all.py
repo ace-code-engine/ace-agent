@@ -489,6 +489,9 @@ if _want("7"):
     # —— code_execute 诱饵验证循环 ——
     el_full = ExecutionLayer(project_root=str(sandbox_root), permission_level="write",
                              config={"bait": {"enabled": True, "frequency": 0},
+                                     # H-30：本组测的是诱饵循环（闸门**背后**的逻辑），
+                                     # 不是执行边界本身 ⇒ 显式选择宿主执行。
+                                     "sandbox": {"code_execute_host": True},
                                      "sandbox_base": str(TEST_TMP)})
     code = "def add(a: int, b: int) -> int:\n    return a + b\n\nprint(add(1, 2))"
     r1 = run_agent(el_full, "code_execute", language="python", code=code, user="写个加法函数")
@@ -500,7 +503,10 @@ if _want("7"):
 
     # —— AST 门禁分层：风格规则降级为警告，安全规则仍熔断 ——
     el_style = ExecutionLayer(project_root=str(sandbox_root), permission_level="write",
-                              config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+                              config={"bait": {"enabled": False},
+                                      # H-30：测 AST 分层，不是测边界 ⇒ 显式宿主执行
+                                      "sandbox": {"code_execute_host": True},
+                                      "sandbox_base": str(TEST_TMP)})
     r4 = run_agent(el_style, "code_execute", language="python",
                    code="def f(x):\n    return x + 1\n", user="无注解函数")
     check("风格问题不再熔断（type_hints 降级为警告）",
@@ -1833,7 +1839,12 @@ if _want("10"):
     print("[10] 上线加固 —— 路径越界 / math_calc 白名单 / API 协议 / 解析器防御")
     # ============================================================
     el_h = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
-                          config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+                          # H-30：这是全节共用夹具，测的是各闸门**背后**的行为，
+                          # 不是执行边界本身 ⇒ 显式选择宿主执行（否则无执行器的机器上
+                          # 每一条良性 code_execute 断言都会变成 503）。
+                          config={"bait": {"enabled": False},
+                                  "sandbox": {"code_execute_host": True},
+                                  "sandbox_base": str(TEST_TMP)})
     r = run_agent(el_h, "file_write", path="../escape.txt", content="x")
     check("file_write 路径越界拦截", r["status"] == "403", r.get("message"))
     r = run_agent(el_h, "file_read", path=str(FOLDER.parent / "README.md"))
@@ -2235,9 +2246,8 @@ if _want("10"):
     r = run_agent(el_h, "code_execute", language="python",
                   code="import pickle\npickle.loads(b'x')")
     check("沙箱拦截 pickle 导入", r["status"] == "403", r.get("message"))
-    # —— code_execute 接入 Go 执行器（Tier-1 Job Object 边界） ——
-    # 仅当执行器二进制可用（本机 go build 过）时断言 job 边界；CI/Linux 无 exe 时
-    # 走进程内回落，这是预期行为，不算失败（与 [13] 的 available() 跳过同一口径）。
+    # —— code_execute 的执行边界（H-30） ——
+    # 有执行器 → 走 Job Object 边界（只在 go build 过的机器上跑，与 [13] 的 available() 同口径）。
     from core import ace_executor as _ax_ce  # noqa: E402
     if _ax_ce.ExecutorClient().available():
         r = run_agent(el_h, "code_execute", language="python", code="print('go-ce-ok')")
@@ -2248,10 +2258,37 @@ if _want("10"):
               and "go-ce-ok" in r.get("data", {}).get("stdout", ""),
               (r.get("status"), _sand))
     else:
-        r = run_agent(el_h, "code_execute", language="python", code="print('go-ce-ok')")
-        check("code_execute 无执行器时进程内回落仍可用",
-              r["status"] == "SUCCESS" and "go-ce-ok" in r.get("data", {}).get("stdout", ""),
-              r.get("status"))
+        skip("code_execute 的 Job Object 边界", "本机没有 ace-executor 二进制")
+
+    # H-30：边界来源逐个抹掉。与 job 档 / 冻结发行同一口径 —— 没有边界就如实拒绝，
+    # **不静默退回宿主**。此前这里是一条「无执行器时进程内回落仍可用」的断言：
+    # 它把被改掉的那个行为写成了期望值。
+    _ne30 = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                           config={"bait": {"enabled": False},
+                                   "sandbox_base": str(TEST_TMP)})
+    _ne30.executor.use_go_executor = False      # 抹掉 Go 执行器这条路
+    _ne30.executor.docker_sandbox = None        # 抹掉 docker 这条路
+    _r30 = run_agent(_ne30, "code_execute", language="python", code="print('nope')")
+    check("H-30 ★无执行边界时 503，不静默退回宿主（AST 黑名单不算边界）",
+          _r30["status"] == "503" and "docker" in _r30.get("message", "")
+          and "go build" in _r30.get("message", "")
+          and "code_execute_host" in _r30.get("message", ""), _r30)
+    _ne30.executor.code_execute_host = True     # 显式接受无边界
+    _r30b = run_agent(_ne30, "code_execute", language="python", code="print('host-ok')")
+    check("H-30 显式 sandbox.code_execute_host 后退回宿主仍可用（能力没被删掉）",
+          _r30b["status"] == "SUCCESS"
+          and "host-ok" in (_r30b.get("data") or {}).get("stdout", ""), _r30b)
+    _ne30c = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                            config={"bait": {"enabled": False},
+                                    "sandbox_base": str(TEST_TMP)})
+    check("H-30 默认值本身就是 fail-close（不是靠调用方记得传参数）",
+          _ne30c.executor.code_execute_host is False, _ne30c.executor.code_execute_host)
+    check("H-30 显式 true 才生效（配置键真的被读进来）",
+          ExecutionLayer(project_root=str(mktemp()), permission_level="write",
+                         config={"bait": {"enabled": False},
+                                 "sandbox": {"code_execute_host": True},
+                                 "sandbox_base": str(TEST_TMP)}
+                         ).executor.code_execute_host is True, "")
 
     # —— 快照 HMAC 签名（防伪造） ——
     gproj = mktemp()
@@ -2899,6 +2936,8 @@ if _want("10"):
 
     el_b = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
                           config={"bait": {"enabled": True, "frequency": 0},
+                                  # H-30：诱饵状态机测试 ⇒ 显式宿主执行
+                                  "sandbox": {"code_execute_host": True},
                                   "sandbox_base": str(TEST_TMP)})
     code = "def add(a: int, b: int) -> int:\n    return a + b\n\nprint(add(1, 2))"
     run_agent(el_b, "code_execute", language="python", code=code, user="任务A写加法函数")
@@ -6183,7 +6222,10 @@ if _want("35"):
     # —— SEC-01: 危险内建"引用级"拦截（别名 / lambda 间接调用必须与直接调用同命运） ——
     _sec1_root = mktemp()
     _sec1_el = ExecutionLayer(project_root=str(_sec1_root), permission_level="write",
-                              config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
+                              config={"bait": {"enabled": False},
+                                      # H-30：测的是引用级拦截 + 良性代码放行 ⇒ 显式宿主执行
+                                      "sandbox": {"code_execute_host": True},
+                                      "sandbox_base": str(TEST_TMP)})
     _sec1_cases = {
         "直接 open 仍拦截": ("open('x.txt','w').write('a')", "403"),
         "别名 f=open 拦截": ("f = open\nf('x.txt','w').write('a')", "403"),

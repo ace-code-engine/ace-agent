@@ -228,6 +228,21 @@ class CodeTools:
                         },
                     })
 
+        # H-30：能走到这里 = docker 与 Go 执行器**都没有**（上面两条路各自 return 了）。
+        # 那就只剩宿主进程内执行，而唯一的闸门是 AST 黑名单 —— 见 tools/base.py 里
+        # `code_execute_host` 的注释（为什么默认 fail-close）。此前这里是**静默**落到
+        # 宿主 subprocess.run 的，于是一个 PERM_WRITE、免逐次确认的工具可以在没有任何
+        # 边界的情况下跑任意 Python。
+        if not self.code_execute_host:
+            return ExecutionResult(
+                status="error", error_code="503",
+                message=("code_execute 需要一条真正的执行边界：当前既没有 docker 沙箱"
+                         "也没有 Go 执行器，已拒绝在宿主进程内执行。三条出路："
+                         "① 起 docker 后改用 --sandbox docker；"
+                         "② 在 executor/ 下 `go build -o ace-executor.exe .`"
+                         "（或 `ace --install-executor`）拿到 Job Object 边界；"
+                         "③ 明确接受「无边界」：配置 sandbox.code_execute_host = true。"))
+
         base = Path(self.sandbox_base) if self.sandbox_base else Path(tempfile.gettempdir())
         sandbox_dir = base / f"agent_sandbox_{uuid.uuid4().hex[:8]}"
         try:

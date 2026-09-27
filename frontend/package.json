@@ -10,7 +10,8 @@
   "scripts": {
     "start": "tsx src/index.tsx",
     "build": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preview": "tsx tools/preview.tsx"
   },
   "dependencies": {
     "chalk": "^5.3.0",

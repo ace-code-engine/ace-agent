@@ -14,6 +14,7 @@ import React from 'react';
 import { gstr } from '../render/glyphs.js';
 import { displayWidth } from '../render/text.js';
 import type { Meta } from '../state/store.js';
+import type { StatusSegmentWire } from '../protocol/types.js';
 
 export interface StatusLineProps {
   meta: Meta;
@@ -40,6 +41,44 @@ export function permissionToken(permission: string | undefined): string {
     default:
       return 'perm_ro';
   }
+}
+
+/**
+ * 语义档（引擎的 `level`）→ 主题 token。
+ *
+ * 为什么要这一层：引擎发的是**判断**（"这一段在不在告警"），不是颜色 ——
+ * `context_badge` 的 docstring 写着"颜色即语义"。前端把它落到自己这套 token 上，
+ * 换配色/换主题都不用动引擎。
+ */
+export function levelToken(level: string): string {
+  switch (level) {
+    case 'dim':
+      return 'dim';
+    case 'warn':
+      return 'warn';
+    case 'danger':
+      return 'error';
+    case 'goal':
+      return 'goal_active';
+    default:
+      return 'text';
+  }
+}
+
+/**
+ * 引擎的 `status.segments` → 本组件的 `Segment`。
+ *
+ * **权限那一段用 `meta.permission` 自己上色**，不用 `level`：引擎那边的
+ * `class:footer-w` 同时被"可写权限"与"告警类分段"复用，只有 `name` 才能区分
+ * —— 而权限三色是产品契约里最要紧的一件事，不能靠推断。
+ */
+export function segmentsFromEngine(rows: readonly StatusSegmentWire[], meta: Meta): Segment[] {
+  return rows.map((r) => ({
+    name: r.name,
+    text: r.text,
+    priority: r.priority,
+    token: r.name === 'permission' ? permissionToken(meta.permission) : levelToken(r.level),
+  }));
 }
 
 export function buildSegments(meta: Meta, busy: boolean, t: StatusLineProps['t']): Segment[] {
@@ -89,7 +128,14 @@ export function fitSegments(segs: Segment[], width: number): Segment[] {
 }
 
 export function StatusLine({ meta, busy, color, width, t }: StatusLineProps): React.ReactElement {
-  const segs = fitSegments(buildSegments(meta, busy, t), Math.max(10, width));
+  // **引擎的分段优先**：底栏显示哪几段是引擎的判断（`/statusline` 配置、告警档），
+  // 前端自己再算一份就会出现"CLI 说 92%、前端说 40%"这种两边都对不上的局面。
+  // 引擎还没发过 `status` 时（界面挂载早于第一个事件）才退回自算 —— 那一行不该是空的。
+  const fromEngine = segmentsFromEngine(meta.statusSegments ?? [], meta);
+  const segs = fitSegments(
+    fromEngine.length ? fromEngine : buildSegments(meta, busy, t),
+    Math.max(10, width),
+  );
   return (
     <Box>
       <Text color={color('dim')}> </Text>

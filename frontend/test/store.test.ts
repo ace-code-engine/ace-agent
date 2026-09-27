@@ -181,3 +181,37 @@ describe('健壮性', () => {
     expect(s.meta.tools).toBe(5);
   });
 });
+
+describe('status 事件（底栏分段）', () => {
+  it('分段被解析成结构化行 —— 不是 stringify 成 "[object Object]"', () => {
+    // 这条有前身：`statusSegments` 早先被声明成 `string[]` 并 `map(str)`，
+    // 而引擎从来没发过这个事件，所以没人发现那个形状是错的。现在它真的会来。
+    const s = run(ev('status', {
+      segments: [
+        { name: 'model', text: ' mock ', priority: 10, level: 'info' },
+        { name: 'context', text: ' 上下文 92% ', priority: 20, level: 'warn' },
+      ],
+    }));
+    expect(s.meta.statusSegments).toHaveLength(2);
+    expect(s.meta.statusSegments[1]).toMatchObject({
+      name: 'context', text: ' 上下文 92% ', priority: 20, level: 'warn',
+    });
+  });
+
+  it('数组里的坏行逐条丢掉，其余照收（缺 text / 不是对象）', () => {
+    const s = run(ev('status', {
+      segments: [null, 42, { name: 'x' }, { name: 'ok', text: ' t ' }],
+    }));
+    expect(s.meta.statusSegments).toHaveLength(1);
+    expect(s.meta.statusSegments[0]).toMatchObject({ name: 'ok', text: ' t ', priority: 50 });
+  });
+
+  it('整个 payload 不是数组 = 这一帧坏了：保持上一份，不把底栏抹成空', () => {
+    const s = run(
+      ev('status', { segments: [{ name: 'model', text: ' mock ', priority: 10 }] }),
+      ev('status', { segments: '不是数组' }),
+    );
+    expect(s.meta.statusSegments).toHaveLength(1);
+    expect(s.meta.statusSegments[0].name).toBe('model');
+  });
+});

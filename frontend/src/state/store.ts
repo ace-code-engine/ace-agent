@@ -6,7 +6,7 @@
  * 这些用一堆纯函数就能穷举测；塞进组件里就只能靠手点，而手点永远覆盖不到那些顺序。
  */
 
-import type { AceEvent, ChoiceKind, GrantDecision } from '../protocol/types.js';
+import type { AceEvent, ChoiceKind, GrantDecision, StatusSegmentWire } from '../protocol/types.js';
 import { looksLikeDiff } from '../render/diff.js';
 import type { Phase } from '../render/spinner.js';
 
@@ -38,8 +38,17 @@ export interface Meta {
   sandbox?: string;
   projectRoot?: string;
   mock?: boolean;
-  /** 引擎报告的状态行分段（`status` 事件；未接则空）。 */
-  statusSegments: string[];
+  /**
+   * 引擎报告的状态行分段（`status` 事件）。
+   *
+   * 空数组 = 退回前端自算（`StatusLine.buildSegments`）：`status` 只在会话开始 /
+   * 每轮请求 / 每次工具往返 / 每轮收尾发，界面挂载得比第一个事件早、或引擎侧取不到
+   * 分段时，那一行不该是空的。
+   *
+   * **优先用引擎的**：底栏该显示哪几段是引擎的判断（`/statusline` 配置、
+   * "颜色即语义"的告警档），前端自己再算一份就会出现"CLI 说 92%、前端说 40%"。
+   */
+  statusSegments: StatusSegmentWire[];
   /** 会话是否已结束。 */
   ended: boolean;
   rounds: number;
@@ -233,14 +242,16 @@ export function applyEvent(state: State, ev: AceEvent): State {
       return push(state, { kind: 'notice', text });
     }
 
-    case 'status':
+    case 'status': {
+      // 整个 payload 不是数组 = 这一帧坏了：**保持上一份**。把底栏抹成空比留着旧数据更糟
+      // （与 `default:` 分支"不认识的事件类型忽略并继续"同一个口径）。
+      // 数组本身是**权威快照**（引擎每次发全量），所以数组里的坏行逐条丢。
+      if (!Array.isArray(ev.segments)) return state;
       return {
         ...state,
-        meta: {
-          ...state.meta,
-          statusSegments: Array.isArray(ev.segments) ? ev.segments.map(str) : [],
-        },
+        meta: { ...state.meta, statusSegments: parseStatusSegments(ev.segments) },
       };
+    }
 
     case 'model_request':
       return { ...state, busy: true, meta: { ...state.meta, rounds: Math.max(state.meta.rounds, num(ev.round) ?? 0) } };
@@ -265,8 +276,7 @@ export function applyEvent(state: State, ev: AceEvent): State {
   }
 }
 
-/** 把审批答案记下来：授权框据此关掉，转写区留一条"当时怎么答的"。 */
-export function applyPermissionAnswer(
+/** 把审批答案记下来：授权框据此关掉，转写区留一条"当时怎么答的"。 */export function applyPermissionAnswer(
   state: State,
   decision: GrantDecision,
 ): State {
@@ -311,4 +321,29 @@ function str(v: unknown): string {
 function num(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * 解析 `status` 事件里的分段。
+ *
+ * 逐条挑字段而不是整包信任：协议会加字段，旧前端遇到不认识的键应该忽略并继续
+ * （与 `default:` 分支"不认识的事件类型不报错"同一个口径）。缺 `text` 的段直接丢掉 ——
+ * 一段没有文字的状态在屏幕上只是一条多余的分隔符。
+ */
+export function parseStatusSegments(raw: unknown): StatusSegmentWire[] {
+  if (!Array.isArray(raw)) return [];
+  const out: StatusSegmentWire[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const text = str(r.text);
+    if (!text) continue;
+    out.push({
+      name: str(r.name),
+      text,
+      priority: num(r.priority) ?? 50,
+      level: str(r.level) || 'info',
+    });
+  }
+  return out;
 }

@@ -141,6 +141,28 @@ export interface ModelDeltaEvent extends AceEvent {
   text: string;
 }
 
+/**
+ * `status` 事件里的一个分段。
+ *
+ * 只有四个字段，且**没有样式**：引擎把 prompt_toolkit 的样式类名折算成了 `level`
+ * （`context_badge` 的"颜色即语义"就是它），前端照它上色。
+ *
+ * `priority` 越小越先保留 —— 但"该丢谁"由前端按**自己的列数**决定
+ * （与 `ui/ace_layout.fit_status_line` 同一条口径：同一份数据、两种排版）。
+ */
+export interface StatusSegmentWire {
+  name: string;
+  text: string;
+  priority: number;
+  /** `info` / `dim` / `warn` / `danger` / `goal` 之一（未知值当 info）。 */
+  level: string;
+}
+
+export interface StatusEvent extends AceEvent {
+  type: 'status';
+  segments: StatusSegmentWire[];
+}
+
 /** 审批决策三态 —— 与 `agent_runner.GRANT_*` 一致。 */
 export type GrantDecision = 'once' | 'session' | 'deny';
 

@@ -22,7 +22,24 @@ npm install
 npm start -- --mock -m "现在几点"     # 离线，不需要 API key
 npm test                              # vitest：单元 + 假引擎界面 + 真引擎集成
 npm run build                         # tsc --noEmit（只做类型检查）
+npm run preview                       # 把真实渲染帧打到终端（见下）
 ```
+
+**`npm run preview` 是给"看一眼"用的**：它用 `ink-testing-library` 渲染**真组件**，
+喂一段脚本化的事件流（首屏 / 流式增量 / 工具卡片 / 审批框 / 任务树），把每一步的帧
+按顺序打出来。`docs/HANDOFF-FRONTEND.md` §四.2 记着"六项的视觉效果一次都没被人眼看过
+（开发环境没有 TTY）"—— 这个脚本就是为了解掉那件事：**排版现在可验了**。
+
+```bash
+npm run preview                 # 直接看
+npm run preview -- --plain      # 剥掉 ANSI，方便贴进 issue
+FORCE_COLOR=1 npm run preview   # 看配色（PowerShell: $env:FORCE_COLOR=1; npm run preview）
+```
+
+> 颜色那一条有坑：脚本用的是**假 stdout**，chalk 于是认为"不是终端"并把颜色关掉。
+> 要看到配色必须在**启动 node 之前**设 `FORCE_COLOR`（chalk 在 import 时就定级了）。
+> 没设时脚本自己会把这句话打出来 —— 排版照旧可验，配色不行，这一点不装。
+
 
 常用参数：`--project-root <dir>` · `--mock` · `--lang zh|en|ja` · `--python <path>` · `--no-stream`。
 
@@ -55,7 +72,12 @@ test/
   i18n.test.ts           字典真的载入了（读不到会安静地全线退化成键名）
   store.test.ts          reducer 的事件顺序穷举
   app.test.tsx           假引擎驱动界面（含授权对话框的按键）
+  statusline.test.tsx    底栏：引擎分段优先 / 语义档→token
+  preview.test.ts        `npm run preview` 还活着（每帧非空 + 关键画面在）
   integration.test.ts    **真引擎**：真管道、真协议、真审批往返
+  fake-engine.ts         假引擎（与 tools/preview.tsx **共用一份**，两份会漂）
+tools/
+  preview.tsx            `npm run preview`：渲真组件、打印帧
 ```
 
 ## 两条测试纪律

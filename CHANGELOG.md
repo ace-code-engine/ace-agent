@@ -114,6 +114,28 @@
   test_all 的 H-26 守卫都是对的，只有这个入口漏了。现在给引擎一个临时 project-root，
   并新增一条与 H-26 同尺子的断言：跑完整组，仓库自己的 `.ace_sessions/` 一条不涨。
 
+### ⚙️ 工程 / CI
+
+- **REL-09 主前端进 CI（tsc + vitest）** —— 它此前**不被任何 job 覆盖**。`frontend/`
+  （TypeScript + Ink）有 17 个测试文件（`npm run build` / `npm test`），而
+  `.github/workflows/` 里 grep `node|npm|frontend|tsc` 零命中。其中两条是**跨语言守卫**：
+  `theme.test.ts` 直接读 `ui/ace_theme.py`、`protocol.test.ts` 直接读
+  `core/ace_events.py` / `agent_runner.py` 逐条比对 —— Python 侧改个色名、加个事件类型，
+  前端没跟上时** CI 是绿的**。另有 `integration.test.ts` 起真引擎（真管道 / 真协议 /
+  真审批往返），那是 `ace --serve` 目前唯一的端到端覆盖。ci.yml 新增 `frontend` job
+  （setup-node 20 + `npm ci` + tsc + vitest，带 setup-python 因为集成测试要 spawn 引擎）；
+  前置条件是同一批的 H-31（否则它会把 mock 会话写进 checkout）。
+
+### 📄 文档
+
+- **H-32 授权令的"接线状态"在文档里落后于代码**：`_stage_permission` 有两处调用
+  `_mandate_decision()`、`test_all` 也有 RG-05k / RG-05n 两条端到端接线断言，而
+  `core/ace_mandate.py` 的 docstring、`docs/ARCHITECTURE.md` 的权威树、`test_all` 的
+  RG-05a 段注释**三处都还写着"未接入审批流程"**。`[38]` 原有的"文档不再把已闭环
+  BACKLOG 编号当未决项引用"抓不到这类（那三行一个编号都没提），故新增 H-32 守卫：
+  代码在接线 ⇒ 这三处都不许再出现那四个字（判据拼字符串构造，免得守卫自己命中自己）。
+  两个方向都验过：修之前三个文件全部命中，修之后全部不命中。
+
 ## [v3.44.0] · 2026-09-26
 
 > 这一版只有一件事：**把执行层交给别人的 agent 用** —— ACE 从"自己干活的 agent"变成任何

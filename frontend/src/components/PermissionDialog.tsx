@@ -28,11 +28,22 @@ export interface PermissionDialogProps {
   disabled?: boolean;
 }
 
-/** 顺序 = 界面上 1/2/3 = 方向键顺序，与 `ui/ace_turn.PERMISSION_OPTIONS` 对齐。 */
-const OPTIONS: Array<{ decision: GrantDecision; key: string; hintKey: string }> = [
-  { decision: 'once', key: 'perm_opt_once', hintKey: 'perm_opt_once_hint' },
-  { decision: 'session', key: 'perm_opt_session', hintKey: 'perm_opt_session_hint' },
-  { decision: 'deny', key: 'perm_opt_deny', hintKey: 'perm_opt_deny_hint' },
+/**
+ * 授权三态：顺序 = 界面上 1/2/3 = 方向键顺序。
+ *
+ * `danger` 与 `ui/ace_turn.PERMISSION_OPTIONS` **逐项对齐**（`test/shell-parity.test.ts` 的 R-1 钉住）：
+ * "本会话允许"是一次**真实的权力扩张**，不该长得像"就这一次" —— 所以它带 `danger`，
+ * 渲染时用告警色，**即使没被选中**也看得出来。
+ */
+export const PERMISSION_OPTIONS: Array<{
+  decision: GrantDecision;
+  key: string;
+  hintKey: string;
+  danger: boolean;
+}> = [
+  { decision: 'once', key: 'perm_opt_once', hintKey: 'perm_opt_once_hint', danger: false },
+  { decision: 'session', key: 'perm_opt_session', hintKey: 'perm_opt_session_hint', danger: true },
+  { decision: 'deny', key: 'perm_opt_deny', hintKey: 'perm_opt_deny_hint', danger: false },
 ];
 
 export function PermissionDialog({
@@ -73,8 +84,12 @@ export function PermissionDialog({
         return;
       }
 
-      if (key.upArrow) setCursor((c) => (c - 1 + OPTIONS.length) % OPTIONS.length);
-      if (key.downArrow) setCursor((c) => (c + 1) % OPTIONS.length);
+      if (key.upArrow) {
+        setCursor((c) => (c - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length);
+      }
+      if (key.downArrow) {
+        setCursor((c) => (c + 1) % PERMISSION_OPTIONS.length);
+      }
 
       // Esc = 拒绝。这是全局约定（对话里 Esc 也是中断），授权框里沿用同一条。
       if (key.escape) {
@@ -87,12 +102,12 @@ export function PermissionDialog({
         return;
       }
       if (key.return) {
-        onAnswer(OPTIONS[cursor]!.decision);
+        onAnswer(PERMISSION_OPTIONS[cursor]!.decision);
         return;
       }
       const idx = '123'.indexOf(input);
-      if (idx >= 0 && idx < OPTIONS.length) {
-        onAnswer(OPTIONS[idx]!.decision);
+      if (idx >= 0 && idx < PERMISSION_OPTIONS.length) {
+        onAnswer(PERMISSION_OPTIONS[idx]!.decision);
       }
     },
     { isActive: !disabled },
@@ -115,9 +130,10 @@ export function PermissionDialog({
           <Text color={color('dim')}>{gstr('▌')}</Text>
         </Text>
       ) : (
-        OPTIONS.map((o, i) => (
-          <Text key={o.decision} color={cursor === i ? color('accent') : color('text')}>
-            {gstr(cursor === i ? '❯ ' : '  ')}
+        PERMISSION_OPTIONS.map((o, i) => (
+          <Text key={o.decision}
+                color={cursor === i ? color('accent') : o.danger ? color('warn') : color('text')}>
+            {gstr(cursor === i ? '▶ ' : '  ')}
             {i + 1}. {t(o.key)}
             <Text color={color('dim')}>
               {'  '}

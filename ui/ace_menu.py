@@ -22,9 +22,16 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from ui.ace_text import display_width
+
 __all__ = ["MenuItem", "MenuState", "command_items", "mention_items",
            "argument_items", "build_menu", "render_menu", "menu_hint",
-           "window_bounds", "MENTION_TRIGGERS", "ARGUMENT_HINTS"]
+           "window_bounds", "desc_column", "MENU_GAP",
+           "MENTION_TRIGGERS", "ARGUMENT_HINTS"]
+
+#: 标签与说明之间至少留几个空格（也是说明列的基准：窗口内最宽标签 + 它）。
+#: 前后端同一个值 —— `test/shell-parity.test.ts` 的 R-6 对拍。
+MENU_GAP = 2
 
 # `@` 提及的五类（顺序 = 菜单里的展示顺序）
 MENTION_TRIGGERS: Tuple[Tuple[str, str], ...] = (
@@ -65,10 +72,17 @@ class MenuItem:
         self.group = str(group)
         self.kind = str(kind)
 
-    def line(self, mark: str = "  ", width: int = 0) -> str:
+    def line(self, mark: str = "  ", desc_col: int = 0) -> str:
+        """渲染一行：`mark + label (+ 对齐到 `desc_col` 的说明)`。
+
+        `desc_col` = 说明列的起始列（`0` = 不对齐，与旧行为一致）。
+        **这个参数此前收了却从来不用** —— 于是补全菜单从不做列对齐，而前端那份做了两列，
+        同一份候选在两个外壳里排得不一样。口径由 `desc_column()` 给。
+        """
         text = f"{mark}{self.label}"
         if self.desc:
-            text += f"  {self.desc}"
+            gap = max(MENU_GAP, int(desc_col or 0) - display_width(text))
+            text += (" " * gap) + self.desc
         return text
 
     def __repr__(self) -> str:
@@ -270,6 +284,18 @@ def _ranked(items: Sequence[MenuItem], query: str, start: int, end: int,
 # 渲染
 # ============================================================
 
+def desc_column(labels: Sequence[str]) -> int:
+    """说明列的起始列（**相对标签起点**）：窗口内最宽标签 + `MENU_GAP`。
+
+    为什么取**窗口内**而不是全表：滚到底部时全表最长的那个已经滚出去了，
+    照它对齐会在左边留一大片空白（前端那份注释里写的就是这条理由）。
+
+    宽度按**显示列**算（`display_width`），不按码点 —— 中文说明的候选一旦混进来，
+    按 `.length` 对齐必然歪。
+    """
+    return max((display_width(str(x)) for x in labels), default=0) + MENU_GAP
+
+
 def window_bounds(total: int, selected: int, rows: int) -> Tuple[int, int]:
     """可见窗口 `(start, end)`：**选中项永远在窗口里**，并且尽量让它居中。
 
@@ -308,18 +334,21 @@ def render_menu(state: MenuState, width: int = 80, max_rows: int = 8,
     sel = min(state.selected, len(state.items) - 1)
     start, end = window_bounds(len(state.items), sel, max(1, int(max_rows)))
     shown = state.items[start:end]
+    _col = desc_column([it.label for it in shown])
     if start > 0:
         rows.append(st("dim", tr("menu_more_above").replace("{n}", str(start))))
     last_group = None
     for offset, item in enumerate(shown):
         i = start + offset
         if item.group and item.group != last_group:
-            rows.append(st("dim", f"  {item.group}"))
+            # 分组标题前缀 `── ` 与 `ui/ace_panel.section_title` 同款（那是本仓的**设计版**
+            # 分组标题，主页/面板都用它）；**右侧是否补满属于各外壳的排版**，不在这里定。
+            rows.append(st("dim", f"  ── {item.group}"))
             last_group = item.group
         # 选中标记：老终端（cp936）印不出 ▶，降级成 `>`（见 core/ace_io.py）
         from core import ace_io as _io
         mark = st("cyan", _io.glyph("▶") + " ") if i == sel else "  "
-        line = item.line("", 0)
+        line = item.line("", _col)
         if i == sel:
             line = st("bold", line)
         rows.append(f"{mark}{line}")

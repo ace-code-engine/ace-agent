@@ -18,13 +18,24 @@ import { g } from '../render/glyphs.js';
 import type { ToolStatus } from '../state/store.js';
 
 export const TOOL_GLYPHS: Record<ToolStatus, string> = {
-  running: '◐',
+  running: '◌',
   ok: '✓',
   fail: '✗',
 };
 
-/** 与 `ui/ace_cards.py` 的只读工具集同口径：成功时不展开。 */
-const READ_TOOLS = new Set(['file_read', 'file_glob', 'file_grep', 'glob', 'grep', 'file_search', 'list_dir']);
+/**
+ * "成功时折叠"的只读工具集 —— 口径的**唯一来源**是 `ui/ace_cards.READ_TOOLS`。
+ *
+ * 这份名单此前是**编的**：`file_glob` / `file_grep` / `file_search` / `list_dir`
+ * 在 `tools/registry.py` 里**不存在**，而最吵的 `search` / `terminal_view` / `kb_search`
+ * 反而不在里面 —— 于是"成功不展开"在两个外壳里**行为不同**。
+ * 现在由 `test/shell-parity.test.ts`（R-4）读 Python 源 + 注册表钉住。
+ */
+export const READ_TOOLS = new Set([
+  'file_read', 'search', 'search_read', 'grep', 'glob', 'terminal_view',
+  'kb_search', 'kb_list', 'skill_list', 'skill_load', 'goal_status',
+  'datetime_now', 'math_calc', 'browser_screenshot',
+]);
 
 export interface ToolCardProps {
   tool: string;

@@ -5940,6 +5940,22 @@ if _want("33"):
               for c in ("FORMAT_ERROR", "TOOL_BANNED", "GUARD_VIOLATION",
                         "BAIT_TRIGGERED", "AST_FAILED")), "")
 
+    # —— 这些模块**会画出来**的字形，必须在 `ASCII_FALLBACK` 里 ——
+    # 否则 cp936 控制台上 `glyph()` 找不到替身就返回 `?`：屏幕上出现一个问号，
+    # 而**没有任何报错**（`core/ace_io.py` 头部讲的就是这个）。WP-0 收敛时实测到的：
+    # `status_mark` 的 pending 标记 `◌` 一直不在表里，而表里有 `◐`（spinner 那一套）。
+    from core.ace_io import ASCII_FALLBACK as _af33  # noqa: E402
+    from ui import ace_spinner as _sp33  # noqa: E402
+    from ui import ace_tools as _tb33  # noqa: E402
+    _glyphs33 = {status_mark(_s33)[0] for _s33 in ("SUCCESS", "pending", "500", "403")}
+    _glyphs33 |= set(_tb33.DOT.values()) | set(_tb33.RUN_FRAMES)
+    # spinner 的字形表是模块私有的（`_GLYPHS`）—— 这里读它正是为了"**画得出来的都得有替身**"
+    for _frames33, _iv33 in _sp33._GLYPHS.values():
+        _glyphs33 |= set(_frames33)
+    _missing33 = sorted(_g for _g in _glyphs33 if _g and _g not in _af33)
+    check("界面上会画的字形都在 ASCII_FALLBACK 里（缺失 ⇒ cp936 上显示成 `?` 且不报错）",
+          not _missing33, f"缺替身: {_missing33}")
+
     # —— collapse_lines：纯函数折叠 / 不超限原样 / 空输入 ——
     _cl10 = collapse_lines([f"行{i}" for i in range(10)], 4)
     check("collapse_lines 10 行 + max=4 → 4 行 + 折叠提示（含'已折叠 6 行'）",

@@ -32,6 +32,9 @@ const CP936: Record<string, string> = {
   '✓': 'v',
   '✗': 'x',
   '◐': 'o',
+  // 工具卡 pending 用的是 `◌`（不是 spinner 那个 `◐`）；它此前不在引擎的兜底表里，
+  // 于是在 cp936 上显示成 `?`。已在 `core/ace_io.ASCII_FALLBACK` 补上，这里跟着补。
+  '◌': 'o',
   '◓': 'o',
   '◑': 'o',
   '◒': 'o',
@@ -92,7 +95,7 @@ describe('组件真的换了字', () => {
     }
   });
 
-  it('选中标记：`❯` 换成 `>` 后菜单里不再有画不出的字', async () => {
+  it('选中标记：`▶` 换成 `>` 后菜单里不再有画不出的字', async () => {
     setGlyphs(CP936);
     const st = buildMenu('/', 1, {
       commands: { '/help': 'cmd_help' },
@@ -105,7 +108,7 @@ describe('组件真的换了字', () => {
     await tick();
     const out = lastFrame() ?? '';
     unmount();
-    expect(out).not.toContain('❯');
+    expect(out).not.toContain('▶');
     expect(out).toContain('>');
   });
 

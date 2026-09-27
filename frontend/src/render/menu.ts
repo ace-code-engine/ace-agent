@@ -15,6 +15,7 @@
  */
 
 import { filterItems } from './match.js';
+import { displayWidth } from './text.js';
 
 export interface MenuItem {
   /** 给人看的标签 */
@@ -354,6 +355,18 @@ export function clampSelected(state: MenuState): number {
  *
  * 这条是补全菜单最容易错的地方：只按"从头显示前 N 个"画，选中项一超出范围
  * 就从屏幕上消失了 —— 用户按方向键却发现"光标不见了"。
+ *
+ * ## 窗口要**黏**，不要居中（口径与 `ui/ace_menu.window_bounds` 逐例相同）
+ *
+ * 选中项还在窗口里时**不动窗口**，只在它越过上/下边界时挪一格。
+ * 居中也保证"选中项可见"，但代价是**每按一下方向键整屏都在跳** ——
+ * 看起来像界面在抖，而不是光标在走。这正是 Python 侧 docstring 里写的那条理由：
+ * "滚动要黏，否则每按一下整屏都在跳"。
+ *
+ * 到顶 / 到底都**不循环**：列表有头有尾，转圈会让人分不清自己走到哪了。
+ *
+ * 两边的规则由 `test/shell-parity.test.ts`（**R-5**）对着真 Python **逐例**对拍
+ * （此前 TS 是居中、Python 是黏边：33 个用例不同，同一种交互两种手感）。
  */
 export function windowBounds(
   total: number,
@@ -361,12 +374,30 @@ export function windowBounds(
   height: number,
 ): { from: number; to: number; hiddenAbove: number; hiddenBelow: number } {
   const h = Math.max(1, Math.trunc(height));
-  if (total <= h) return { from: 0, to: total, hiddenAbove: 0, hiddenBelow: 0 };
-  const sel = Math.max(0, Math.min(Math.trunc(selected), total - 1));
-  let from = sel - Math.floor(h / 2);
-  from = Math.max(0, Math.min(from, total - h));
+  const t = Math.max(0, Math.trunc(total));
+  if (t <= h) return { from: 0, to: t, hiddenAbove: 0, hiddenBelow: 0 };
+  const sel = Math.max(0, Math.min(Math.trunc(selected), t - 1));
+  // 第一屏不滚（越靠上越不该跳）；之后只在选中项越过下边界时挪一格
+  const from = sel < h ? 0 : Math.max(0, Math.min(sel - h + 1, t - h));
   const to = from + h;
-  return { from, to, hiddenAbove: from, hiddenBelow: total - to };
+  return { from, to, hiddenAbove: from, hiddenBelow: t - to };
+}
+
+/** 标签与说明之间至少留几个空格（也是说明列的基准：窗口内最宽标签 + 它）。 */
+export const MENU_GAP = 2;
+
+/**
+ * 说明列的起始列（**相对标签起点**）：窗口内最宽标签 + `MENU_GAP`。
+ *
+ * 口径与 `ui/ace_menu.desc_column` **完全相同**（前后端各一份实现，由
+ * `test/shell-parity.test.ts` 的 **R-6** 对着真 Python 渲染结果对拍）。
+ *
+ * 取**窗口内**而不是全表：滚到底部时全表最长的那个已经滚出去了，照它对齐会在左边
+ * 留一大片空白。按**显示列**算而不是码点 —— 候选里一旦混进中文标签，
+ * 按 `.length` 对齐必然歪。
+ */
+export function labelColumn(labels: string[]): number {
+  return labels.reduce((m, l) => Math.max(m, displayWidth(l)), 0) + MENU_GAP;
 }
 
 /**

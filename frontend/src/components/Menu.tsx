@@ -16,9 +16,9 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 
-import { clampSelected, menuHintKey, windowBounds, type MenuState } from '../render/menu.js';
+import { clampSelected, labelColumn, menuHintKey, windowBounds, type MenuState } from '../render/menu.js';
 import { gstr } from '../render/glyphs.js';
-import { truncateWidth } from '../render/text.js';
+import { padWidth, truncateWidth } from '../render/text.js';
 
 export interface MenuProps {
   state: MenuState;
@@ -30,10 +30,8 @@ export interface MenuProps {
   width?: number;
 }
 
-/** 选中标记占的列数（`❯ ` 或 `  `）。 */
+/** 选中标记占的列数（`▶ ` 或 `  `）。与 Python 的列表选中标记一致（R-8）。 */
 const MARK_W = 2;
-/** 命令列与说明列之间的空隙。 */
-const GAP = 2;
 
 export function Menu({ state, t, color, height = 10, width = 80 }: MenuProps): React.ReactElement | null {
   if (!state.open || state.items.length === 0) return null;
@@ -44,8 +42,9 @@ export function Menu({ state, t, color, height = 10, width = 80 }: MenuProps): R
   const shown = state.items.slice(from, to);
 
   // 命令列宽度：取自**当前窗口里最长的那个**，不取全表 —— 否则滚到底部时
-  // 左侧会留一大片空白（因为最长的那个已经滚出去了）。
-  const labelW = Math.max(...shown.map((i) => i.label.length)) + GAP;
+  // 左侧会留一大片空白（因为最长的那个已经滚出去了）。规则本身在 `render/menu.labelColumn`，
+  // 与 Python 的 `ui/ace_menu.desc_column` 同口径（`shell-parity.test.ts` 的 R-6 对拍）。
+  const labelW = labelColumn(shown.map((i) => i.label));
   const descW = Math.max(0, width - MARK_W - labelW - 4);
 
   // **按显示宽度截断，不按码点**：说明是中文时，24 个汉字占 48 列，
@@ -80,11 +79,11 @@ export function Menu({ state, t, color, height = 10, width = 80 }: MenuProps): R
             ) : null}
             <Text>
               <Text color={selected ? color('accent') : color('dim')}>
-                {gstr(selected ? '❯ ' : '  ')}
+                {gstr(selected ? '▶ ' : '  ')}
               </Text>
-              {/* 命令名等宽 ASCII，`padEnd` 按码点补空格就够 —— 不会因 CJK 宽度而歪 */}
+              {/* 标签列按**显示列**补齐（`padWidth`），规则与 Python 的 `desc_column` 同源 */}
               <Text color={selected ? color('accent') : color('text')}>
-                {item.label.padEnd(labelW)}
+                {padWidth(item.label, labelW)}
               </Text>
               {item.desc ? (
                 <Text color={color('dim')}>{clip(item.desc, descW)}</Text>

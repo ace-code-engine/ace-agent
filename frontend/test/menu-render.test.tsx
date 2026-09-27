@@ -97,7 +97,7 @@ describe('渲染本身', () => {
     const out = await frame('/');
     expect(out).toContain('/help');
     expect(out).toContain('cmd_help');
-    expect(out).toContain('❯');
+    expect(out).toContain('▶');
   });
 
   it('提及菜单五类触发词都在（含 `@session`）', async () => {
@@ -142,13 +142,13 @@ describe('渲染本身', () => {
     await tick();
     const out = lastFrame() ?? '';
     unmount();
-    const sel = out.split('\n').find((l) => l.includes('❯'));
-    expect(sel, '选中项必须有一行带 ❯').toBeTruthy();
+    const sel = out.split('\n').find((l) => l.includes('▶'));
+    expect(sel, '选中项必须有一行带 ▶').toBeTruthy();
   });
 
   it('**选中项越界时也画得出标记**（夹到末项，而不是一个都不画）', async () => {
     // 这是修过的真 bug：`windowBounds` 内部夹了 selected，而画标记那行比的还是
-    // 原始值 —— 越界时窗口绕着末项滚、`❯` 却一个都不画，菜单看着像坏了。
+    // 原始值 —— 越界时窗口绕着末项滚、`▶` 却一个都不画，菜单看着像坏了。
     const st = buildMenu('/', 1, { commands: GROUPED, groupOf: (n) => GROUP_OF[n]!, translate: t });
     st.selected = 999;
     const { lastFrame, unmount } = render(
@@ -157,7 +157,7 @@ describe('渲染本身', () => {
     await tick();
     const out = lastFrame() ?? '';
     unmount();
-    const sel = out.split('\n').find((l) => l.includes('❯'));
+    const sel = out.split('\n').find((l) => l.includes('▶'));
     expect(sel, '越界时也该夹到末项并画出来').toBeTruthy();
   });
 });

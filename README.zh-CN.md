@@ -17,15 +17,23 @@
   权限、沙箱、快照回滚全部由执行层裁决。</strong>
 </p>
 
-### 一览
+### TL;DR
 
-| 关键属性 | 说明 |
-|---|---|
-| **本地跑** | **安全核心**纯 stdlib（执行层 · 网关 · 记忆 · CLI）。跑在你自己的机器上，链路里没有云，离线演示不需要任何 API Key。 |
-| **模型无关** | **9 家厂商 · 10 个入口**，一个 `/provider` 切换 —— 智谱、DeepSeek、Moonshot、OpenAI、Anthropic、通义千问、SiliconFlow、OpenRouter、Ollama —— 同时支持 OpenAI 与 Anthropic 两种报文格式。 |
-| **可插拔** | 每个工具只在 `tools/registry.py` 声明一次；**MCP server** 走 stdio，它的工具以 `mcp__<server>__<工具名>` 出现，权限/审批/审计照旧；技能就是普通 `SKILL.md` 文件。 |
+1. **安全是代码，不是提示词。** 每次工具调用都过一层独立的执行层：它裁决权限、识别危险行为、并在任何写入前建快照 —— 被越狱的模型照样删不掉你的文件。→ **[安全边界 FAQ](docs/SECURITY-FAQ.md)**：它挡住了什么、没挡住什么。
+2. **本地跑，模型无关，核心零依赖。** 安全核心纯 stdlib（链路里没有云）；**9 家厂商 · 10 个入口**由一个 `/provider` 切换，同时支持 OpenAI 与 Anthropic 两种报文格式。模型调用需要 `requests`，安全核心不需要。
+3. **所有东西共用一条路径。** 每个工具只在 `tools/registry.py` 声明一次；**MCP server** 与普通 `SKILL.md` 技能都经同一条权限/审批/审计路径 —— MCP server 本身跑在 ACE 沙箱之外。
 
-> 模型调用需要 `requests`，安全核心不需要。MCP server 跑在 ACE 沙箱之外。
+**快速开始** —— 离线、不需要密钥、不需要网络：
+
+```bash
+python ai_code.py --mock
+```
+
+<p align="center">
+  <img src="demo/demo.svg" alt="真实录制的一次离线 ACE 会话：提问、工具调用、回答、状态栏" width="820">
+</p>
+
+<p align="center"><sub>真实录制，不是效果图 —— 用 <code>python demo/record_demo.py</code> 重录，或用 <code>--check</code> 验证它没有腐化（CI 每次 push 都跑）。更多画面：<a href="docs/SHOWCASE.md">演示与截图</a>。</sub></p>
 
 ---
 
@@ -203,6 +211,9 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 ---
 
 ## 安全边界
+
+> **先读这个：** **[安全边界 FAQ](docs/SECURITY-FAQ.md)** —— 11 个问题，讲清 ACE 挡住了什么、没挡住什么，
+> 其中两条最容易反直觉：*无人值守时哪些动作会 fail-close*，以及 *快照不覆盖哪些东西*。
 
 ### 四层，默认启用程度不同
 

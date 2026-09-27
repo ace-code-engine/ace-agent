@@ -186,6 +186,18 @@
   **两份都是规划，不含任何代码改动**；其中唯一已核实的结论是 `engine/target/` 早已在
   `.gitignore:43`（`git ls-files` 为 0），所以"Rust 进发布包"没有 target 污染问题。
 
+- **README 顶端加了真正的开头（原来第一个屏幕是表格、没有 quickstart）**：把 `### At a glance`
+  那张三行长表格换成 **3 行 TL;DR + 一行 quickstart（`python ai_code.py --mock`）+ 自播放演示图** ——
+  信息一条没丢（安全是代码 / 本地·模型无关·零依赖 / 所有东西一条路径），但第一个屏幕从"这是什么"变成"怎么跑"。
+  演示图直接用 `demo/demo.svg`：它**本身就是带动画的**（CSS `@keyframes` + `steps(1,end)`，11.6 s 打字循环），
+  且 `record_demo.py --check` 在 CI 里防止它腐化 —— 比 GIF 小两个数量级，还多一道防腐化断言。中英两份 README 同步。
+- **新增 `docs/SECURITY-FAQ.md`（安全边界 FAQ，11 问）**：把散在 `SECURITY.md`「已知边界」、
+  `SECURITY-MODEL.md` 与 README「Security boundary」里的口径收成一份问答，每条都指明去哪段代码、哪条断言核实
+  （含 `python test_all.py --only 40` 的安全审计 payload 回归）。其中两问是刻意挑出的反直觉项：
+  **无人值守时 fail-close 的是"要问人的那些"，不是"危险的那些"**；以及**快照不覆盖
+  `.git`/`.guardian`/`.ace_sessions` 与凭据文件**（删了就是没了 —— 正是 `core/ace_recovery.py`
+  的可逆性分类器把它们判成 `NEVER` 的原因）。链接放在两个 README 的 TL;DR 第 1 条与「安全边界」章节开头。
+
 ## [v3.44.0] · 2026-09-26
 
 > 这一版只有一件事：**把执行层交给别人的 agent 用** —— ACE 从"自己干活的 agent"变成任何

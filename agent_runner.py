@@ -727,20 +727,40 @@ def parse_grant_answer(text: str) -> Tuple[str, str]:
     return GRANT_DENY, ""
 
 
-def ask_grant(question: str, on_auto_deny=None, grace_hint: str = "") -> str:
+def grant_prompt(question: str, tool: str = "", reason: str = "") -> str:
+    """终端授权提示的**单一渲染点**（`WP-0` 切片 C）。
+
+    有 `tool` 时在问题前加"请求工具 + 原因"两行（i18n，三语一致）；无 `tool` 原样返回
+    （`ask_grant` 还被别处复用，不能一刀切）。此前这两行靠**调用方**另行打印，且两条
+    终端路径口径不一 —— `agent_runner` 循环打印了，`ai_code._ask_permission` 却把
+    tool/reason 丢掉，用户只看到一句"是否授权？"却不知道要授权什么。
+    """
+    if not tool:
+        return question
+    from ui.i18n import t
+    prompt = t("perm_request_title", tool=tool)
+    if reason:
+        prompt += "\n" + t("perm_reason", reason=reason)
+    return prompt + "\n" + question
+
+
+def ask_grant(question: str, on_auto_deny=None, grace_hint: str = "",
+              tool: str = "", reason: str = "") -> str:
     """授权三态确认：`1/y` 本次 / `2/a` 本会话 / `3/n` 拒绝（可写理由）。
 
     默认权限是 readonly，而临时授权用后即焚——如果只有"本次"一个选项，
     一个 10 处编辑的任务就要弹 10 次窗、多跑 10 轮模型。"本会话"这一档是
     为了让这个默认可用，而不是逼用户直接把等级升到 write 了事。
     非交互同样 fail-close。带防误触宽限期：飞行过来的回车不算放行。
+
+    `tool`/`reason`（可选）：由 `grant_prompt` 统一渲染 —— 传了就显示"请求什么、为什么"。
     """
     if not sys.stdin.isatty():
         if on_auto_deny is not None:
             on_auto_deny()
         return GRANT_DENY
     try:
-        answer = _read_answer(question, grace_hint)
+        answer = _read_answer(grant_prompt(question, tool, reason), grace_hint)
     except (EOFError, KeyboardInterrupt):
         print()
         return GRANT_DENY
@@ -828,13 +848,13 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
             continue
 
         if result["status"] == "PERMISSION_REQUEST":
-            print(f"\n🔑 Agent 请求临时授权工具: {result.get('tool')}")
-            if result.get("reason"):
-                print(f"   原因: {result['reason']}")
+            # 切片 C：tool/reason 由 `ask_grant` 自己渲染（不再在这里另打两行）。
             next_prompt = resolve_permission(el, ask_grant(
                 "  是否授权？[y 本次 / a 本会话 / N 拒绝]: ",
                 lambda: print("  非交互模式：自动拒绝授权。"),
-                grace_hint="  ⏳ 刚才那下按得太快（对话框刚弹出），不算数，请再答一次: "))
+                grace_hint="  ⏳ 刚才那下按得太快（对话框刚弹出），不算数，请再答一次: ",
+                tool=str(result.get("tool") or ""),
+                reason=str(result.get("reason") or "")))
             continue
 
         if result["status"] == "FINAL_REPLY":

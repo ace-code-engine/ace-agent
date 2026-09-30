@@ -3980,7 +3980,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 pass
         return ask_grant(c("yellow", t("perm_approve_q")),
                          lambda: print(c("dim", t("auto_deny_perm"))),
-                         grace_hint=c("dim", t("grace_inflight")))
+                         grace_hint=c("dim", t("grace_inflight")),
+                         tool=str(tool_name or ""), reason=str(reason or ""))
 
     # ---------- 交互入口：组件界面在的时候**一律走界面** ----------
     #

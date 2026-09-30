@@ -9651,6 +9651,17 @@ if _want("54"):
           len(_ar54.parse_grant_answer("n " + "x" * 900)[1]) <= 400, "")
     check("授权：越界输入一律落到拒绝（危险对话框 fail-close）",
           _ar54.parse_grant_answer("允许吧拜托")[0] == _ar54.GRANT_DENY, "")
+    # 对话框合一 · 切片 C：终端授权提示的 tool/reason 由 `ask_grant` 自己渲染（单一渲染点）。
+    # 此前 `ai_code._ask_permission` 把 tool/reason 丢在调用方、用户只看到"是否授权？"却不知道
+    # 授权什么；`agent_runner` 循环又另打两行 —— 两条路径口径不一、还漏信息。
+    _gp54 = getattr(_ar54, "grant_prompt", None)
+    check("对话框合一 C · `grant_prompt` 存在（终端授权提示的单一渲染点）", _gp54 is not None, "")
+    if _gp54 is not None:
+        check("对话框合一 C ★有 tool 时提示行带上工具与原因（不再把信息丢掉）",
+              "file_write" in _gp54("是否授权？", "file_write", "改这个文件")
+              and "改这个文件" in _gp54("是否授权？", "file_write", "改这个文件"), "")
+        check("对话框合一 C 无 tool 时原样返回（ask_grant 还被别处复用，不能一刀切）",
+              _gp54("是否授权？") == "是否授权？", "")
 
     # —— 拒绝理由回传模型 ——
     _root54 = mktemp()
@@ -10455,7 +10466,8 @@ if _want("61"):
     # —— 接线：两个危险入口都带上了宽限期 ——
     _src61 = (FOLDER / "agent_runner.py").read_text(encoding="utf-8")
     check("[61] 源码级：授权与计划审批都走带宽限期的那一层（同一个入口，两处都改）",
-          _src61.count("_read_answer(question, grace_hint)") == 2
+          _src61.count("_read_answer(question, grace_hint)") == 1      # ask_yes_no（计划审批）
+          and "_read_answer(grant_prompt(question, tool, reason), grace_hint)" in _src61  # ask_grant
           and "def _read_answer(question: str, grace_hint: str = \"\") -> str:" in _src61, "")
     _cli61 = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
     check("[61] 源码级：CLI 两处危险对话框都传了三语的提示文案",

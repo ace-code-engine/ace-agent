@@ -558,3 +558,24 @@ deps 与 blocks 归一成同一条边；落盘排序去重 ⇒ 与输入顺序�
 ④ **L4 是阻塞式**，靠 `answer_escalation(text)` 解除；**四个外壳还没消费它**（UI 接线跨包，同 RL-01 那句"字段到了、用途还没到"）；
 ⑤ **HL-05 三级预算只留接线口**（`config["refusal_budget"]` 默认 0 = 行为与现状一致）；
 ⑥ 学习出口只到"提议/上报"，`accept_proposal` 是唯一落地入口且强制人签字 —— **CLI/TUI 的"确认固化"交互尚未接**（TH-R3 的完整闭环还差这一段）。
+
+### 9.13 实施记录：`HL-05` 三级预算（2026-09-30）
+
+> §3.6。**明确拒绝**"只靠全局轮数上限" —— 它会把"一个目标卡住"和"整个会话失控"报成同一件事。
+
+| 级 | 配额 | 用量来源 | 耗尽动作 | 阻塞范围 |
+|---|---|---|---|---|
+| **会话级** | `config["session_budget"]` | `note_round` + `note_tokens` + `note_refusal` | `escalate_end`：L4 物料 + `session_ended=True` | **全局停**（之后每个工具调用 `TOOL_BANNED`） |
+| **目标级** | 目标对象 `budget` → 否则 `config["goal_budget"]` | 同上（按目标分账，切目标归零） | `escalate`：L4 物料 + 目标标 **`blocked_on_human`** | **全局停**（停下问人） |
+| **分类级** | `config["class_budgets"]`（如 `{"POLICY": 3}`） | 拒绝账本 `class_counts()`（**唯一口径**，不另立计数器） | `propose_rule`：**提议固化规则**（deny + 人确认）+ L4 物料 | **只报不全局停**（§3.6 的动作是提议规则；否则一条规则的事会掐掉整个会话） |
+
+**优先级写死在 `BudgetPanel.highest`：会话 > 目标 > 分类**（越全局越先报）。`BUDGET_SCOPES` 是闭集且有序。
+**默认行为不变**：配额 `0 = 未配`；不配预算时 `budget_exhaustion() is None`、`session_ended False`、
+`budget_events == []`，且**全局 `MAX_ROUNDS` 一字未动**（源码级断言）。
+
+**验收**：`test_all [88]`（Lead 集成）+ 队友 `.test_tmp/hl05_check.py`（48 条）。
+**边界**：① `Goal.budget` 字段本身不在本包（`getattr` 读得到就用，读不到落 `config["goal_budget"]`）；
+② **token 维度需要模型层喂** —— `note_tokens()` 是唯一入口，但 `ai_code.py` 还没调它；
+③ "结束"是**执行层意义上**的结束（`session_ended` + 后续调用被拒），让 CLI 真正跳出轮询需一行 `break`（跨 scope）；
+④ 分类级**不全局停**（要改成全停只需改 `_budget_escalate(block_all=...)` 一处）；
+⑤ 预算物料仍只存内存，整份落会话账本需改 `cli/ace_sessionlog.py`。

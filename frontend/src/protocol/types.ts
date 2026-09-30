@@ -26,6 +26,7 @@ export const EVENT_TYPES = [
   'session_end',
   'model_delta',
   'status',
+  'agent_preset',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

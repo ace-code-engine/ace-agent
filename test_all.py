@@ -15702,7 +15702,12 @@ if _want("74"):
         check("[74] TUI 宿主有 ask_question 接口 + TextScreen 文本模态",
               callable(getattr(_App74, "ask_question", None)) and _TS74 is not None, "")
     except Exception as _e74:  # noqa: BLE001 —— textual 不在时如实标注，不假绿
-        check("[74] TUI 宿主有 ask_question 接口（textual 不可用，断言记跳过）", False, repr(_e74))
+        if "textual" in repr(_e74).lower():
+            # CI 不装 textual（可选重依赖）⇒ 这是**能力探测**，按仓库约定记跳过而不是判红。
+            skip("[74] TUI 宿主有 ask_question 接口 + TextScreen 文本模态",
+                 "textual 未安装（可选重依赖；CI 上属预期）")
+        else:
+            check("[74] TUI 宿主有 ask_question 接口 + TextScreen 文本模态", False, repr(_e74))
 
     # 场景 5：纯终端 REPL —— isatty 真 → input() 收答案 → answer_ask_user
     class _TTY74:

@@ -252,7 +252,7 @@ the evidence, the boundaries and the decisions live in the linked **design card*
 | Owed | In one line | Authoritative record |
 |---|---|---|
 | **Batch 0 is not closed** | The convergences, `RL-01`, `R-2`, `R-7`, W0-C's P-07/08/09, and W0-B's P-04/05/06/10 have landed — **only W0-C's "four duplicate dialogs merged" remains** | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · batch table in [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
-| **The acceptance gates need only the tail** | The machine half and A0b (`measured_*` aggregated into `session_metrics` / `/status`) have landed — **only** the threshold rule (ACC-01 item ③, which needs real deviation data first) and wiring `benchmarks/results/` to the checker remain | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
+| **The acceptance gates need only the tail** | The machine half, A0b (`measured_*` aggregated), and **the threshold rule** (`token_verdict`, provisional 50%) have landed — **only** wiring `benchmarks/results/` to the checker remains (needs WP-10's "before/after" data) | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
 | **Only one of the three spine layers has landed** | `RL-01` (the result envelope) is implemented and verified; `RL-02~04`, `HL-01~05` and `DL-01~04` are all unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
 | **Batches 1–6 and WP-10 are unstarted** | cheap faces · git · prefix cache · workspace layers · session tree · presets · skills · egress & snapshots · sandbox backend · Rust core-ization | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
 

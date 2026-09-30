@@ -14194,6 +14194,24 @@ if _want("70"):
           and _m70b.get("usage", {}).get("out_tokens") == 55,
           _m70b.get("usage"))
 
+    # ACC-01 ③（先红后绿）：偏差超阈值 → **标红**（该结果不得作为"可发布"证据）。
+    # 依据 ACC-GATES.md §2 ACC-01 验收 ③。阈值是**暂用值**（见 ace_contracts 的注释）。
+    from core import ace_contracts as _acc70c  # noqa: E402
+    _tv70 = getattr(_acc70c, "token_verdict", None)
+    _utv70 = getattr(_acc70c, "usage_token_verdict", None)
+    check("ACC-01 ③ `token_verdict` 存在（阈值判据的入口）", _tv70 is not None, "")
+    if _tv70 is not None:
+        check("ACC-01 ③ 偏差在阈值内 → `ok`（可作证据）",
+              _tv70(100, 90) == "ok", _tv70(100, 90))
+        check("ACC-01 ③ ★偏差超阈值 → `flag`（**明确标红**，不得作证据）",
+              _tv70(100, 1000) == "flag", _tv70(100, 1000))
+        check("ACC-01 ③ 没实测 → `None`（无从评，**不是**「一致」—— 防「未评估→false」）",
+              _tv70(100, None) is None and _tv70(100, 0) is None, "")
+    if _utv70 is not None:
+        check("ACC-01 ③ ★聚合后的 usage 任一方向超阈值 → `flag`（取更严的那个）",
+              _utv70({"in_tokens": 100, "out_tokens": 100,
+                      "measured_in_tokens": 90, "measured_out_tokens": 1000}) == "flag", "")
+
     # ── 主页度量行：J1–J2 ──
     # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。
     # 主页那一行挂在标题**下面**，不占分区、不进入选择序列 —— 它不需要被选中。

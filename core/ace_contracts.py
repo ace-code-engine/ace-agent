@@ -47,7 +47,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional
 
 __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "metric", "defect", "substitution", "all_assessed",
@@ -55,7 +55,9 @@ __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "metric_paths", "unclassified_metrics", "placeholder_set",
            "audit_metric_declaration", "CROSS_SESSION_TEMPLATE",
            "CROSS_SESSION_PLACEHOLDERS", "CROSS_SESSION_METRICS", "INTERNAL_ONLY",
-           "KNOWN_DEFECTS", "SUBSTITUTIONS", "PERMISSION_RENDERERS"]
+           "KNOWN_DEFECTS", "SUBSTITUTIONS", "PERMISSION_RENDERERS",
+           "TOKEN_DEVIATION_THRESHOLD", "token_deviation", "token_verdict",
+           "usage_token_verdict"]
 
 # 五要素 / 六要素的**唯一来源**（顺序即文档里的顺序）
 METRIC_FIELDS = ("metric", "anchor", "population", "excludes", "reads_as")
@@ -409,3 +411,60 @@ PERMISSION_RENDERERS = (
      "file": "frontend/src/components/PermissionDialog.tsx",
      "symbol": "export function PermissionDialog"},
 )
+
+
+# ============================================================
+# ACC-01 ③ · 自报 token 的偏差阈值
+# ============================================================
+#
+# 契约（ACC-GATES.md §2 ACC-01）：实测（厂商 `usage`）与估算（`estimate_tokens`）的
+# 相对偏差超阈值 ⇒ 该结果**不得作为"可发布"证据**。
+#
+# **暂用值 50%**：A0 只证明"路通了"（实测能进账本），还没有真实偏差数据来定这个数
+# （§7.5 原话："没证明估得准不准"）。发布前必须用真实会话的偏差分布替换它 ——
+# 这不是"拍脑袋定死"，是"先有判据形状、再等数据校准"。
+TOKEN_DEVIATION_THRESHOLD = 0.5
+
+
+def token_deviation(estimated: Any, measured: Any) -> Optional[float]:
+    """实测 vs 估算的相对偏差：0 = 完全一致，1 = 差一倍。分母取**实测**（那是真值）。
+
+    没实测（`measured` 为 None 或 ≤ 0）→ `None` = **无从评**，不是"一致" ——
+    把"没数"读成"一致"正是 ACC-04 第五种偷换（`未评估 → false`）要防的。
+    """
+    if measured is None:
+        return None
+    try:
+        m = float(measured)
+        e = float(estimated)
+    except (TypeError, ValueError):
+        return None
+    if m <= 0:
+        return None
+    return abs(e - m) / m
+
+
+def token_verdict(estimated: Any, measured: Any) -> Optional[str]:
+    """`ok`（可用作可发布证据）/ `flag`（偏差超阈值，**不得**作为可发布证据）/
+    `None`（没实测，无从评）。"""
+    d = token_deviation(estimated, measured)
+    if d is None:
+        return None
+    return "flag" if d > TOKEN_DEVIATION_THRESHOLD else "ok"
+
+
+def usage_token_verdict(usage: Mapping[str, Any]) -> Optional[str]:
+    """对聚合后的 `usage`（`session_metrics` / `cross_session_metrics` 里那个）给总判决。
+
+    输入与输出两个方向都判，**取更严的那个**（任一超阈值即 `flag`）；
+    两个方向都没实测 → `None`（无从评）。
+    """
+    if not isinstance(usage, Mapping):
+        return None
+    verdicts = [token_verdict(usage.get("in_tokens"), usage.get("measured_in_tokens")),
+                token_verdict(usage.get("out_tokens"), usage.get("measured_out_tokens"))]
+    if "flag" in verdicts:
+        return "flag"
+    if "ok" in verdicts:
+        return "ok"
+    return None

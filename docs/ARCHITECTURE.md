@@ -159,6 +159,7 @@ ace-agent/
 ├── gateway_v2/                 # 网关包：intent(L1/L2) · guard(L4) · flywheel(L5)
 ├── locales/                    # 国际化字典（zh / en / ja JSON），由 ui/i18n.py 读取
 ├── prompts/                    # 系统提示词：v7 完整版 · v8 精简版 · tools 原生调用版
+├── skills/                     # Skill 系统（WP-7）：skills/<name>/SKILL.md + scripts/references/assets；只广告 name+description，正文按需加载
 ├── test_all.py                 # 全模块端到端测试（纯 stdlib，断言数随平台浮动）
 ├── benchmarks/                 # 实测基准：bench_core.py 一键复现，results/ 存报告（正确率/延迟/吞吐）
 ├── e2e/                        # 端到端冒烟：real_model_smoke.py（真实厂商端点，ACE_E2E_*）/ r03_contract_smoke.py（假端点钉双前端输出契约）/ rg_probes.py（RG 安全结论的复现脚本：快照伪造 / 台账篡改 / 来源归属 / 可逆性分布）/ mcp_probe.py（假装 MCP host 跟真的 `ace --mcp` 子进程说话：stdout 纯度 / EOF 收工 / 裁决与台账）/ rel03_native_smoke.ps1（ace.cmd→真实控制台）

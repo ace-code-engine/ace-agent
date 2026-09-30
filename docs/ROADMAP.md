@@ -289,7 +289,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | 根因 | 位置 | 影响 |
 |---|---|---|
 | **拿 label 当答案** | `ai_code.py:4000` `return list(items).index(str(picked))` | 4 个前端**都**做不了"让用户自己输入选项"（§9 的 Q 项） |
-| **丢弃选项 key** | `ui/ace_dialog.py:367` `labels = [it.text() for ...]` | `DialogItem.key` 被扔掉，选择器只能回传显示文本 |
+| **丢弃选项 key** | ~~`ui/ace_dialog.py:367` `labels = [it.text() for ...]`~~ **已过时**（2026-09-30 复核：现码 `:377`/`:388` 都 `selectable[idx].key`，key 没丢） | ~~`DialogItem.key` 被扔掉，选择器只能回传显示文本~~ → 见 `WP-0` 卡「P-10 实测复核」第 1 条 |
 | **前端比后端弱** | `frontend/src/components/ChoiceDialog.tsx:166-171` 明文回显 API key；`getpass` 只在无 UI 时生效（`ai_code.py:2961-2967`） | 加密路径在有 UI 时**静默降级** |
 
 **三条根因的归属（2026-09-27 补：此前三条都[没有 WP 承载](#72-批次表)）**

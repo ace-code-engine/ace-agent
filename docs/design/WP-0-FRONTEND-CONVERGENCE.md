@@ -509,7 +509,7 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | **P-04** | `status` / `tool_start` 两条"驱动 UI"的契约要被外壳**真正消费** | ✅ **已审计（2026-09-27）**：唯一**跨进程**的协议消费者是 Ink，而它**消费全了** —— `tool_start`（`store.ts:178` → 工具卡 `running`）、`status`（`store.ts:261`，含 `priority`/`level`，`StatusLine.tsx:53` 把 `level` 折成主题色、`permission` 段由 `meta.permission` 上色）。REPL / TUI 是**进程内**外壳（自身就是引擎，`_footer`/`ace_turn` 本地算，不走事件），MCP 是集成面非外壳 ⇒ **无缺口** | 表已补，见下 |
 | **P-05** | 事件**必需字段**的唯一来源 | ✅ **已在守**：`ace_events.EVENT_REQUIRED` 是唯一来源，`test_all [38]` 有"`EVENT_TYPES` ↔ `EVENT_REQUIRED` 键集相等"的断言。本会话新增 `outcome`/`secret` 两字段都同时进了契约表 | 新字段必须**同时**进 `EVENT_REQUIRED` 与 `types.ts`（登记是纪律，不是文档） |
 | **P-06** | 前端协议消费者与 Python 契约的漂移 | ✅ **已在守**：`frontend/test/protocol.test.ts` 读 `EVENT_REQUIRED` 比对事件类型集合；`types.ts` 是形状镜像（不重复定义必填字段，见其头部注释） | 新事件必须**同时**补 `types.ts` 与 `protocol.test.ts`，否则 parity 红 |
-| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | 协议侧**已经**支持：`choice_request.kind` = `choose / confirm / text`（`ace_events.py:20` 与 `:79`），发射点 `core/ace_serve.py`。丢的是**外壳侧**：`ai_code._select_index` `return list(items).index(str(picked))`（**拿 label 当答案**，`kind='text'` 的自填值在这里必然 `ValueError` 被丢掉） | ⏸ **剩余**：4 个外壳统一回传 **key**；`kind='text'` 的回传逐外壳打通（含与 `WP-1` 的 `ask_user`（G-04）共用通道） |
+| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | 协议侧**已经**支持 `choice_request.kind = choose/confirm/text`；**丢的在外壳与引擎两层**（见下面「P-10 实测复核」） | ⏸ **剩余**：分两半 —— 半 A 引擎接受自填值；半 B 各外壳加"自己输入"交互 + `/model` 消费自填串（详见下） |
 
 **P-04 的实测表**（谁消费 `status` / `tool_start`）：
 
@@ -519,6 +519,34 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | REPL（`ui/`） | 进程内 | — 自身就是引擎，`_footer` 本地算，不经事件 | — 工具卡直接来自执行层 | 无 |
 | TUI（`tui/`） | 进程内 | — 同上 | — `ace_turn` 本地 | 无 |
 | MCP（`core/ace_mcp`） | 集成面（非外壳） | — | — | — |
+
+#### P-10 实测复核（2026-09-30）—— 把"待决"变成"可执行的下一步"
+
+四条**在现码上逐条复核过**的结论（`HEAD` 含 A0b 之后）：
+
+1. **`ROADMAP` §3.3 的根因 ② 已过时。** 它写"`DialogItem.key` 被扔掉、选择器只能回传显示文本"（`ui/ace_dialog.py:367`）。
+   **现码不是这样**：单选 `:388` 与多选 `:377` 都是 `DialogResult(True, [selectable[idx].key])` ——
+   显示层用 `it.text()`，回传层 map 回 **key**。**key 没有被丢掉**。P-10 真正的活儿只剩根因 ①。
+2. **① 的引擎侧病灶**：`core/ace_serve.ServeUIHost.choose` 结尾 `return picked if picked in items else None`
+   —— **引擎主动拒绝**不在 `options` 里的答案。也就是说，即便外壳把"自填值"送上来，引擎在这里就把它丢了。
+3. **Ink 侧"回传下标"行不通，label 才是稳定身份**：`ChoiceDialog` 支持打字**过滤**（`filtered`），
+   选中项的下标是 `filtered` 里的位置、不是 `options` 里的位置 —— 回传下标会在过滤后错位。
+   所以正确的契约是**回传值**（label 或自填串），不是下标。
+4. **`_select_index` 的"返回下标"契约与自填值冲突**：`/model`（`ai_code.py:2876`）与 `_pick_option`（`:2168`）
+   要的是**值**，`/provider`（`:2910`）与 `/history`（`:1851`）要的是**下标**。所以"自己输入"不能靠
+   改 `_select_index` 的返回类型，而要**给 `/model` 开一条"列表选 or 自填"的路**（aider 的 `/model`
+   是纯自由文本，参照 §9 矩阵的 E）。
+
+**精确实施方案（两半，可分别提交）**：
+
+- **半 A（引擎 + 协议，纯后端）**：`ServeUIHost.choose` 去掉 `picked in items` 的拒绝，自填值原样返回；
+  `choice_request`/`choice.answer` 已是字符串通道，**不需要新字段**、`PROTOCOL_VERSION` 不变。
+- **半 B（外壳 + 调用方，跨壳 UX）**：Ink `ChoiceDialog` 在"命中 0 项却按回车"时提交**自填串**；
+  `/model` 调用方改为"命中列表 → 取该值；否则 → 把自填串当模型名"；TUI `ChoiceScreen` / REPL `run_selector`
+  同款（参照 crush `itemCount = len(Choices)+1` / codex `is_other`）。`/provider`、`/history` 保持下标语义，不吃自填。
+
+> 一句话：**P-10 = "引擎别再拒绝自填"（半 A，小）+ "外壳给一条自填的路"（半 B，跨壳 UX）**。
+> 半 A 本身没有可观测收益（自填值仍会在 `_select_index` 的 `index()` 处被丢），所以两半要**一起提交才见红**。
 
 **W0-B 验收**：`python test_all.py` 的 `[38]`/`[39]` 全绿 + `cd frontend && npx vitest run` 里
 **10 个** parity 测试全绿；`PROTOCOL_VERSION` 不变；`kind='text'` 的回答在**每个外壳**上都能回传到 `ai_code`（P-10）。

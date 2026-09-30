@@ -293,7 +293,7 @@ answer.
     被 403 拦下后申请临时授权（执行层直接处理）
 
 25. goal_create
-    {"tool":"goal_create","objective":"实现登录模块并跑通测试","max_rounds":10}
+    {"tool":"goal_create","objective":"实现登录模块并跑通测试","acceptance":"test_all.py --only login 通过","max_rounds":10}
     建持久目标：长任务自动逐轮续跑，直到完成/暂停/阻塞/预算耗尽
 
 26. goal_status

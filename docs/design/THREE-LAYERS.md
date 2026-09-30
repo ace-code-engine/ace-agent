@@ -1,7 +1,7 @@
 # 三层脊柱设计卡 —— 驱动层 / 响应层 / 自愈层
 
 > 编号：`DL-`（驱动）/ `RL-`（响应）/ `HL-`（自愈）／`LDG-`（共用账本）
-> 上级：`docs/ROADMAP.md` §0.5。 状态：**设计；`RL-01`（结果信封）与 `RL-02`（拒绝六分类）已实施**（见 **§9**），其余未开工。
+> 上级：`docs/ROADMAP.md` §0.5。 状态：**设计；`RL-01`（结果信封）、`RL-02`（拒绝六分类）、`DL-01`（目标可判定的 acceptance）已实施**（见 **§9**），其余未开工。
 > 缘起：立项走到"功能模块（§3.1）+ 工作面（§4）"之后，真正没设计过的只剩这三段 ——
 > **执行层已经很硬，但"上面怎么指挥、中间怎么回报、撞墙了怎么办"从来没有设计。**
 
@@ -413,3 +413,21 @@ TH-R1 的"穷举"钉的是**拒绝**路径（3 类覆盖全部 denied），不�
 
 **结论**：RL-04 由**既有断言**满足（两条都在全量 `test_all` 里长绿）。本包只补可追溯性，
 没有新代码 —— 这正是"已血证"的意思：血证已经在测试里了。
+
+### 9.7 实施记录：`DL-01` 目标可判定的 acceptance（2026-09-30）
+
+> 依据 §1.2。每个目标必须带 `acceptance`（怎么算完成的可执行判据），不能靠模型自己声明"我完成了"。
+
+| 文件 | 改动 |
+|---|---|
+| `tools/goal_tools.py` | `Goal.acceptance` 字段；`_acceptance_error()`（必填 + 长度下限 + 形容词黑名单「完成/搞定/ok/done…」）；`create(..., acceptance=)` 校验，缺/形容词 → `GOAL_BAD_ACCEPTANCE` |
+| `tools/registry.py` | `goal_create` 参数表加 `acceptance`（与 `objective` 同为必填）+ 描述/示例 |
+| `prompts/`（v7/v8/tools） | `goal_create` 示例同步带 `acceptance`；`tools.md` 加"必填 acceptance"一句 |
+
+**先红后绿**：`test_all [25]` 3 条（带可判定 acceptance → 成功且回传 · 缺 → `GOAL_BAD_ACCEPTANCE` ·
+形容词 → `GOAL_BAD_ACCEPTANCE`）+ 4 处直接 `GoalStore.create()` 补传 acceptance。
+
+**边界（如实）**：① 可判定性靠"必填 + 黑名单"这**第一道**，不是完整验证器（会绕弯子的形容词拦不住）——
+真正的可判定性靠"外部可复核"这条纪律；② `blocked_on_auth`/`blocked_on_human` **还没拆成独立 state**
+（现在仍用 `blocked` + `blocked_reason_code` 区分）—— 这是 DL-01 剩余部分，牵状态机；
+③ `deps`/`blocks`（依赖 DAG）是 **DL-02**、`budget` 是 **HL-05**，不在本包；④ `/goal` 显示还没带 acceptance。

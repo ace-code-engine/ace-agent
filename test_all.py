@@ -5089,7 +5089,8 @@ if _want("25"):
     _ge = _TE_CLS(project_root=str(_groot))
 
     # 创建
-    r = _ge.execute({"tool": "goal_create", "objective": "实现登录模块并跑通测试"})
+    r = _ge.execute({"tool": "goal_create", "objective": "实现登录模块并跑通测试",
+                     "acceptance": "登录模块测试通过"})
     check("goal_create 创建 active 目标（revision=1）",
           r.status == "success" and r.data["goal"]["phase"] == PHASE_ACTIVE
           and r.data["goal"]["revision"] == 1 and r.data["goal"]["armed"] is True,
@@ -5101,6 +5102,24 @@ if _want("25"):
     r = _ge.execute({"tool": "goal_create", "objective": ""})
     check("goal_create 空目标 → GOAL_EMPTY_OBJECTIVE",
           r.status == "error" and r.error_code == "GOAL_EMPTY_OBJECTIVE",
+          (r.error_code, r.message))
+
+    # DL-01：目标必须可判定 —— acceptance 是可执行判据（测试通过/文件存在/断言成立），不是形容词。
+    # 用独立 store：这里的 goal_create 会覆盖"当前目标"，不干扰上面的 revision CAS 流程。
+    _gd = _TE_CLS(project_root=str(Path(mktemp("goal-dl01"))))
+    r = _gd.execute({"tool": "goal_create", "objective": "重构缓存层",
+                     "acceptance": "bench_core.py --quick 通过且缓存命中率不降"})
+    check("DL-01 goal_create 带可判定 acceptance → 成功且回传",
+          r.status == "success"
+          and r.data["goal"].get("acceptance") == "bench_core.py --quick 通过且缓存命中率不降",
+          r.data.get("goal"))
+    r = _gd.execute({"tool": "goal_create", "objective": "重构缓存层"})
+    check("DL-01 goal_create 缺 acceptance → GOAL_BAD_ACCEPTANCE",
+          r.status == "error" and r.error_code == "GOAL_BAD_ACCEPTANCE",
+          (r.error_code, r.message))
+    r = _gd.execute({"tool": "goal_create", "objective": "重构缓存层", "acceptance": "完成"})
+    check("DL-01 acceptance 是形容词（自我声明）→ GOAL_BAD_ACCEPTANCE",
+          r.status == "error" and r.error_code == "GOAL_BAD_ACCEPTANCE",
           (r.error_code, r.message))
 
     # revision CAS：旧修订号被拒
@@ -5164,7 +5183,7 @@ if _want("25"):
     # 轮次驱动 + 持久化
     _g2root = Path(mktemp("goal2"))
     _gs2 = GoalStore(str(_g2root))
-    _g = _gs2.create("写 README", max_rounds=3)
+    _g = _gs2.create("写 README", max_rounds=3, acceptance="README 写完")
     check("start_round 递增轮次", _gs2.start_round().rounds_started == 1
           and _gs2.start_round().rounds_started == 2, _gs2.snapshot())
     _gs2.disarm()
@@ -5195,7 +5214,7 @@ if _want("25"):
           _cli_g.el.goal_store is _cli_g.el.executor._goal_store(), "")
     _bufg = io.StringIO()
     with contextlib.redirect_stdout(_bufg):
-        _cli_g.el.goal_store.create("写一份项目文档", max_rounds=5)
+        _cli_g.el.goal_store.create("写一份项目文档", max_rounds=5, acceptance="项目文档写完")
         _cli_g._show_goal(["/goal"])
     _outg = _bufg.getvalue()
     check("/goal 显示目标状态", "目标状态" in _outg and "写一份项目文档" in _outg
@@ -13937,7 +13956,7 @@ if _want("70"):
     # G4：另一个实例的 disarm 不许被 start_round 写回
     _g4_root = mktemp("stgoal")
     _g4a = _GS_G(str(_g4_root))
-    _g4a.create("目标：把这件事做完", max_rounds=5)
+    _g4a.create("目标：把这件事做完", max_rounds=5, acceptance="断言成立")
     _g4b = _GS_G(str(_g4_root))                    # 另一个实例（子代理/另一进程）
     _g4a.disarm()
     _g4_r = _g4b.start_round()
@@ -13949,7 +13968,7 @@ if _want("70"):
     # G5：CAS 比的是磁盘当前 revision（过期副本必须被拒）
     _g5_root = mktemp("stgoal")
     _g5a = _GS_G(str(_g5_root))
-    _g5_goal = _g5a.create("目标：CAS 也要看得见别人的改动", max_rounds=5)
+    _g5_goal = _g5a.create("目标：CAS 也要看得见别人的改动", max_rounds=5, acceptance="断言成立")
     _g5b = _GS_G(str(_g5_root))
     _g5a.update(_g5_goal.id, _g5_goal.revision, phase=_PAUSED_G)   # 磁盘 revision 前进
     _g5_rejected = False

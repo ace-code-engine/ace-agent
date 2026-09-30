@@ -294,10 +294,13 @@ TOOL_SPECS: List[ToolSpec] = [
     ToolSpec(
         name="goal_create", permission=PERM_READ, handler="_exec_goal_create",
         description="创建持久化目标：长任务自动逐轮续跑，直到完成/暂停/阻塞或轮次预算耗尽。"
-                    "objective 写清最终交付物；max_rounds 默认 20",
+                    "objective 写清最终交付物；acceptance 必填——写清「怎么算完成」的**可执行判据**"
+                    "（测试通过 / 文件存在 / 断言成立），不是形容词；max_rounds 默认 20",
         parameters=_obj({"objective": {"type": "string"},
-                         "max_rounds": {"type": "integer"}}, ["objective"]),
-        example='{"tool":"goal_create","objective":"实现登录模块并跑通测试","max_rounds":10}',
+                         "acceptance": {"type": "string"},
+                         "max_rounds": {"type": "integer"}}, ["objective", "acceptance"]),
+        example='{"tool":"goal_create","objective":"实现登录模块并跑通测试",'
+                '"acceptance":"test_all.py --only login 通过且覆盖率不降","max_rounds":10}',
     ),
     ToolSpec(
         name="goal_update", permission=PERM_READ, handler="_exec_goal_update",

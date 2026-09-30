@@ -50,7 +50,28 @@ BLOCKED_CODES = {
 # 明确不算阻塞的 code（difficulty/uncertainty 类），被拒时给明确理由
 NOT_BLOCKED_CODES = {"difficulty", "uncertainty", "too_hard", "unsure"}
 
+# DL-01：acceptance 是"怎么算完成"的**可执行判据**，不是形容词（"模型自己声明完成"被明确拒绝）。
+# 这一小撮是"形容词/自我声明"的兜底黑名单 —— 它拦得住"完成""搞定"这种裸形容词，
+# 拦不住会绕弯子的；真正的可判定性靠"必填 + 外部可复核"这条纪律，黑名单只是第一道。
+_VAGUE_ACCEPTANCE = frozenset({
+    "完成", "搞定", "做好", "做完", "顺利", "没问题", "没问题了",
+    "ok", "done", "finish", "finished", "complete", "completed", "done!",
+})
+
 GOAL_FILE = ".ace_goals.json"
+
+
+def _acceptance_error(acceptance: str) -> str:
+    """acceptance 的判据检查：返回空串 = 合格，否则返回理由。"""
+    a = (acceptance or "").strip()
+    if not a:
+        return ("acceptance 必填：写清「怎么算完成」的可执行判据"
+                "（如：测试通过 / 文件存在 / 断言成立），不是形容词")
+    if len(a) < 4:
+        return f"acceptance 太短、当不了判据：{a!r}"
+    if a.lower() in _VAGUE_ACCEPTANCE:
+        return f"acceptance 是形容词/自我声明，不是可执行判据：{a!r}（请写「什么测试通过 / 什么文件存在」）"
+    return ""
 
 
 @dataclass
@@ -58,6 +79,7 @@ class Goal:
     id: str
     revision: int
     objective: str
+    acceptance: str = ""             # DL-01：怎么算完成的可执行判据（测试通过/文件存在/断言成立）
     phase: str = PHASE_ACTIVE
     rounds_started: int = 0
     max_rounds: int = 20
@@ -147,17 +169,21 @@ class GoalStore:
 
     # ---------- 变更（全部走 revision CAS） ----------
 
-    def create(self, objective: str, max_rounds: int = 20) -> Goal:
+    def create(self, objective: str, max_rounds: int = 20, acceptance: str = "") -> Goal:
         objective = (objective or "").strip()
         if not objective:
             raise GoalError("GOAL_EMPTY_OBJECTIVE", "目标内容为空")
+        _acc_err = _acceptance_error(acceptance)
+        if _acc_err:
+            raise GoalError("GOAL_BAD_ACCEPTANCE", _acc_err)
         if not (1 <= int(max_rounds) <= 1000):
             raise GoalError("GOAL_BAD_ROUNDS", "max_rounds 应在 1~1000 之间")
         with self._lock:
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             self._goal = Goal(
                 id=f"{int(time.time() * 1000):x}{uuid.uuid4().hex[:4]}",
-                revision=1, objective=objective, phase=PHASE_ACTIVE,
+                revision=1, objective=objective,
+                acceptance=(acceptance or "").strip(), phase=PHASE_ACTIVE,
                 max_rounds=int(max_rounds), armed=True,
                 created_at=now, updated_at=now)
             self._save()
@@ -299,7 +325,8 @@ class GoalTools:
         try:
             g = self._goal_store().create(
                 str(params.get("objective", "")),
-                int(params.get("max_rounds", 20) or 20))
+                int(params.get("max_rounds", 20) or 20),
+                acceptance=str(params.get("acceptance", "")))
         except GoalError as e:
             return ExecutionResult(status="error", error_code=e.code, message=e.message)
         except (TypeError, ValueError):

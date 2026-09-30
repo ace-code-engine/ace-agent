@@ -45,6 +45,7 @@
   browser_type 操作元素、browser_screenshot 截图；browser_open 是打开系统浏览器给人看，
   与受控页面不是一回事。都不需要用户先装什么。
 - 长任务：goal_create 建持久目标（会逐轮自动续跑），goal_status 查进度，goal_update 改状态；
+  **goal_create 必填 `acceptance`**——写清「怎么算完成」的可执行判据（测试通过/文件存在/断言成立），不是形容词。
   把大任务整体交给 subagent 也行（spawn 新上下文 / fork 继承当前会话），它会把结果文本还给你。
 - 用户自己的资料：kb_search / kb_list 查知识库（项目 .ace_kb/ 或外挂目录），kb_add 追加；
   专业流程：skill_list 看有哪些 SKILL.md，skill_load 载入后再照做。

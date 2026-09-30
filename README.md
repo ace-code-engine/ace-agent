@@ -255,7 +255,6 @@ the evidence, the boundaries and the decisions live in the linked **design card*
 | **The acceptance gates are half-done** | The machine half is in `test_all`, but **`measured_*` still has no reader**, no threshold rule exists, and `benchmarks/results/` is not wired to the checker | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
 | **Only one of the three spine layers has landed** | `RL-01` (the result envelope) is implemented and verified; `RL-02~04`, `HL-01~05` and `DL-01~04` are all unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
 | **Batches 1–6 and WP-10 are unstarted** | cheap faces · git · prefix cache · workspace layers · session tree · presets · skills · egress & snapshots · sandbox backend · Rust core-ization | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
-| **Process debt** | `CHANGELOG.md` not updated (a version number has to be chosen first) · W0-A's "a fifth implementation goes red" assertion is deliberately deferred | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
 
 **Why it stops here: the author is heading back to school.** This list is the hand-off —
 every row points at a card carrying the evidence, the boundaries, and what to do next.

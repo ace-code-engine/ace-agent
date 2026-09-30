@@ -5,6 +5,20 @@
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），**以 `python test_all.py` 的实际输出为准，本文不写死数字**（历史条目里的数字是当时那次运行的记录）。
 
+## Unreleased · 2026-09-27（**尚未发布**：发布时定版本号、把这段并入版本条目，并重录 demo 图）
+
+**WP-0 前端收敛（批次 0）· 三层脊柱 `RL-01` · ACC 四道门槛 · 凭据回显边界**：
+
+- 🛡️ **凭据回显边界（H-33~H-35）**：配置向导里凭据步的 `hidden` 全程丢失 → 补 `secret` 一路到四个外壳，凭据不再明文回显（含对照组测试，防"不泄漏"假通过）。
+- 🛡️ **Ink 授权路径补上防误触宽限期（R-2）**：声明的主外壳此前是三条路里**唯一没有**这层保护的（`ai_code` 的注释一直在替代码承诺）。
+- ✨ **Ink 等待指示器补上 stall 判定（R-7）**：模型静默超阈值 → 整行告警 / 无动效时显示"无响应"（新增 `spin_stalled` 三语）。
+- ⚙️ **结果信封 `RL-01`**：`ExecutionResult` 加机器通道（`outcome` / `refusal_class` / `retryable` / `fingerprint` / `hint`）—— "被拒"与"失败"从此在账本里分得开。
+- ⚙️ **ACC 四道验收门槛（A0~A3）**：自报 token ↔ 实测（`measured_*` 落账本）· 指标语义五要素 · 缺陷可达性六要素 · 五种偷换，接进完成定义（`docs/DEVELOPMENT.md`）。
+- ⚙️ **外壳口径对齐（R-1 / R-3 / R-4 / R-5 / R-6 / R-8 / R-9）**：授权三态、只读工具集、spinner 字形、菜单窗口/说明列/标记/分组，各带跨语言对拍（`frontend/test/shell-parity.test.ts`）。
+- ⚙️ **W0-C 外壳降级**：`frontend/` 定为唯一正式外壳；`ui/`+`tui/` 冻结（只修 bug）；回落契约与路由单一来源各带断言。
+- ⚙️ **W0-D 打包口径 = D3**：exe 不带 Ink 外壳 —— 写进 `docs/PACKAGING-EXE.md` 与 `packaging/ace.spec`，并说明"D2 只去掉 `npm install`、去不掉 Node"。
+- ⚙️ **立项卡三张**：`docs/design/{WP-0-FRONTEND-CONVERGENCE,ACC-GATES,CREDENTIAL-HANDLING}.md`；`ROADMAP` §7 定序重写（三条依据 + 六条硬约束 + 批次表）。
+
 **版本目录**
 
 - [v3.45.0 · 2026-09-27 · 安全边界再加固（H-27~H-32）· README 首屏重开 + 安全边界 FAQ · docs 结构整理](#v3450-2026-09-27)

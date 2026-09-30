@@ -450,3 +450,48 @@ TH-R1 的"穷举"钉的是**拒绝**路径（3 类覆盖全部 denied），不�
 **边界**：① `resume()` 只重新 armed、不搬 phase（与既有 blocked 行为一致）—— 获授权/人决定后仍需显式
 `goal_update(phase=active)`；② 未做 `pending`/`abandoned`（§1.2 参考态里的其余两个）；③ `ai_code` 的
 续跑 prompt 与 `goal_update` 的 example 还没提新 phase（跨包，另开）。
+
+### 9.9 实施记录：`RL-03` 三段式回传（2026-09-30）
+
+> §2.4。把"每条结果全文渲染进 prompt"改成三段：**必进摘要行 / 按需证据块 / 指纹压缩**。
+
+| 位置 | 内容 |
+|---|---|
+| `agent_runner.py` | 新节：`result_fingerprint` / `fingerprint_short` · **`summary_line`** · **`retrieve_evidence`**（索取入口）· **`FeedbackLedger`** · **`render_feedback`**；`run_conversation` 按会话建账本 + 每轮扫索取标记 |
+
+真跑样例（摘要行 / 压缩）：
+
+```
+[denied] file_write · BOUNDARY · fp=a3f2 · 可换路径 · 替代: 写项目内 · 索取全文: [evidence fp=a3f2]
+第1次 len=85 → 第2次 len=29 `(同上，第 2 次) fp=a3f2 · BOUNDARY` → 第3/4次 len=29
+```
+
+**三条纪律都没回退**：`render_result` / `render_tool_result` / `render_error_result` / `truncate_tool_output`
+**一行未动**；证据通道仍分别走 `render_error_result`（不套隔离块，RL-04①）与 `render_tool_result`
+（SEC-011 隔离，一字未改）。
+
+**验收**：`test_all`（Lead 集成）+ 队友的 `.test_tmp/rl03_check.py`（34 条 A/B/C/D 组）与
+`rl03_loop_check.py`（8 条主循环接线）。
+
+**边界**：① **只接了 `agent_runner.run_conversation`** —— `ai_code.py` 三处回喂仍是全文（跨 scope，下一轮补）；
+② 索取口是**文本协议** `[evidence fp=xxxx]`，不是新工具；**真实模型会不会自发索取未经真机验证**（本包最大落地风险）——
+若不索取，下一步应把 `instruction` 前若干字符**内联进摘要行**；③ `partial` 仍无生产者；
+④ 压缩键 = `(fingerprint, refusal_class)`，异指纹/异 class **不并**（宁少压不错压）；执行层的 `fingerprint` 生产者仍空。
+
+### 9.10 实施记录：`HL-03` 三条硬规则（2026-09-30）
+
+> §3.4。三条**全部来自现有 bug**，从"实现细节"升级成**契约 + 断言**。
+
+| 规则 | 落点 |
+|---|---|
+| ① `MALFORMED` 永不计入熔断 | `tools/status.py` 新增 **`counts_toward_breaker(status, error_code)`**（= `classify_refusal(...) != MALFORMED`）；`execution_layer.py` 的**唯一熔断入口**早退。堵住的活违规：`_handle_permission_request`(:2300) 与 `_handle_ask_user`(:2337) 的 `FORMAT_ERROR`（RL-02 归 `MALFORMED`）曾被喂进账本 ⇒ "漏参数 → 3 次 → 整个控制工具熔断"的**死锁** |
+| ② 降级必须声明 | `ExecutionLayer.degradations` + `_note_degrade()`（结构化 + stderr 一行，同一 kind 只播一次）；三处**纯静默**降级接上（待办加载 :817 / 持久规则加载 :830 / 意图路由 :1200）。`agent_runner.py` 的 tools→文本协议降级由 RL-03 同批补声明 |
+| ③ 降级方向只朝更严 | `tools/status.py` 的 `DEGRADATION_TARGETS_STRICTER={deny,limited}`；**修掉唯一的朝松降级**：`_gated_identity` 在 `core.ace_net` 不可用时原 `return ""`（= 退回按工具名授权、悄悄拆掉 H-09 对象绑定）→ 改绑**本次调用参数指纹** + 声明 |
+
+**Lead 裁决（写进 `test_all [10]`）**：`[10]` 原先把"request_permission 漏 target 连打 3 次 → 熔断"钉成期望值 ——
+那**正是** `execution_layer.py:1749` 注释自述的 bug（"小模型总是漏 target 参数，最后熔断死循环"），
+是**血证不是契约**。按 §3.4① + RL-02（`FORMAT_ERROR → MALFORMED`）改成"**不熔断**，第 4 次仍是 `FORMAT_ERROR`"。
+
+**边界**：① **按指纹的升级（HL-02）尚未建** —— H-21 指纹只管 `_stage_parse` 那一层；
+② `ai_code.py:999-1001` 的降级仍静默（跨 scope，下一轮）；③ `core/ace_rules.load_rules` 的"读坏就当空"
+方向偏松（丢用户 deny），只补声明、未改 fail-close（牵会话可用性，**决策项**）。

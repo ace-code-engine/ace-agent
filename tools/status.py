@@ -160,3 +160,58 @@ def classify_refusal(status: str, error_code: str = "") -> str:
 def retryable_for(refusal_class: str) -> bool:
     """该类是否该重试：只有 TRANSIENT（退避重试）与 MALFORMED（重新生成）为真。"""
     return str(refusal_class or "").strip().upper() in _RETRYABLE_CLASSES
+
+
+# ============================================================
+# HL-03 三条硬规则（THREE-LAYERS §3.4）—— 契约的唯一判定处
+# ============================================================
+#
+# 三条规则**全部来自现有 bug**，所以它们必须是契约，不能只活在实现细节里 ——
+# 实现细节会被下一个改这段代码的人顺手改掉，契约不会（它被断言钉住）：
+#
+#   ① `MALFORMED` 永不计入熔断 —— H-19 血证（`agent_runner.py:93-104`）：被
+#      `max_tokens` 截断时工具调用 JSON 未闭合 → `args` 退化成 `{}` → 报 400 →
+#      计进"同工具同错误连续失败" → 3 次后**该工具被整会话熔断**。而每次回喂的
+#      prompt 都在变长，截断是**确定性复现**的 —— 模型永远修不好、工具永远被禁。
+#      截断与畸形是"重新生成"的事，不是"升级处置"的事。
+#   ② 降级必须声明，不许静默回退 —— 本文件 `:10` 已经把 503 定义为"沙箱档不可用
+#      （**不静默回退**）"；这条语义扩到**全部**降级路径：每一次降级都要有一个
+#      可观测的出口（结果字段 / 事件日志 / stderr 一行）。
+#   ③ 降级方向只朝"更严" —— 与 `ROADMAP` WP-9 同一条：沙箱不可达时降级到**拒绝**，
+#      **绝不**降级到本地无边界执行（静默回退比没有沙箱更危险：用户以为命令跑在
+#      容器里，实际跑在自己机器上）。
+
+
+def counts_toward_breaker(status: str, error_code: str = "") -> bool:
+    """这个结果许不许增加 `(tool, error)` 熔断计数（HL-03 硬规则①）。
+
+    **`MALFORMED` 永不计入熔断**：判据直接复用 `classify_refusal`（唯一判定处），
+    禁止在调用点各写一遍 `if status == "FORMAT_ERROR"` —— 那正是会让新路径漏掉的
+    写法（H-19 就是漏在"没人把截断与参数错误分开"）。
+
+    为什么这条住在 `status.py` 而不是 `execution_layer.py`：`FORMAT_ERROR →
+    MALFORMED` 的映射在本文件，熔断计数只是它的**消费方**；映射改了而消费方没跟上，
+    就是 H-19 复发。
+    """
+    return classify_refusal(status, error_code) != REFUSAL_CLASS_MALFORMED
+
+
+#: 降级**允许**去的方向（HL-03 硬规则③），只有两档，都比原状更严：
+DEGRADE_TO_DENY: Final[str] = "deny"          # 拒绝本次调用（沙箱不可达 / 快照不可用）
+DEGRADE_TO_LIMITED: Final[str] = "limited"    # 受限执行（降权 / 逐次确认 / 只读面）
+DEGRADATION_TARGETS_STRICTER: FrozenSet[str] = frozenset({
+    DEGRADE_TO_DENY, DEGRADE_TO_LIMITED,
+})
+
+#: 明令**禁止**的降级目标：本地无边界执行。拿不到边界就拒绝，绝不偷偷改回宿主
+#: （`agent_runner.py` / `tools/terminal_exec.py` / `tools/code_tools.py` 的 503 都是它）。
+DEGRADE_TO_UNBOUNDED_LOCAL: Final[str] = "unbounded_local_exec"
+
+
+def degradation_direction_ok(target: str) -> bool:
+    """该降级目标是不是"更严"那两档（HL-03 硬规则③）。
+
+    这是规则③的**闭集判定处**：新增降级点必须在这里被判过，而不是靠"这次看起来
+    没问题"。`unbounded_local_exec` 永远不在集合里 —— 它是 503 那条路要拒绝的东西。
+    """
+    return str(target or "").strip() in DEGRADATION_TARGETS_STRICTER

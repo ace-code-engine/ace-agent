@@ -67,6 +67,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Set, Tuple
 
 from tools import ToolExecutor, repair_backslash_json
+from tools.status import counts_toward_breaker  # noqa: E402  （HL-03① 熔断准入的唯一判定处）
 from core.ace_isolation import wrap_untrusted
 from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
 from core.ace_claims import claims_completed_action, PROMPT_UNVERIFIED_CLAIM  # noqa: E402
@@ -680,6 +681,14 @@ class ExecutionLayer:
         # 本轮上下文（RoundCtx）：process_agent_output 每轮创建、轮末 finally 回收。
         # _exec_approval_hook 在工具执行期间经 self._round.confirmed 判断“人已确认”。
         self._round: Optional[RoundCtx] = None
+        # HL-03 硬规则②（THREE-LAYERS §3.4）：**降级必须声明**。
+        # 这两个字段是全部降级的统一可观测出口（写入走 `_note_degrade`）：
+        # `degradations` 是给外壳/审计/测试读的结构化状态，stderr 那一行是给人看的。
+        # 为什么要有统一出口：散落的降级此前各自静默或各自 print，没人能回答
+        # "这个会话降级过几次、降了什么"。与 503"沙箱档不可用（不静默回退）"同一立场 ——
+        # 能力可以降，话必须说。**必须在最早的降级点（网关/清单/规则）之前初始化**。
+        self.degradations: List[Dict[str, str]] = []
+        self._degrade_noted: Set[str] = set()
         # 同前缀免确认白名单（会话级）：用户确认过的命令前缀，同前缀 prompt 档自动放行
         self._approved_prefixes: List[str] = []
         # 目标状态机（持久化长任务）：CLI 轮次驱动与工具共用同一个 store
@@ -802,8 +811,10 @@ class ExecutionLayer:
             from core.ace_todos import TodoStore
             self.todos = TodoStore.from_log(self.session_log)
             self.executor.todos = self.todos
-        except Exception:  # noqa: BLE001 —— 清单坏了不该让会话起不来
+        except Exception as e:  # noqa: BLE001 —— 清单坏了不该让会话起不来
             self.todos = None
+            # HL-03②：能力降级必须声明 —— 此前这里纯静默，用户只会发现 `/todo` 没反应
+            self._note_degrade("todos", f"待办清单不可用（{type(e).__name__}: {e}）")
 
         # 持久授权规则（.ace/permissions*.json + ~/.ace/permissions.json）：
         # 读坏了就当空（并留警告），绝不因为规则文件有问题而让会话起不来。
@@ -813,6 +824,11 @@ class ExecutionLayer:
                 str(self.project_root))
         except Exception as e:  # noqa: BLE001
             self.rules, self.rule_warnings = [], [f"规则加载失败: {type(e).__name__}"]
+            # HL-03②：`rule_warnings` 是既有的声明出口（/rules 会展示），这里再进统一
+            # 降级账本 + stderr —— 丢的是**用户自己写的 deny 规则**，方向偏松，
+            # 更不能让它静默（丢 deny = 少了约束，不是多了功能）。
+            self._note_degrade("rules", f"持久授权规则未加载（{type(e).__name__}）："
+                                        "本次会话少了一层用户自定义约束")
         # 裁决发生在**执行器**里（14 段管线的第 ⑦ 段），所以规则也要挂到执行器上 ——
         # 只放在这里会出现"规则读到了、匹配也算得对，但没人用它"（实测踩到过）。
         self.executor.rules = self.rules
@@ -889,6 +905,18 @@ class ExecutionLayer:
         # L1/L2 路由结果缓存（五层网关）
         self.last_route: Optional[Dict] = None
         self.last_route_input: Optional[str] = None
+
+    def _note_degrade(self, kind: str, detail: str) -> None:
+        """登记一次**降级**并声明出来（HL-03 硬规则②：不许静默回退）。
+
+        出口有两个，缺一不可：`self.degradations`（结构化，供外壳/审计/测试读）
+        与 stderr 一行（人在终端里当场看得到）。同一个 `kind` 只播报一次 ——
+        "不静默"不等于"每次调用刷一屏"；刷屏会让人学会忽略它，那又变回静默了。
+        """
+        self.degradations.append({"kind": kind, "detail": detail})
+        if kind not in self._degrade_noted:
+            self._degrade_noted.add(kind)
+            print(f"⚠ 能力降级（{kind}）：{detail}", file=sys.stderr)
 
     # ---------- 命令审批（接 ace_execpolicy 的 prompt 档） ----------
 
@@ -1165,8 +1193,12 @@ class ExecutionLayer:
         if self.gateway and user_input != self.last_route_input:
             try:
                 self.last_route = self.gateway.route(user_input)
-            except Exception:
+            except Exception as e:  # noqa: BLE001
                 self.last_route = None
+                # HL-03②：L1/L2 标注是增强，坏了不影响裁决 —— 但**降级要声明**：
+                # 不声明的话，"这轮怎么没有 intent/skills"只能靠人猜。
+                self._note_degrade("route", f"意图路由不可用（{type(e).__name__}）："
+                                            "本轮不做 L1/L2 标注")
             self.last_route_input = user_input
         route_meta = {}
         if self.last_route:
@@ -1444,8 +1476,18 @@ class ExecutionLayer:
         if tool_name in EGRESS_TOOLS:
             try:
                 from core.ace_net import normalize_host, url_host
-            except Exception:  # noqa: BLE001 —— 加固失败不误伤：退回按工具授权
-                return ""
+            except Exception as e:  # noqa: BLE001
+                # HL-03②/③：算不出目的地时**绝不退回"按工具授权"**。退回空串等于把
+                # H-09 的对象绑定悄悄拆掉 —— "批准 A 目的地"就变成"这个工具随便发"，
+                # 方向朝**松**，而这里是沙箱外唯一的出口闸门。降级方向只能是更严：
+                # 绑**本次调用的参数指纹**（同一次调用重试仍复用人的批准；换了参数 =
+                # 换了目的地 = 重新问人），并且**说出来**（`_note_degrade`）。
+                self._note_degrade(
+                    "identity",
+                    f"目的地身份算不出来（core.ace_net 不可用: {type(e).__name__}）："
+                    "本次按**调用参数**绑定授权，换参数即重新问人")
+                _payload = json.dumps(tool_call, ensure_ascii=False, sort_keys=True)
+                return "call:" + hashlib.sha256(_payload.encode("utf-8")).hexdigest()[:16]
             if tool_name == "notify_send":
                 if str(tool_call.get("channel") or "").strip().lower() != "email":
                     return ""
@@ -2134,8 +2176,18 @@ class ExecutionLayer:
     def _note_tool_failure(self, tool_name: str, error_code: str) -> Optional[str]:
         """记录工具连续失败，返回附加 instruction；达阈值后熔断该工具。
         防止小模型对同一错误重复调用死循环（如缺参数的 request_permission）。
-        403 安全拦截（沙盒/白名单/路径越界）是执行层主动防御，不视为模型失败，不计数。"""
+        403 安全拦截（沙盒/白名单/路径越界）是执行层主动防御，不视为模型失败，不计数。
+
+        HL-03 硬规则①（THREE-LAYERS §3.4）：**`MALFORMED` 永不计入熔断** ——
+        截断/畸形该被"重新生成"，不是"升级处置"（H-19）。判据不在本函数里：
+        它是 `tools.status.counts_toward_breaker`（唯一判定处），**唯一**的熔断
+        计数入口就是这里，所以新路径不可能绕过这道门。"""
         if error_code == "403":
+            return None
+        # HL-03①：FORMAT_ERROR(⇒MALFORMED) 一律不进熔断账本。传 error_code 位同时
+        # 当 status 用，是因为本函数的调用方给的就是那个外发状态/错误码本身
+        # （`_stage_result` 给 result.error_code；控制工具给 "FORMAT_ERROR"）。
+        if not counts_toward_breaker(error_code, error_code):
             return None
         fail_key = f"{tool_name}:{error_code or 'ERROR'}"
         self.repeat_fail[fail_key] = self.repeat_fail.get(fail_key, 0) + 1

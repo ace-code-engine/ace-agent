@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "74", "75", "76"]
+             "69", "70", "71", "72", "73", "74", "75", "76", "79"]
 _SEEN_SECTIONS: list = []
 
 
@@ -2206,7 +2206,10 @@ if _want("10"):
     r = run_agent(el_h, "api_get", url="file:///etc/passwd")
     check("api_get 协议校验拦截", r["status"] == "400", r.get("message"))
 
-    # —— 重复失败熔断（防小模型死循环） ——
+    # —— 畸形控制调用**不**熔断（HL-03 规则①：MALFORMED 永不计入熔断） ——
+    # 旧期望值是"漏 target → 连打 3 次 → 熔断 request_permission"，而 execution_layer.py
+    # 的注释自己记着这个 bug（"小模型总是漏 target 参数，最后熔断死循环"）——
+    # 那是血证、不是契约。按 §3.4 规则① + RL-02（FORMAT_ERROR → MALFORMED）改成"不熔断"。
     el_f = ExecutionLayer(project_root=str(mktemp()), permission_level="write",
                           config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
     _bad_perm = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] p\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
@@ -2214,11 +2217,12 @@ if _want("10"):
     _s1 = el_f.process_agent_output(_bad_perm, "熔断测试")
     _s2 = el_f.process_agent_output(_bad_perm, "熔断测试")
     _s3 = el_f.process_agent_output(_bad_perm, "熔断测试")
-    check("request_permission 连续失败触发熔断",
-          "request_permission" in el_f.banned_tools
-          and "熔断" in ((_s3.get("instruction") or "") + (_s3.get("message") or "")), _s3)
+    check("★畸形控制调用（缺 target）连续 3 次**不**熔断（MALFORMED 永不计入熔断）",
+          "request_permission" not in el_f.banned_tools
+          and _s3.get("status") == "FORMAT_ERROR", _s3)
     _s4 = el_f.process_agent_output(_bad_perm, "熔断测试")
-    check("熔断后 request_permission 直接拒绝", _s4["status"] == "TOOL_BANNED", _s4)
+    check("★第 4 次仍是 FORMAT_ERROR（不是 TOOL_BANNED）—— 给模型纠错的机会",
+          _s4.get("status") == "FORMAT_ERROR", _s4)
     _good_perm = ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] p\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
                   "<EXTERNAL>\nanswer.\n{\"tool\": \"request_permission\", "
                   "\"target\": \"file_write\"}\n</EXTERNAL>")
@@ -15910,6 +15914,71 @@ if _want("76"):
         check("[76] git_merge_tree 成功", _m1_76.status == "success", _m1_76.message)
     finally:
         _sh76.rmtree(_repo76, ignore_errors=True)
+
+
+# ============================================================
+if _want("79"):
+    # ── [79] HL-03 三条硬规则 ──
+    print("[79] HL-03 三条硬规则 —— MALFORMED 不计熔断 / 降级必声明 / 降级只朝更严")
+    import json as _json79  # noqa: E402
+
+    from tools import status as _st79  # noqa: E402
+    from execution_layer import ExecutionLayer as _EL79  # noqa: E402
+
+    _ctb79 = getattr(_st79, "counts_toward_breaker", None)
+    check("[79] ①`counts_toward_breaker` 是唯一判定处（规则①不活在实现细节里）",
+          callable(_ctb79), "")
+    check("[79] ①★MALFORMED（FORMAT_ERROR）不计数；其余类照常计数",
+          callable(_ctb79) and _ctb79("FORMAT_ERROR") is False
+          and all(_ctb79(s) for s in ("403", "503", "504", "404", "500", "ERROR", "",
+                                      "GUARD_VIOLATION", "TOOL_BANNED", "PERMISSION_REQUEST")),
+          (callable(_ctb79) and _ctb79("FORMAT_ERROR"),
+           [s for s in ("403", "404", "") if callable(_ctb79) and not _ctb79(s)]))
+
+    def _el79(_tag, _level="write"):
+        return _EL79(str(mktemp(_tag)), permission_level=_level,
+                     config={"bait": {"enabled": False}})
+
+    def _p79(_tool, **_kw):
+        return ("<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] x\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+                "<EXTERNAL>\nanswer.\n"
+                + _json79.dumps({"tool": _tool, **_kw}, ensure_ascii=False) + "\n</EXTERNAL>")
+
+    _el79a = _el79("hl79a")
+    for _ in range(5):
+        _el79a._note_tool_failure("file_write", "FORMAT_ERROR")
+    check("[79] ①直接连打 5 次 FORMAT_ERROR：repeat_fail 不涨、不被熔断",
+          _el79a.repeat_fail == {} and _el79a.banned_tools == set(),
+          (_el79a.repeat_fail, _el79a.banned_tools))
+
+    _el79b = _el79("hl79b")
+    _s79 = None
+    for _ in range(4):
+        _s79 = _el79b.process_agent_output(_p79("ask_user"), "hl79")
+    check("[79] ①★端到端：畸形 ask_user（缺 question）连打 4 轮不熔断、仍是 FORMAT_ERROR",
+          not any(k.startswith("ask_user:") for k in _el79b.repeat_fail)
+          and "ask_user" not in _el79b.banned_tools
+          and _s79 is not None and _s79.get("status") == "FORMAT_ERROR",
+          (_el79b.repeat_fail, _el79b.banned_tools, _s79))
+
+    _el79c = _el79("hl79c")
+    for _ in range(3):
+        _el79c.process_agent_output(_p79("file_read", path="nope-79.txt"), "hl79")
+    check("[79] ①对照：file_read 404 连续 3 次**仍然**熔断（既有防线没被削弱）",
+          "file_read" in _el79c.banned_tools, _el79c.repeat_fail)
+
+    _dok79 = getattr(_st79, "degradation_direction_ok", None)
+    check("[79] ③方向判定：deny/limited 允许、unbounded_local_exec 禁止",
+          callable(_dok79) and _dok79("deny") and _dok79("limited")
+          and not _dok79("unbounded_local_exec"), "")
+    check("[79] ②降级有统一可观测出口（ExecutionLayer.degradations 账本）",
+          isinstance(getattr(_el79("hl79d"), "degradations", None), list), "")
+
+    _el79e = _el79("hl79e")
+    _el79e.guardian.snapshot = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full"))
+    _r79 = _el79e.process_agent_output(_p79("file_write", path="s79.txt", content="x"), "hl79")
+    check("[79] ②★快照不可用 → 403 拒写（fail-close）且如实带 snapshot_state=unavailable",
+          _r79.get("status") == "403" and _r79.get("snapshot_state") == "unavailable", _r79)
 
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

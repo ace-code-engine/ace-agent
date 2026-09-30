@@ -103,9 +103,19 @@ class TurnController:
 
     def __init__(self, max_queue: int = MAX_QUEUE,
                  now: Optional[Callable[[], float]] = None,
-                 grace_ms: Optional[int] = None) -> None:
+                 grace_ms: Optional[int] = None,
+                 steering_mode: str = "queue",
+                 followup_mode: str = "queue") -> None:
         self.max_queue = max(1, int(max_queue))
         self._now = now or _monotonic
+        # WP-1 繁忙发送策略：steering 是"纠偏"（可打断当前轮），followUp 是"追加"（可丢弃）。
+        # 值：steering → queue | interrupt；followup → queue | drop。认不出的一律回退 queue。
+        self.steering_mode = (str(steering_mode or "queue").strip().lower()
+                              if str(steering_mode or "queue").strip().lower() in ("queue", "interrupt")
+                              else "queue")
+        self.followup_mode = (str(followup_mode or "queue").strip().lower()
+                              if str(followup_mode or "queue").strip().lower() in ("queue", "drop")
+                              else "queue")
         self.state = IDLE
         self.queue: List[str] = []
         self.interrupt_state = INTERRUPT_NONE
@@ -119,8 +129,14 @@ class TurnController:
         self.discarded = 0
 
     # ---------- 输入 ----------
-    def submit(self, text: str) -> SubmitResult:
-        """收到一条输入：空闲就立刻跑，忙就排队（满了如实拒绝，不静默丢）。"""
+    def submit(self, text: str, kind: str = "follow_up") -> SubmitResult:
+        """收到一条输入：空闲就立刻跑，忙就排队（满了如实拒绝，不静默丢）。
+
+        `kind`（WP-1）：`follow_up`（追加/继续，默认）· `steering`（纠偏/换方向）。
+        忙时的策略由 `steering_mode` / `followup_mode` 控制：
+        - `steering` + `steering_mode="interrupt"`：触发**第一段中断**（跑完当前步就停）再入队；
+        - `follow_up` + `followup_mode="drop"`：如实拒绝（`followup_dropped`），不排队。
+        """
         msg = str(text or "").strip()
         if not msg:
             return SubmitResult("rejected", "", len(self.queue), "empty")
@@ -131,6 +147,13 @@ class TurnController:
             # 已经放弃本轮：输入直接进队，等宿主把本轮彻底收尾后立刻跑
             self.queue.append(msg)
             return SubmitResult("queued", msg, len(self.queue))
+        if kind == "steering" and self.steering_mode == "interrupt":
+            if self.interrupt_state == INTERRUPT_NONE:
+                self.interrupt_state = INTERRUPT_REQUESTED   # 第一段：跑完当前步就停
+            self.queue.append(msg)
+            return SubmitResult("queued", msg, len(self.queue))
+        if kind == "follow_up" and self.followup_mode == "drop":
+            return SubmitResult("rejected", msg, len(self.queue), "followup_dropped")
         if len(self.queue) >= self.max_queue:
             return SubmitResult("rejected", msg, len(self.queue), "queue_full")
         self.queue.append(msg)

@@ -695,7 +695,9 @@ class AceTuiApp(App):
                  command_table: Optional[dict] = None,
                  on_stop: Optional[Callable[[], None]] = None,
                  board_provider: Optional[Callable[[], Any]] = None,
-                 ui_host: Any = None) -> None:
+                 ui_host: Any = None,
+                 steering_mode: str = "queue",
+                 followup_mode: str = "queue") -> None:
         super().__init__()
         self.engine = engine
         self.status_provider = status_provider
@@ -706,7 +708,8 @@ class AceTuiApp(App):
         self.board_provider = board_provider
         self.ui_host = ui_host
         self.body_lines = 0
-        self.turn = ace_turn.TurnController()
+        self.turn = ace_turn.TurnController(steering_mode=steering_mode,
+                                            followup_mode=followup_mode)
         self.chords = ace_keys.ChordMap()
         self._menu: Optional[ace_menu.MenuState] = None
         self._queue: "queue.Queue[tuple]" = queue.Queue()
@@ -1944,14 +1947,17 @@ def run_tui(engine=None, status_provider=None, title: str = "ACE",
             command_table: Optional[dict] = None,
             on_stop: Optional[Callable[[], None]] = None,
             board_provider: Optional[Callable[[], Any]] = None,
-            ui_host: Any = None) -> int:
+            ui_host: Any = None,
+            steering_mode: str = "queue",
+            followup_mode: str = "queue") -> int:
     """启动全屏界面；没装 Textual 时返回 2（调用方据此回退 REPL）。"""
     if not _textual_available():
         return 2
     AceTuiApp(engine=engine, status_provider=status_provider, title=title,
               translate=translate, command_table=command_table,
               on_stop=on_stop, board_provider=board_provider,
-              ui_host=ui_host).run()
+              ui_host=ui_host, steering_mode=steering_mode,
+              followup_mode=followup_mode).run()
     return 0
 
 

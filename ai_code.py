@@ -495,6 +495,9 @@ class CLIConfig:
     # job 与 docker 都不做静默回退：拿不到边界就报 503，绝不偷偷改回宿主执行。
     sandbox: str = "off"
     sandbox_image: str = ""
+    # WP-1 繁忙发送策略：忙时 steering（纠偏/换方向）与 followUp（追加/继续）各用什么策略。
+    steering_mode: str = "queue"     # queue | interrupt（interrupt = 触发第一段中断再入队）
+    followup_mode: str = "queue"     # queue | drop（drop = 忙时如实拒绝，不排队）
 
     @classmethod
     def from_dict(cls, data: Dict) -> "CLIConfig":
@@ -518,6 +521,10 @@ class CLIConfig:
             raise ValueError(f"skill 必须是 {', '.join(SKILLS)}，收到: {self.skill!r}")
         if self.sandbox not in ("off", "job", "docker"):
             raise ValueError(f"sandbox 必须是 off/job/docker，收到: {self.sandbox!r}")
+        if self.steering_mode not in ("queue", "interrupt"):
+            raise ValueError(f"steering_mode 必须是 queue/interrupt，收到: {self.steering_mode!r}")
+        if self.followup_mode not in ("queue", "drop"):
+            raise ValueError(f"followup_mode 必须是 queue/drop，收到: {self.followup_mode!r}")
 
 # ---- ANSI 颜色（非 tty 或 NO_COLOR 时自动关闭，遵循 NO_COLOR 约定）----
 ANSI = {
@@ -821,6 +828,9 @@ def merge_config(args) -> Dict:
     cfg.setdefault("search_api_provider", os.environ.get("ACE_SEARCH_API_PROVIDER", ""))
     cfg.setdefault("search_api_key", os.environ.get("ACE_SEARCH_API_KEY", ""))
     cfg.setdefault("search_api_url", os.environ.get("ACE_SEARCH_API_URL", ""))
+    # WP-1 繁忙发送策略：忙时 steering / followUp 各用什么策略（见 CONFIGURATION.md）
+    cfg.setdefault("steering_mode", "queue")
+    cfg.setdefault("followup_mode", "queue")
     # 配置校验与归一化（纯 stdlib dataclass）
     try:
         cli_cfg = CLIConfig.from_dict(cfg)
@@ -7292,7 +7302,9 @@ def main() -> None:
                             command_table=AgentCLI.COMMANDS,
                             on_stop=cli.request_stop,
                             board_provider=lambda: cli._board,
-                            ui_host=cli)
+                            ui_host=cli,
+                            steering_mode=cli.cfg.get("steering_mode", "queue"),
+                            followup_mode=cli.cfg.get("followup_mode", "queue"))
             if _code == 0:
                 return
             if getattr(args, "tui", False):

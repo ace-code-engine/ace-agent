@@ -25,6 +25,8 @@ config = {
     "egress_allowlist": ["api.github.com", ".openai.com"],  # 出站目的地白名单（缺省 = 闸门关闭）
     "approval_policy": "on_request",       # 审批策略：on_request（默认）/ on_failure / never / untrusted
     "sandbox_policy": "workspace_write",   # 判定用沙箱策略：read_only / workspace_write / danger_full_access
+    "steering_mode": "queue",              # 繁忙时「纠偏」消息策略：queue（默认）/ interrupt（先触发第一段中断再入队）
+    "followup_mode": "queue",              # 繁忙时「追加」消息策略：queue（默认）/ drop（如实拒绝，不排队）
     "mcp_servers": {                        # MCP server（外部进程工具，v3.17.0 起）
         "fs": {"command": "npx",
                "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],

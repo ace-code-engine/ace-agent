@@ -10772,6 +10772,25 @@ if _want("62"):
           _full62.action == "rejected" and _full62.reason == "queue_full"
           and len(_c62.queue) == _turn62.MAX_QUEUE, _full62)
 
+    # —— WP-1 繁忙发送策略：steeringMode / followUpMode ——
+    _cw62 = _turn62.TurnController(now=_Clock62(), steering_mode="interrupt")
+    _cw62.submit("干活")
+    _sw62 = _cw62.submit("换个方向", kind="steering")
+    check("WP-1 ★steeringMode=interrupt：忙时 steering 触发第一段中断 + 仍入队",
+          _sw62.action == "queued" and _cw62.interrupt_state == _turn62.INTERRUPT_REQUESTED
+          and _cw62.queue == ["换个方向"], _sw62)
+    _cf62 = _turn62.TurnController(now=_Clock62(), followup_mode="drop")
+    _cf62.submit("干活")
+    _fw62 = _cf62.submit("补充一句", kind="follow_up")
+    check("WP-1 ★followUpMode=drop：忙时 followUp 如实拒绝（不排队）",
+          _fw62.action == "rejected" and _fw62.reason == "followup_dropped"
+          and _cf62.queue == [], _fw62)
+    _cd62 = _turn62.TurnController(now=_Clock62())
+    _cd62.submit("干活")
+    _dw62 = _cd62.submit("补充一句", kind="follow_up")
+    check("WP-1 默认（queue）：行为与现在一致（不破坏既有手感）",
+          _dw62.action == "queued" and _cd62.queue == ["补充一句"], _dw62)
+
     # —— 两段式中断 ——
     _c62 = _turn62.TurnController(now=_Clock62())
     check("[62] 中断：空闲时按下去什么都不做（不误报「已中断」）",

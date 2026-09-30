@@ -13903,8 +13903,11 @@ if _want("70"):
           and _h_met["models"] == {"m1": 3}
           and _h_met["context"] == {"rounds": 2, "max_system_len": 3000, "max_messages": 30}
           and _h_met["usage"] == {"rounds": 1, "in_tokens": 1000, "out_tokens": 200,
+                                  "measured_in_tokens": 0, "measured_out_tokens": 0,
                                   "by_model": {"m1": {"rounds": 1, "in_tokens": 1000,
-                                                      "out_tokens": 200}}},
+                                                      "out_tokens": 200,
+                                                      "measured_in_tokens": 0,
+                                                      "measured_out_tokens": 0}}},
           json.dumps({k: _h_met[k] for k in ("rounds", "tool_elapsed_ms", "tools",
                                              "usage", "context")}, ensure_ascii=False)[:200])
     _h_saved = _AE.engine_path
@@ -13950,7 +13953,9 @@ if _want("70"):
           and _i_cs["usage"]["in_tokens"] == 1500
           and _i_cs["usage"]["out_tokens"] == 300
           and _i_cs["usage"]["by_model"]["m1"] == {"rounds": 2, "in_tokens": 1500,
-                                                   "out_tokens": 300},
+                                                   "out_tokens": 300,
+                                                    "measured_in_tokens": 0,
+                                                    "measured_out_tokens": 0},
           json.dumps({k: _i_cs[k] for k in ("sessions", "rounds", "usage")},
                      ensure_ascii=False)[:180])
     # 成本 = 价格表(每百万 token) × token：in 1500/1e6*1.0 + out 300/1e6*2.0 = 0.0021
@@ -14134,6 +14139,29 @@ if _want("70"):
               and _acc_ev2.get("in_tokens") == 100, _acc_ev2)
     finally:
         _D9C._run = _acc_orig_run
+
+    # ⑧ ★A0b（**先红后绿**）：账本里有的实测值，`session_metrics` 聚合里就得有。
+    # 依据 ACC-GATES.md §7.3.2 —— 卡里写了"不是顺手加一行"：要同时改 `_NORM_KEYS` +
+    # `engine/src/events.rs` + `engine/src/protocol.rs` + xcheck，否则两条路输出分叉。
+    _a0b_root = mktemp("a0b")
+    (_a0b_root / ".ace_sessions").mkdir()
+    _a0b_log = _a0b_root / ".ace_sessions" / "s1.jsonl"
+    _a0b_log.write_text("\n".join([
+        json.dumps({"seq": 1, "kind": "request/snapshot", "ts": "t", "model": "m1"}),
+        json.dumps({"seq": 2, "kind": "model/usage", "ts": "t", "model": "m1",
+                    "in_tokens": 100, "out_tokens": 50,
+                    "measured_in_tokens": 1234, "measured_out_tokens": 56}),
+        json.dumps({"seq": 3, "kind": "model/usage", "ts": "t", "model": "m2",
+                    "in_tokens": 10, "out_tokens": 5}),
+    ]), encoding="utf-8")
+    from core import ace_engine as _ae70b  # noqa: E402
+    _m70b = _ae70b.session_metrics(str(_a0b_log))
+    check("ACC-01 A0b ★`session_metrics` 聚合实测值（与估算并列；缺实测的老轮次按 0 计）",
+          _m70b.get("usage", {}).get("measured_in_tokens") == 1234
+          and _m70b.get("usage", {}).get("measured_out_tokens") == 56
+          and _m70b.get("usage", {}).get("in_tokens") == 110
+          and _m70b.get("usage", {}).get("out_tokens") == 55,
+          _m70b.get("usage"))
 
     # ── 主页度量行：J1–J2 ──
     # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。

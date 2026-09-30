@@ -211,9 +211,8 @@
 ### 7.3 两处**刻意不做**的事（各有一条可验证的理由）
 
 1. **不主动加 `stream_options: {"include_usage": true}`。** 那是**请求参数**，端点不认就 400 —— 而 A0 的立场是"只读不讨"：读得到就读，读不到留空（`estimated` 那半照旧）。要"流式也一定有实测"，前提是先有一个"这个端点认不认这个参数"的判据，单列。
-2. **`session_metrics` / `/status` 暂不聚合 `measured_*`（记为 A0b）。** 不是"顺手加一行"，因为 `core/ace_engine.session_metrics` 的边界是**「抽取在引擎、聚合在这里」**：Rust 侧只把白名单字段抽取出来（`core/ace_engine.py` 的 `_NORM_KEYS`），Python 再聚合。要聚合新字段就必须**同时**改
-   `_NORM_KEYS` + `engine/src/events.rs`（`Event` 结构 + `num("…")` 解析）+ `engine/src/protocol.rs`（输出）+ 补 `xcheck` —— 否则**两条路的输出会分叉**（正是 `_NORM_KEYS` 这张白名单存在的意义，R1 纪律）。
-   只改 Python 一侧等于制造一个"有 Rust 时看不到、没 Rust 时看得到"的字段。
+2. **`session_metrics` / `/status` 暂不聚合 `measured_*`（记为 A0b）。** ✅ **已做（2026-09-27）** —— 不是"顺手加一行"，因为 `core/ace_engine.session_metrics` 的边界是**「抽取在引擎、聚合在这里」**：Rust 侧只把白名单字段抽取出来（`core/ace_engine.py` 的 `_NORM_KEYS`），Python 再聚合。所以**同时**改了
+   `_NORM_KEYS` + `engine/src/events.rs`（`EventMeta` 结构 + `num("…")` 解析）+ `engine/src/protocol.rs`（输出）+ `xcheck`（H2/I3 引擎↔降级对拍），并把 `usage.measured_*` 登记进 `INTERNAL_ONLY`（已聚合、可对照，但对外那行暂只报自报值）。**只改 Python 一侧等于制造"有 Rust 时看不到、没 Rust 时看得到"的字段** —— 本卡这句话就是 A0b 的验收。
 
 ### 7.4 纪律偏差（**第 2 次**，如实记账）
 
@@ -227,7 +226,7 @@
 
 - **没证明"估得准不准"**：A0 只证明**路通了**（实测值能进账本），没有真实偏差数据；
 - **阈值与"取消可发布资格"的判定**（ACC-01 的三条验收里第 ③ 条）**未做** —— 它要先有一批真实偏差；
-- `measured_*` **还没有读者**：`session_metrics` / `/status` / `ace_cost` 都还没用它（那是 A0b 与 A1 的活）。
+- `measured_*` **已有读者**：`session_metrics` / `cross_session_metrics`（即 `/status` 的聚合）已把它求和（A0b，2026-09-27），**对照现在可做**；但**对外那行暂只报自报值**（`usage.measured_*` 登记在 `INTERNAL_ONLY`），对照视图仍待做（A1）。
 
 > 一句话：**A0 让"两个数都在"成为事实；"两个数差多少、差到什么时候不算数"仍然没有答案。**
 

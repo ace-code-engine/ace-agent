@@ -154,14 +154,14 @@ CROSS_SESSION_METRICS: Dict[str, Dict[str, str]] = {
         population="每一轮模型请求的输入侧",
         excludes="老日志里没有这个字段的轮次按 0 计（是「如实缺」，不是「算成 0」）",
         reads_as="★它多半是**按字符估的**（`cli/ace_context.estimate_tokens`），"
-                 "**不是账单**；厂商实测值在 `measured_in_tokens`（ACC-01 / A0），"
-                 "而本数**至今没有**跟它对过账"),
+                 "**不是账单**；厂商实测值在 `usage.measured_in_tokens`（ACC-01 / A0），"
+                 "同一次聚合里已可对照 —— 偏差本身就是 ACC-01 的判据（`ACC-GATES.md`）"),
     "usage.out_tokens": metric(
         metric="跨会话累计的输出 token",
         anchor="按 `model/usage` 事件的 `out_tokens` 增量求和",
         population="每一轮模型请求的输出侧",
         excludes="同上：缺字段的老日志按 0 计",
-        reads_as="同 `usage.in_tokens`：**估算**，且 `measured_out_tokens` 尚未与它对照。"
+        reads_as="同 `usage.in_tokens`：**估算**，对照见 `usage.measured_out_tokens`（已聚合）。"
                  "流式下厂商通常只在**收尾分片**报用量，读不到时实测侧就是空的"),
     "usd": metric(
         metric="跨会话累计成本（美元，**估算**）",
@@ -186,6 +186,9 @@ INTERNAL_ONLY: Dict[str, str] = {
                      "对外那行用 `rounds` 表达「跑了多少」",
     "assistant_messages": "同上（模型消息条数）；存量老日志里它与 `rounds` 的比值不稳定",
     "usage.rounds": "`rounds` 里**有 usage 记录**的那些 —— 它是分母候选，不是对外结果",
+    "usage.measured_in_tokens": "ACC-01 的**对照证据**（自报 vs 实测）：已聚合、可与 `usage.in_tokens` 对账，"
+                                "但对外那行暂只报自报值；对照视图另做（见 `ACC-GATES.md` §7.5）",
+    "usage.measured_out_tokens": "同上（输出侧实测值），与 `usage.measured_in_tokens` 成对出现",
 }
 
 # 已知缺陷（**样板**）：`{编号: 六要素}`。每条都要能过 `validate_defect`。

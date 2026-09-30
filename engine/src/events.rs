@@ -94,6 +94,10 @@ pub struct EventMeta {
     /// 每轮 token 用量（model/usage）
     pub in_tokens: i64,
     pub out_tokens: i64,
+    /// 厂商**实测**值（ACC-01 / A0：`measured_in_tokens` / `measured_out_tokens`，
+    /// 拿不到就不写 —— 与自报值并列，供"自报 vs 实测"对照）
+    pub measured_in_tokens: i64,
+    pub measured_out_tokens: i64,
     /// 上下文规模（request/snapshot 的 `system_len` / `messages_count`）
     pub system_len: i64,
     pub messages_count: i64,
@@ -223,6 +227,8 @@ impl EventIndex {
                                 elapsed_ms: num("elapsed_ms"),
                                 in_tokens: num("in_tokens"),
                                 out_tokens: num("out_tokens"),
+                                measured_in_tokens: num("measured_in_tokens"),
+                                measured_out_tokens: num("measured_out_tokens"),
                                 system_len: num("system_len"),
                                 messages_count: num("messages_count"),
                             });

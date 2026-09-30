@@ -334,6 +334,8 @@ impl Engine {
                                 .set("elapsed_ms", Json::num(e.elapsed_ms))
                                 .set("in_tokens", Json::num(e.in_tokens))
                                 .set("out_tokens", Json::num(e.out_tokens))
+                                .set("measured_in_tokens", Json::num(e.measured_in_tokens))
+                                .set("measured_out_tokens", Json::num(e.measured_out_tokens))
                                 .set("system_len", Json::num(e.system_len))
                                 .set("messages_count", Json::num(e.messages_count))
                         })

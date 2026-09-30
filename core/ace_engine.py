@@ -227,6 +227,8 @@ def _python_events(lines: List[str]) -> Dict[str, Any]:
             "elapsed_ms": _int_field(ev, "elapsed_ms"),
             "in_tokens": _int_field(ev, "in_tokens"),
             "out_tokens": _int_field(ev, "out_tokens"),
+            "measured_in_tokens": _int_field(ev, "measured_in_tokens"),
+            "measured_out_tokens": _int_field(ev, "measured_out_tokens"),
             "system_len": _int_field(ev, "system_len"),
             "messages_count": _int_field(ev, "messages_count"),
         })
@@ -368,7 +370,8 @@ def session_verify(path: Any) -> Dict[str, Any]:
 
 # 归一化后的事件字段（两条路径必须产出**完全相同的键**，否则对拍没意义）
 _NORM_KEYS = ("seq", "kind", "ts", "tool", "status", "level", "model", "subagent", "bytes",
-              "elapsed_ms", "in_tokens", "out_tokens", "system_len", "messages_count")
+              "elapsed_ms", "in_tokens", "out_tokens", "measured_in_tokens",
+              "measured_out_tokens", "system_len", "messages_count")
 
 
 def session_events(path: Any, client: Any = None) -> Any:
@@ -403,6 +406,7 @@ def session_events(path: Any, client: Any = None) -> Any:
                 continue
             out.append({k: (_int_field(it, k) if k in
                             ("seq", "bytes", "elapsed_ms", "in_tokens", "out_tokens",
+                             "measured_in_tokens", "measured_out_tokens",
                              "system_len", "messages_count")
                             else str(it.get(k) or "")) for k in _NORM_KEYS})
         return out, "ace-engine"
@@ -430,7 +434,8 @@ def session_metrics(path: Any, client: Any = None) -> Dict[str, Any]:
         "user_messages": 0, "assistant_messages": 0,
         "tool_calls": 0, "tool_results": 0, "tool_errors": 0, "tool_elapsed_ms": 0,
         "tools": {}, "decisions": {}, "levels": {}, "models": {},
-        "usage": {"rounds": 0, "in_tokens": 0, "out_tokens": 0, "by_model": {}},
+        "usage": {"rounds": 0, "in_tokens": 0, "out_tokens": 0,
+                  "measured_in_tokens": 0, "measured_out_tokens": 0, "by_model": {}},
         "context": {"rounds": 0, "max_system_len": 0, "max_messages": 0},
         "counts": {},
     }
@@ -454,12 +459,17 @@ def session_metrics(path: Any, client: Any = None) -> Dict[str, Any]:
             m["usage"]["rounds"] += 1
             m["usage"]["in_tokens"] += e["in_tokens"]
             m["usage"]["out_tokens"] += e["out_tokens"]
+            m["usage"]["measured_in_tokens"] += e["measured_in_tokens"]
+            m["usage"]["measured_out_tokens"] += e["measured_out_tokens"]
             # 按模型分开记：成本要在**调用方**按价格表算（引擎只带事实，不持有价格）
             _bm = m["usage"]["by_model"].setdefault(
-                e["model"] or "?", {"rounds": 0, "in_tokens": 0, "out_tokens": 0})
+                e["model"] or "?", {"rounds": 0, "in_tokens": 0, "out_tokens": 0,
+                                    "measured_in_tokens": 0, "measured_out_tokens": 0})
             _bm["rounds"] += 1
             _bm["in_tokens"] += e["in_tokens"]
             _bm["out_tokens"] += e["out_tokens"]
+            _bm["measured_in_tokens"] += e["measured_in_tokens"]
+            _bm["measured_out_tokens"] += e["measured_out_tokens"]
             if e["model"]:
                 m["models"][e["model"]] = m["models"].get(e["model"], 0) + 1
         elif kind == "permission/decision":
@@ -518,7 +528,8 @@ def cross_session_metrics(paths: Any, *, pricing: Any = None,
         "sessions": 0, "events": 0, "rounds": 0, "subagent_rounds": 0,
         "tool_calls": 0, "tool_errors": 0, "tool_elapsed_ms": 0,
         "user_messages": 0, "assistant_messages": 0,
-        "usage": {"rounds": 0, "in_tokens": 0, "out_tokens": 0, "by_model": {}},
+        "usage": {"rounds": 0, "in_tokens": 0, "out_tokens": 0,
+                  "measured_in_tokens": 0, "measured_out_tokens": 0, "by_model": {}},
         "sources": set(),
     }
     # 一个进程服务全部日志：每份都起一个引擎进程的话，262 份就是 262 个进程（实测过）。
@@ -546,10 +557,14 @@ def cross_session_metrics(paths: Any, *, pricing: Any = None,
             total["usage"]["rounds"] += m["usage"]["rounds"]
             total["usage"]["in_tokens"] += m["usage"]["in_tokens"]
             total["usage"]["out_tokens"] += m["usage"]["out_tokens"]
+            total["usage"]["measured_in_tokens"] += m["usage"].get("measured_in_tokens", 0)
+            total["usage"]["measured_out_tokens"] += m["usage"].get("measured_out_tokens", 0)
             for model, t in (m["usage"].get("by_model") or {}).items():
                 slot = total["usage"]["by_model"].setdefault(
-                    model, {"rounds": 0, "in_tokens": 0, "out_tokens": 0})
-                for kk in ("rounds", "in_tokens", "out_tokens"):
+                    model, {"rounds": 0, "in_tokens": 0, "out_tokens": 0,
+                            "measured_in_tokens": 0, "measured_out_tokens": 0})
+                for kk in ("rounds", "in_tokens", "out_tokens",
+                           "measured_in_tokens", "measured_out_tokens"):
                     slot[kk] += t.get(kk, 0)
             total["sources"].add(m.get("source", "python"))
     finally:

@@ -12,6 +12,10 @@ prompt_toolkit 里都要手搓；Textual 把它们做成了一等公民，并且
   一行行文本（`ui.ace_fullscreen.TranscriptSink` 已经在做这件事）；
 - 界面 = 本包。它把那些行挂成组件、管布局与焦点、把按键翻成意图。
   两者的接口就是"一行文本 + 一次按键"，所以以后换成像 Ink/Rust 那样的外壳也不需要动引擎。
+
+**冻结（`WP-0` W0-C · P-08）**：`frontend/`（Ink）是主外壳，`tui/` 是**无 Node 环境下的
+fallback** —— 只修 bug，不加功能。新功能一律落 `frontend/`。本标记由 `test_all [10]`
+复核：`ui/__init__.py` 与 `tui/__init__.py` 必须都带着"只修 bug"这句话，否则红。
 """
 
 from __future__ import annotations

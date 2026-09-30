@@ -2122,6 +2122,25 @@ if _want("10"):
           ("frontend in spec:", "frontend" in _spec73d, "Node in spec:", "Node" in _spec73d,
            "Ink in exe.md:", "Ink" in _exe73d, "Node in exe.md:", "Node" in _exe73d))
 
+    # WP-0 W0-C（`ROADMAP` §8 R-3 的另半）：`frontend/` 是主外壳，`ui/`+`tui/` 降为 fallback。
+    # 依据 docs/design/WP-0-FRONTEND-CONVERGENCE.md §2 W0-C（P-08 / P-09）。
+    _ui_frz = (FOLDER / "ui" / "__init__.py").read_text(encoding="utf-8")
+    _tui_frz = (FOLDER / "tui" / "__init__.py").read_text(encoding="utf-8")
+    check("WP-0 W0-C P-08 ★`ui/` 与 `tui/` 都有'冻结：只修 bug 不加功能、新功能落 frontend/'"
+          "的显式标记（标记不是说说，`[10]` 钉着这句话在不在）",
+          all(("只修 bug" in f and "frontend/" in f) for f in (_ui_frz, _tui_frz)),
+          ("ui 有 '只修 bug':", "只修 bug" in _ui_frz,
+           "tui 有 '只修 bug':", "只修 bug" in _tui_frz))
+
+    # P-09：回落必须**说出缺了什么**（`ace.cmd:66-81` 已实现）。本卡只把它写成契约不许回退：
+    # 两条回落路径各一条专属提示，缺了哪条都是"静默回落"的回归。
+    _cmd09 = (FOLDER / "ace.cmd").read_bytes().decode("utf-8", errors="replace")
+    check("WP-0 W0-C P-09 ★回落必须说清：**缺 Node** 时有专属提示（不是静默回落到 Python REPL）",
+          "where node" in _cmd09 and "Node was not found" in _cmd09
+          and "Falling back to the Python REPL" in _cmd09, "")
+    check("WP-0 W0-C P-09 ★**依赖没装**时有另一条专属提示（与缺 Node 分得开）",
+          "node_modules\\tsx\\dist\\cli.mjs" in _cmd09 and "not installed" in _cmd09, "")
+
 
     if hasattr(os, "startfile"):
         import unittest.mock as _mock

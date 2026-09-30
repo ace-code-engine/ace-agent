@@ -880,6 +880,8 @@ class ExecutionLayer:
         self.plan_approved = False
         # 权限申请：Agent 请求临时授权，用户批准后放行一次
         self.pending_permission: Optional[Dict] = None
+        # 主动提问（WP-1 ask_user）：模型问一句，用户答一句，答案文本回流
+        self.pending_ask_user: Optional[Dict] = None
         # 重复失败熔断：同工具同错误连续 N 次 → 禁止再调用，防小模型死循环
         self.repeat_fail: Dict[str, int] = {}
         self.banned_tools: set = set()
@@ -1289,7 +1291,7 @@ class ExecutionLayer:
             }
         tool_name = tool_call.get("tool", "")
         # 4.4 控制类工具熔断：plan_propose / request_permission 连续失败同样禁止
-        if tool_name in ("plan_propose", "request_permission") and tool_name in self.banned_tools:
+        if tool_name in ("plan_propose", "request_permission", "ask_user") and tool_name in self.banned_tools:
             return None, tool_name, {
                 "status": "TOOL_BANNED",
                 "message": f"工具 '{tool_name}' 已因连续失败被熔断，本次对话禁止再调用",
@@ -1303,6 +1305,8 @@ class ExecutionLayer:
         if tool_name == "request_permission":
             return None, tool_name, self._handle_permission_request(
                 tool_call, parsed, route_meta)
+        if tool_name == "ask_user":
+            return None, tool_name, self._handle_ask_user(tool_call, route_meta)
         # 4.6 计划未批准前禁止执行其他工具（Plan Mode 门禁）
         if self.pending_plan and not self.plan_approved:
             return None, tool_name, {
@@ -2269,6 +2273,51 @@ class ExecutionLayer:
             "instruction": "等待用户批准：批准后重试该工具；拒绝则换其他方式",
             **route_meta,
         }
+
+    def _handle_ask_user(self, tool_call: Dict, route_meta: Dict) -> Dict:
+        """主动提问（WP-1 ask_user）：问题抛给人，人的文本答案回流给模型。
+
+        往返是**两次同题调用**：第一次返回 `ASK_USER`（挂起问题），用户 `answer_ask_user`
+        存下答案后，模型重试同一个 `question` 就拿到 `SUCCESS` + 答案文本。
+        """
+        question = str(tool_call.get("question", "")).strip()
+        if not question:
+            hint = self._note_tool_failure("ask_user", "FORMAT_ERROR")
+            return {
+                "status": "FORMAT_ERROR",
+                "message": "ask_user 需要 question 参数",
+                "instruction": '示例: {"tool": "ask_user", "question": "..."}'
+                               + (hint or ""),
+                **route_meta,
+            }
+        # 有挂着的答案且问题一致 → 把答案作为工具结果还给它
+        if (self.pending_ask_user
+                and self.pending_ask_user.get("question") == question
+                and self.pending_ask_user.get("answer") is not None):
+            answer = str(self.pending_ask_user["answer"])
+            self.pending_ask_user = None
+            return {
+                "status": "SUCCESS",
+                "tool": "ask_user",
+                "message": answer,
+                "instruction": "用户已回答，继续",
+                **route_meta,
+            }
+        self.pending_ask_user = {"question": question, "answer": None}
+        return {
+            "status": "ASK_USER",
+            "question": question,
+            "message": f"Agent 提问: {question}",
+            "instruction": "等待用户回答：回答后重试 ask_user 取回答案",
+            **route_meta,
+        }
+
+    def answer_ask_user(self, text: str) -> bool:
+        """用户回答了模型的问题；模型重试 `ask_user` 时取回答案。无挂起问题返回 False。"""
+        if not self.pending_ask_user:
+            return False
+        self.pending_ask_user["answer"] = str(text or "")
+        return True
 
     def grant_pending_permission(self, session: bool = False) -> bool:
         """用户批准权限申请

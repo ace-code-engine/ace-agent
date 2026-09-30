@@ -64,8 +64,9 @@ _DENIED_STATUSES: Final[FrozenSet[str]] = frozenset({
 })
 
 #: 挂在等外部条件/等人上的状态：**不是失败**，不该计进失败账本。
+#: `ASK_USER`（WP-1 ask_user 工具）也是"停下等人"—— 模型主动提问、等用户文本答案。
 _DEFERRED_STATUSES: Final[FrozenSet[str]] = frozenset({
-    "PLAN_PENDING", "PLAN_PROPOSED", "PLAN_ALREADY_APPROVED",
+    "PLAN_PENDING", "PLAN_PROPOSED", "PLAN_ALREADY_APPROVED", "ASK_USER",
 })
 
 #: 不是"工具执行结果"的那些外发状态（回合级/协议级），它们成功即 `success`。

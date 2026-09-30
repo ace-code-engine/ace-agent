@@ -210,8 +210,8 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | M-03 | 出网闸门 | `core/ace_net.py` 493 · `tools/web_tools.py` 582 的 egress 分支 | Py | 已有 → **WP-8** 域名级放行 |
 | M-04 | 审计台账 | HMAC 链式 + `core/ace_claims.py` 41 · `ace_taint.py` 109 | Py | 已有（强于参照系） |
 | M-05 | 沙箱边界 | `tools/docker_sandbox.py` 380 · `core/ace_executor.py` 540 · `executor/`(Go) | Py + **Go** → **+ CubeSandbox** | 已有 → **WP-9** |
-| | **平面 2 · 执行与工具**（42 个 `ToolSpec`） | | | |
-| M-06 | 工具注册表 | `tools/registry.py` 426（**42 个**，40 暴露） | Py | 已有 → **WP-3** 延迟目录 |
+| | **平面 2 · 执行与工具**（43 个 `ToolSpec`） | | | |
+| M-06 | 工具注册表 | `tools/registry.py` 426（**43 个**，41 暴露） | Py | 已有 → **WP-3** 延迟目录 |
 | M-07 | 文件与编辑 | `tools/file_ops.py` 741 · `file_common.py` 37 · `terminal_view.py` 247 | Py | 已有 |
 | M-08 | 终端 / 代码执行 | `tools/terminal_exec.py` 271 · `code_tools.py` 332 | Py + Go | 已有 → **R1 / R2** |
 | M-09 | 检索（grep / glob / search / kb） | `registry` 的 4 个检索工具 + `kb_tools.py` 134 | Py | 已有 → **R1** |
@@ -249,7 +249,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | M-37 | 本地化 | `locales/{en,ja,zh}.json` 757 / 757 / 752 | JSON | 已有 |
 | M-38 | 测试与质量闸 | `test_all.py` 13453（**2438 断言**）· `benchmarks/` · `e2e/` · `demo/` | Py + TS | 已有 → **ACC** 门槛 |
 
-**M-06 的 42 个工具按功能族分布（实测）**
+**M-06 的 43 个工具按功能族分布（实测）**
 
 | 功能族 | 数量 | 工具名 |
 |---|---|---|
@@ -271,9 +271,9 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 
 | ID | 缺口 | ACE 实测 | 参照系（可抄） | 严重度 |
 |---|---|---|---|---|
-| **G-01** | **git 工具族** | 工具数 **0**（42 个工具里一个 git 都没有） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
+| **G-01** | **git 工具族** | 工具数 **0**（43 个工具里一个 git 都没有） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
 | **G-02** | **前缀缓存后两半** | 只有"稳定拼接"，**无指纹校验、无变化归因** | Reasonix `cache_policy.go:21-36`（路由级 TTL）→ Codewhale `core/src/prefix_cache.rs`（1220 行，SHA-256 pin + 强制归因 + drift）→ oh-my-pi `append-only-context.ts:97-151`（恒等快路径） | **高** |
-| **G-03** | **工具面按需伸缩** | 42 个工具（40 暴露）描述**全部常驻**，啃前缀 | Codewhale `ToolSurfaceBudget` + `DEFAULT_ACTIVE_NATIVE_TOOLS` + 延迟目录（`tool_search` / `retrieve_tool_result`）；Reasonix `code_index` / `context_budget` | 中 |
+| **G-03** | **工具面按需伸缩** | 43 个工具（41 暴露）描述**全部常驻**，啃前缀 | Codewhale `ToolSurfaceBudget` + `DEFAULT_ACTIVE_NATIVE_TOOLS` + 延迟目录（`tool_search` / `retrieve_tool_result`）；Reasonix `code_index` / `context_budget` | 中 |
 | **G-04** | **面向模型的问题工具** | **0**（所有提问都在 UI 层，模型不能主动问人） | codex `RequestUserInput`；crush `question_choice_base` | 中 |
 | **G-05** | **用户自定义提示词即命令** | **0**（59 个斜杠命令全硬编码，用户一条都加不了） | pi `prompts/*.md` → 自动成 `/name`；`argument-hint`（`<必填>`/`[可选]`）+ `${1:-默认}` | 中 |
 | **G-06** | **系统提示词分层** | 无 `SYSTEM.md` 概念，只有 AGENTS.md 层级发现 | pi `SYSTEM.md`(**替换**) / `APPEND_SYSTEM.md`(**追加**)，trusted project 优先、同名不合并 | 中 |
@@ -351,8 +351,10 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > frontmatter + 插件目录 + `test_all [44]`），本轮补上 `${1:-默认}` 带默认值插值（此前是 `$1` 缺参空串）；
 > ② 繁忙发送策略 —— `steering_mode`/`followup_mode` 两键已落地（`TurnController` + `CLIConfig` + TUI 透传）；
 > ④ 系统提示词分层 —— `SYSTEM.md`（项目根，替换默认提示词）/ `APPEND_SYSTEM.md`（追加）已落地，
-> 机器安全（守门/沙箱/权限/隔离标记）在代码里、不受 SYSTEM.md 影响。
-> **只剩 ③ ask_user（文本答案回流往返，四壳同收）。**
+> 机器安全（守门/沙箱/权限/隔离标记）在代码里、不受 SYSTEM.md 影响；
+> ③ ask_user —— 执行层 `ASK_USER` 往返 + `answer_ask_user` + 文本回流已落地（核心），
+> **UI（REPL/TUI/Ink）还没消费 `ASK_USER` 状态**（四壳接线记边界，仿 RL-01「前端还没消费者」）。
+> **⇒ 四个子项全部落地（③ 的 UI 消费是下一件事）。**
 
 ### WP-2 · git 工具族（G-01）
 

@@ -290,6 +290,8 @@ answer.
 
 24. request_permission
     {"tool":"request_permission","target":"terminal_exec","reason":"原因"}
+25. ask_user
+    {"tool":"ask_user","question":"要改哪个文件？"}  主动向用户提问；用户回答后重试本工具取回答案
     被 403 拦下后申请临时授权（执行层直接处理）
 
 25. goal_create

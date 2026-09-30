@@ -188,6 +188,12 @@ TOOL_SPECS: List[ToolSpec] = [
         parameters=_obj({"target": {"type": "string"}, "reason": {"type": "string"}}, ["target"]),
         example='{"tool":"request_permission","target":"terminal_exec","reason":"原因"}',
     ),
+    ToolSpec(
+        name="ask_user", permission=PERM_READ, control=True,
+        description="主动向用户提问（问题写进 question）；用户回答后**重试本工具**取回文本答案",
+        parameters=_obj({"question": {"type": "string"}}, ["question"]),
+        example='{"tool":"ask_user","question":"要改哪个文件？"}',
+    ),
 
     # —— 写入 ——
     ToolSpec(

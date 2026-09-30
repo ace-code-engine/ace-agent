@@ -95,6 +95,7 @@ answer.
 22. edit_file        {"tool":"edit_file","path":"main.py"}         仅打开编辑器给人看，不改内容；改内容用 file_write
 23. plan_propose     {"tool":"plan_propose","title":"...","steps":["步骤1","步骤2"]}  提议任务计划，等用户批准
 24. request_permission {"tool":"request_permission","target":"terminal_exec","reason":"..."}  申请临时授权
+25. ask_user        {"tool":"ask_user","question":"要改哪个文件？"}  主动向用户提问；用户回答后重试本工具取回答案
 25. todo_write       {"tool":"todo_write","action":"add","text":"跑全量测试"}   维护逐项待办清单
     - action: add（新增，需 text）/ start（进行中）/ done（完成）/ remove / clear（清掉已完成的），除 add 外都要 id
     - 多步任务**先列清单再动手**，做完一项标一项：清单会显示在底栏，人和你看到的是同一份

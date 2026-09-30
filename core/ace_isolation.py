@@ -59,7 +59,7 @@ UNTRUSTED_SOURCES: Dict[str, str] = {
     "browser_open": "执行层状态", "open_file": "执行层状态", "edit_file": "执行层状态",
     "browser_navigate": "执行层状态", "browser_click": "执行层状态", "browser_type": "执行层状态",
     "math_calc": "执行层状态", "datetime_now": "执行层状态",
-    "plan_propose": "执行层状态", "request_permission": "执行层状态",
+    "plan_propose": "执行层状态", "request_permission": "执行层状态", "ask_user": "执行层状态",
     # goal 状态机：回显的是目标文本与状态机字段（目标文本是模型自己写的）
     "goal_create": "执行层状态", "goal_update": "执行层状态", "goal_status": "执行层状态",
     # 子代理：回传的是子代理（另一个模型会话）生成的文本，等同外部内容

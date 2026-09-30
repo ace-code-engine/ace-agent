@@ -631,6 +631,20 @@ if _want("7"):
     check("request_permission 仍生成授权请求",
           r["status"] == "PERMISSION_REQUEST" and r["tool"] == "terminal_exec", r)
 
+    # ask_user 工具（WP-1）：模型主动提问，答案文本回流
+    def _ask_u(q):
+        return el_perm.process_agent_output(
+            "<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] x\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+            f"<EXTERNAL>\nanswer.\n{{\"tool\": \"ask_user\", \"question\": \"{q}\"}}\n</EXTERNAL>",
+            "测试")
+    r = _ask_u("要改哪个文件？")
+    check("WP-1 ★ask_user 生成 ASK_USER 状态（模型可主动提问）",
+          r["status"] == "ASK_USER" and r.get("question") == "要改哪个文件？", r)
+    _ok = el_perm.answer_ask_user("改 a.txt")
+    r2 = _ask_u("要改哪个文件？")
+    check("WP-1 ★answer_ask_user 存答案，模型重试取回文本",
+          _ok is True and r2["status"] == "SUCCESS" and r2.get("message") == "改 a.txt", r2)
+
     # —— 同前缀免确认（借鉴 Codex exec_policy 的"同前缀不再问"，会话级） ——
     from execution_layer import command_prefix as _cp  # noqa: E402
     from execution_layer import BANNED_AUTO_PREFIXES as _banned  # noqa: E402

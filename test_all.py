@@ -7605,6 +7605,19 @@ if _want("44"):
     check("CLI 装载了项目命令与插件命令",
           set(_cli44.custom_commands) >= {"review", "裸命令", "demo:hi"},
           sorted(_cli44.custom_commands))
+
+    # WP-1 系统提示词分层：SYSTEM.md（替换默认提示词）/ APPEND_SYSTEM.md（追加）
+    (_cmd_root / "SYSTEM.md").write_text("你是本项目的专用助手。\n", encoding="utf-8")
+    (_cmd_root / "APPEND_SYSTEM.md").write_text("补充：遇到问题先看 docs/。\n", encoding="utf-8")
+    _cli44b = _ai44.AgentCLI({"project_root": str(_cmd_root), "permission": "readonly",
+                               "bait": False, "base_url": "", "api_key": "", "model": "m1"},
+                              mock=True)
+    _sp44 = _cli44b._build_system_prompt()
+    check("WP-1 ★SYSTEM.md 替换默认提示词（base 换成 SYSTEM.md，默认文本协议不再出现）",
+          _sp44.startswith("你是本项目的专用助手") and "<INTERNAL>" not in _sp44,
+          _sp44[:120])
+    check("WP-1 ★APPEND_SYSTEM.md 追加到系统提示词",
+          "APPEND_SYSTEM.md" in _sp44 and "遇到问题先看 docs/" in _sp44, "")
     check("内置命令不会被自定义命令顶掉", _cli44._maybe_custom_command("/help") is None, "")
     check("自定义命令展开成提示词（参数代进去）",
           "test_all.py 40" in str(_cli44._maybe_custom_command("/review 40")), "")

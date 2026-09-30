@@ -349,8 +349,10 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 
 > **进度（2026-09-30）**：① 提示词模板 —— 已由 `core/ace_commands.py` 落地（`.ace/commands/*.md` +
 > frontmatter + 插件目录 + `test_all [44]`），本轮补上 `${1:-默认}` 带默认值插值（此前是 `$1` 缺参空串）；
-> ② 繁忙发送策略 —— `steering_mode`/`followup_mode` 两键已落地（`TurnController` + `CLIConfig` + TUI 透传）。
-> **剩 ③ ask_user（文本答案回流往返）与 ④ 系统提示词分层（`SYSTEM.md` 替换默认提示词的安全边界）。**
+> ② 繁忙发送策略 —— `steering_mode`/`followup_mode` 两键已落地（`TurnController` + `CLIConfig` + TUI 透传）；
+> ④ 系统提示词分层 —— `SYSTEM.md`（项目根，替换默认提示词）/ `APPEND_SYSTEM.md`（追加）已落地，
+> 机器安全（守门/沙箱/权限/隔离标记）在代码里、不受 SYSTEM.md 影响。
+> **只剩 ③ ask_user（文本答案回流往返，四壳同收）。**
 
 ### WP-2 · git 工具族（G-01）
 

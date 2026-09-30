@@ -365,6 +365,21 @@ def load_project_instructions(cwd: str) -> str:
     return "\n\n".join(parts)
 
 
+def find_project_root_file(cwd: str, name: str) -> str:
+    """在 `cwd`（项目根）直接找 `name`；找不到/读不了返回空串。纯只读。
+
+    WP-1 系统提示词分层用：`SYSTEM.md`（替换）/ `APPEND_SYSTEM.md`（追加）都只认
+    **项目根那一份**（单文件覆盖，不做 AGENTS.md 那种多层拼接 —— 替换语义只有一份）。
+    """
+    f = Path(cwd).resolve() / name
+    if not f.is_file():
+        return ""
+    try:
+        return f.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return ""
+
+
 # 支持"无空格参数"的斜杠命令：/search关键词 → /search 关键词
 ARG_COMMANDS = {"/search", "/open", "/edit", "/model", "/provider",
                 "/rollback", "/permission"}
@@ -3437,6 +3452,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._load_custom_commands()
         # 项目指令（AGENTS.md）会话缓存：None = 未计算
         self._project_instructions: Optional[str] = None
+        # WP-1 系统提示词分层缓存：SYSTEM.md（替换默认提示词）/ APPEND_SYSTEM.md（追加）
+        self._project_system_override: Optional[str] = None
+        self._project_system_append: Optional[str] = None
         # SEC-011：隔离块的 id 按会话固定。每轮换 id 会让系统提示词逐轮变化，
         # 白费上游 KV 缓存；要防的是引用文件的作者猜中 id，不是同会话内的重放。
         self._ctx_nonce = secrets.token_hex(4)
@@ -5418,7 +5436,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def _build_system_prompt(self) -> str:
         """组装系统提示词：基础提示词 + 语言指令 + 技能 + 已引用文件/文件夹"""
         base = load_system_prompt(tools_mode=bool(self.client.tools_ok))
+        # WP-1 系统提示词分层：SYSTEM.md（替换默认提示词）/ APPEND_SYSTEM.md（追加）。
+        # 机器安全（守门/沙箱/权限/隔离标记）在**代码**里，不在提示词文本里 ——
+        # SYSTEM.md 只替换"给模型的行为指导"，不动任何机器闸门。
+        if self._project_system_override is None:
+            self._project_system_override = find_project_root_file(
+                self.cfg.get("project_root", "."), "SYSTEM.md")
+        if self._project_system_override:
+            base = self._project_system_override
         parts = [base]
+        if self._project_system_append is None:
+            self._project_system_append = find_project_root_file(
+                self.cfg.get("project_root", "."), "APPEND_SYSTEM.md")
+        if self._project_system_append:
+            parts.append("【项目系统补充】以下内容来自项目根的 APPEND_SYSTEM.md"
+                         "（项目所有者追加的系统指令，应遵循）：\n"
+                         + self._project_system_append)
         _reply_lang = str(self.cfg.get("reply_lang") or self.lang or "zh")
         if _reply_lang != "zh":
             parts.append(f"【语言指令】请始终使用 "

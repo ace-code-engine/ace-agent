@@ -270,8 +270,7 @@ ruff check . --select E9,F63,F7,F82     # CI 硬错误子集
 
 | 欠什么 | 一句话 | 权威记录 |
 |---|---|---|
-| **批次 0 未收口** | 口径对齐与 `RL-01` 已落地，但**协议消费（W0-B）与外壳降级（W0-C）没动** —— 该批自己的出口条件（"4 份重复对话框合一 + `ui/`/`tui/` 降为 fallback"）还开着 | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · 批次表见 [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
-| **Ink 的等待指示器没有 stall 判定** | Python 有整套（阈值 · 颜色渐变 · 无动效时的文字形态），Ink 只有字形与秒数 | `docs/design/WP-0-FRONTEND-CONVERGENCE.md` 的 **R-7** |
+| **批次 0 未收口** | 口径对齐、`RL-01`、`R-2`、W0-C 的 P-07/08/09 都已落地，**只剩 W0-B（协议消费）与 W0-C 的「4 份重复对话框合一」** | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · 批次表见 [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
 | **验收门槛只做了一半** | 四道 ACC 门槛的**机器那一半**已进 `test_all`，但 **`measured_*` 至今没有读者**、阈值判据未做，`benchmarks/results/` 也还没接校验器 | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
 | **三层脊柱只落地了一条** | `RL-01`（结果信封）已实现并验收；`RL-02~04` · `HL-01~05` · `DL-01~04` 全部**未开工** | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
 | **批次 1 ~ 6 与 WP-10 未开工** | 四个便宜的面 · git · 前缀缓存 · 工作区四层 · 会话树 · 预设 · skill · 出网与快照 · 沙箱后端 · Rust 核心化 | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |

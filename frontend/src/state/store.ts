@@ -60,6 +60,14 @@ export interface Meta {
    * 组件拿不到"现在卡在哪一步"，只有事件流知道。
    */
   phase: Phase | '';
+  /**
+   * 引擎最后一次"产出可见内容"的时刻（秒，取事件的 `ts`）—— 驱动等待指示器的
+   * **卡住判定**（R-7）。0 = 本轮还没产出过。
+   *
+   * 为什么存 `ts` 而不是 `Date.now()`：reducer 必须是**纯函数**（同一串事件跑两遍
+   * 结果一致，见 `applyEvent` 的 docstring），`Date.now()` 会破坏它。
+   */
+  lastOutputAt: number;
 }
 
 export interface State {
@@ -86,7 +94,7 @@ export interface State {
 export function initialState(): State {
   return {
     items: [],
-    meta: { statusSegments: [], ended: false, rounds: 0, tools: 0, phase: '' },
+    meta: { statusSegments: [], ended: false, rounds: 0, tools: 0, phase: '', lastOutputAt: 0 },
     pendingPermission: null,
     pendingChoice: null,
     busy: false,
@@ -140,9 +148,12 @@ export function applyEvent(state: State, ev: AceEvent): State {
       const last = items[items.length - 1];
       if (last && last.kind === 'assistant' && last.streaming) {
         items[items.length - 1] = { ...last, text: last.text + str(ev.text) };
-        return { ...state, items };
+        return { ...state, items, meta: { ...state.meta, lastOutputAt: ev.ts } };
       }
-      return push(state, { kind: 'assistant', text: str(ev.text), streaming: true });
+      return {
+        ...push(state, { kind: 'assistant', text: str(ev.text), streaming: true }),
+        meta: { ...state.meta, lastOutputAt: ev.ts },
+      };
     }
 
     case 'final': {
@@ -172,7 +183,7 @@ export function applyEvent(state: State, ev: AceEvent): State {
           target: str(ev.target) || undefined,
           status: 'running',
         }),
-        meta: { ...state.meta, phase: 'tool_running' },
+        meta: { ...state.meta, phase: 'tool_running', lastOutputAt: ev.ts },
       };
 
     case 'tool_result': {
@@ -193,7 +204,7 @@ export function applyEvent(state: State, ev: AceEvent): State {
             exitCode: ev.exit_code === null || ev.exit_code === undefined ? null : num(ev.exit_code) ?? null,
             diff,
           };
-          return { ...state, items, meta: { ...state.meta, tools: state.meta.tools + 1 } };
+          return { ...state, items, meta: { ...state.meta, tools: state.meta.tools + 1, lastOutputAt: ev.ts } };
         }
       }
       return {
@@ -206,7 +217,7 @@ export function applyEvent(state: State, ev: AceEvent): State {
           exitCode: ev.exit_code === null || ev.exit_code === undefined ? null : num(ev.exit_code) ?? null,
           diff,
         }),
-        meta: { ...state.meta, tools: state.meta.tools + 1 },
+        meta: { ...state.meta, tools: state.meta.tools + 1, lastOutputAt: ev.ts },
       };
     }
 

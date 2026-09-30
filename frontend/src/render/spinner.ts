@@ -53,3 +53,25 @@ export function frameAt(
   const idx = Math.floor(Math.max(0, elapsed) / phaseInterval(phase)) % frames.length;
   return frames[idx]!;
 }
+
+/**
+ * 卡住判定 —— 与 `ui/ace_spinner.stall_level` / `DEFAULT_STALL_SECONDS` 同口径（**R-7**）。
+ *
+ * 为什么这里要有：Python 的等待行会在"静默超过阈值"后**渐变到告警色**（无动效时降级成
+ * 文字"无响应"），而 Ink 此前只有字形 + 秒数 —— 同一个模型卡死，换到 Ink 就看不出来。
+ * `stall_level` 是纯函数（0→1 渐变），照抄公式而不是另立一套"卡没卡"的判据。
+ */
+
+/** 静默多久算"卡住"（秒）。与 `ace_spinner.DEFAULT_STALL_SECONDS` 一致，由 parity 测试钉住。 */
+export const STALL_SECONDS = 3;
+
+/**
+ * "卡住程度" 0→1：静默超过阈值后随时间递增 —— 再过一整个阈值时长到满。
+ * 公式 `(idle - th) / (th * 2)` 与 `ui/ace_spinner.stall_level` 逐字相同。
+ */
+export function stallLevel(idle: number, threshold: number = STALL_SECONDS): number {
+  const i = Math.max(0, idle);
+  if (!Number.isFinite(i)) return 0;
+  if (i <= threshold) return 0;
+  return Math.min(1, (i - threshold) / (threshold * 2));
+}

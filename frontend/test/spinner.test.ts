@@ -11,15 +11,20 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { render } from 'ink-testing-library';
+import React from 'react';
 import { describe, expect, it } from 'vitest';
 
+import { Spinner } from '../src/components/Spinner.js';
 import {
   DEFAULT_PHASE,
   GLYPHS,
   PHASES,
+  STALL_SECONDS,
   frameAt,
   framesFor,
   phaseInterval,
+  stallLevel,
 } from '../src/render/spinner.js';
 import { PHASE_VERB, verbKeyFor } from '../src/components/Spinner.js';
 
@@ -127,5 +132,58 @@ describe('阶段 → 动词', () => {
   it('认不出的阶段有兜底（不返回 undefined 键名）', () => {
     expect(verbKeyFor('未知')).toBe('spin_verb_2');
     expect(verbKeyFor(undefined)).toBe('spin_verb_2');
+  });
+});
+
+describe('卡住判定（R-7）—— 与 ui/ace_spinner.stall_level 同口径', () => {
+  it('★阈值 3s 与 Python 的 DEFAULT_STALL_SECONDS 一致（逐字钉住，别各写各的）', () => {
+    const src = readFileSync(join(ROOT, 'ui', 'ace_spinner.py'), 'utf-8');
+    const py = src.match(/DEFAULT_STALL_SECONDS[^=\n]*=\s*([\d.]+)/)?.[1];
+    expect(py, '没抓到 Python 的 DEFAULT_STALL_SECONDS —— 下面的比对会空转').toBeTruthy();
+    expect(STALL_SECONDS).toBe(Number(py));
+  });
+
+  it('★公式与 Python stall_level 逐字相同（0→1 渐变；边界恰好等于阈值 = 不算卡）', () => {
+    expect(stallLevel(2.9)).toBe(0);
+    expect(stallLevel(3.0)).toBe(0);               // 不是 `<` 的模糊地带
+    expect(stallLevel(4.5)).toBeCloseTo(0.25, 6);  // (4.5-3)/(3*2)
+    expect(stallLevel(99)).toBe(1);                // 封顶
+    expect(stallLevel(-5)).toBe(0);                // 负时间不崩
+    expect(stallLevel(Number.NaN)).toBe(0);        // 垃圾输入不崩
+  });
+
+  it('阈值参数可调（测试/未来旋钮，不写死）', () => {
+    expect(stallLevel(4.5, 3)).toBeCloseTo(0.25, 6);
+    expect(stallLevel(4.5, 5)).toBe(0);
+  });
+});
+
+describe('Spinner 渲染（R-7 卡住）', () => {
+  const t = (k: string): string => k;
+  const noColor = (): string | undefined => undefined;
+  // 必须长过最慢那一档的帧间隔（reasoning 240ms）—— 否则 setInterval 还没跑第一下，
+  // idle 停在 0，断言空转（这正是"假绿"的一种：帧没动、结论却像是"没卡"）。
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 320));
+
+  it('无动效 + 静默超过阈值 → 出现"无响应"的标记（stub t 断言键名）', async () => {
+    const lastOutputAt = Date.now() / 1000 - 5;    // 5s 前最后一次产出 ⇒ 已卡
+    const { lastFrame, unmount } = render(
+      React.createElement(Spinner, { phase: 'reasoning', t, color: noColor, reducedMotion: true, lastOutputAt }),
+    );
+    await tick();
+    const out = lastFrame() ?? '';
+    unmount();
+    expect(out).toContain('spin_stalled');
+  });
+
+  it('工具在跑时**不判**卡住（一条长命令跑 60 秒是正常的）', async () => {
+    const lastOutputAt = Date.now() / 1000 - 5;
+    const { lastFrame, unmount } = render(
+      React.createElement(Spinner, { phase: 'tool_running', t, color: noColor, reducedMotion: true, lastOutputAt }),
+    );
+    await tick();
+    const out = lastFrame() ?? '';
+    unmount();
+    expect(out).not.toContain('spin_stalled');
   });
 });

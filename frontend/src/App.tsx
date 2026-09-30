@@ -365,6 +365,7 @@ export function App({ client, t, colorOf, initialMessage, menuOptions }: AppProp
             t={t}
             color={colorOf}
             reducedMotion={process.env.ACE_REDUCE_MOTION === '1'}
+            lastOutputAt={state.meta.lastOutputAt}
           />
         </Box>
       ) : null}

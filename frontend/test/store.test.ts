@@ -215,3 +215,32 @@ describe('status 事件（底栏分段）', () => {
     expect(s.meta.statusSegments[0].name).toBe('model');
   });
 });
+
+describe('lastOutputAt（R-7：驱动等待指示器的卡住判定）', () => {
+  it('引擎每产出一点东西就刷新一次（model_delta / tool_start / tool_result）', () => {
+    const s = run(
+      ev('user_message', { text: 'x' }),
+      ev('model_delta', { text: 'a', ts: 100 }),
+      ev('model_delta', { text: 'b', ts: 101 }),
+      ev('tool_start', { tool: 'file_read', ts: 102 }),
+      ev('tool_result', { tool: 'file_read', status: 'SUCCESS', ts: 103 }),
+    );
+    expect(s.meta.lastOutputAt).toBe(103);
+  });
+
+  it('初始为 0，且**用户消息**不算产出（用户打字不是引擎在动）', () => {
+    expect(initialState().meta.lastOutputAt).toBe(0);
+    const s = run(ev('user_message', { text: 'x', ts: 50 }));
+    expect(s.meta.lastOutputAt).toBe(0);
+  });
+
+  it('reducer 仍是纯的：同一串事件跑两遍，lastOutputAt 一样', () => {
+    const events = [
+      ev('user_message', { text: 'x', ts: 10 }),
+      ev('model_delta', { text: 'a', ts: 20 }),
+      ev('tool_result', { tool: 't', status: 'SUCCESS', ts: 30 }),
+    ];
+    expect(applyEvents(initialState(), events).meta.lastOutputAt)
+      .toBe(applyEvents(initialState(), events).meta.lastOutputAt);
+  });
+});

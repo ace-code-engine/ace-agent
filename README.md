@@ -251,8 +251,7 @@ the evidence, the boundaries and the decisions live in the linked **design card*
 
 | Owed | In one line | Authoritative record |
 |---|---|---|
-| **Batch 0 is not closed** | The convergences and `RL-01` have landed, but **protocol consumption (W0-B) and the shell downgrade (W0-C) are untouched** — the batch's own exit condition ("four duplicate dialogs merged, `ui/`/`tui/` demoted to fallback") is still open | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · batch table in [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
-| **The Ink spinner has no stall detection** | Python has the whole thing (threshold · colour ramp · a text form under reduced motion); Ink shows glyph + seconds only | **R-7** of `docs/design/WP-0-FRONTEND-CONVERGENCE.md` |
+| **Batch 0 is not closed** | The convergences, `RL-01`, `R-2`, and W0-C's P-07/08/09 have landed — **only W0-B (protocol consumption) and W0-C's "four duplicate dialogs merged" remain** | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · batch table in [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
 | **The acceptance gates are half-done** | The machine half is in `test_all`, but **`measured_*` still has no reader**, no threshold rule exists, and `benchmarks/results/` is not wired to the checker | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
 | **Only one of the three spine layers has landed** | `RL-01` (the result envelope) is implemented and verified; `RL-02~04`, `HL-01~05` and `DL-01~04` are all unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
 | **Batches 1–6 and WP-10 are unstarted** | cheap faces · git · prefix cache · workspace layers · session tree · presets · skills · egress & snapshots · sandbox backend · Rust core-ization | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |

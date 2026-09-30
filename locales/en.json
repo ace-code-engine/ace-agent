@@ -57,7 +57,7 @@
   "expandall_off": "  Expand everything: off (back to collapsed display; /expand still opens the last one)",
   "spin_verb_1": "Analysing", "spin_verb_2": "Working through", "spin_verb_3": "Checking",
   "spin_verb_4": "Tidying up", "spin_verb_5": "Getting ready",
-  "spin_elapsed": "{secs}s",
+  "spin_elapsed": "{secs}s", "spin_stalled": "(no response)",
   "read_group_read": "read {n}", "read_group_search": "searched {n}×",
   "read_group_list": "listed dirs {n}×", "read_group_kb": "hit the knowledge base {n}×",
   "read_group_skill": "checked skills {n}×", "read_group_goal": "checked the goal {n}×",

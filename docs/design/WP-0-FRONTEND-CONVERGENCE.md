@@ -9,8 +9,8 @@
 > 同批的 **`RL-01` 结果信封已落地**（`THREE-LAYERS` §9）· 头号发现（**R-2** Ink 无宽限期）已修 ·
 > **W0-C 的 P-07 / P-08 / P-09 已做**（路由单一来源、`ui/`+`tui/` 冻结标记、回落契约）·
 > **R-10 已定案（不收）**。
-> **仍未完成**：**R-7（Ink 指示器无 stall）· W0-B 全部（P-04/05/06/10）· W0-C 的
-> 「4 份重复对话框合一」** ⇒ **批次 0 的出口条件尚未达成**。W0-A 的"第 5 份实现就红"
+> **仍未完成**：**W0-B 全部（P-04/05/06/10）· W0-C 的「4 份重复对话框合一」**
+> ⇒ **批次 0 的出口条件尚未达成**。W0-A 的"第 5 份实现就红"
 > 那条断言也仍**没做**（如实标注，见 §2 W0-A 验收）。
 > 来源：2026-09-27（HEAD `b94ab7f`，v3.45.0，工作树干净）**逐项在现码上实测复核**；
 > 凡与 `ROADMAP` 的转述不一致之处集中在 **§0.2**，**不改写 `ROADMAP` 原文**，以本卡为准并留档。
@@ -276,7 +276,7 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | R-4 | **只读工具集**（"成功不展开"的判据） | `ace_cards.py:42-46` 14 个 vs `ToolCard.tsx:27` **7 个且 4 个名字注册表里没有** | ✅ 2026-09-27 |
 | R-5 | **菜单窗口策略** | 黏边（`ace_menu.py:273-292`）vs **居中**（`menu.ts:358-370`）—— 同一种交互两种手感 | ✅ 2026-09-27（TS 改成黏边；**行为级**对拍） |
 | R-6 | **菜单说明列的宽度** | Python 不做列对齐（`ace_menu.py:68-72`，`width` 收了不用）vs TS 两列 | ✅ 2026-09-27（两侧都对齐到同一条规则；**渲染级**对拍） |
-| R-7 | **spinner 的 stall 语义与动词表** | Python 有 `stall_level`/`stall_color`/`DEFAULT_STALL_SECONDS=3.0` + 无动效时的 `(无响应)`（`ace_spinner.py:74-128`）；**Ink 侧完全没有 stall 判定**（`Spinner.tsx:61-74` 只有字形+动词+秒数） | 🔴 **能力缺口**（见下） |
+| R-7 | **spinner 的 stall 语义与动词表** | Python 有 `stall_level`/`stall_color`/`DEFAULT_STALL_SECONDS=3.0` + 无动效时的 `(无响应)`；Ink 曾完全没有 | ✅ 2026-09-27（`stallLevel` 同公式 + `spin_stalled` 三语 + 组件接线，见下） |
 | **R-8** | **菜单选中标记字形** | Python 用 `▶`（`ace_menu.py:319-321`，并注明"cp936 印不出 ▶"）；TS 用 `❯`（`Menu.tsx:83`） | ✅ 2026-09-27（**TS 三处改 `▶`**；依据是 Python 侧 **4:1** 的内部一致性，见下） |
 | **R-9** | **菜单分组标题的格式** | Python `f"  {group}"`（`ace_menu.py:317`）；TS `'  ── ' + group`（`Menu.tsx:79`） | ✅ 2026-09-27（**Python 加 `── ` 前缀**；只收前缀，排版不收） |
 
@@ -405,20 +405,32 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 
 ---
 
-#### 🔴 R-7 是**能力缺口**，不是口径漂移（待决）
+#### ✅ R-7 已补（2026-09-27）：Ink 的等待指示器也有 stall 判定了
 
-Python 的 spinner 有整套 stall 语义：`stall_level(idle, threshold)` 0→1 渐变、
-`stall_color(level, truecolor)`（真彩平滑插值 / 低色深过半离散跳告警色）、
-`DEFAULT_STALL_SECONDS = 3.0`、`active_tool=True` 时**不判**（"一条长命令跑 60 秒是正常的，
-把它染成告警色只会教用户忽略颜色"），以及**无动效**时用文字 `(无响应)` 代替颜色动画。
+**原先的缺口**（留档，这是它的由来）：Python 有整套 stall 语义（`stall_level` 0→1 渐变 ·
+`stall_color` 真彩插值 / 低色深离散跳告警色 · `DEFAULT_STALL_SECONDS = 3.0` ·
+`active_tool` 时不判），**Ink 侧完全没有** —— 同一个模型卡死，换到 Ink 就看不出来。
 
-**Ink 侧完全没有这一层**：`Spinner.tsx:61-74` 只有字形 + 动词 + 秒数。
+**补法**（只做**判定与文字**，不做颜色插值 —— 同一语义、各壳渲染，`THREE-LAYERS` N-1）：
 
-⇒ 这跟 **R-2（Ink 无宽限期）** 同类：不是"两边写得不一样"，而是**主外壳少了一层能力**。
-补齐它需要：阈值与渐变口径、i18n 化那句 `(无响应)`（它现在是**硬编码中文**，三语得一起加）、
-以及"有活跃工具时不判"的判断（前端得知道工具在跑 —— 那正好是 `store` 里已有的 `tool_running` 阶段）。
+| 层 | 改动 |
+|---|---|
+| 纯逻辑 | `frontend/src/render/spinner.ts` 新增 `STALL_SECONDS = 3` + `stallLevel(idle, th)` —— 公式与 `ace_spinner.stall_level` **逐字相同**，parity 测试直接读 `DEFAULT_STALL_SECONDS` 钉阈值 |
+| 数据 | `store.meta.lastOutputAt`：引擎每次产出（`model_delta` / `tool_start` / `tool_result`）刷新一次，存**事件 `ts`** 而非 `Date.now()` —— reducer 是纯函数，`Date.now()` 会破坏"同一串事件跑两遍一致" |
+| 渲染 | `Spinner`：`idle = now − lastOutputAt`；`stalled = phase !== 'tool_running' && stallLevel(idle) > 0`；无动效时**加文字** `(无响应)`（新 i18n 键 `spin_stalled`，三语齐全），有动效时把整行染成 `warn`（阶梯，不插值） |
+| 文案 | `locales/{zh,en,ja}.json` 各加 `spin_stalled` |
 
-**本卡不擅自补** —— 它要么是一张新卡，要么明确记成"这一层只做在 Python 外壳里"。
+**"有活跃工具时不判"**在前端天然成立：`phase === 'tool_running'` 时直接跳过 ——
+正是 `store` 里已有的阶段，不用新造信号（Python 的 `active_tool` 是引擎侧知道工具在跑；
+前端则是事件流已经告诉它了，两处各管各的，但结论一样）。
+
+**测试**（先红后绿）：`spinner.test.ts` 阈值 parity + 公式 3 条 + 组件渲染 2 条（其中一条
+专门钉"工具在跑时不判"）；`store.test.ts` 3 条钉 `lastOutputAt` 的刷新与**纯性**。
+渲染测试的 `tick` 必须长过 `reasoning` 的 240ms 帧间隔 —— 短了 interval 没跑、idle 停在 0、
+断言空转（那种"帧没动、结论却像没卡"的假绿）。
+
+**有意不做的**：颜色**平滑插值**（`stall_color` 的真彩 lerp）。Ink 用 `warn` 阶梯逼近 ——
+"卡住了"这个**语义**到了，"从黄渐到红"这个**排版**留给终端。
 
 **另有两条不属"收敛"而属"**先把事实改对**"**（承诺与现码同口径）：
 

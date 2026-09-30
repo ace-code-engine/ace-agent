@@ -57,7 +57,7 @@
   "expandall_off": "  すべて展開: オフ（折り畳み表示に戻る。 /expand で直近のものは展開可）",
   "spin_verb_1": "分析中", "spin_verb_2": "検討中", "spin_verb_3": "確認中",
   "spin_verb_4": "整理中", "spin_verb_5": "準備中",
-  "spin_elapsed": "{secs}秒",
+  "spin_elapsed": "{secs}秒", "spin_stalled": "(応答なし)",
   "read_group_read": "読み取り {n} 件", "read_group_search": "検索 {n} 回",
   "read_group_list": "一覧 {n} 回", "read_group_kb": "知識ベース {n} 回",
   "read_group_skill": "スキル確認 {n} 回", "read_group_goal": "目標確認 {n} 回",

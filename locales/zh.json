@@ -57,7 +57,7 @@
   "expandall_off": "  全部展开: 关（回到折叠显示；/expand 仍可展开最近一次）",
   "spin_verb_1": "分析中", "spin_verb_2": "推演中", "spin_verb_3": "核对中",
   "spin_verb_4": "整理中", "spin_verb_5": "准备中",
-  "spin_elapsed": "{secs}s",
+  "spin_elapsed": "{secs}s", "spin_stalled": "(无响应)",
   "read_group_read": "读取 {n} 项", "read_group_search": "检索 {n} 次",
   "read_group_list": "列目录 {n} 次", "read_group_kb": "查知识库 {n} 次",
   "read_group_skill": "看技能 {n} 次", "read_group_goal": "查目标 {n} 次",

@@ -431,3 +431,22 @@ TH-R1 的"穷举"钉的是**拒绝**路径（3 类覆盖全部 denied），不�
 真正的可判定性靠"外部可复核"这条纪律；② `blocked_on_auth`/`blocked_on_human` **还没拆成独立 state**
 （现在仍用 `blocked` + `blocked_reason_code` 区分）—— 这是 DL-01 剩余部分，牵状态机；
 ③ `deps`/`blocks`（依赖 DAG）是 **DL-02**、`budget` 是 **HL-05**，不在本包；④ `/goal` 显示还没带 acceptance。
+
+### 9.8 实施记录：`DL-01` 的 blocked 正交拆分（2026-09-30）
+
+> §1.2 的剩余部分。§9.7 只做了 `acceptance`；这一包把 `blocked` 拆成两个独立 phase。
+
+| 文件 | 改动 |
+|---|---|
+| `tools/goal_tools.py` | `PHASE_BLOCKED_ON_AUTH` / `PHASE_BLOCKED_ON_HUMAN` 进 `PHASES`；`AUTH_BLOCKED_CODES={permission_blocked}`（呼应 RL-02 `AUTH_PENDING`）；`_apply_phase` 新增 active → blocked_on_auth（要授权类机器 code）/ active → blocked_on_human（要人类可读 message），两者**互不直接转换**、均 `armed=False`；active 恢复来源扩为含两个新 phase，恢复即清 reason |
+
+**兼容决定（重要）**：`blocked` **原样保留、语义零改动** —— 不静默改路由（`blocked + permission_blocked`
+仍存 `phase="blocked"`，不自动升级成 blocked_on_auth）。理由：`test_all [25]` 的既有断言直接钉住
+`phase == "blocked"` 的存储值，自动改路由会让既有调用方拿到的 snapshot 突然变 phase；"别静默改语义"
+是硬约束。调用方要拆分就**显式**用新 phase。
+
+**验收**：`test_all [75]` 14 条（常量/白名单/两个方向的进入与拒绝/互转拒/恢复清 reason/blocked 兼容）。
+
+**边界**：① `resume()` 只重新 armed、不搬 phase（与既有 blocked 行为一致）—— 获授权/人决定后仍需显式
+`goal_update(phase=active)`；② 未做 `pending`/`abandoned`（§1.2 参考态里的其余两个）；③ `ai_code` 的
+续跑 prompt 与 `goal_update` 的 example 还没提新 phase（跨包，另开）。

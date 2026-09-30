@@ -354,8 +354,9 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > ④ 系统提示词分层 —— `SYSTEM.md`（项目根，替换默认提示词）/ `APPEND_SYSTEM.md`（追加）已落地，
 > 机器安全（守门/沙箱/权限/隔离标记）在代码里、不受 SYSTEM.md 影响；
 > ③ ask_user —— 执行层 `ASK_USER` 往返 + `answer_ask_user` + 文本回流已落地（核心），
-> **UI（REPL/TUI/Ink）还没消费 `ASK_USER` 状态**（四壳接线记边界，仿 RL-01「前端还没消费者」）。
-> **⇒ 四个子项全部落地（③ 的 UI 消费是下一件事）。**
+> **四壳接线也已收口**（REPL 的 `converse` 分支 · TUI 的 `ask_question` TextScreen ·
+> Ink 走既有 `choice_request(kind=text)` 通道，零前端改动）—— `test_all [74]` 5 场景行为级断言。
+> **⇒ 四个子项全部落地、UI 也消费了（`RL-01` 那句「字段到了、用途还没到」在这条上已不成立）。**
 
 ### WP-2 · git 工具族（G-01）
 

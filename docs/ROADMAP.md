@@ -210,14 +210,14 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | M-03 | 出网闸门 | `core/ace_net.py` 493 · `tools/web_tools.py` 582 的 egress 分支 | Py | 已有 → **WP-8** 域名级放行 |
 | M-04 | 审计台账 | HMAC 链式 + `core/ace_claims.py` 41 · `ace_taint.py` 109 | Py | 已有（强于参照系） |
 | M-05 | 沙箱边界 | `tools/docker_sandbox.py` 380 · `core/ace_executor.py` 540 · `executor/`(Go) | Py + **Go** → **+ CubeSandbox** | 已有 → **WP-9** |
-| | **平面 2 · 执行与工具**（43 个 `ToolSpec`） | | | |
-| M-06 | 工具注册表 | `tools/registry.py` 426（**43 个**，41 暴露） | Py | 已有 → **WP-3** 延迟目录 |
+| | **平面 2 · 执行与工具**（51 个 `ToolSpec`） | | | |
+| M-06 | 工具注册表 | `tools/registry.py` 545（**51 个**，49 暴露） | Py | 已有 → **WP-3** 延迟目录 |
 | M-07 | 文件与编辑 | `tools/file_ops.py` 741 · `file_common.py` 37 · `terminal_view.py` 247 | Py | 已有 |
 | M-08 | 终端 / 代码执行 | `tools/terminal_exec.py` 271 · `code_tools.py` 332 | Py + Go | 已有 → **R1 / R2** |
 | M-09 | 检索（grep / glob / search / kb） | `registry` 的 4 个检索工具 + `kb_tools.py` 134 | Py | 已有 → **R1** |
 | M-10 | 网络与浏览器 | `tools/web_tools.py` 582 · `notify_tools.py` 76 | Py | 已有 |
 | M-11 | 数据与文档 | `tools/db_tools.py` 138 · `parse_tools.py` 41 · `core/universal_document_parser.py` 588 | Py | 已有 → **R2** 富读取器 |
-| M-12 | **git 工具族** | **无** | **Rust / Go 候选** | **缺** → **WP-2**（G-01） |
+| M-12 | **git 工具族** | `tools/git_ops.py` 392（8 个 git_*，只读 5 + 写 3） | Py | 已有（WP-2 本批落地） |
 | M-13 | **代码智能（LSP / 索引）** | **无** | **Rust (R2)** | **缺** → **WP-10** |
 | | **平面 3 · 自主与状态**（支柱 C / D） | | | |
 | M-14 | 多轮闭环与阶段机 | `execution_layer.py` 2276（14 个 `_stage_*`）· `agent_runner.py` 846 | Py | 已有（**护城河**） |
@@ -249,7 +249,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | M-37 | 本地化 | `locales/{en,ja,zh}.json` 757 / 757 / 752 | JSON | 已有 |
 | M-38 | 测试与质量闸 | `test_all.py` 13453（**2438 断言**）· `benchmarks/` · `e2e/` · `demo/` | Py + TS | 已有 → **ACC** 门槛 |
 
-**M-06 的 43 个工具按功能族分布（实测）**
+**M-06 的 51 个工具按功能族分布（实测）**
 
 | 功能族 | 数量 | 工具名 |
 |---|---|---|
@@ -258,8 +258,9 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | 终端与执行 | **3** | `terminal_exec` `code_execute` `terminal_dangerous`(隐藏) |
 | 网络与浏览器 | **9** | `api_get` `api_post` `browser_navigate` `browser_open` `browser_click` `browser_type` `browser_screenshot` `notify_send` `image_generate` |
 | 数据与计算 | **6** | `db_query` `db_write` `db_drop`(隐藏) `math_calc` `datetime_now` `parse_document` |
-| 自主与控制 | **9** | `plan_propose` `request_permission` `goal_create` `goal_update` `goal_status` `subagent` `todo_write` `skill_list` `skill_load` |
-| **合计** | **42**（40 暴露） | 隐藏项：`terminal_dangerous` / `db_drop`（均 `PERM_HIGH_RISK`、`expose=False`） |
+| 自主与控制 | **10** | `plan_propose` `request_permission` `ask_user` `goal_create` `goal_update` `goal_status` `subagent` `todo_write` `skill_list` `skill_load` |
+| **git** | **8** | `git_status` `git_diff` `git_log` `git_show` `git_blame` `git_commit_plan` `git_fetch` `git_merge_tree` |
+| **合计** | **51**（49 暴露） | 隐藏项：`terminal_dangerous` / `db_drop`（均 `PERM_HIGH_RISK`、`expose=False`） |
 
 > **模块视角的两个直接结论**：
 > ① **支柱 C（自我驱动）的模块最薄** —— M-16 子代理只有 **43 行**，M-18 四层进程模型**根本不存在**；
@@ -271,9 +272,9 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 
 | ID | 缺口 | ACE 实测 | 参照系（可抄） | 严重度 |
 |---|---|---|---|---|
-| **G-01** | **git 工具族** | 工具数 **0**（43 个工具里一个 git 都没有） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
+| **G-01** | **git 工具族** | 工具数 **8**（51 个工具中 git 族占 8 个；auto-commit + `/undo` 尚未做） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
 | **G-02** | **前缀缓存后两半** | 只有"稳定拼接"，**无指纹校验、无变化归因** | Reasonix `cache_policy.go:21-36`（路由级 TTL）→ Codewhale `core/src/prefix_cache.rs`（1220 行，SHA-256 pin + 强制归因 + drift）→ oh-my-pi `append-only-context.ts:97-151`（恒等快路径） | **高** |
-| **G-03** | **工具面按需伸缩** | 43 个工具（41 暴露）描述**全部常驻**，啃前缀 | Codewhale `ToolSurfaceBudget` + `DEFAULT_ACTIVE_NATIVE_TOOLS` + 延迟目录（`tool_search` / `retrieve_tool_result`）；Reasonix `code_index` / `context_budget` | 中 |
+| **G-03** | **工具面按需伸缩** | 51 个工具（49 暴露）描述**全部常驻**，啃前缀 | Codewhale `ToolSurfaceBudget` + `DEFAULT_ACTIVE_NATIVE_TOOLS` + 延迟目录（`tool_search` / `retrieve_tool_result`）；Reasonix `code_index` / `context_budget` | 中 |
 | **G-04** | **面向模型的问题工具** | **0**（所有提问都在 UI 层，模型不能主动问人） | codex `RequestUserInput`；crush `question_choice_base` | 中 |
 | **G-05** | **用户自定义提示词即命令** | **0**（59 个斜杠命令全硬编码，用户一条都加不了） | pi `prompts/*.md` → 自动成 `/name`；`argument-hint`（`<必填>`/`[可选]`）+ `${1:-默认}` | 中 |
 | **G-06** | **系统提示词分层** | 无 `SYSTEM.md` 概念，只有 AGENTS.md 层级发现 | pi `SYSTEM.md`(**替换**) / `APPEND_SYSTEM.md`(**追加**)，trusted project 优先、同名不合并 | 中 |
@@ -364,6 +365,13 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
   **注意** `git config` 已被 SEC-06 限定为 `--get/--list`，新工具不得重新打开写路径。
 - **验收**：每个工具进 `registry` 时带 `ToolSpec.egress`/权限组；只读类（status/diff/log/show/blame）与写类（commit_plan/fetch/merge_tree）**分档**，写类逐次确认。
 - **风险**：中（git 是写操作，且 `.git` 是敏感目录，需与 `sensitive.py` 判定协同）。
+
+> **进度（2026-09-30）**：git 工具族（8 个）已由 `tools/git_ops.py` 落地并进 `registry`（51 个 / 49 暴露）。
+> 只读 5（status/diff/log/show/blame）= PERM_READ 免确认；写 3（commit_plan/fetch/merge_tree）=
+> PERM_WRITE + `confirm=True` 逐次确认，`command` 参数接 `confirm_subject` 预览与
+> `_prefix_auto_approved` / `BANNED_AUTO_PREFIXES` 同前缀免确认；`git config` 写路径未重开
+> （argv[1] 结构锁定 + -c/--config/-C 显式拒绝）；`.git` 内部与敏感目标经 `sensitive_target` 协同拦截。
+> **aider 式 auto-commit + `/undo` 未做**（auto-commit 涉及跨轮后台提交语义，与现有快照回滚需要统一，记边界）。
 
 ### WP-3 · 前缀缓存后两半（G-02 / G-03）
 

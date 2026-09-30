@@ -17,11 +17,12 @@ from tools.goal_tools import GoalTools
 from tools.subagent_tools import SubagentTools
 from tools.kb_tools import KbTools
 from tools.skill_tools import SkillTools
+from tools.git_ops import GitOps
 
 
 class ToolExecutor(ToolExecutorBase, FileTools, CodeTools, WebTools,
                    DbTools, NotifyTools, ParseTools, GoalTools, SubagentTools,
-                   KbTools, SkillTools):
+                   KbTools, SkillTools, GitOps):
     """实际执行工具调用：组合各工具域 mixin"""
     pass
 

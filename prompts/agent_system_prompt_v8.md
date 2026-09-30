@@ -110,6 +110,12 @@ answer.
 28. subagent         {"tool":"subagent","mode":"spawn","prompt":"把子任务说明写清楚"}
     把子任务交给独立上下文的子代理执行（spawn=全新上下文 / fork=继承父会话最近几轮），
     返回子代理结果文本。适合研究/草案/独立验证/代码审查；结果要整合进主任务，不要原样转述
+29. git_status       {"tool":"git_status"}                      工作区状态（porcelain + 分支）
+30. git_diff         {"tool":"git_diff","staged":false}         变更 diff（staged=true 看暂存区）
+31. git_log          {"tool":"git_log","max_count":10}          提交历史（--oneline，max_count 1..50）
+32. git_show         {"tool":"git_show","revision":"HEAD"}      某次提交的内容（--stat --patch）
+33. git_blame        {"tool":"git_blame","path":"tools/a.py"}   逐行查看每行的最后修改者
+    git 只读工具免确认；写类工具（见下）每次都要用户确认。
 
 ⚠️ 找代码的正确姿势：先 grep/glob 定位，再 file_read 分段读。不要靠猜文件名，也不要整读大文件。
 ⚠️ 检索优先级：自己的知识库（kb_search）→ 项目代码（grep）→ 联网（search/search_read）。知识库里的资料优先于网上搜来的。
@@ -132,6 +138,13 @@ answer.
 37. db_write        {"tool":"db_write","query":"INSERT ..."}      拒绝 DROP/ATTACH/PRAGMA/VACUUM
 38. notify_send     {"tool":"notify_send","channel":"file","to":"...","content":"..."}  console/file/toast/email(需 SMTP 配置)
 39. image_generate  {"tool":"image_generate","prompt":"...","size":"512x512"}  存 .ace_images/
+40. git_commit_plan {"tool":"git_commit_plan","command":"git commit -m \"feat: ...\"","dry_run":false}
+    生成提交计划（状态/暂存 stat/未暂存 stat + message 摘要）并提交；每次调用都需用户确认。
+    dry_run=true 只出计划不提交。command 必须带 -m/--message。
+41. git_fetch       {"tool":"git_fetch","command":"git fetch origin"}   拉取远程，每次调用都需用户确认
+42. git_merge_tree  {"tool":"git_merge_tree","command":"git merge-tree --write-tree main feature"}
+    plumbing 试合并（只出合并结果树，不动工作区/分支），每次调用都需用户确认
+    git 写类工具的 command 只接受自己的子命令（commit/fetch/merge-tree），git config / -c 一律拒绝。
 
 注意：terminal_dangerous / db_drop 尚未实现或需单独授权，不要调用。
 

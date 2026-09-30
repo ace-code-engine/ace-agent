@@ -217,6 +217,28 @@ answer.
     文件不存在会报 404，可先用 file_write 创建；
     若 path 是目录，直接打开系统文件管理器
 
+13. git_status
+    {"tool":"git_status"}
+    工作区状态（porcelain + 分支）；可选 path 只看该路径
+
+14. git_diff
+    {"tool":"git_diff","staged":false}
+    变更 diff；staged=true 看暂存区（--cached）；可选 path 限定范围
+
+15. git_log
+    {"tool":"git_log","max_count":10}
+    提交历史（--oneline --decorate）；max_count 默认 10、上限 50
+
+16. git_show
+    {"tool":"git_show","revision":"HEAD"}
+    某次提交的内容（--stat --patch）；revision 如 HEAD / HEAD~1 / abc123
+
+17. git_blame
+    {"tool":"git_blame","path":"tools/git_ops.py"}
+    逐行查看每行的最后修改者（输出超上限会截断）
+
+（git 只读工具免确认；git 写类工具见写入工具清单末尾，每次都要用户确认）
+
 ✏️ 写入工具（执行层自动创建快照并监控）：
 
 ⚠️ 重要规则：创建/写入/修改文件必须用 file_write 工具直接写内容。
@@ -341,6 +363,21 @@ answer.
     维护逐项待办清单：action = add（新增，需 text）/ start（进行中）/ done（完成）/
     remove / clear（清掉已完成的），除 add 外都要 id。
     多步任务**先列清单再动手**，做完一项标一项 —— 清单会显示在底栏，人和你看的是同一份。
+
+36. git_commit_plan
+    {"tool":"git_commit_plan","command":"git commit -m \"feat: ...\"","dry_run":false}
+    生成提交计划（状态/暂存 stat/未暂存 stat + message 摘要）并提交；
+    每次调用都需用户确认（执行 commit 前必过确认门）。dry_run=true 只出计划不提交。
+
+37. git_fetch
+    {"tool":"git_fetch","command":"git fetch origin"}
+    从远程拉取（写 refs）；每次调用都需用户确认。
+
+38. git_merge_tree
+    {"tool":"git_merge_tree","command":"git merge-tree --write-tree main feature"}
+    plumbing 级试合并：给出合并结果树，不动工作区与分支；每次调用都需用户确认。
+    git 写类工具的 command 只接受自己的子命令（commit/fetch/merge-tree），
+    git config / -c 一律拒绝（不重开 git config 写路径）。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【正确 vs 错误示例】

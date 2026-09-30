@@ -147,6 +147,7 @@ ace-agent/
 │   ├── notify_tools.py         #   通知（console/file/toast）
 │   ├── parse_tools.py          #   文档解析（Word/Excel/PPT/PDF/OCR）
 │   ├── goal_tools.py           #   持久目标状态机（revision CAS / blocked 白名单 / 轮次驱动）
+│   ├── git_ops.py             #   git 工具族（8 个 git_* 工具：只读 5 / 写 3 分档，WP-2）
 │   ├── subagent_tools.py       #   子代理（spawn/fork，独立工具执行循环）
 │   ├── skill_tools.py          #   文件式技能库（SKILL.md 目录扫描）
 │   ├── kb_tools.py             #   自定义知识库（kb_search/kb_add/kb_list）

@@ -153,6 +153,9 @@ TOOL_EMOJI: Dict[str, str] = {
     # 补齐 registry 里其余工具（browser_screenshot / browser_open / 高危占位）
     "browser_screenshot": "📸", "browser_open": "🌐",
     "terminal_dangerous": "☠", "db_drop": "💥",
+    # git 工具族（WP-2）：分支符号统一
+    "git_status": "🌿", "git_diff": "🌿", "git_log": "🌿", "git_show": "🌿",
+    "git_blame": "🌿", "git_commit_plan": "🌿", "git_fetch": "🌿", "git_merge_tree": "🌿",
 }
 
 # ASCII 符号版（默认）。按类别分组，同类工具共用符号，规避 Windows 乱码：
@@ -181,6 +184,9 @@ TOOL_GLYPH: Dict[str, str] = {
     "plan_propose": "#", "request_permission": "!", "ask_user": "?",
     "str_replace": "%", "todo_write": "c",
     "terminal_dangerous": "!", "db_drop": "x",
+    # git 工具族（WP-2）：大写 G，与 goal 的小写 g 区分
+    "git_status": "G", "git_diff": "G", "git_log": "G", "git_show": "G",
+    "git_blame": "G", "git_commit_plan": "G", "git_fetch": "G", "git_merge_tree": "G",
 }
 GLYPH_FALLBACK: str = "*"  # 未知工具的回退符号
 

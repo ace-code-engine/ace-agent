@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "74", "75"]
+             "69", "70", "71", "72", "73", "74", "75", "76"]
 _SEEN_SECTIONS: list = []
 
 
@@ -15792,6 +15792,124 @@ if _want("75"):
     _g75i = _g75g.update(_g75h.id, _g75h.revision, phase=_PA75)
     _g75j = _g75g.update(_g75i.id, _g75i.revision, phase=_PP75)
     check("[75] 兼容：active → paused 仍可用（[25] 既有用法）", _g75j.phase == "paused", _g75j.to_dict())
+
+
+# ============================================================
+if _want("76"):
+    # ── [76] WP-2 git 工具族：8 个 git_* 工具，只读/写分档，写类逐次确认 ──
+    print("[76] WP-2 git 工具族 —— 8 个 git_* 工具，只读/写分档，写类逐次确认")
+    import shutil as _sh76  # noqa: E402
+    import subprocess as _sp76  # noqa: E402
+    from tools.registry import TOOL_SPECS as _TS76, confirm_tool_names as _ctn76  # noqa: E402
+    from execution_layer import (CONFIRM_TOOLS as _CT76, ExecutionLayer as _EL76,  # noqa: E402
+                                 PermissionManager as _PM76, RoundCtx as _RC76)
+
+    _GR76 = {"git_status", "git_diff", "git_log", "git_show", "git_blame"}
+    _GW76 = {"git_commit_plan", "git_fetch", "git_merge_tree"}
+    _spc76 = {s.name: s for s in _TS76}
+    check("[76] 8 个 git 工具全部注册", (_GR76 | _GW76) <= set(_spc76),
+          sorted((_GR76 | _GW76) - set(_spc76)))
+    check("[76] ★只读 5 个：read 档、不逐次确认、暴露",
+          all(_spc76.get(n) and _spc76[n].permission == "read"
+              and not _spc76[n].confirm and _spc76[n].expose for n in _GR76),
+          [n for n in sorted(_GR76) if not _spc76.get(n)])
+    check("[76] ★写 3 个：write 档、逐次确认、暴露",
+          all(_spc76.get(n) and _spc76[n].permission == "write"
+              and _spc76[n].confirm and _spc76[n].expose for n in _GW76),
+          [n for n in sorted(_GW76) if not _spc76.get(n)])
+    check("[76] ★confirm_tool_names 含写类 3 个、不含只读",
+          _GW76 <= _ctn76() and not (_GR76 & _ctn76()), sorted(_GW76 - _ctn76()))
+    check("[76] git_fetch 带 egress 标记（联网拉取）",
+          _spc76.get("git_fetch") is not None and _spc76["git_fetch"].egress, "")
+    _pm76 = _PM76("readonly")
+    check("[76] readonly 档放行 git_status、不放行 git_commit_plan",
+          "git_status" in _pm76.allowed_tools("readonly")
+          and "git_commit_plan" not in _pm76.allowed_tools("readonly"), "")
+    check("[76] git_commit_plan 在 CONFIRM_TOOLS（写类逐次确认门）",
+          "git_commit_plan" in _CT76, "")
+
+    _repo76 = Path(mktemp("acegit76"))
+    _sp76.run(["git", "init", "-q", str(_repo76)], check=True)
+    _sp76.run(["git", "-C", str(_repo76), "config", "user.email", "t@example.com"], check=True)
+    _sp76.run(["git", "-C", str(_repo76), "config", "user.name", "tester"], check=True)
+    (_repo76 / "a.txt").write_text("\n".join(f"line {i:04d} content" for i in range(3000)) + "\n",
+                                   encoding="utf-8")
+    _sp76.run(["git", "-C", str(_repo76), "add", "-A"], check=True)
+    _sp76.run(["git", "-C", str(_repo76), "commit", "-qm", "init"], check=True)
+
+    try:
+        # 闸门：readonly 档写类 → PERMISSION_REQUEST；write 档未确认 → 逐次确认
+        _ro76 = _EL76(str(_repo76), permission_level="readonly")
+        _r76a = _ro76._stage_permission({"command": 'git commit -m "x"'}, "git_commit_plan", {}, _RC76())
+        check("[76] ★readonly 档 git_commit_plan → PERMISSION_REQUEST",
+              bool(_r76a) and _r76a.get("status") == "PERMISSION_REQUEST", _r76a)
+        _w76 = _EL76(str(_repo76), permission_level="write")
+        _r76b = _w76._stage_permission({"command": "git fetch origin"}, "git_fetch", {}, _RC76())
+        check("[76] ★write 档 git_fetch 未确认 → PERMISSION_REQUEST（逐次确认）",
+              bool(_r76b) and _r76b.get("status") == "PERMISSION_REQUEST", _r76b)
+        check("[76] 确认预览含完整命令（不盲批）",
+              bool(_r76b) and "git fetch origin" in str(_r76b.get("reason", "")),
+              _r76b and _r76b.get("reason"))
+        _w76.permission.grant_temp("git_fetch")
+        _r76c = _w76._stage_permission({"command": "git fetch origin"}, "git_fetch", {}, _RC76())
+        check("[76] write 档 git_fetch 已确认 → 闸门放行（None）", _r76c is None, _r76c)
+
+        # 只读工具：readonly 档免确认直跑
+        _el76 = _EL76(str(_repo76), permission_level="readonly")
+        _s1_76 = _el76.executor.execute({"tool": "git_status"})
+        check("[76] git_status 成功（readonly 免确认直跑）", _s1_76.status == "success", _s1_76.message)
+        _s2_76 = _el76.executor.execute({"tool": "git_log", "max_count": 50})
+        check("[76] git_log 成功", _s2_76.status == "success", _s2_76.message)
+        _s3_76 = _el76.executor.execute({"tool": "git_show", "revision": "HEAD"})
+        check("[76] git_show 成功", _s3_76.status == "success", _s3_76.message)
+        _s4_76 = _el76.executor.execute({"tool": "git_blame", "path": "a.txt"})
+        check("[76] ★git_blame 输出被确定性截断（3000 行 > 上限）",
+              _s4_76.status == "success"
+              and "[ACE git 输出截断]" in str((_s4_76.data or {}).get("stdout", "")),
+              len(str((_s4_76.data or {}).get("stdout", ""))))
+        with (_repo76 / "a.txt").open("a", encoding="utf-8") as _f76:
+            _f76.write("extra changed line\n")
+        _s5_76 = _el76.executor.execute({"tool": "git_diff"})
+        check("[76] git_diff 成功且含变更",
+              _s5_76.status == "success"
+              and "+extra changed line" in str((_s5_76.data or {}).get("stdout", "")), _s5_76.message)
+        _s6_76 = _el76.executor.execute({"tool": "git_diff", "staged": True})
+        check("[76] git_diff --cached 成功", _s6_76.status == "success", _s6_76.message)
+        _s7_76 = _el76.executor.execute({"tool": "git_blame", "path": "../outside.txt"})
+        check("[76] ★git_blame 越界路径 → 403",
+              _s7_76.status == "error" and _s7_76.error_code == "403", _s7_76.error_code)
+        _s8_76 = _el76.executor.execute({"tool": "git_status", "path": ".guardian"})
+        check("[76] git_status 敏感目录（agent 状态）→ 403",
+              _s8_76.status == "error" and _s8_76.error_code == "403", _s8_76.error_code)
+
+        # 写类 handler 直调（确认门已验；这里验实现本身）
+        _w2_76 = _EL76(str(_repo76), permission_level="write")
+        _c1_76 = _w2_76.executor.execute({"tool": "git_commit_plan",
+                                          "command": 'git commit -m "feat: second"'})
+        check("[76] git_commit_plan 计划+提交成功", _c1_76.status == "success", _c1_76.message)
+        _log76 = _sp76.run(["git", "-C", str(_repo76), "log", "--oneline"],
+                           capture_output=True, text=True).stdout
+        check("[76] 仓库多了一条提交", "feat: second" in _log76, _log76)
+        _c2_76 = _w2_76.executor.execute({"tool": "git_commit_plan",
+                                          "command": 'git commit -m "nope"', "dry_run": True})
+        check("[76] git_commit_plan dry_run 只出计划不提交",
+              _c2_76.status == "success" and _c2_76.data.get("committed") is False, _c2_76.message)
+        _log76b = _sp76.run(["git", "-C", str(_repo76), "log", "--oneline"],
+                            capture_output=True, text=True).stdout
+        check("[76] dry_run 之后没有新提交", _log76b.count("\n") == _log76.count("\n"), "")
+        _f1_76 = _w2_76.executor.execute({"tool": "git_fetch",
+                                          "command": "git config --global user.name x"})
+        check("[76] ★git_fetch 拒绝非 fetch 子命令（config 写路径不重开）→ 403",
+              _f1_76.status == "error" and _f1_76.error_code == "403", _f1_76.error_code)
+        _f2_76 = _w2_76.executor.execute({"tool": "git_fetch",
+                                          "command": "git fetch origin; git commit -m x"})
+        check("[76] ★shell 元字符被拦 → 403",
+              _f2_76.status == "error" and _f2_76.error_code == "403", _f2_76.error_code)
+        _m1_76 = _w2_76.executor.execute({"tool": "git_merge_tree",
+                                          "command": "git merge-tree --write-tree HEAD HEAD"})
+        check("[76] git_merge_tree 成功", _m1_76.status == "success", _m1_76.message)
+    finally:
+        _sh76.rmtree(_repo76, ignore_errors=True)
 
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

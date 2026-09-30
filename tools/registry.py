@@ -195,6 +195,41 @@ TOOL_SPECS: List[ToolSpec] = [
         example='{"tool":"ask_user","question":"要改哪个文件？"}',
     ),
 
+    # —— git 工具族（WP-2）：只读 5（免确认；path 参数限项目内且不过 .git/敏感目标）——
+    ToolSpec(
+        name="git_status", permission=PERM_READ, handler="_exec_git_status",
+        description="工作区状态（porcelain + 分支）；可选 path 只看该路径",
+        parameters=_obj({"path": {"type": "string", "description": "可选：只看项目内某路径"}}),
+        example='{"tool":"git_status"}',
+    ),
+    ToolSpec(
+        name="git_diff", permission=PERM_READ, handler="_exec_git_diff",
+        description="查看变更 diff；staged=true 看暂存区；可选 path 限定范围",
+        parameters=_obj({"path": {"type": "string", "description": "可选：只看某路径"},
+                         "staged": {"type": "boolean", "description": "true=看已暂存（--cached）"}}),
+        example='{"tool":"git_diff","staged":false}',
+    ),
+    ToolSpec(
+        name="git_log", permission=PERM_READ, handler="_exec_git_log",
+        description="提交历史（--oneline --decorate）；max_count 默认 10、上限 50；可选 path",
+        parameters=_obj({"max_count": {"type": "integer", "description": "条数，默认 10（1..50）"},
+                         "path": {"type": "string", "description": "可选：只看某路径的历史"}}),
+        example='{"tool":"git_log","max_count":10}',
+    ),
+    ToolSpec(
+        name="git_show", permission=PERM_READ, handler="_exec_git_show",
+        description="查看某次提交的内容（--stat --patch）；revision 默认 HEAD；可选 path",
+        parameters=_obj({"revision": {"type": "string", "description": "tree-ish，如 HEAD / HEAD~1 / abc123"},
+                         "path": {"type": "string", "description": "可选：只看某路径"}}),
+        example='{"tool":"git_show","revision":"HEAD"}',
+    ),
+    ToolSpec(
+        name="git_blame", permission=PERM_READ, handler="_exec_git_blame",
+        description="逐行查看文件每一行的最后修改者（输出超上限会确定性截断）",
+        parameters=_obj({"path": {"type": "string", "description": "项目内的文件路径"}}, ["path"]),
+        example='{"tool":"git_blame","path":"tools/git_ops.py"}',
+    ),
+
     # —— 写入 ——
     ToolSpec(
         name="terminal_exec", permission=PERM_WRITE, handler="_exec_terminal_exec",
@@ -202,6 +237,43 @@ TOOL_SPECS: List[ToolSpec] = [
         parameters=_obj({"command": {"type": "string"}}, ["command"]),
         example='{"tool":"terminal_exec","command":"mkdir test"}',
         confirm=True,
+    ),
+    # —— git 工具族（WP-2）：写类 3（confirm=True 逐次确认；command 参数给确认门预览 +
+    #    同前缀免确认 _prefix_auto_approved；git config 写路径不重开，见 tools/git_ops.py）——
+    ToolSpec(
+        name="git_commit_plan", permission=PERM_WRITE, handler="_exec_git_commit_plan",
+        confirm=True,
+        description=("生成提交计划（状态/暂存 stat/未暂存 stat + message 摘要）并提交。"
+                     "**每次调用都需用户确认**（执行 commit 前必过确认门）。"
+                     "command 是完整 git commit 命令行（需 -m/--message）；"
+                     "dry_run=true 只出计划不提交"),
+        parameters=_obj({"command": {"type": "string",
+                                     "description": "完整命令，如 git commit -m \"feat: ...\""},
+                         "dry_run": {"type": "boolean", "description": "true=只生成计划不提交"}},
+                        ["command"]),
+        example='{"tool":"git_commit_plan","command":"git commit -m \\"feat: git 工具族\\""}',
+    ),
+    ToolSpec(
+        name="git_fetch", permission=PERM_WRITE, handler="_exec_git_fetch",
+        confirm=True, egress=True,   # 会向远程发起网络请求（fetch <url> 的目的地由命令定）
+        description=("从远程拉取（写 refs，**每次调用都需用户确认**）。"
+                     "command 是完整 git fetch 命令行（选项正面清单校验，"
+                     "git config / -c 一律拒绝）"),
+        parameters=_obj({"command": {"type": "string",
+                                     "description": "完整命令，如 git fetch origin"}},
+                        ["command"]),
+        example='{"tool":"git_fetch","command":"git fetch origin"}',
+    ),
+    ToolSpec(
+        name="git_merge_tree", permission=PERM_WRITE, handler="_exec_git_merge_tree",
+        confirm=True,
+        description=("plumbing 级试合并：给出两个 tree-ish 的合并结果（--write-tree 写结果树到"
+                     "对象库、不动工作区与分支；**每次调用都需用户确认**）。"
+                     "command 是完整 git merge-tree 命令行"),
+        parameters=_obj({"command": {"type": "string",
+                                     "description": "完整命令，如 git merge-tree --write-tree main feature"}},
+                        ["command"]),
+        example='{"tool":"git_merge_tree","command":"git merge-tree --write-tree main feature"}',
     ),
     ToolSpec(
         name="str_replace", permission=PERM_WRITE, handler="_exec_str_replace",

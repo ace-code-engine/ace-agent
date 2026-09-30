@@ -86,6 +86,7 @@
 | [`design/CREDENTIAL-HANDLING.md`](design/CREDENTIAL-HANDLING.md) | **凭据回显边界（`H-33~H-35`）**：向导 `hidden` 全程丢失 / 两条泄漏路径 / 断言只钉声明 |
 | [`design/THREE-LAYERS.md`](design/THREE-LAYERS.md) | **三层脊柱设计卡**：驱动层 / 响应层 / 自愈层 + 两个共用账本 + 五级升级阶梯 |
 | [`design/WP-0-TAIL-TECH.md`](design/WP-0-TAIL-TECH.md) | **WP-0/ACC 尾活技术难点与解法**：切片 C 终端权限提示统一 + benchmarks 校验器接法 |
+| [`design/WP-4-SNAPSHOT-SEMANTICS.md`](design/WP-4-SNAPSHOT-SEMANTICS.md) | **WP-4 前置（C5）**：快照语义统一 —— worktree 与既有回滚不能是两套 |
 | [`design/CONFIRM-BOUNDARY.md`](design/CONFIRM-BOUNDARY.md) | 确认与只读边界加固（H-27~H-31） |
 | [`design/SAFETY-HARDENING.md`](design/SAFETY-HARDENING.md) | 安全边界加固（H-01~H-22 审计证据 / 工作包 / 验收） |
 | [`design/RGTC-LANDING.md`](design/RGTC-LANDING.md) | 信任锚外移 / 链式台账 / 来源归属 / 可逆性分类器 / 授权令 |

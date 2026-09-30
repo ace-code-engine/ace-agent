@@ -23,6 +23,7 @@ agent_runner.py —— Agent 交互循环（把 LLM 和执行层接起来）
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -60,6 +61,10 @@ from core import ace_client  # noqa: E402  （模型 HTTP 客户端：与 ai_cod
 from core import ace_model  # noqa: E402
 from tools.base import repair_backslash_json  # noqa: E402
 from tools.registry import openai_tools  # noqa: E402
+from tools.status import (REFUSAL_CLASS_AUTH_PENDING,  # noqa: E402
+                          REFUSAL_CLASS_BOUNDARY, REFUSAL_CLASS_CAPABILITY,
+                          REFUSAL_CLASS_MALFORMED, REFUSAL_CLASS_POLICY,
+                          REFUSAL_CLASS_TRANSIENT, classify_refusal, outcome_for)
 from ui import ace_grace  # noqa: E402  （纯逻辑：危险对话框的防误触宽限期）
 
 
@@ -360,6 +365,14 @@ class ModelProvider:
         self.system_suffix = (f"\n\n【工作目录】{os.path.abspath(project_root)}\n"
                               f"文件操作请使用该目录下的相对路径或该绝对路径，不要臆造路径。")
         self.history: List[Dict[str, str]] = []
+        # HL-03 硬规则②（THREE-LAYERS §3.4）：**降级必须声明**，不许静默回退。
+        # 与 `execution_layer._note_degrade` 同一份契约、同一套出口：结构化账本
+        # （`degradations`，供外壳/审计/测试读）+ stderr 一行（人当场看得见）。
+        # 为什么 `agent_runner` 这份不能省：tools→文本协议那条降级此前**只在注释里**
+        # （"本次自动降级"），用户看到的是"模型突然改用另一种格式"，没人告诉他为什么、
+        # 也没人能量出这个会话到底降级过没有。
+        self.degradations: List[Dict[str, str]] = []
+        self._degrade_noted: set = set()
         self.mock_step = 0
         self.mock_tool_result: Optional[str] = None
         self.mock_script: Optional[str] = None
@@ -477,6 +490,19 @@ class ModelProvider:
 
     # ---------- 真实模型 ----------
 
+    def _note_degrade(self, kind: str, detail: str) -> None:
+        """登记一次**降级**并声明出来（HL-03 硬规则②：不许静默回退）。
+
+        与 `execution_layer._note_degrade` 同一份契约（两处出口缺一不可）：
+        `self.degradations`（结构化，供外壳/审计/测试读）与 stderr 一行（人当场看见）。
+        同一个 `kind` 只播报一次 —— "不静默"不等于"每次调用刷一屏"；刷屏会让人学会
+        忽略它，那又变回静默了。
+        """
+        self.degradations.append({"kind": kind, "detail": detail})
+        if kind not in self._degrade_noted:
+            self._degrade_noted.add(kind)
+            print(f"⚠ 能力降级（{kind}）：{detail}", file=sys.stderr)
+
     def generate(self, prompt: str) -> str:
         if self.mode == "mock":
             return self.generate_mock(prompt)
@@ -487,9 +513,16 @@ class ModelProvider:
         if self.tools_ok:
             try:
                 return self._generate_tools(prompt)
-            except ToolsUnsupported:
-                # 端点不支持原生工具调用 → 本次自动降级，并永久关闭 tools 避免反复失败
+            except ToolsUnsupported as e:
+                # 端点不支持原生工具调用 → 本次自动降级，并永久关闭 tools 避免反复失败。
+                # HL-03②：**降级必须声明**（此前这里是纯静默：注释写了、话没说）。
+                # 方向是"工具面收敛"，不是放开权限 —— 权限档位一个字不变，
+                # 只是把 function calling 换成 <INTERNAL>/<EXTERNAL> 文本协议。
                 self.tools_ok = False
+                self._note_degrade(
+                    "tools",
+                    f"模型端点不支持原生工具调用（{e}）→ 本次起改用 "
+                    "<INTERNAL>/<EXTERNAL> 文本协议；工具面收敛，权限档位不变")
         return self._generate_text(prompt)
 
     def _generate_tools(self, prompt: str) -> str:
@@ -631,6 +664,221 @@ def render_error_result(r: Dict) -> str:
     """
     return render_result(r)
 
+
+# ============================================================
+# RL-03 三段式回传（THREE-LAYERS §2.4）—— 治"回喂越来越长"
+# ============================================================
+# 病根：每条结果都**全文**渲染进 prompt —— 这同时造成两件事：吃前缀（与 `WP-3` 冲突），
+# 以及 H-19 那类"回喂变长 → 更容易被截断 → 更要回喂"的**正反馈**。
+#
+# 三段（`THREE-LAYERS` §2.4 那张表就是全部契约）：
+#
+#   | 段       | 进不进上下文 | 内容                                                |
+#   |----------|--------------|-----------------------------------------------------|
+#   | 摘要行   | **必进**     | 一行结构化：outcome / class / fp 短码 / 处置提示     |
+#   | 证据块   | **按需**     | 全文，模型显式索取（`[evidence fp=xxxx]`）才回喂     |
+#   | 指纹压缩 | **必进**     | 同 fp + 同 class 再犯 → `(同上，第 N 次)`，**不长出来** |
+#
+# **这里的角色是消费者，不是判定者**：`outcome` / `refusal_class` 只从 RL-01/RL-02 的
+# 机器通道读；缺了就按 `tools.status` 那两张**唯一判定表**补（`outcome_for` /
+# `classify_refusal`）—— 这一节绝不自己写 `if error_code == "403"`。
+#
+# 边界（本包**没做**的，如实记）：
+#   ① 只接了 `agent_runner.run_conversation` 这一条回喂路径；`ai_code`（CLI）的三处
+#      回喂仍是全文渲染 —— `ai_code` 是另一个 scope，不在本包；
+#   ② 索取口是**文本协议**（`[evidence fp=xxxx]`），不是新工具：加工具要动
+#      `tools/registry`；真实模型会不会自发索取**未经真机验证**；
+#   ③ `partial`（RL-01 留的"尚无生产者"，§9.4）仍无生产者 —— 摘要行认得它，没人产出它；
+#   ④ 指纹兜底只折叠空白，**不猜**数字/路径语义：归一化的真正生产者是执行层
+#      （RL-01 的 `fingerprint`）。回喂层宁可少压（重复各占一行），不错压
+#      （把两条不同的拒绝并成一条，模型就再也看不到差异）。
+
+RL03_FP_CHARS = 4                       # 摘要行里的指纹短码长度（示例 `fp=a3f2`）
+RL03_EVIDENCE_HINT = "索取全文"
+
+#: RL-02 六分类 → 驱动层的**唯一**处置动作（`THREE-LAYERS` §2.3 那张表，照抄不改写）。
+RL03_DISPOSAL: Dict[str, str] = {
+    REFUSAL_CLASS_POLICY: "换路径，别重试",
+    REFUSAL_CLASS_BOUNDARY: "可换路径",
+    REFUSAL_CLASS_AUTH_PENDING: "停下等人（不是失败）",
+    REFUSAL_CLASS_CAPABILITY: "降级并声明",
+    REFUSAL_CLASS_TRANSIENT: "退避重试",
+    REFUSAL_CLASS_MALFORMED: "重新生成（不计熔断）",
+}
+
+#: 模型显式索取证据块的标记（短码与完整指纹都认）。
+_EVIDENCE_REQ_RE = re.compile(r"\[\s*evidence\s+fp=([0-9A-Za-z_\-]+)\s*\]")
+
+
+def _machine_channel(r: Dict) -> Tuple[str, str]:
+    """取机器通道的 `(outcome, refusal_class)`：显式值优先，缺了按唯一判定表补。"""
+    status = str(r.get("status") or "")
+    code = str(r.get("error_code") or "")
+    outcome = str(r.get("outcome") or "").strip() or outcome_for(status, code)
+    cls = str(r.get("refusal_class") or "").strip() or classify_refusal(status, code)
+    return outcome, cls
+
+
+def _fingerprint_blob(r: Dict) -> str:
+    """兜底指纹的归一化输入（只折叠空白：不猜数字/路径语义，见本节边界④）。"""
+    outcome, cls = _machine_channel(r)
+    msg = re.sub(r"\s+", " ", str(r.get("message") or "")).strip()
+    try:
+        data = json.dumps(r.get("data"), ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        data = str(r.get("data"))
+    return "|".join((outcome, cls, str(r.get("tool") or ""),
+                     str(r.get("error_code") or ""), msg[:200], data[:400]))
+
+
+def result_fingerprint(r: Dict) -> str:
+    """结果指纹：执行层给了就用（它更懂"关键参数归一化"），没给就兜底派生。
+
+    纯函数：**同输入必同指纹** —— 指纹压缩全靠这条。
+    """
+    fp = str(r.get("fingerprint") or "").strip()
+    if fp:
+        return fp
+    return hashlib.sha256(_fingerprint_blob(r).encode("utf-8")).hexdigest()[:16]
+
+
+def fingerprint_short(fp: str) -> str:
+    """指纹短码（摘要行只带 4 位：够模型拿来索取全文，也不吃前缀）。"""
+    text = str(fp or "").strip()
+    return text[:RL03_FP_CHARS] or "?" * RL03_FP_CHARS
+
+
+def summary_line(r: Dict) -> str:
+    """RL-03 摘要行（**必进上下文**）：一行结构化 —— outcome / class / fp / 处置提示。
+
+    例：`[denied] file_write · BOUNDARY · fp=a3f2 · 可换路径 · 索取全文: [evidence fp=a3f2]`
+
+    末尾的索取提示是**常量长度**的：它告诉模型"被拿走的全文该怎么要回来"；
+    重复那条走指纹压缩（见 `FeedbackLedger.render`），所以整条回喂**不随重复增长**。
+    """
+    outcome, cls = _machine_channel(r)
+    label = (str(r.get("tool") or "").strip()
+             or str(r.get("status") or "").strip() or "?")
+    code = str(r.get("error_code") or "").strip()
+    short = fingerprint_short(result_fingerprint(r))
+    parts = [f"[{outcome}] {label}"]
+    if cls:
+        parts.append(f"· {cls}")
+    elif code:
+        parts.append(f"· {code}")
+    parts.append(f"· fp={short}")
+    hint = RL03_DISPOSAL.get(cls, "") if cls else ""
+    if hint:
+        parts.append(f"· {hint}")
+    _hint = r.get("hint")
+    _alts = _hint.get("alternatives") if isinstance(_hint, dict) else None
+    if _alts:
+        _alts_txt = "、".join(str(a) for a in list(_alts)[:3])[:80]
+        if _alts_txt:
+            parts.append(f"· 替代: {_alts_txt}")
+    parts.append(f"· {RL03_EVIDENCE_HINT}: [evidence fp={short}]")
+    return " ".join(parts)
+
+
+def _is_error_feedback(r: Dict) -> bool:
+    """这条回喂是不是"执行层自己的报错"（决定证据块套不套隔离块）。
+
+    口径**照抄主循环的分支条件**（`result["status"] in ERROR_STATUSES`），不自己放宽：
+    隔离面只许收不许放 —— 工具执行结果（含工具自己返回的 403/404，`status="error"`）
+    仍然走 `render_tool_result` 的隔离块，与改动前**逐字一致**。
+    """
+    return str(r.get("status") or "").strip().upper() in {s.upper() for s in ERROR_STATUSES}
+
+
+def retrieve_evidence(r: Dict) -> str:
+    """RL-03 证据块（**按需**）：全文渲染，只在模型显式索取时才回喂。
+
+    这里只**选通道**，两条通道本身一个字没动（改了就是回退 RL-04）：
+      · 工具结果 → `render_tool_result`（SEC-011 隔离 + 确定性裁剪）；
+      · `ERROR_STATUSES` 里那几条执行层报错 → `render_error_result`（**不套**隔离块，纪律①）。
+    """
+    return render_error_result(r) if _is_error_feedback(r) else render_tool_result(r)
+
+
+def _prepend_evidence(prompt: str, evidence_text: str) -> str:
+    """把模型索取到的证据块放在本轮回喂之前（没索取就原样返回）。"""
+    return f"{evidence_text}\n{prompt}" if evidence_text else prompt
+
+
+class FeedbackLedger:
+    """RL-03 回喂账本（**一次会话一个**）：指纹压缩 + 证据暂存 + 显式索取。
+
+    寿命：本会话 —— 它是**状态**不是知识（`THREE-LAYERS` §4：拒绝账本跨会话、
+    失败账本会话结束即清；RL-03 只做回喂侧的那一小半）。
+    """
+
+    def __init__(self) -> None:
+        self._counts: Dict[Tuple[str, str], int] = {}
+        self._evidence: Dict[str, str] = {}
+        self._short: Dict[str, str] = {}
+
+    def hold(self, r: Dict) -> str:
+        """把一条结果的**全文证据**暂存起来（键 = 指纹），返回指纹。
+
+        只留第一次：同指纹 = 同一条路，再犯时回喂已被压成 `(同上，第 N 次)`；
+        模型若要全文，按同一个指纹取回第一次那份（内容一致才配得上同一个指纹）。
+        """
+        fp = result_fingerprint(r)
+        self._short.setdefault(fingerprint_short(fp), fp)
+        self._evidence.setdefault(fp, retrieve_evidence(r))
+        return fp
+
+    def note(self, r: Dict) -> int:
+        """记一次出现，返回"该 `(指纹, class)` 第几次出现"（1 基）。"""
+        fp = self.hold(r)
+        _outcome, cls = _machine_channel(r)
+        key = (fp, cls)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
+
+    def render(self, r: Dict, *, evidence: bool = False) -> str:
+        """三段式回喂：摘要行（必进）+ 指纹压缩；`evidence=True` 时才附全文证据块。
+
+        **长度不增长**就落在这里：第 1 次给摘要行（`n == 1`），第 2 次起换成
+        `(同上，第 N 次) fp=xxxx · CLASS` —— 它比摘要行**短**，且 N 再涨也不再变长
+        （同位数下长度恒定）。（显式索取那一轮必然最长，那是模型自己要的。）
+        """
+        fp = result_fingerprint(r)
+        n = self.note(r)
+        if evidence:
+            return f"{summary_line(r)}\n{self._evidence.get(fp, '')}"
+        if n <= 1:
+            return summary_line(r)
+        _outcome, cls = _machine_channel(r)
+        tail = f" · {cls}" if cls else ""
+        return f"(同上，第 {n} 次) fp={fingerprint_short(fp)}{tail}"
+
+    def requests(self, output: str) -> List[str]:
+        """扫模型本轮输出里的索取标记，返回命中的**完整**指纹列表（短码也认）。"""
+        found: List[str] = []
+        for token in _EVIDENCE_REQ_RE.findall(str(output or "")):
+            fp = self._short.get(token, token)
+            if fp in self._evidence and fp not in found:
+                found.append(fp)
+        return found
+
+    def retrieve_requested(self, output: str) -> str:
+        """把模型本轮索取到的证据块取回来；**没索取 → 空串**（默认不进上下文）。"""
+        return "\n".join(self._evidence[fp] for fp in self.requests(output))
+
+    def reset(self) -> None:
+        """清空本会话账本（同一会话内换任务时调用；跨会话本就该新建实例）。"""
+        self._counts.clear()
+        self._evidence.clear()
+        self._short.clear()
+
+
+def render_feedback(r: Dict, ledger: Optional["FeedbackLedger"] = None,
+                    *, evidence: bool = False) -> str:
+    """RL-03 回喂入口：三段式。没给账本 ⇒ 无法跨轮压缩，退化成"每次都给摘要行"。"""
+    if ledger is None:
+        ledger = FeedbackLedger()
+    return ledger.render(r, evidence=evidence)
 
 
 # ============================================================
@@ -810,6 +1058,8 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
     # 不能靠 user_input 文本判断"是不是同一个任务"——同一句话重发（↑ 回车、goal 续跑）
     # 会让反幻觉计数与畸形输出指纹跨请求残留（见 execution_layer._task_identity）。
     task_id = uuid.uuid4().hex
+    # RL-03：回喂账本按**会话**新建（指纹压缩 + 证据暂存）—— 它是状态，不跨会话。
+    feedback_ledger = FeedbackLedger()
     # 记忆预注入：在模型生成之前把相关历史记忆放进 prompt（无记忆时原样返回）
     next_prompt = el.prepare_context(user_input)
     for round_no in range(1, MAX_ROUNDS + 1):
@@ -821,6 +1071,9 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
         except Exception as e:
             print(f"\n⚠ 模型调用失败: {e}")
             return
+        # RL-03：模型本轮**显式索取**的证据（上一轮被摘要行替掉的那条全文）。
+        # 没索取就是空串 —— 证据块默认不进上下文。
+        _requested_evidence = feedback_ledger.retrieve_requested(output)
         if verbose:
             print(f"\n--- 第 {round_no} 轮模型输出 ---\n{output}")
         try:
@@ -875,16 +1128,24 @@ def run_conversation(provider: ModelProvider, el: ExecutionLayer,
                       f"（最近一次: {_sec.get('last_tool', '')}）。"
                       "如果这不是你让它做的，请停下核对上下文来源。")
             # 把错误反馈给模型，让它修正后继续。
-            # 注意用的是 render_error_result（不套隔离块），不是 render_tool_result ——
+            # 注意证据块走的是 render_error_result（不套隔离块），不是 render_tool_result ——
             # 理由见该函数的 docstring：套了会让模型按约定拒绝纠错，形成死锁。
-            next_prompt = PROMPT_ERROR_RETRY.format(rendered=render_error_result(result))
+            # RL-03：默认只回喂**摘要行**（含 outcome/class/fp/处置提示），全文按需索取。
+            next_prompt = _prepend_evidence(
+                PROMPT_ERROR_RETRY.format(
+                    rendered=render_feedback(result, feedback_ledger)),
+                _requested_evidence)
             continue
 
         # 工具执行成功：结果回填模型，继续下一轮
         if provider.mode == "mock" and result["status"] == "SUCCESS":
             data = result.get("data") or {}
             provider.mock_tool_result = data.get("datetime") or json.dumps(data, ensure_ascii=False)
-        next_prompt = PROMPT_TOOL_RESULT.format(rendered=render_tool_result(result))
+        # RL-03：同上 —— 成功结果也先给摘要行，全文（含隔离块）等模型索取。
+        next_prompt = _prepend_evidence(
+            PROMPT_TOOL_RESULT.format(
+                rendered=render_feedback(result, feedback_ledger)),
+            _requested_evidence)
     print("\n⚠️ 达到最大轮数，Agent 未给出最终回复。")
 
 

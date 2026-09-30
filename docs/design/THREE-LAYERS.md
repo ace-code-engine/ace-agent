@@ -1,7 +1,7 @@
 # 三层脊柱设计卡 —— 驱动层 / 响应层 / 自愈层
 
 > 编号：`DL-`（驱动）/ `RL-`（响应）/ `HL-`（自愈）／`LDG-`（共用账本）
-> 上级：`docs/ROADMAP.md` §0.5。 状态：**设计；`RL-01`（结果信封）已实施**（2026-09-27，见 **§9**），其余未开工。
+> 上级：`docs/ROADMAP.md` §0.5。 状态：**设计；`RL-01`（结果信封）与 `RL-02`（拒绝六分类）已实施**（见 **§9**），其余未开工。
 > 缘起：立项走到"功能模块（§3.1）+ 工作面（§4）"之后，真正没设计过的只剩这三段 ——
 > **执行层已经很硬，但"上面怎么指挥、中间怎么回报、撞墙了怎么办"从来没有设计。**
 
@@ -366,8 +366,33 @@ L4 上报时给人看的**必须能被复核**，**不允许**只上报"失败�
 
 ### 9.4 边界（`RL-01` 没做的）
 
-- **`refusal_class` / `retryable` 只留位、不填值** —— 它们的判据是 **`RL-02` 的六分类（批次 1）**；
+- **`refusal_class` / `retryable` 只留位、不填值** —— 它们的判据是 **`RL-02` 的六分类（批次 1）** ⇒ ✅ 已由 RL-02 填上（见 §9.5）；
 - **`budget` 不在信封里**：它是**目标**的属性（`HL-05` 三级预算），不是一次工具调用的属性；
 - **`partial` 尚无生产者**（`RL-03` 三段式回传时才有）；
 - **前端还没有消费者**：`types.ts` 已登记，但 `store` / 组件还没用 `outcome`
   （"拒绝与失败分开展示"属 `WP-0` 的活）——《边界》一节的意义就在这句：**字段到了，用途还没到。**
+
+### 9.5 实施记录：`RL-02` 拒绝六分类（2026-09-30）
+
+> 依据 §2.3。RL-01 的信封把 `refusal_class`/`retryable` 留空了 —— RL-02 填上判据。
+
+| 文件 | 改动 |
+|---|---|
+| `tools/status.py` | **`REFUSAL_CLASSES` 六分类**（`POLICY`/`BOUNDARY`/`AUTH_PENDING`/`CAPABILITY`/`TRANSIENT`/`MALFORMED`）+ **`classify_refusal(status, error_code)`**（唯一判定处，与 `outcome_for` 同一条登记纪律）+ **`retryable_for(class)`**（只有 `TRANSIENT`/`MALFORMED` 为真） |
+| `tools/result.py` | `__post_init__` 自动填 `refusal_class`（空时按 `classify_refusal` 推导）+ `retryable`（由类派生）—— 250+ 构造点一个不改 |
+
+**映射**（`classify_refusal`，13 条逐条钉在 `test_all [36]`）：
+
+| 类 | 触发 | `retryable` |
+|---|---|---|
+| `POLICY` | `GUARD_VIOLATION`/`TOOL_BANNED`/`BAIT_TRIGGERED`/`AST_FAILED`/`HOOK_BLOCKED` | False（换路径） |
+| `BOUNDARY` | `error_code=403` | False（换路径） |
+| `AUTH_PENDING` | `PERMISSION_REQUEST` | False（停下等人） |
+| `CAPABILITY` | `503`/`501` | False（降级并声明） |
+| `TRANSIENT` | `504` | **True**（退避重试） |
+| `MALFORMED` | `FORMAT_ERROR` | **True**（重新生成） |
+
+**边界（如实）**：① 认不出的**失败**（400/404/409/500）落 `""`（无更细的类，保守不自动重试）——
+TH-R1 的"穷举"钉的是**拒绝**路径（3 类覆盖全部 denied），不是全部失败；
+② 挂起（`PLAN_*`）落 `""`（停下等人，但不是"拒绝类"）；
+③ `refusal_class`/`retryable` 仍**没流到账本**（`tool/result` 事件只带 `outcome`）—— 那是 **DL-03 拒绝账本**的活（§1.4）。

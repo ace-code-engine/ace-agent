@@ -23,7 +23,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-from tools.status import outcome_for
+from tools.status import classify_refusal, outcome_for, retryable_for
 
 
 @dataclass
@@ -36,17 +36,22 @@ class ExecutionResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     # ---- 机器通道（RL-01；漏填也不影响人通道）----
     outcome: str = ""                 # 闭集见 `tools.status.OUTCOMES`；空 = 构造时按单一来源自动补
-    refusal_class: str = ""           # RL-02 的六分类（**批次 1 才填**）；`class` 是 Python 关键字故改名
-    retryable: bool = False           # 驱动层唯一必答的问题（判据由 RL-02 给，此处只留位）
+    refusal_class: str = ""           # RL-02 六分类（POLICY/BOUNDARY/AUTH_PENDING/CAPABILITY/TRANSIENT/MALFORMED）；空 = 无处置类
+    retryable: bool = False           # 驱动层唯一必答的问题：只有 TRANSIENT/MALFORMED 为真（由 `retryable_for` 派生）
     fingerprint: str = ""             # 两个账本的键（`THREE-LAYERS` §4）
     hint: Dict[str, Any] = field(default_factory=dict)   # {alternatives: [...], missing: [...]}
 
     def __post_init__(self) -> None:
-        """没显式给 `outcome` 就按**单一来源**推导。
+        """没显式给 `outcome`/`refusal_class` 就按**单一来源**推导。
 
         为什么要在这里补，而不是让 250+ 个构造点各填一次：那些点在 `tools/` 下遍地都是，
         逐个改既改不完、也一定会漏；放这里**每个结果都自动带上机器通道**，
         而调用方仍可显式覆盖（显式值优先）。
+
+        `retryable` 是 `refusal_class` 的**派生**（RL-02）：只有 TRANSIENT/MALFORMED 为真。
         """
         if not self.outcome:
             self.outcome = outcome_for(self.status, self.error_code)
+        if not self.refusal_class:
+            self.refusal_class = classify_refusal(self.status, self.error_code)
+        self.retryable = retryable_for(self.refusal_class)

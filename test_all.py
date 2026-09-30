@@ -6462,6 +6462,46 @@ if _want("36"):
           bool(_fail36) and _fail36[0].get("status") == "error"
           and _fail36[0].get("outcome") == "failed", _fail36 or "没有 tool/result")
 
+    # ── RL-02 拒绝六分类（THREE-LAYERS §2.3）：POLICY/BOUNDARY/AUTH_PENDING/CAPABILITY/TRANSIENT/MALFORMED ──
+    # RL-01 的信封把 `refusal_class`/`retryable` 留空了 —— 这里填上判据（先红后绿）。
+    from tools import status as _st36  # noqa: E402
+    _cls36 = getattr(_st36, "classify_refusal", None)
+    _rtry36 = getattr(_st36, "retryable_for", None)
+    check("RL-02 `classify_refusal` 存在（六分类的入口）", _cls36 is not None, "")
+    check("RL-02 闭集 = 6 个值（登记在 tools/status.py，与 outcome 同一条登记纪律）",
+          getattr(_st36, "REFUSAL_CLASSES", frozenset()) == {
+              "POLICY", "BOUNDARY", "AUTH_PENDING", "CAPABILITY", "TRANSIENT", "MALFORMED"},
+          sorted(getattr(_st36, "REFUSAL_CLASSES", frozenset())))
+    if _cls36 is not None:
+        _map36c = [
+            ("GUARD_VIOLATION", "", "POLICY"), ("TOOL_BANNED", "", "POLICY"),
+            ("BAIT_TRIGGERED", "", "POLICY"), ("AST_FAILED", "", "POLICY"),
+            ("HOOK_BLOCKED", "", "POLICY"),
+            ("PERMISSION_REQUEST", "", "AUTH_PENDING"),
+            ("error", "403", "BOUNDARY"),
+            ("error", "503", "CAPABILITY"), ("error", "501", "CAPABILITY"),
+            ("error", "504", "TRANSIENT"),
+            ("FORMAT_ERROR", "", "MALFORMED"),
+            ("SUCCESS", "", ""), ("PLAN_PENDING", "", ""),   # 成功/挂起：无拒绝类
+        ]
+        _bad36c = [f"{s}/{c}→{_cls36(s, c)}≠{w}" for s, c, w in _map36c if _cls36(s, c) != w]
+        check("RL-02 ★六分类逐条（13 条：3 拒绝类 + 3 失败类 + 成功/挂起无类）",
+              not _bad36c, _bad36c[:5])
+    if _rtry36 is not None:
+        check("RL-02 ★retryable 只有两类为真：TRANSIENT（退避重试）与 MALFORMED（重新生成）",
+              _rtry36("TRANSIENT") is True and _rtry36("MALFORMED") is True
+              and _rtry36("POLICY") is False and _rtry36("BOUNDARY") is False
+              and _rtry36("AUTH_PENDING") is False and _rtry36("CAPABILITY") is False
+              and _rtry36("") is False, "")
+    check("RL-02 ★信封自动填 `refusal_class` + `retryable`（250+ 构造点一个不改）",
+          _ER36(status="error", error_code="403").refusal_class == "BOUNDARY"
+          and _ER36(status="error", error_code="403").retryable is False
+          and _ER36(status="error", error_code="504").refusal_class == "TRANSIENT"
+          and _ER36(status="error", error_code="504").retryable is True
+          and _ER36().refusal_class == "" and _ER36().retryable is False,
+          (_ER36(status="error", error_code="504").refusal_class,
+           _ER36(status="error", error_code="504").retryable))
+
 
 
     # ============================================================

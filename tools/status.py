@@ -95,3 +95,67 @@ def outcome_for(status: str, error_code: str = "") -> str:
     if s in _DEFERRED_STATUSES:
         return OUTCOME_DEFERRED
     return OUTCOME_FAILED
+
+
+# ============================================================
+# refusal class —— 拒绝六分类（THREE-LAYERS RL-02）
+# ============================================================
+#
+# RL-01 的 `outcome` 拆开了"拒绝 vs 失败"；RL-02 再往前一步：**拒绝**里再分六类，
+# 每一类给驱动层**唯一**的处置动作（`THREE-LAYERS` §2.3 那张表就是全部契约）。
+# 与 `outcome`/`error_code` 同一条登记纪律：先登记常量、加进 `REFUSAL_CLASSES`，再使用。
+
+REFUSAL_CLASS_POLICY: Final[str] = "POLICY"             # 策略/黑名单拒绝 → **换路径**，别重试
+REFUSAL_CLASS_BOUNDARY: Final[str] = "BOUNDARY"         # 越界/敏感目标/不可逆 → **换路径**；同指纹再犯→提议固化
+REFUSAL_CLASS_AUTH_PENDING: Final[str] = "AUTH_PENDING"  # 需要人授权 → **停下等人**（不是失败）
+REFUSAL_CLASS_CAPABILITY: Final[str] = "CAPABILITY"     # 环境/能力缺失（503/501）→ **降级并声明 / 上报**
+REFUSAL_CLASS_TRANSIENT: Final[str] = "TRANSIENT"       # 超时/抖动/429 → **退避重试**
+REFUSAL_CLASS_MALFORMED: Final[str] = "MALFORMED"       # 输出畸形/截断 → **重新生成**，永不计入熔断
+
+REFUSAL_CLASSES: FrozenSet[str] = frozenset({
+    REFUSAL_CLASS_POLICY, REFUSAL_CLASS_BOUNDARY, REFUSAL_CLASS_AUTH_PENDING,
+    REFUSAL_CLASS_CAPABILITY, REFUSAL_CLASS_TRANSIENT, REFUSAL_CLASS_MALFORMED,
+})
+
+#: "策略/守门"那一类拒绝：执行层的门正常工作、按策略挡下（与 BOUNDARY 的"越界"不同）。
+_POLICY_STATUSES: Final[FrozenSet[str]] = frozenset({
+    "GUARD_VIOLATION", "TOOL_BANNED", "BAIT_TRIGGERED", "AST_FAILED", "HOOK_BLOCKED",
+})
+
+#: retryable 为真的只有两类：退避重试（TRANSIENT）与重新生成（MALFORMED）。
+_RETRYABLE_CLASSES: Final[FrozenSet[str]] = frozenset({
+    REFUSAL_CLASS_TRANSIENT, REFUSAL_CLASS_MALFORMED,
+})
+
+
+def classify_refusal(status: str, error_code: str = "") -> str:
+    """把 `status`/`error_code` 映射成**拒绝六分类**之一；成功/挂起 → `""`（无处置类）。
+
+    这张表是 RL-02「响应层 → 驱动层」全部契约的唯一判定处 —— 每类只有一个动作，互不重叠。
+    与 `outcome_for` 同一条纪律：认不出的**拒绝**路径必须在这里归类（TH-R1），
+    认不出的**失败**落 `""`（保守：不知道能不能重试就**不自动重试**）。
+    """
+    s = str(status or "").strip().upper()
+    code = str(error_code or "").strip()
+    if s in {x.upper() for x in _OK_STATUSES}:
+        return ""                                   # 成功：无处置类
+    if s in _DEFERRED_STATUSES:
+        return ""                                   # 挂起：停下等人，但没有"拒绝类"
+    if s == "PERMISSION_REQUEST":
+        return REFUSAL_CLASS_AUTH_PENDING
+    if s in _POLICY_STATUSES:
+        return REFUSAL_CLASS_POLICY
+    if code == ERROR_FORBIDDEN:
+        return REFUSAL_CLASS_BOUNDARY
+    if code in (ERROR_SANDBOX_UNAVAILABLE, ERROR_NOT_IMPLEMENTED):
+        return REFUSAL_CLASS_CAPABILITY
+    if code == ERROR_TIMEOUT:
+        return REFUSAL_CLASS_TRANSIENT
+    if s == "FORMAT_ERROR":
+        return REFUSAL_CLASS_MALFORMED
+    return ""                                       # 其余失败(400/404/409/500…)：无更细的类
+
+
+def retryable_for(refusal_class: str) -> bool:
+    """该类是否该重试：只有 TRANSIENT（退避重试）与 MALFORMED（重新生成）为真。"""
+    return str(refusal_class or "").strip().upper() in _RETRYABLE_CLASSES

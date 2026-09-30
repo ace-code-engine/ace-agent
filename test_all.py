@@ -240,7 +240,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
              "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
-             "80", "81", "82"]
+             "80", "81", "82", "83", "84", "85"]
 _SEEN_SECTIONS: list = []
 
 
@@ -16269,6 +16269,32 @@ if _want("82"):
 
 
 # ============================================================
+if _want("83"):
+    # ── [83] WP-4 工作区四层（第一切片）：四层模型 + 回滚纪律 + allowedRoots ──
+    print("[83] WP-4 工作区四层 —— 四层模型 / 回滚纪律 / allowedRoots")
+    from core import ace_workspace as _ws83  # noqa: E402
+
+    check("[83] 四层模型都在：Task / Workspace / Session / ExecutionProcess",
+          all(hasattr(_ws83, n) for n in ("Task", "Workspace", "Session",
+                                          "ExecutionProcess")), "")
+    check("[83] `RunReason` 五值闭合（SetupScript/CleanupScript/ArchiveScript/CodingAgent/DevServer）",
+          {r.value if hasattr(r, "value") else str(r) for r in _ws83.RunReason}
+          == {"SetupScript", "CleanupScript", "ArchiveScript", "CodingAgent", "DevServer"},
+          [getattr(r, "value", r) for r in _ws83.RunReason])
+    _store83 = _ws83.WorkspaceStore()
+    check("[83] ★回滚只有一条路：store **不持有** guardian/rollback/restore 入口（删 worktree ≠ 回滚）",
+          not hasattr(_store83, "guardian")
+          and not any(("rollback" in _m or "restore" in _m) for _m in dir(_store83)),
+          [m for m in dir(_store83) if "rollback" in m or "restore" in m])
+    _r_out83 = _ws83.WorkspaceStore(primary_root=mktemp("wp4_83")).authorize(
+        str(FOLDER / "…不在任何注册根内.txt"))
+    check("[83] ★allowedRoots 之外 → denied（拒绝，不是静默放行）",
+          _r_out83.get("decision") == "denied" and bool(_r_out83.get("reason")), _r_out83)
+    _r_fb83 = _ws83.WorkspaceStore().authorize(str(FOLDER / "x.txt"))
+    check("[83] ★无注册根（四层未启用）→ fallback 单工作区语义 + 如实声明（不静默）",
+          _r_fb83.get("decision") == "fallback" and bool(_r_fb83.get("reason")), _r_fb83)
+
+# ============================================================
 if _want("84"):
     # ── [84] WP-5 会话树：entry 树 + 向后兼容 + 只有 active branch 进上下文 ──
     print("[84] WP-5 会话树 —— entry 树 / 向后兼容 / 只有 active branch 进上下文")
@@ -16300,30 +16326,24 @@ if _want("84"):
           == ["老一问", "老一答", "老二问", "老二答"], [m.get("content") for m in _ab84(_evs84)])
 
 # ============================================================
-if _want("83"):
-    # ── [83] WP-4 工作区四层（第一切片）：四层模型 + 回滚纪律 + allowedRoots ──
-    print("[83] WP-4 工作区四层 —— 四层模型 / 回滚纪律 / allowedRoots")
-    from core import ace_workspace as _ws83  # noqa: E402
+if _want("85"):
+    # ── [85] HL-04 上报物料可判定（缺项即红 + 生产者是代码定位符） ──
+    print("[85] HL-04 上报物料 —— 缺项即红 / 生产者必须是代码定位符")
+    from core.ace_contracts import (ESCALATION_FIELDS as _EF85,  # noqa: E402
+                                    producer_for as _pf85,
+                                    validate_escalation_material as _vem85)
 
-    check("[83] 四层模型都在：Task / Workspace / Session / ExecutionProcess",
-          all(hasattr(_ws83, n) for n in ("Task", "Workspace", "Session",
-                                          "ExecutionProcess")), "")
-    check("[83] `RunReason` 五值闭合（SetupScript/CleanupScript/ArchiveScript/CodingAgent/DevServer）",
-          {r.value if hasattr(r, "value") else str(r) for r in _ws83.RunReason}
-          == {"SetupScript", "CleanupScript", "ArchiveScript", "CodingAgent", "DevServer"},
-          [getattr(r, "value", r) for r in _ws83.RunReason])
-    _store83 = _ws83.WorkspaceStore()
-    check("[83] ★回滚只有一条路：store **不持有** guardian/rollback/restore 入口（删 worktree ≠ 回滚）",
-          not hasattr(_store83, "guardian")
-          and not any(("rollback" in _m or "restore" in _m) for _m in dir(_store83)),
-          [m for m in dir(_store83) if "rollback" in m or "restore" in m])
-    _r_out83 = _ws83.WorkspaceStore(primary_root=mktemp("wp4_83")).authorize(
-        str(FOLDER / "…不在任何注册根内.txt"))
-    check("[83] ★allowedRoots 之外 → denied（拒绝，不是静默放行）",
-          _r_out83.get("decision") == "denied" and bool(_r_out83.get("reason")), _r_out83)
-    _r_fb83 = _ws83.WorkspaceStore().authorize(str(FOLDER / "x.txt"))
-    check("[83] ★无注册根（四层未启用）→ fallback 单工作区语义 + 如实声明（不静默）",
-          _r_fb83.get("decision") == "fallback" and bool(_r_fb83.get("reason")), _r_fb83)
+    check("[85] 物料有唯一判定处（validate_escalation_material）", callable(_vem85), "")
+    check("[85] ★空物料 → 当场报问题（缺项即红，不是「空着也行」）",
+          _vem85({}) != [], _vem85({}))
+    check("[85] 四块物料字段都在（事实 / 五要素 / 六要素 / 五种偷换）",
+          len(list(_EF85)) >= 4, sorted(_EF85) if hasattr(_EF85, "__iter__") else _EF85)
+    check("[85] ★六类生产者都不是空串（取不到就落类级兜底，不编造也不留空）",
+          all(_pf85(c) for c in ("POLICY", "BOUNDARY", "AUTH_PENDING", "CAPABILITY",
+                                 "TRANSIENT", "MALFORMED")),
+          [c for c in ("POLICY", "BOUNDARY", "AUTH_PENDING", "CAPABILITY", "TRANSIENT",
+                       "MALFORMED") if not _pf85(c)])
+
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
 if not (_ONLY or _SKIP or _UPTO or _LIST):

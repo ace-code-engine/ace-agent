@@ -44,6 +44,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core import ace_rules
+from core.ace_contracts import (  # HL-04：上报物料的模板与检查器（不另造一套）
+    MaterialIncomplete, defect as defect_contract, metric as metric_contract,
+    producer_for, validate_escalation_material,
+)
 from tools.status import (
     LADDER_BREAKER_N,
     LADDER_CROSS_GOAL_N,
@@ -76,8 +80,8 @@ __all__ = [
     "CROSS_GOAL_N", "FingerprintOf", "FailureEntry", "FailureLedger",
     "LearningAction", "LedgerKey", "BannedToolsView", "RefusalEntry",
     "RefusalLedger", "RepeatFailView", "RULE_PROPOSAL_N", "RuleDefectReport",
-    "RuleProposal", "defect_producer", "fingerprint_call", "hint_for",
-    "ladder_step",
+    "RuleProposal", "build_escalation_material", "defect_producer",
+    "defect_producer_note", "fingerprint_call", "hint_for", "ladder_step",
 ]
 
 #: 同 `(goal_id, fingerprint, class)` 被拒 N 次 → 提议固化成规则（DL-03 动作③）。
@@ -231,14 +235,163 @@ def hint_for(refusal_class: str, tool: str = "",
 
 
 def defect_producer(refusal_class: str) -> str:
-    """这类拒绝**是谁生产的**（HL-04 的 `production producer`）。
+    """这类拒绝**是谁生产的** —— 返回**代码定位符** `文件:符号`（HL-04）。
 
     §0.1 那个案例的全部教训在这一行：上报必须能指认生产者，否则"模型死循环"这种
-    归因会让人去修错的地方。取不到（未分类）时**如实说未知**，不编一个。
+    归因会让人去修错的地方。所以这里返回的是**位置**，不是一句说明；
+    说明在 `defect_producer_note()`（它读起来像症状，当不了 `production_producer`）。
     """
-    return _DEFECT_PRODUCERS.get(
+    return producer_for(refusal_class)
+
+
+def defect_producer_note(refusal_class: str) -> str:
+    """生产者的**人话说明**（为什么指那个位置）。取不到时如实说未知，不编。"""
+    return _DEFECT_PRODUCER_NOTES.get(
         str(refusal_class or "").strip().upper(),
         "未知（上报时必须补上生产者，否则就是 §0.1 的归错因）")
+
+
+# ============================================================
+# HL-04 · L4 上报物料（§3.5）—— 三块契约 + 事实字段
+# ============================================================
+
+def build_escalation_material(*, refusal_class: str, tool: str = "",
+                              tools: Any = (), goal_id: str = "",
+                              fingerprint: str = "", count: int = 0,
+                              goals: Any = (), fingerprints: Any = (),
+                              trigger: str = "cross_goal", observed: str = "",
+                              producer: str = "", budget_exhausted: bool = False,
+                              source: str = "") -> Dict[str, Any]:
+    """造一份**可判定**的 L4 上报物料（HL-04）；立不住就抛 `MaterialIncomplete`。
+
+    物料 = 事实字段（计数/目标/指纹/触发原因）
+         + **指标语义契约**五要素（这个数是什么、不是什么）
+         + **缺陷可达性契约**六要素（要构造什么状态、**谁生产的**、怎么走到症状、…）
+         + **五种偷换**逐条回答（没写"我没这样读"就无法证明没这样读）
+
+    三条"立不住"的硬门槛（宁可不出物料，也不出一份像样的假契约）：
+      · `count <= 0`：没有总体 ⇒ 任何"全都成立"都是 `all([])` 那类假通过；
+      · `observed` 为空：没有观测到的症状，就无从谈可达性；
+      · `trigger == "cross_goal"` 却不足 `CROSS_GOAL_N` 个目标：那本身就是
+        `latest-as-all` 偷换（一次观察当总体）。
+    生成后再过 `validate_escalation_material`（唯一判定处），有问题一律抛。
+    """
+    cls = str(refusal_class or "").strip().upper()
+    trig = str(trigger or "cross_goal").strip()
+    goal_list = [str(g) for g in (goals or ()) if str(g or "")]
+    fp_list = [str(f) for f in (fingerprints or ()) if str(f or "")]
+    tool_list = [str(t) for t in (tools or ()) if str(t or "")]
+    if tool and tool not in tool_list:
+        tool_list.insert(0, str(tool))
+    if fingerprint and fingerprint not in fp_list:
+        fp_list.append(str(fingerprint))
+    n = int(count or 0)
+    obs = str(observed or "").strip()
+
+    if n <= 0:
+        raise MaterialIncomplete(
+            "物料拒绝生成：没有计数（count<=0）—— 空总体上的『全都成立』是 "
+            "unknown-as-true 偷换（`all([])` 假通过）")
+    if not obs:
+        raise MaterialIncomplete(
+            "物料拒绝生成：没有**观测到的症状**（observed 为空）—— "
+            "六要素里的 Observed 正是『症状 ≠ 生产者』的第一半")
+    if trig == "cross_goal" and len(goal_list) < CROSS_GOAL_N:
+        raise MaterialIncomplete(
+            f"物料拒绝生成：trigger=cross_goal 但只有 {len(goal_list)} 个目标"
+            f"（需要 ≥{CROSS_GOAL_N}）—— 那是 latest-as-all 偷换："
+            "一次观察当总体")
+    if budget_exhausted and trig == "cross_goal":
+        trig = "budget_exhausted"
+
+    site = str(producer or "").strip() or producer_for(cls)
+    pop = len(fp_list)
+    goals_txt = "、".join(goal_list) if goal_list else "（无活动目标，按会话级记录）"
+    fps_short = "、".join(f[:6] for f in fp_list[:4]) or "（无）"
+    unknown_list = [
+        "这条规则的**设计意图** —— 未评估（物料只给可达性证据，不替人下结论）",
+        "规则应当如何修改 —— 未评估（裁决权在人；账本没有放宽权）",
+    ]
+    if trig != "budget_exhausted":
+        unknown_list.append("预算是否也会耗尽 —— 未评估（本次没走到那一级）")
+
+    mat: Dict[str, Any] = {
+        "kind": "escalation",
+        "refusal_class": cls, "tool": (tool_list[0] if tool_list else ""),
+        "goal_id": str(goal_id or ""), "fingerprint": str(fingerprint or ""),
+        "count": n, "goals": goal_list, "tools": tool_list,
+        "fingerprints": fp_list, "trigger": trig,
+        "source": str(source or ""), "budget_exhausted": bool(budget_exhausted),
+        # ── ACC-02 指标语义契约（五要素）──
+        "metric": metric_contract(
+            metric=f"class={cls or '(未分类)'} 的拒绝在多个目标上的出现次数",
+            anchor=f"按拒绝账本**现算**：逐条 (goal_id, fingerprint, class) 的 count 累加"
+                   f"（{n} 条记录，{pop} 个指纹）；不取最近一次、不缓存",
+            population=f"拒绝账本里 class={cls or '(未分类)'} 的全部条目："
+                       f"{len(goal_list)} 个目标（{goals_txt}）、{len(tool_list)} 个工具"
+                       f"（{('、'.join(tool_list) or '（未知）')}）",
+            excludes="成功/挂起的调用；goal_id 为空的条目**不算一个目标**"
+                     "（所以单会话不会误触发跨目标）；MALFORMED 不计入熔断",
+            reads_as=f"它是**被拒次数**（执行层正常工作、策略生效），不是失败次数；"
+                     f"也**不是**「规则已判定有缺陷」—— 那要人裁决（judgement=pending_human）"),
+        # ── ACC-03 缺陷可达性契约（六要素）──
+        "defect": defect_contract(
+            constructed_state=(
+                f"同一类拒绝（{cls or '未分类'}）在 {len(goal_list)} 个不同目标上各自命中"
+                f"同一类路障（指纹 {fps_short}）"
+                if trig == "cross_goal" else
+                f"同一类拒绝（{cls or '未分类'}）在本会话内把该级预算耗尽"
+                f"（{n} 条记录，指纹 {fps_short}）"),
+            production_producer=site,
+            transition_path=(f"每次拒绝 → 拒绝账本记一条（count++）→ "
+                             + (f"跨目标数达 {CROSS_GOAL_N}" if trig == "cross_goal"
+                                else "该级预算耗尽")
+                             + " → 阶梯升到 L4 → 生成本物料；期间没有任何自动放宽"
+                             + (f"；现场来源 source={source}" if source else "")),
+            persistence_boundary="拒绝账本是**长期/跨会话知识**"
+                                 "（`config['refusal_ledger']` 给了路径就落盘 .json）；"
+                                 "失败账本与会话同生共死（没有落盘 API）；"
+                                 "本物料进 `ExecutionLayer.escalations` 与账本事件",
+            authority="人（L4 是**阻塞式**上报，等回答，见 `answer_escalation`）；"
+                      "账本自己没有放宽权 —— 规则改动必须人确认（DL-04）",
+            observed=obs),
+        # ── ACC-04 五种偷换：逐条回答"我是怎么读的" ──
+        "substitutions": {
+            "unknown-as-true":
+                f"总体不是空的：{pop} 个指纹 / {n} 条记录（population_size={pop}）；"
+                "「没数」不会被读成「全都成立」",
+            "latest-as-all":
+                f"口径是**跨目标累计**（trigger={trig}，anchor 写明）；"
+                "不是「最近一份日志/最近一个目标」",
+            "accepted-as-closed":
+                "账本只是**记录**了这次升级（status=reported_open、requires_human=True）——"
+                "「被记录」≠「已闭合」：规则的处置权在人",
+            "attempted-as-judged":
+                f"这 {n} 次是**被拒次数**（执行层正常工作），不是「已判定规则有缺陷」"
+                "（judgement=pending_human）",
+            "unassessed-as-false":
+                "没人评过的维度登记进 `unknowns` 且 `rule_change_decided=None` ——"
+                "未评估是 None（无从评），不是 False（评过且否定）",
+        },
+        # ── 机械判据要读的事实字段（`detect_substitutions` 的唯一输入口）──
+        "population_size": pop, "distinct_goals": len(goal_list),
+        "verdict": "escalate", "judgement": "pending_human",
+        "requires_human": True, "status": "reported_open",
+        "rule_change_decided": None, "unknowns": unknown_list,
+    }
+    # 兼容上一轮的读法：`observed` / `production_producer` 是物料的**事实字段**
+    # （六要素里也各有一份，见 `defect`）—— 旧消费者读顶层这两个键不会被断掉。
+    mat["observed"] = obs
+    mat["production_producer"] = site
+    mat["constructed_state"] = mat["defect"]["constructed_state"]
+    mat["transition_path"] = mat["defect"]["transition_path"]
+    mat["persistence_boundary"] = mat["defect"]["persistence_boundary"]
+    mat["authority"] = mat["defect"]["authority"]
+
+    problems = validate_escalation_material(mat)
+    if problems:
+        raise MaterialIncomplete("；".join(problems))
+    return mat
 
 
 # ============================================================
@@ -349,9 +502,10 @@ class RuleProposal:
                 "evidence": dict(self.evidence), "requires_human": True}
 
 
-#: 缺陷的生产者（HL-04 的 `production producer`）：**这条上报必须能指认是谁生产的**，
-#: 否则就是 §0.1 那个"归错因"的复发（把规则的问题报成模型的问题）。
-_DEFECT_PRODUCERS: Dict[str, str] = {
+#: 缺陷的**生产者说明**（人话）：这条上报**为什么**指那个代码位置。
+#: 注意：它**不是** `production_producer` —— 后者必须是 `文件:符号` 的代码定位符
+#: （HL-04/`validate_defect`）；一句"规则本身有问题"读起来像症状，会被当场拦下。
+_DEFECT_PRODUCER_NOTES: Dict[str, str] = {
     REFUSAL_CLASS_POLICY: "规则本身（同一类策略拒绝在多个目标上反复出现 ⇒ 规则不适用，"
                           "不是模型不听话）",
     REFUSAL_CLASS_BOUNDARY: "边界规则/敏感清单（多个目标撞同一面墙 ⇒ 边界画错了位置或"
@@ -365,10 +519,12 @@ _DEFECT_PRODUCERS: Dict[str, str] = {
 
 @dataclass
 class RuleDefectReport:
-    """"规则本身有问题"的上报物料（DL-03 动作④ / HL-L4）。
+    """"规则本身有问题"的上报物料（DL-03 动作④ / HL-L4 / HL-04）。
 
-    它必须**可判定**：`observed`（观测到什么）+ `production_producer`（是谁生产的）
-    是最低要求 —— §0.1 那个案例上报了"模型死循环"却给不出生产者，于是修错了地方。
+    它必须**可判定**（§3.5）：`observed`（观测到什么）+ `production_producer`
+    （**代码定位符**：是谁生产的）+ 五要素指标契约 + 五种偷换的逐条回答。
+    §0.1 那个案例上报了"模型死循环"却给不出生产者，于是修错了地方 ——
+    所以 `production_producer` 从"一句话"升级成"指向真代码的位置"。
     """
 
     refusal_class: str
@@ -376,15 +532,32 @@ class RuleDefectReport:
     tools: List[str] = field(default_factory=list)
     count: int = 0
     observed: str = ""
-    production_producer: str = ""
+    production_producer: str = ""          # 代码定位符（文件:符号）
     requires_human: bool = True
+    metric: Dict[str, str] = field(default_factory=dict)         # ACC-02 五要素
+    defect: Dict[str, str] = field(default_factory=dict)         # ACC-03 六要素
+    substitutions: Dict[str, str] = field(default_factory=dict)  # ACC-04 五种偷换的逐条回答
+
+    def as_material(self) -> Dict[str, Any]:
+        """完整物料（HL-04）：三块契约 + 事实字段。**这是上报给人看的那份**。"""
+        mat: Dict[str, Any] = {
+            "kind": "escalation", "refusal_class": self.refusal_class,
+            "goals": list(self.goals), "tools": list(self.tools), "count": self.count,
+            "observed": self.observed, "production_producer": self.production_producer,
+            "requires_human": True, "metric": dict(self.metric),
+            "defect": dict(self.defect), "substitutions": dict(self.substitutions),
+        }
+        if self.defect:
+            mat["constructed_state"] = self.defect.get("constructed_state", "")
+            mat["transition_path"] = self.defect.get("transition_path", "")
+            mat["persistence_boundary"] = self.defect.get("persistence_boundary", "")
+            mat["authority"] = self.defect.get("authority", "")
+        return mat
 
     def as_dict(self) -> Dict[str, Any]:
-        return {"refusal_class": self.refusal_class, "goals": list(self.goals),
-                "tools": list(self.tools), "count": self.count,
-                "observed": self.observed,
-                "production_producer": self.production_producer,
-                "requires_human": True}
+        out = self.as_material()
+        out.pop("kind", None)
+        return out
 
 
 @dataclass
@@ -397,14 +570,15 @@ class RefusalEntry:
     first_at: str = ""
     last_at: str = ""
     hint: Dict[str, Any] = field(default_factory=dict)
-    source: str = ""          # 生产者：这条知识是哪条路径产生的（HL-04 的 producer）
+    source: str = ""          # 这条知识是哪条路径产生的（permission / tool_result / hook …）
+    producer: str = ""        # HL-04：产生它的**代码定位符**（文件:符号），供物料指认
     pattern: str = ""         # 建议固化的最小模式（ace_rules.suggest_rule 的口径）
 
     def as_dict(self) -> Dict[str, Any]:
         return {"key": self.key.as_dict(), "tool": self.tool, "count": self.count,
                 "first_at": self.first_at, "last_at": self.last_at,
                 "hint": dict(self.hint), "source": self.source,
-                "pattern": self.pattern}
+                "producer": self.producer, "pattern": self.pattern}
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "RefusalEntry":
@@ -415,6 +589,7 @@ class RefusalEntry:
                    first_at=str(d.get("first_at") or ""),
                    last_at=str(d.get("last_at") or ""),
                    hint=dict(d.get("hint") or {}), source=str(d.get("source") or ""),
+                   producer=str(d.get("producer") or ""),
                    pattern=str(d.get("pattern") or ""))
 
 
@@ -442,8 +617,13 @@ class RefusalLedger:
 
     def record(self, key: LedgerKey, *, tool: str = "",
                hint: Optional[Dict[str, Any]] = None, source: str = "",
-               pattern: str = "", at: Optional[str] = None) -> RefusalEntry:
-        """记一条拒绝（同键累加）。返回累加后的条目。"""
+               producer: str = "", pattern: str = "",
+               at: Optional[str] = None) -> RefusalEntry:
+        """记一条拒绝（同键累加）。返回累加后的条目。
+
+        `producer` = 产生这次拒绝的**代码定位符**（HL-04 的 `production producer`）：
+        物料据此指认真实生产现场，而不是写一句"规则本身有问题"。
+        """
         now = at or time.strftime("%Y-%m-%d %H:%M:%S")
         entry = self._entries.get(key)
         if entry is None:
@@ -459,6 +639,8 @@ class RefusalLedger:
                           for k, v in dict(hint).items()}
         if source:
             entry.source = str(source)
+        if producer:
+            entry.producer = str(producer)
         if pattern and not entry.pattern:
             entry.pattern = str(pattern)
         self._prune()
@@ -552,20 +734,36 @@ class RefusalLedger:
 
     def _build_defect(self, refusal_class: str,
                       threshold: Optional[int] = None) -> Optional[RuleDefectReport]:
+        """构造一条**可判定**的缺陷上报（HL-04）；物料立不住就返回 None（不报，不编）。
+
+        "立不住"不是异常情况：例如把阈值临时调成 1 个目标，`trigger=cross_goal` 的
+        物料本身就是 `latest-as-all` 偷换 —— 那种情况下**宁可少报也不错报**。
+        """
         cls = str(refusal_class or "").strip().upper()
         n = CROSS_GOAL_N if threshold is None else int(threshold)
         goals = self.distinct_goals(cls)
         if len(goals) < n:
             return None
         mine = [e for e in self._entries.values() if e.key.refusal_class == cls]
+        tools = sorted({e.tool for e in mine if e.tool})
+        total = sum(e.count for e in mine)
+        # 生产现场优先取**记录时**的代码定位符（谁拒的指谁）；取不到才落类级兜底。
+        site = next((e.producer for e in mine if e.producer), "") or producer_for(cls)
+        observed = (f"{cls} 类拒绝出现在 {len(goals)} 个不同目标上，共 {total} 次；"
+                    f"涉及工具 {tools}")
+        try:
+            mat = build_escalation_material(
+                refusal_class=cls, tool=(tools[0] if tools else ""), tools=tools,
+                goals=goals, fingerprints=[e.key.fingerprint for e in mine],
+                count=total, trigger="cross_goal", observed=observed,
+                producer=site, source="refusal_ledger")
+        except MaterialIncomplete:
+            return None
         return RuleDefectReport(
-            refusal_class=cls, goals=goals,
-            tools=sorted({e.tool for e in mine if e.tool}),
-            count=sum(e.count for e in mine),
-            observed=(f"{cls} 类拒绝出现在 {len(goals)} 个不同目标上，共 "
-                      f"{sum(e.count for e in mine)} 次；涉及工具 {sorted({e.tool for e in mine if e.tool})}"),
-            production_producer=_DEFECT_PRODUCERS.get(
-                cls, "未知（上报时必须补上生产者，否则就是 §0.1 的归错因）"))
+            refusal_class=cls, goals=goals, tools=tools, count=total,
+            observed=observed, production_producer=site,
+            metric=dict(mat["metric"]), defect=dict(mat["defect"]),
+            substitutions=dict(mat["substitutions"]))
 
     def propose_rule(self, key: LedgerKey,
                      threshold: Optional[int] = None) -> Optional[RuleProposal]:

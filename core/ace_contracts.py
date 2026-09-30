@@ -57,7 +57,13 @@ __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "CROSS_SESSION_PLACEHOLDERS", "CROSS_SESSION_METRICS", "INTERNAL_ONLY",
            "KNOWN_DEFECTS", "SUBSTITUTIONS", "PERMISSION_RENDERERS",
            "TOKEN_DEVIATION_THRESHOLD", "token_deviation", "token_verdict",
-           "usage_token_verdict", "validate_bench_report"]
+           "usage_token_verdict", "validate_bench_report",
+           # ── HL-04（§3.5）：L4 上报物料必须可判定 ──
+           "ESCALATION_FIELDS", "SUBSTITUTION_IDS", "MaterialIncomplete",
+           "REFUSAL_SOURCE_PRODUCERS", "REFUSAL_CLASS_PRODUCERS", "DEFAULT_PRODUCER",
+           "producer_for", "producer_for_source", "locator_format_ok",
+           "validate_substitution_answers", "detect_substitutions",
+           "validate_escalation_material"]
 
 # 五要素 / 六要素的**唯一来源**（顺序即文档里的顺序）
 METRIC_FIELDS = ("metric", "anchor", "population", "excludes", "reads_as")
@@ -491,4 +497,172 @@ def validate_bench_report(payload: Any) -> List[str]:
     metrics = payload.get("metrics")
     if not isinstance(metrics, list) or not metrics:
         problems.append("缺 metrics（非空列表）")
+    return problems
+
+
+# ============================================================
+# HL-04 · L4 上报物料必须**可判定**（THREE-LAYERS §3.5，接 §6 A6）
+# ============================================================
+#
+# L4 是"停下来问人"。而人能不能据此做决定，取决于这份物料**能不能被复核** ——
+# §3.5 的原话："不允许只上报『失败了 8 次』"。所以物料必须由三块拼成，缺一块就是
+# 假的"可判定"：
+#
+#   ① 指标语义契约（五要素，ACC-02）：那个数字是什么、以什么为锚、总体是谁、
+#      排除了什么、**不是**什么；
+#   ② 缺陷可达性契约（六要素，ACC-03）：要构造什么状态才看得到、
+#      **真正的生产者是谁（必须是代码定位符）**、怎么走到症状、越过哪个边界、
+#      谁有权、观测到的症状是什么；
+#   ③ 五种偷换（ACC-04）**逐条回答**：没写"我没有这样读"，就无法证明没有这样读。
+#
+# 这三块不是新造的东西 —— 它们是 `METRIC_FIELDS` / `DEFECT_FIELDS` / `SUBSTITUTIONS`
+# 的**消费口**。`validate_escalation_material` 是唯一的判定处。
+
+#: 物料必须齐的四块（多出来的字段是事实，不算契约的一部分，因此**不做闭集检查**）。
+ESCALATION_FIELDS = ("refusal_class", "metric", "defect", "substitutions")
+
+#: 五种偷换的 id（唯一来源 = `SUBSTITUTIONS`）。物料必须**逐条**回答。
+SUBSTITUTION_IDS = tuple(s["id"] for s in SUBSTITUTIONS)
+
+#: 拒绝的**生产现场**（`文件:符号`）—— "谁拒的，就指谁"。
+#: 为什么不指"规则本身有问题"：那是**症状+归因**，正是 §0.1 修错地方的原因。
+REFUSAL_SOURCE_PRODUCERS: Dict[str, str] = {
+    "permission": "execution_layer.py:_stage_permission",
+    "tool_result": "tools/base.py:execute",
+    "hook": "core/ace_hooks.py:run_hook",
+    "code_gate": "execution_layer.py:_gate_code_execute",
+    "snapshot": "execution_layer.py:_snapshot_unavailable",
+    "output_guard": "execution_layer.py:_stage_output_guard",
+    "tool_precheck": "execution_layer.py:_stage_tool_precheck",
+}
+
+#: 六类拒绝（+ 未分类）的**类级**生产者：取不到现场来源时的兜底。
+#: 每一个都必须是真实存在的 `文件:符号`（由 `test_all` / 自查断言逐条核）。
+REFUSAL_CLASS_PRODUCERS: Dict[str, str] = {
+    "POLICY": "core/ace_execpolicy.py:evaluate_command",
+    "BOUNDARY": "tools/base.py:_confined",
+    "AUTH_PENDING": "execution_layer.py:_stage_permission",
+    "CAPABILITY": "tools/base.py:execute",
+    "TRANSIENT": "core/ace_http.py:request_with_retry",
+    "MALFORMED": "agent_runner.py:TruncatedOutput",
+    "": "execution_layer.py:_ladder_budget_exhausted",
+}
+
+#: 什么都不知道时的定位符：执行层总入口（有现场就说现场，没有就指总门）。
+DEFAULT_PRODUCER = "tools/base.py:execute"
+
+#: 物料被当成"已闭合"的偷换状态词（`accepted-as-closed` 的判据）。
+_CLOSED_STATUSES = frozenset({"closed", "fixed", "resolved", "done", "accepted"})
+
+
+class MaterialIncomplete(AssertionError):
+    """L4 上报物料缺件 / 自相矛盾 —— **当场拦下**，不生成一份"像样的"假契约。
+
+    §0.1 的教训是"按错误的原因修，永远修不好"；一份缺 `production_producer` 的
+    物料比没有物料更坏（它看起来可复核）。所以这里是断言，不是警告。
+    """
+
+
+def producer_for_source(source: str) -> str:
+    """这次拒绝是**哪个现场**产生的（`文件:符号`）；认不出的来源落总入口。"""
+    return REFUSAL_SOURCE_PRODUCERS.get(str(source or "").strip(), DEFAULT_PRODUCER)
+
+
+def producer_for(refusal_class: str) -> str:
+    """该类拒绝的**类级**生产现场；认不出的类落总入口（**不编**、也不留空）。"""
+    return REFUSAL_CLASS_PRODUCERS.get(str(refusal_class or "").strip().upper(),
+                                        DEFAULT_PRODUCER)
+
+
+def locator_format_ok(locator: Any) -> bool:
+    """形状上是不是一个代码定位符 `文件:符号`（与 `validate_defect` 同一条判据）。"""
+    return bool(_LOCATOR.match(str(locator or "").strip()))
+
+
+def validate_substitution_answers(answers: Any) -> List[str]:
+    """五种偷换**逐条**回答了没有：返回问题列表（空 = 齐）。
+
+    "不出现某种误读"这件事无法靠翻字典证明 —— 只能要求物料**明确写下自己怎么读的**，
+    然后由 `detect_substitutions` 对事实字段做机械判据。两者一起才算"没有偷换"。
+    """
+    if not isinstance(answers, Mapping):
+        return ["记录不是映射（应当是 {偷换 id: 一句「我是怎么读的」}）"]
+    problems: List[str] = []
+    for sid in SUBSTITUTION_IDS:
+        val = answers.get(sid)
+        if not isinstance(val, str) or not val.strip():
+            problems.append(f"缺对 {sid} 的回答（没写 ⇒ 没证明没这样读）")
+    extra = sorted(set(answers) - set(SUBSTITUTION_IDS))
+    if extra:
+        problems.append(f"多出 {extra}（偷换清单是闭集，认不出的不算回答）")
+    return problems
+
+
+def detect_substitutions(mat: Any) -> List[str]:
+    """五种偷换的**机械判据**：命中一条返回一条（空 = 一个都没出现）。
+
+    每条判据都钉在一个事实字段上，不靠人读措辞：
+
+    | 偷换 | 判据 |
+    |---|---|
+    | `unknown-as-true` | `verdict == "escalate"` 而 `population_size <= 0`（没数却说全都成立） |
+    | `latest-as-all` | `trigger == "cross_goal"` 而 `distinct_goals <= 1`（一次观察当总体） |
+    | `accepted-as-closed` | `requires_human is not True` 或 `status` 是"已闭合"词 |
+    | `attempted-as-judged` | `judgement != "pending_human"`（尝试过 ⇒ 当成已判定） |
+    | `unassessed-as-false` | `rule_change_decided is not None`，或 `unknowns` 不是列表 |
+    """
+    if not isinstance(mat, Mapping):
+        return []
+    out: List[str] = []
+    pop = mat.get("population_size")
+    if str(mat.get("verdict") or "") == "escalate" and (
+            isinstance(pop, bool) or not isinstance(pop, int) or pop <= 0):
+        out.append("unknown-as-true: 总体是空的（population_size<=0）却宣布升级 —— "
+                   "「没数」不等于「全都成立」（`all([])` 那类假通过）")
+    if str(mat.get("trigger") or "") == "cross_goal" and int(mat.get("distinct_goals") or 0) <= 1:
+        out.append("latest-as-all: 拿单个目标的一次观察当「跨目标全都如此」—— "
+                   "单会话/单目标与跨目标是两种口径，不能合并读")
+    if mat.get("requires_human") is not True or str(mat.get("status") or "") in _CLOSED_STATUSES:
+        out.append("accepted-as-closed: 「被记录」被读成「已闭合/已处理」—— "
+                   "账本只是记录，规则的处置权在人")
+    if str(mat.get("judgement") or "") != "pending_human":
+        out.append("attempted-as-judged: 把「被拒 N 次」当成「已判定规则有缺陷」—— "
+                   "尝试过 ≠ 已判过")
+    if (mat.get("rule_change_decided", "missing") is not None
+            or not isinstance(mat.get("unknowns"), list)):
+        out.append("unassessed-as-false: 没人评过的维度被写成 False/没登记 —— "
+                   "未评估是 `None`（无从评），不是 `False`（评过且否定）")
+    return out
+
+
+def validate_escalation_material(mat: Any) -> List[str]:
+    """HL-04 的**唯一判定处**：L4 上报物料可判定吗？返回问题列表（空 = 可判定）。
+
+    = 四块齐（`ESCALATION_FIELDS`）
+      + 五要素（`validate_metric`）
+      + 六要素（`validate_defect`，含"生产者必须是代码定位符且不等于症状"）
+      + 五种偷换逐条回答（`validate_substitution_answers`）
+      + 五种偷换一个都没出现（`detect_substitutions`）
+
+    **注意**：物料里除这四块之外还有大量事实字段（计数/目标/指纹…），它们不是契约的
+    一部分，所以这里**不做**闭集检查 —— 与 `validate_metric` 的"多出字段"纪律不同。
+    """
+    if not isinstance(mat, Mapping):
+        return ["物料不是映射（L4 上报物料是一条 dict）"]
+    problems: List[str] = []
+    if _blank(mat.get("refusal_class")):
+        problems.append("缺字段 refusal_class（或为空）")
+    for block in ("metric", "defect", "substitutions"):
+        if block not in mat:
+            problems.append(f"缺字段 {block}")
+        elif not isinstance(mat.get(block), Mapping):
+            problems.append(f"字段 {block} 不是映射（契约是一条 dict）")
+    if isinstance(mat.get("metric"), Mapping):
+        problems += [f"metric: {p}" for p in validate_metric(mat["metric"])]
+    if isinstance(mat.get("defect"), Mapping):
+        problems += [f"defect: {p}" for p in validate_defect(mat["defect"])]
+    if isinstance(mat.get("substitutions"), Mapping):
+        problems += [f"substitutions: {p}"
+                     for p in validate_substitution_answers(mat["substitutions"])]
+    problems += detect_substitutions(mat)
     return problems

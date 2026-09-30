@@ -69,10 +69,13 @@ from typing import Optional, Dict, Any, List, Set, Tuple
 from tools import ToolExecutor, repair_backslash_json
 from tools.status import (classify_refusal, counts_toward_breaker,  # noqa: E402
                           ladder_action,
+                          LADDER_CROSS_GOAL_N,
                           LADDER_L0_RETRY, LADDER_L1_REROUTE, LADDER_L2_BREAKER,
                           LADDER_L3_DEGRADE)
+from core.ace_contracts import MaterialIncomplete, producer_for_source  # noqa: E402
 from core.ace_ledgers import (BannedToolsView, FailureLedger, LedgerKey,  # noqa: E402
-                              RefusalLedger, RepeatFailView, defect_producer,
+                              RefusalLedger, RepeatFailView,
+                              build_escalation_material, defect_producer,
                               fingerprint_call, hint_for)
 from core.ace_isolation import wrap_untrusted
 from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
@@ -998,33 +1001,53 @@ class ExecutionLayer:
 
     def _escalation_material(self, tool_name: str, key: LedgerKey,
                              entry: Any, reason: str = "") -> Dict[str, Any]:
-        """L4 的上报物料（§3.5）：**可判定** —— 观测到什么 + **是谁生产的**。
+        """L4 的上报物料（§3.5 / **HL-04**）：**可判定**，不是"失败了 N 次"。
 
-        §0.1 那个案例上报了"模型死循环"却给不出 `Production producer`，于是修错了地方。
-        这里把生产者也一起报出去：同一类拒绝跨目标反复出现，生产者通常是**规则**，
-        不是模型。
+        物料由三块拼成（都走 `core/ace_contracts.py` 的模板与检查器，不另造一套）：
+        **指标语义契约五要素** · **缺陷可达性契约六要素**（`production_producer`
+        必须是**代码定位符**）· **五种偷换逐条回答**。
+
+        `production_producer` 优先取**拒绝记录时**记下的现场定位符（谁拒的指谁）；
+        取不到才落类级兜底 —— 从不是"规则本身有问题"这种症状描述（§0.1 的教训）。
+        物料立不住（`MaterialIncomplete`）时**声明降级**并如实标 `incomplete`，
+        绝不编一份看起来可复核的假契约。
         """
-        rep = self.refusal_ledger.report_defect(key.refusal_class)
         cls = key.refusal_class
-        fps = {key.fingerprint}
-        fps |= {e.key.fingerprint for e in self.refusal_ledger.entries()
-                if e.key.refusal_class == cls}
+        mine = [e for e in self.refusal_ledger.entries() if e.key.refusal_class == cls]
+        fps = {key.fingerprint} | {e.key.fingerprint for e in mine}
+        rep = self.refusal_ledger.report_defect(cls)
+        goals = rep.goals if rep else self.refusal_ledger.distinct_goals(cls)
+        site = next((e.producer for e in mine if e.producer), "") or defect_producer(cls)
+        source = next((e.source for e in mine if e.source), "failure_ledger")
+        count = int(getattr(entry, "count", 0))
         observed = (rep.observed if rep else
                     f"{tool_name}（fp={key.fingerprint[:6]} · {cls or '未分类'}）已失败 "
-                    f"{getattr(entry, 'count', 0)} 次；触发原因：{reason or '阶梯升级'}")
-        return {
-            "refusal_class": cls, "tool": tool_name, "goal_id": key.goal_id,
-            "fingerprint": key.fingerprint, "count": int(getattr(entry, "count", 0)),
-            "goals": rep.goals if rep else self.refusal_ledger.distinct_goals(cls),
-            "tools": rep.tools if rep else [tool_name],
-            "fingerprints": sorted(fps),
-            "observed": observed,
-            "production_producer": (rep.production_producer if rep
-                                    else defect_producer(cls)),
-            "transition_path": ("同 (goal, fingerprint, class) 计数达阈值 → 阶梯升级到 L4"),
-            "authority": "人（L4 是阻塞式上报，等回答；账本自己没有放宽权）",
-            "requires_human": True,
-        }
+                    f"{count} 次；触发原因：{reason or '阶梯升级'}")
+        trigger = ("cross_goal" if len(goals) >= LADDER_CROSS_GOAL_N
+                   else ("budget_exhausted" if self._ladder_budget_exhausted()
+                         else "ladder"))
+        try:
+            return build_escalation_material(
+                refusal_class=cls, tool=tool_name,
+                tools=rep.tools if rep else [tool_name], goal_id=key.goal_id,
+                fingerprint=key.fingerprint, count=count, goals=goals,
+                fingerprints=sorted(fps), trigger=trigger, observed=observed,
+                producer=site, budget_exhausted=(trigger == "budget_exhausted"),
+                source=source)
+        except MaterialIncomplete as exc:
+            # 物料立不住 = 上报能力降级：**必须声明**（HL-03②），并如实标 incomplete。
+            self._note_degrade("hl04_material",
+                               f"L4 物料无法判定（{exc}）—— 本次只带事实字段，"
+                               "不编造五要素/六要素契约")
+            return {
+                "kind": "escalation", "incomplete": str(exc),
+                "refusal_class": cls, "tool": tool_name, "goal_id": key.goal_id,
+                "fingerprint": key.fingerprint, "count": count, "goals": goals,
+                "tools": rep.tools if rep else [tool_name],
+                "fingerprints": sorted(fps), "observed": observed,
+                "production_producer": site, "requires_human": True,
+                "trigger": trigger,
+            }
 
     def _ladder_note(self, tool_name: str, key: LedgerKey, level: str,
                      entry: Any) -> str:
@@ -1081,8 +1104,12 @@ class ExecutionLayer:
             pattern = ace_rules.suggest_rule(tool_name, tool_call or {})
         except Exception:      # noqa: BLE001 —— 猜模式失败不影响记账
             pattern = ""
+        # HL-04：**生产现场**也一起记（`文件:符号`）—— 物料据此指认"谁拒的"，
+        # 而不是写一句"规则本身有问题"（那种症状描述过不了 `validate_defect`）。
+        site = producer_for_source(source)
         entry = self.refusal_ledger.record(key, tool=tool_name, hint=h,
-                                           source=source, pattern=pattern)
+                                           source=source, producer=site,
+                                           pattern=pattern)
         if self.session_log:
             self.session_log.record_refusal(
                 tool_name, goal_id=key.goal_id, fingerprint=key.fingerprint,
@@ -1112,11 +1139,19 @@ class ExecutionLayer:
 
     def _note_refusal(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
                       result: Any, source: str = "") -> str:
-        """执行层结果里的**拒绝**进账本（`ExecutionResult.refusal_class` 非空时）。"""
+        """执行层结果里的**拒绝**进账本（`ExecutionResult.refusal_class` 非空时）。
+
+        钩子拦下（`HOOK_BLOCKED`）时把现场改指钩子运行器 —— "谁拒的指谁"（HL-04）：
+        指 `tools/base.py:execute` 会让修的人去翻执行器，而真正的规矩在 `run_hook`。
+        """
+        src = source
+        if isinstance(getattr(result, "metadata", None), dict) \
+                and result.metadata.get("hook"):
+            src = "hook"
         return self._record_refusal(
             tool_name, tool_call,
             refusal_class=str(getattr(result, "refusal_class", "") or ""),
-            source=source, hint=dict(getattr(result, "hint", None) or {}),
+            source=src, hint=dict(getattr(result, "hint", None) or {}),
             message=str(getattr(result, "message", "") or ""))
 
     def _note_refusal_dict(self, tool_name: str, tool_call: Optional[Dict[str, Any]],

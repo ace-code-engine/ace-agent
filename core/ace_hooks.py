@@ -369,19 +369,29 @@ def _version() -> str:
 
 
 # 旧接口兼容：把 `$ARGUMENTS` 之类的替换逻辑放在这里，命令模块直接复用
-_PLACEHOLDER = re.compile(r"\$(\d+|ARGUMENTS)")
+# 支持两族：`$ARGUMENTS` / `$1` / `$2`（旧），以及 `${1}` / `${1:-默认}`（WP-1 提示词模板）。
+_PLACEHOLDER = re.compile(r"\$(\d+|ARGUMENTS)|\$\{(\d+)(?::-([^}]*))?\}")
 
 
 def substitute_placeholders(text: str, arguments: str) -> str:
-    """`$ARGUMENTS` / `$1` / `$2` … 替换（自定义命令用；纯函数、可单测）。"""
+    """`$ARGUMENTS` / `$1` / `$2` / `${1}` / `${1:-默认}` 替换（自定义命令用；纯函数、可单测）。
+
+    `${N:-默认}`：第 N 个参数缺失（或为空）时用 `-` 后的默认值，而不是空串 ——
+    让可选参数有落脚点（ROADMAP WP-1 提示词模板的插值写法）。
+    """
     args = (arguments or "").split()
 
     def _rep(m: "re.Match[str]") -> str:
-        key = m.group(1)
-        if key == "ARGUMENTS":
-            return arguments or ""
-        idx = int(key) - 1
-        return args[idx] if 0 <= idx < len(args) else ""
+        if m.group(1) is not None:                 # $ARGUMENTS / $1 / $2（旧写法）
+            key = m.group(1)
+            if key == "ARGUMENTS":
+                return arguments or ""
+            idx = int(key) - 1
+            return args[idx] if 0 <= idx < len(args) else ""
+        idx = int(m.group(2)) - 1                  # ${N} / ${N:-默认}
+        if 0 <= idx < len(args) and args[idx]:
+            return args[idx]
+        return m.group(3) if m.group(3) is not None else ""
 
     return _PLACEHOLDER.sub(_rep, text)
 

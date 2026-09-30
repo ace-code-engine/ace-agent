@@ -7571,6 +7571,14 @@ if _want("44"):
           _cmds44["review"].expand("40"))
     check("菜单项带参数提示", _cmds44["review"].menu_entry()[0] == "/review [段号]",
           _cmds44["review"].menu_entry())
+    # WP-1 提示词模板：`${1:-默认}` 带默认值插值（ROADMAP 的写法；缺参用默认，不是空串）
+    check("WP-1 ★${1:-默认} 带默认值插值（缺参用默认）",
+          _hk44.substitute_placeholders("跑 ${1:-全量} 测试", "") == "跑 全量 测试"
+          and _hk44.substitute_placeholders("跑 ${1:-全量} 测试", "快速") == "跑 快速 测试",
+          _hk44.substitute_placeholders("跑 ${1:-全量} 测试", ""))
+    check("WP-1 ★${2:-默认} 取第 2 参（无默认且缺参 → 空串）",
+          _hk44.substitute_placeholders("改 ${1} 为 ${2:-None}", "a.txt") == "改 a.txt 为 None",
+          _hk44.substitute_placeholders("改 ${1} 为 ${2:-None}", "a.txt"))
     _plugins44 = _cm44.load_plugins(str(_cmd_root))
     check("插件目录被识别（commands + hooks + plugin.json）",
           len(_plugins44) == 1 and _plugins44[0].name == "demo"

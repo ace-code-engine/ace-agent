@@ -347,6 +347,11 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 - **验收**：四子项各自带回归断言；`test_all [39]` 的"文档数字单一来源"校验不得因新增 config key 变红。
 - **风险**：低。唯一注意点是 `prompts/` 目录已被系统提示词占用。
 
+> **进度（2026-09-30）**：① 提示词模板 —— 已由 `core/ace_commands.py` 落地（`.ace/commands/*.md` +
+> frontmatter + 插件目录 + `test_all [44]`），本轮补上 `${1:-默认}` 带默认值插值（此前是 `$1` 缺参空串）；
+> ② 繁忙发送策略 —— `steering_mode`/`followup_mode` 两键已落地（`TurnController` + `CLIConfig` + TUI 透传）。
+> **剩 ③ ask_user（文本答案回流往返）与 ④ 系统提示词分层（`SYSTEM.md` 替换默认提示词的安全边界）。**
+
 ### WP-2 · git 工具族（G-01）
 
 - **范围**：`git_status` / `git_diff` / `git_log` / `git_show` / `git_blame` / `git_commit_plan` / `git_fetch` / `git_merge_tree`（照 Codewhale 命名），

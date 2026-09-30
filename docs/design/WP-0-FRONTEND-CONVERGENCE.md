@@ -3,10 +3,11 @@
 > 编号：`WP-0`（`WP-` 是 `docs/ROADMAP.md` 的工作面命名空间，本卡是它的第一张）。
 > 上级：`docs/ROADMAP.md` §4（工作面）· §7 **批次 0**（**前置**）· §8 R-1 / R-3。
 > 状态：**批次 -1 两件事已完成**（**W0-D = D3** · **W0-A 三张点名表 + 收/不收清单**，含
-> 🔴 头号发现：Ink 路径的防误触宽限期**承诺了但没有**）。
+> ✅ 头号发现**已修**（2026-09-27）：Ink 路径的防误触宽限期，承诺了、现在也有了 —— 见 §2 的
+> 「✅ 头号发现已修」）。
 > **批次 0 已开工**：口径对齐 **R-1 / R-3 / R-4 / R-5 / R-6 已收**（各带对拍或断言）·
 > 同批的 **`RL-01` 结果信封已落地**（`THREE-LAYERS` §9）。
-> **仍未完成**：**R-2 / R-7（两条能力缺口，待决）· R-8 / R-9（待拍板）· 本卡的 W0-B / W0-C
+> **仍未完成**：**R-7（能力缺口，待决）· 本卡的 W0-B / W0-C
 > （协议消费与外壳降级）** ⇒ **批次 0 的出口条件尚未达成**（"4 份重复对话框合一 + `ui/`/`tui/`
 > 降为 fallback"都还没做）。W0-A 的"第 5 份实现就红"那条断言也仍**没做**（如实标注，见 §2 W0-A 验收）。
 > 来源：2026-09-27（HEAD `b94ab7f`，v3.45.0，工作树干净）**逐项在现码上实测复核**；
@@ -201,7 +202,7 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | 拒绝理由输入 | ✓ `n <理由>` → `on_deny_feedback`（`agent_runner.py:747-755`） | ✓ `Tab` 开备注框（`:575` / `:601-602` / `:620-631`） | ✓ `n` 进 typingReason（`:84-88`、`:111-116`） |
 | 颜色 / 选项级 danger | ✗ 纯文本，**无颜色、无 danger** | ✓ 选项级 `perm_danger`（`:598-600`）+ `$warning` 边框（`:559`） | ✓ `color('warn')` 边框+标题（`:104-106`）；**无选项级 danger** |
 | 档位 `level` | ✗ | ✗ | ✗ —— 载荷里**根本没这个字段**（`execution_layer.py:1754-1762` / `:2263-2270`） |
-| **宽限期（防误触）** | ✓ `GraceGate`（`agent_runner.py:677-685`；`ui/ace_grace.py:33` 默认 200ms，`ACE_PERM_GRACE_MS` 可调） | ✓ `ui/ace_turn.py:212 _gate.admit` + 提示（`tui/app.py:1204-1207`） | **✗ 缺** —— 见下面的头号发现 |
+| **宽限期（防误触）** | ✓ `GraceGate`（`agent_runner.py:677-685`；`ui/ace_grace.py:33` 默认 200ms，`ACE_PERM_GRACE_MS` 可调） | ✓ `ui/ace_turn.py:212 _gate.admit` + 提示（`tui/app.py:1204-1207`） | ✓ **已补**（`core/ace_serve.ServeUIHost.ask_permission`，R-2）—— 三条路现在同一条口径 |
 | 超时 | 无（阻塞 `input()`） | 600s（`tui/app.py:1187`） | 600s（桥侧 `core/ace_serve.py:461/472`） |
 
 **结论**
@@ -268,7 +269,7 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | # | 收什么 | 现状证据 | 状态 |
 |---|---|---|---|
 | R-1 | **权限三态选项集（含"危险档"）** | `ui/ace_turn.py:59-63` vs Ink 自抄 `PermissionDialog.tsx:32-36`（注释声明须对齐，**无断言**）；`session` 那档的 `danger=True` 在 Ink 侧**丢了** | ✅ 2026-09-27 |
-| R-2 | **权限"必须有宽限期"这条要求** | 终端 ✓ / TUI ✓ / **Ink ✗**（见下面 🔴 头号发现） | ⏸ 待新卡 |
+| R-2 | **权限"必须有宽限期"这条要求** | 终端 ✓ / TUI ✓ / Ink **✅ 2026-09-27 已补**（`ServeUIHost.ask_permission`） | ✅ 已收（见上面「✅ 头号发现已修」；6 条 Python 断言 + 真引擎集成断言） |
 | R-3 | **工具卡状态字形** | 三套：`ace_cards.py` 4 态 / `ace_tools.py DOT` 3 态 / `ToolCard.tsx` 3 态；**零对拍** | ✅ 三态对齐；`⚠` 缺口已**记账**（见下） |
 | R-4 | **只读工具集**（"成功不展开"的判据） | `ace_cards.py:42-46` 14 个 vs `ToolCard.tsx:27` **7 个且 4 个名字注册表里没有** | ✅ 2026-09-27 |
 | R-5 | **菜单窗口策略** | 黏边（`ace_menu.py:273-292`）vs **居中**（`menu.ts:358-370`）—— 同一种交互两种手感 | ✅ 2026-09-27（TS 改成黏边；**行为级**对拍） |
@@ -416,24 +417,46 @@ Python 的 spinner 有整套 stall 语义：`stall_level(idle, threshold)` 0→1
   （`glyphs.test.tsx` 只钉 cp936 降级后的字，不读 `ui/ace_cards.py`）。补断言，或改注释。
 - `ai_code.py:3962-3964` 声称"协议前端那条的宽限期在 `core/ace_serve.ServeUIHost` 里" —— **实际上没有**（见下）。
 
-##### 🔴 头号发现：**Ink 路径的"防误触宽限期"承诺了但不存在**
+##### ✅ 头号发现已修（2026-09-27）：协议前端那条路补齐了宽限期
+
+**原先的事实**（留档，因为它是这条断言的由来）：
 
 | 路 | 宽限期 | 证据 |
 |---|---|---|
 | 终端问答 | ✅ 有 | `agent_runner.py:677-685` → `ui/ace_grace.GraceGate`（默认 **200ms**，`ACE_PERM_GRACE_MS` 可调，上限 5000） |
 | 组件界面（Textual） | ✅ 有 | `ui/ace_turn.py:212 _gate.admit` + 提示（`tui/app.py:1204-1207`） |
-| **协议前端（Ink，声明的主外壳）** | ❌ **没有** | `core/ace_serve.py:467-484` 只有 `wait_for(..., timeout=600s)` —— 那是**超时**不是**宽限期**；前端侧 `frontend/src` 全域 `grace` 只出现在 `client.ts:197` 的**关闭**超时（本卡复核：无 `admit`、无权限闸门） |
+| **协议前端（Ink，声明的主外壳）** | ❌ **没有** | `core/ace_serve.py:467-484` 只有 `wait_for(..., timeout=600s)` —— 那是**超时**不是**宽限期**；前端侧 `frontend/src` 全域 `grace` 只出现在 `client.ts:197` 的**关闭**超时 |
 
 而 `ai_code.py:3962-3964` 的注释**明说**"协议前端那条的宽限期在 `core/ace_serve.ServeUIHost` 里"。
-⇒ 这是 **H-32 那一类**（承诺与现码不同口径），而且落在**安全侧**：
-宽限期存在的理由正是"对话框刚出现那一瞬飞过来的回车不算数"（`tui/app.py:1155-1160` 的原话）。
-**声明的主外壳目前是三条路里唯一没有这层保护的。**
+⇒ **H-32 那一类**（承诺与现码不同口径），而且落在**安全侧**：宽限期存在的理由正是
+"对话框刚出现那一瞬飞过来的回车不算数"（`tui/app.py:1155-1160` 的原话）。
 
-> 两种出路（**本卡不替你选**，因为它不是 W0-A 的产出而是**新的一包**）：
-> ① **补闸门**：在 `ServeUIHost.ask_permission` 里加与另外两条同源的 `GraceGate`（Python 侧即可，
->    与 TUI 的位置对称），并配断言；
-> ② 或**改注释**，如实写成"协议前端目前没有宽限期"。
-> 但无论选哪条，**现状都必须先被写对** —— 不能继续让注释替代码承诺。
+**选的是出路①（补闸门）**，理由：宽限期存在的**理由**对 Ink 同样成立 ——
+"声明的主外壳是三条路里唯一没有这层保护的"不是取舍，是缺口。
+
+| 改动 | 位置 |
+|---|---|
+| 闸门与重问循环 | `core/ace_serve.ServeUIHost.ask_permission`：`GraceGate` → 判为飞行按键则**不采纳** → `notice` 说清原因 → **重发请求** → 用尽 `MAX_DISCARDS` 后采纳 |
+| 提示文案 | `ai_code.py` 构造 `ServeUIHost` 时传 `grace_hint=t("grace_inflight")`（**与终端同一个 i18n 键**，三语早已齐全） |
+| 可测性 | `ServeUIHost(..., grace_ms=)` 可显式传入（`None` = 读 `ACE_PERM_GRACE_MS`），测试不必去改环境变量 |
+| 那条注释 | 改成**真话**，并把"第二句此前只兑现了两条路"写进去 —— 注释不许再替代码承诺 |
+
+**为什么必须重发请求**：多数外壳在作答时就把对话框收起来了。只丢弃不重发，用户会看到
+"我答过了、界面却没了"，然后一直等到 600s 超时 —— 那比不做保护更糟。
+
+**算术与终端逐字一致**（`MAX_DISCARDS = 2`）：**N 次丢弃 → N−1 句提示**，
+因为最后一轮的丢弃同时用尽了次数、那一轮直接采纳 —— 这是"别把自动化喂输入永久挡在门外"的出口。
+
+**红 → 绿**（`frontend/test/integration.test.ts`，**真引擎**）：
+第一版断言 `perms.length > 1` 因为**错误的原因通过**了（mock 剧本本来就有多次审批），
+红只红在提示缺失 ⇒ 改成**次序**判据：`permission_request` → 飞行按键提示 → 之后才可能"已临时授权"。
+`test_all [61]` 另加 **6 条**确定性断言（假 server + 可注入的 `grace_ms`），
+其中一条专门钉"**改写这个循环没有破坏 fail-close**：拿不到答案 → deny"。
+
+> **顺带清掉一个真环境问题**：早期几次全量失败留下的 `mkdtemp` 目录（25 个）
+> 会让**受限沙箱**无法给工作区重授写权限 —— 表现是之后**每条受限命令**都
+> `SetNamedSecurityInfoW failed (Win32 5)`。所谓"删不掉"只在受限模式下成立：
+> 完整权限下一次 `Remove-Item -Recurse -Force` 全部清干净（25/25）。
 
 **W0-A 验收（2026-09-27）**：
 

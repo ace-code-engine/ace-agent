@@ -3960,9 +3960,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         三条路（组件界面 / 协议前端 / 终端问答）都守着同一条口径：**拿不到答案就拒绝**。
         不能因为"走的是哪条路"而少一层保护 —— 尤其不能因为"前端断了"就默认放行。
 
-        （终端那条的宽限期在 `ask_grant` 里，组件界面那条在 `ui/ace_turn` 里；
-        协议前端那条在 `core/ace_serve.ServeUIHost` 里 —— 三条路各管各的按键，
-        但"拿不到答案就拒绝"这条完全一致。）
+        （终端那条的宽限期在 `ask_grant` 里，组件界面那条在 `ui/ace_turn` 里，
+        **协议前端那条在 `core/ace_serve.ServeUIHost.ask_permission` 里** —— 三条路各管各的
+        按键，但"拿不到答案就拒绝"与"飞行过来的那一下不算数"这两条**完全一致**。
+        第二句此前只兑现了两条路：Ink 那条路上曾经一道闸门都没有，而这段注释却在
+        替代码承诺 —— `WP-0` 卡的 🔴 头号发现，已在 `R-2` 里补齐。）
         """
         ui = self._ui
         if ui is not None and hasattr(ui, "ask_permission"):
@@ -6978,7 +6980,8 @@ def _run_serve(cli: "AgentCLI", srv) -> int:
     # 把协议前端挂成界面宿主：`attach_ui` 之后，授权 / 选择 / 确认 / 文本输入
     # 四类提问全部自动走协议往返 —— CLI 里十几处调用点**一行都不用改**。
     # 这比"每处加一个 if serve 分支"稳得多：那种写法等于把同一条规则抄十几遍。
-    cli.attach_ui(ace_serve.ServeUIHost(srv, on_deny_feedback=cli._record_deny_feedback))
+    cli.attach_ui(ace_serve.ServeUIHost(srv, on_deny_feedback=cli._record_deny_feedback,
+                                        grace_hint=t("grace_inflight")))
 
     reason = srv.serve_forever()
     srv.emitter.close()

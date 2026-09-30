@@ -63,7 +63,12 @@ const SESSIONS_BEFORE = repoSessionCount();
  */
 async function runSession(
   trigger: string | null,
-  opts: { answer?: 'once' | 'session' | 'deny'; extraArgs?: string[] } = {},
+  opts: {
+    answer?: 'once' | 'session' | 'deny';
+    extraArgs?: string[];
+    /** 额外的环境变量（合并到 `process.env` 之上，见 `client.ts` 的 `env`）。 */
+    env?: Record<string, string>;
+  } = {},
 ): Promise<{ events: AceEvent[]; gaps: number[]; exitOk: boolean; client: AceClient }> {
   const client = new AceClient({
     extraArgs: [
@@ -75,6 +80,7 @@ async function runSession(
       PROJECT_ROOT,
       ...(opts.extraArgs ?? []),
     ],
+    ...(opts.env ? { env: opts.env } : {}),
   });
   const events: AceEvent[] = [];
   client.on('event', (ev: AceEvent) => events.push(ev));
@@ -192,6 +198,44 @@ describe.skipIf(!engineUsable)('真引擎 · 授权往返（这个前端存在�
       .map((e) => String(e.text ?? ''))
       .join('\n');
     expect(notices).toContain('本次会话');
+  }, 120_000);
+
+  // ── R-2：防误触宽限期（`ui/ace_grace`）在这条路上也必须成立 ──
+  //
+  // 这个驱动**一看到 `permission_request` 就立刻作答**（亚毫秒级），所以它天然就是
+  // "对话框刚弹出来、上一个动作里飞过来的那一下"那个场景 —— 而 `--serve` 这条路上
+  // 此前**没有任何闸门**（终端在 `_read_answer` 里、TUI 在 `TurnController` 里都有），
+  // 于是同一个动作换到 Ink 就少了一道保护。
+  it('★即时答案不被采纳 —— 引擎提示"按得太快"并**重问**', async () => {
+    // 把窗口放大到 2s：这个驱动是"一看到请求就答"，但机器一忙，一次往返也可能超过 200ms
+    // —— 那时"即时"就不即时了，断言会偶发红。放大窗口不改变被测语义（窗口内一律丢弃），
+    // 只把抖动挤出去。`ACE_PERM_GRACE_MS` 是**文档化**的那个旋钮（`ui/ace_grace.py`）。
+    const { events } = await runSession('帮我改代码，往笔记里加一行', {
+      answer: 'once',
+      env: { ACE_PERM_GRACE_MS: '2000' },
+    });
+    const typeAt = (pred: (e: AceEvent) => boolean): number => events.findIndex(pred);
+    const isGrace = (e: AceEvent): boolean =>
+      e.type === 'notice' && String(e.text ?? '').includes('按得太快');
+
+    // 判据不能只看"请求出现了几次" —— mock 剧本本来就有多次审批，那条会因为**错误的原因**通过
+    // （第一版就是栽在这上面）。真正要验的是**次序**：
+    // 请求 → 被判为飞行按键（提示） → 之后才可能被采纳。
+    const firstPerm = typeAt((e) => e.type === 'permission_request');
+    const firstGrace = typeAt(isGrace);
+    const firstAccept = typeAt(
+      (e) => e.type === 'notice' && String(e.text ?? '').includes('已临时授权'),
+    );
+    expect(firstPerm, '这一轮压根没有审批，测不到宽限期').toBeGreaterThanOrEqual(0);
+    expect(
+      firstGrace,
+      `即时答案被直接采纳了（事件序：${events.map((e) => e.type).join(',')}）` +
+        '—— 对话框刚弹出来那一瞬飞过来的按键必须不算数',
+    ).toBeGreaterThan(firstPerm);
+    expect(firstGrace, '先得判为飞行按键，才轮得到采纳').toBeLessThan(firstAccept);
+    // 丢弃是**成对**的：`MAX_DISCARDS`（`ui/ace_grace.py`）决定重问几次 ——
+    // 最后一轮的丢弃同时用尽了次数，所以 N 次丢弃 → N-1 句提示（与终端同算术）。
+    expect(events.filter(isGrace).length).toBeGreaterThanOrEqual(1);
   }, 120_000);
 
   it('**三种决策产生三种不同的引擎行为** —— 这才叫答案真的送达了', async () => {

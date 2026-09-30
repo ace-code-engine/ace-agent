@@ -456,22 +456,52 @@ class ServeUIHost:
     """
 
     def __init__(self, server: ServeServer, timeout: float = 600.0,
-                 on_deny_feedback: Optional[Callable[[str], None]] = None) -> None:
+                 on_deny_feedback: Optional[Callable[[str], None]] = None,
+                 grace_hint: str = "", grace_ms: Optional[int] = None) -> None:
         self.srv = server
         self.timeout = float(timeout)
         # 拒绝理由要喂回模型，注册回调由调用方给（那是 CLI 侧的状态）
         self._on_deny_feedback = on_deny_feedback
+        # 判为"飞行按键"时要说一句（**已翻译**的文本，与终端那条同一个 i18n 键）；
+        # 空串 = 只丢弃、不解释（不给用户留"界面卡住了"的错觉是调用方的责任）
+        self._grace_hint = str(grace_hint or "")
+        # 宽限期毫秒：`None` = 读 `ACE_PERM_GRACE_MS`（与另两条路同一个来源）。
+        # 允许显式传入**只为可测**：测试要能钉住"刚好过界"而不用去改环境变量。
+        self._grace_ms = grace_ms
 
     # ---- 四问 ----
 
     def ask_permission(self, tool: str, reason: str,
                        options: Any = None) -> str:
-        """授权：三态（once / session / deny）。拿不到答案 → deny。"""
-        self.srv.send_event("permission_request", tool=tool, reason=reason)
-        try:
-            ans = self.srv.wait_for("permission.answer", timeout=self.timeout)
-        except ServeError:
-            return "deny"
+        """授权：三态（once / session / deny）。拿不到答案 → deny。
+
+        **防误触宽限期**（`R-2`；与终端 `agent_runner._read_answer`、TUI 的
+        `ui/ace_turn.TurnController` 同一条口径，逻辑在 `ui/ace_grace`）：对话框刚弹出来
+        那一瞬，用户上一个动作里敲的那一下会正好落在它上面 —— **那一下不算数**。
+
+        判为飞行按键时：不采纳 → `notice` 说清原因 → **把请求重发一次**（多数外壳在作答
+        时就把对话框收起来了，不重发它就成了"我答过了、界面却没了"）→ 重问次数用尽后
+        直接采纳（`MAX_DISCARDS` 是为了别把"自动化喂输入"的场景永久挡在门外）。
+
+        此前这条路**一道闸门都没有**，而 `ai_code._ask_permission` 的注释却写着它在这里
+        —— 注释替代码承诺了（见 `WP-0` 卡的 🔴 头号发现）。
+        """
+        # 局部导入：`core/` 不依赖 `ui/`（仓库里同类先例见 `core/ace_todos.py`）。
+        # `ace_grace` 是**纯逻辑**，放在 `ui/` 只是它的历史位置。
+        from ui import ace_grace  # noqa: E402
+
+        gate = ace_grace.GraceGate(self._grace_ms)
+        while True:
+            gate.arm()
+            self.srv.send_event("permission_request", tool=tool, reason=reason)
+            try:
+                ans = self.srv.wait_for("permission.answer", timeout=self.timeout)
+            except ServeError:
+                return "deny"
+            if gate.admit() or gate.exhausted:
+                break
+            if self._grace_hint:
+                self.srv.send_event("notice", text=self._grace_hint)
         decision = str(ans.get("decision") or "deny")
         if decision not in ("once", "session", "deny"):
             return "deny"

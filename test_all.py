@@ -10408,6 +10408,72 @@ if _want("61"):
           all('"grace_inflight"' in (FOLDER / "locales" / f"{lg}.json").read_text(
               encoding="utf-8") for lg in ("zh", "en", "ja")), "")
 
+    # ── R-2：**协议前端**那条路（`core/ace_serve.ServeUIHost`）也必须过宽限期 ──
+    # 此前它一道闸门都没有，而 `ai_code._ask_permission` 的注释却写着"三条路一致"。
+    # Ink 侧的端到端红/绿在 `frontend/test/integration.test.ts`；这里钉的是**判定与次数**。
+    from core import ace_serve as _sv61b  # noqa: E402
+    import time as _t61b  # noqa: E402
+
+    class _Srv61b:
+        """假 server：答案**立刻**交出（= 飞行按键那个场景），并记下每一次发出去的事件。"""
+
+        def __init__(self, answers, delay: float = 0.0):
+            self.answers = list(answers)
+            self.delay = float(delay)
+            self.events: list = []
+
+        def send_event(self, type_, **fields):
+            self.events.append({"type": type_, **fields})
+            return None
+
+        def wait_for(self, _kind, timeout=None):
+            if self.delay:
+                _t61b.sleep(self.delay)          # 模拟"人读过再答"
+            return self.answers.pop(0)
+
+        def kinds(self, kind):
+            return [e for e in self.events if e["type"] == kind]
+
+    _s61c = _Srv61b([{"decision": "once"}] * 4)
+    _d61c = _sv61b.ServeUIHost(_s61c, grace_hint="按得太快", grace_ms=200).ask_permission(
+        "file_write", "写文件")
+    check("[61] R-2 ★协议前端：**立刻**交上来的答案不算数（请求数 = MAX_DISCARDS ——"
+          "最后一轮的丢弃同时用尽了次数，所以它不再重问，直接采纳）",
+          len(_s61c.kinds("permission_request")) == _grace61.MAX_DISCARDS,
+          [e["type"] for e in _s61c.events])
+    check("[61] R-2 ★丢弃几次就说几句（静默丢弃 ⇒ 用户以为界面卡住）；"
+          "与终端 `_read_answer` 的算术逐字一致：N 次丢弃 → N-1 句提示",
+          len(_s61c.kinds("notice")) == _grace61.MAX_DISCARDS - 1
+          and all("按得太快" in str(e.get("text") or "") for e in _s61c.kinds("notice")),
+          _s61c.events)
+    check("[61] R-2 重问次数用尽后**采纳**（不把自动化喂输入的场景永久挡在门外）",
+          _d61c == "once", _d61c)
+
+    _s61d = _Srv61b([{"decision": "session"}], delay=0.25)      # 超过 200ms 的宽限期
+    _d61d = _sv61b.ServeUIHost(_s61d, grace_hint="按得太快", grace_ms=200).ask_permission(
+        "file_write", "写文件")
+    check("[61] R-2 读过再答（超过宽限期）→ 一次就采纳，且一句提示都不该有",
+          _d61d == "session" and len(_s61d.kinds("permission_request")) == 1
+          and not _s61d.kinds("notice"), _s61d.events)
+
+    _s61e = _Srv61b([{"decision": "session"}])
+    _d61e = _sv61b.ServeUIHost(_s61e, grace_hint="按得太快", grace_ms=0).ask_permission(
+        "file_write", "写文件")
+    check("[61] R-2 宽限期设 0 = 用户显式关掉这条保护（一个字节都不拦）",
+          _d61e == "session" and len(_s61e.kinds("permission_request")) == 1
+          and not _s61e.kinds("notice"), _s61e.events)
+
+    class _Srv61f(_Srv61b):
+        def wait_for(self, _kind, timeout=None):
+            raise _sv61b.ServeError("断了")
+
+    _s61f = _Srv61f([])
+    _d61f = _sv61b.ServeUIHost(_s61f, grace_hint="按得太快", grace_ms=200).ask_permission(
+        "file_write", "写文件")
+    check("[61] R-2 ★改写这个循环**没有**破坏 fail-close：拿不到答案 → deny"
+          "（重试语义改了、拒绝语义一个字没动）",
+          _d61f == "deny", _d61f)
+
     # —— 工具看板：四态 ——
     _board61 = _tools61.ToolBoard(width=80, interval=0.16)
     _row61 = _board61.queue("file_read", "a.py")
@@ -12324,13 +12390,19 @@ if _want("69"):
     # 全都经由 `attach_ui` 走到这里。它们错了的症状是"某个命令按下去没反应"，
     # 而那些命令散在各处，手工很难一个个覆盖到。
     def _host69(answers, on_deny=None):
-        """造一个 StringIO 驱动的宿主：答案预先摆好，宿主问一次取一次。"""
+        """造一个 StringIO 驱动的宿主：答案预先摆好，宿主问一次取一次。
+
+        `grace_ms=0` 是**有意**的：答案是从缓冲区里**立刻**读出来的，正好构成"飞行按键"，
+        于是 R-2 的宽限期会把第一个权限答案丢掉、再问一次 —— 而这些用例的考点是
+        "四类提问的管道通不通"，不是宽限期（宽限期自己有 6 条断言，见 `[61]`）。
+        """
         _i, _o = _io69.StringIO(), _io69.StringIO()
         _s = _sv69.ServeServer(reader=_i, writer=_o)
         for _n, _m, _p in answers:
             _i.write(_line69(str(_n), _m, _p))
         _i.seek(0)
-        return _sv69.ServeUIHost(_s, timeout=5, on_deny_feedback=on_deny), _o
+        return _sv69.ServeUIHost(_s, timeout=5, on_deny_feedback=on_deny,
+                                 grace_ms=0), _o
 
     _fb69: list = []
     _h69, _o69 = _host69([

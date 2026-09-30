@@ -23,7 +23,7 @@
 **它同样受本文件的登记纪律约束**:先登记常量、再加进 `OUTCOMES`,然后才能用。
 """
 
-from typing import Final, FrozenSet
+from typing import Dict, Final, FrozenSet, Tuple
 
 ERROR_BAD_REQUEST: Final[str] = "400"
 ERROR_FORBIDDEN: Final[str] = "403"
@@ -215,3 +215,178 @@ def degradation_direction_ok(target: str) -> bool:
     没问题"。`unbounded_local_exec` 永远不在集合里 —— 它是 503 那条路要拒绝的东西。
     """
     return str(target or "").strip() in DEGRADATION_TARGETS_STRICTER
+
+
+# ============================================================
+# HL-02 五级升级阶梯（THREE-LAYERS §3.3）—— 契约的唯一判定处
+# ============================================================
+#
+# 阶梯回答的是 HL-01 失败账本的问题："现在该升到哪一级"（§4 的失败账本出口：
+# 熔断 / 降级 / 上报）。它与 `REFUSAL_CLASSES` 一样受**登记纪律**约束：先登记常量、
+# 再加进 `LADDER_LEVELS` / `LADDER_ACTIONS`，然后才能用。
+#
+# 为什么档位和动作要住在这里而不是 `core/ace_ledgers.py`：账本负责**数**，
+# 阶梯的语义（每级唯一动作、档位高低、阈值）是契约 —— 与 `outcome_for` 同一条纪律，
+# 换实现的人不该顺手把"L2 熔断"改成"再试一次"。
+
+LADDER_L0_RETRY: Final[str] = "L0"        # 重试：TRANSIENT（退避重试）
+LADDER_L1_REROUTE: Final[str] = "L1"      # 换路径：POLICY/BOUNDARY 首次（回传替代路径）
+LADDER_L2_BREAKER: Final[str] = "L2"      # 熔断：同 fp+class 第 3 次 → 禁掉**这个指纹**
+LADDER_L3_DEGRADE: Final[str] = "L3"      # 降级：同工具第 5 次 / CAPABILITY → 降级并声明
+LADDER_L4_ESCALATE: Final[str] = "L4"     # 上报：同 class 跨目标 ≥N / 预算耗尽 → 停下问人
+
+#: 有序（低 → 高）：`ladder_highest` 与单调性断言都读这个顺序，别按字典序猜。
+LADDER_LEVELS: Final[Tuple[str, ...]] = (
+    LADDER_L0_RETRY, LADDER_L1_REROUTE, LADDER_L2_BREAKER,
+    LADDER_L3_DEGRADE, LADDER_L4_ESCALATE,
+)
+
+LADDER_ACTION_RETRY: Final[str] = "retry"
+LADDER_ACTION_REROUTE: Final[str] = "reroute"
+LADDER_ACTION_BREAKER: Final[str] = "breaker"
+LADDER_ACTION_DEGRADE: Final[str] = "degrade"
+LADDER_ACTION_ESCALATE: Final[str] = "escalate"
+
+#: 每级**唯一**动作（§3.3 那张表的"动作"列）。五级五个动作，不许重叠。
+LADDER_ACTIONS: Final[Dict[str, str]] = {
+    LADDER_L0_RETRY: LADDER_ACTION_RETRY,
+    LADDER_L1_REROUTE: LADDER_ACTION_REROUTE,
+    LADDER_L2_BREAKER: LADDER_ACTION_BREAKER,
+    LADDER_L3_DEGRADE: LADDER_ACTION_DEGRADE,
+    LADDER_L4_ESCALATE: LADDER_ACTION_ESCALATE,
+}
+
+#: 阈值（写在这里让"第 3 次/第 5 次/跨 N 个目标"可被断言，不散在实现里）
+LADDER_BREAKER_N: Final[int] = 3          # 同 (goal, fingerprint, class) 第 3 次 → L2
+LADDER_DEGRADE_TOOL_N: Final[int] = 5     # 同工具第 5 次 → L3
+LADDER_CROSS_GOAL_N: Final[int] = 3       # 同 class 跨目标 ≥3 → L4
+
+
+def ladder_action(level: str) -> str:
+    """该档位的唯一动作；认不出的档位返回 `""`（**绝不**默认成"重试"）。"""
+    return LADDER_ACTIONS.get(str(level or "").strip(), "")
+
+
+def ladder_rank(level: str) -> int:
+    """档位高低（L0=0 … L4=4）；认不出的返回 -1。
+
+    为什么要有它：阶梯的核心契约是**单调**（只升不降）—— 没有 rank 就只能靠字符串
+    比较，"L10 < L2" 这种字典序错误正是这类实现翻过车的地方。
+    """
+    try:
+        return LADDER_LEVELS.index(str(level or "").strip())
+    except ValueError:
+        return -1
+
+
+def ladder_highest(*levels: str) -> str:
+    """取最高的那一档（多个触发条件同时命中时用）。
+
+    全部认不出时返回 `LADDER_L0_RETRY`：基线是"不升级"。
+    **不会**因为"认不出"就跳到 L4 —— 那是把 bug 当上报，报出来的因是错的（§0.1）。
+    """
+    best, best_rank = LADDER_L0_RETRY, -1
+    for lv in levels:
+        r = ladder_rank(lv)
+        if r > best_rank:
+            best, best_rank = str(lv), r
+    return best
+
+
+#: 六类拒绝 → 驱动层**唯一**动作（RL-02 §2.3 那张表）。这张表与 `classify_refusal`
+#: 是同一份契约的两半：前者说"是哪一类"，这里说"这一类该怎么办"。
+DRIVER_ACTIONS: Final[Dict[str, str]] = {
+    REFUSAL_CLASS_POLICY: "reroute",           # 换路径，别重试
+    REFUSAL_CLASS_BOUNDARY: "reroute",         # 换路径；同指纹再犯 → 提议固化
+    REFUSAL_CLASS_AUTH_PENDING: "await_human",  # 停下等人（**不是失败**）
+    REFUSAL_CLASS_CAPABILITY: "degrade_or_report",   # 降级并声明，或上报
+    REFUSAL_CLASS_TRANSIENT: "backoff_retry",  # 退避重试
+    REFUSAL_CLASS_MALFORMED: "regenerate",     # 重新生成；永不计入熔断
+}
+
+#: "此路已关"的类：被拒之后**不该原样重发**（DL-03 学习动作①）。
+#: `AUTH_PENDING` 不在里面 —— 它在等人授权，路**还没判死**（等到了就能走）；
+#: `TRANSIENT`/`MALFORMED` 也不在 —— 它们是"再来一次"，不是"换条路"。
+CLOSED_PATH_CLASSES: Final[FrozenSet[str]] = frozenset({
+    REFUSAL_CLASS_POLICY, REFUSAL_CLASS_BOUNDARY, REFUSAL_CLASS_CAPABILITY,
+})
+
+#: 允许**提议固化规则**的类（DL-03 学习动作③）。只有"策略/越界"这两类才有
+#: 一条**规则**可固化；能力缺失该去修环境（CAPABILITY），等人授权该去问人
+#: （AUTH_PENDING），畸形该去重新生成（MALFORMED）。
+RULE_PROPOSABLE_CLASSES: Final[FrozenSet[str]] = frozenset({
+    REFUSAL_CLASS_POLICY, REFUSAL_CLASS_BOUNDARY,
+})
+
+
+def driver_action(refusal_class: str) -> str:
+    """该拒绝类的驱动层唯一动作；不是拒绝类（成功/挂起/未分类失败）返回 `""`。"""
+    return DRIVER_ACTIONS.get(str(refusal_class or "").strip().upper(), "")
+
+
+def class_closes_path(refusal_class: str) -> bool:
+    """这类拒绝是否意味着"这条路已关"（决定 DL-03 动作①是否触发）。"""
+    return str(refusal_class or "").strip().upper() in CLOSED_PATH_CLASSES
+
+
+# ============================================================
+# DL-04 学习动作契约（THREE-LAYERS §1.5 / NG-D2）—— 硬约束 S-1
+# ============================================================
+#
+# **拒绝账本的学习结果只允许产出两种东西**：
+#   ① 更严的规则（提议固化，**由人确认**）；
+#   ② 更会绕的路径（换实现，不改权限）。
+# **绝不允许**任何形式的老化自动放宽（例如"被拒 3 次后自动批准"）。
+#
+# 为什么写成断言而不是注释：H-19 那次是"没人把截断与参数错误分开"，
+# 而"自动放宽"这一类事故的共性正是**它在某次重构里被顺手加进来、且看起来很像好心**。
+# 这里把"学习动作"做成**闭集**：认不出的动作 `learning_action_ok` 一律 False，
+# `assert_no_relaxation` 对已知的放宽动作当场抛异常。
+
+LEARNING_ACTION_NO_RESEND: Final[str] = "no_resend"        # ① 不再原样重发（回喂"此路已关"）
+LEARNING_ACTION_ALTERNATIVES: Final[str] = "alternatives"  # ② 给替代路径（hint 的出口）
+LEARNING_ACTION_PROPOSE_RULE: Final[str] = "propose_rule"  # ③ 提议固化规则（人确认）
+LEARNING_ACTION_REPORT_DEFECT: Final[str] = "report_defect"  # ④ 上报规则缺陷（人裁决）
+
+#: 证据强度升序 —— 顺序本身是契约（DL-03 说"四种，按证据强度升序"）。
+LEARNING_ACTION_ORDER: Final[Tuple[str, ...]] = (
+    LEARNING_ACTION_NO_RESEND, LEARNING_ACTION_ALTERNATIVES,
+    LEARNING_ACTION_PROPOSE_RULE, LEARNING_ACTION_REPORT_DEFECT,
+)
+LEARNING_ACTIONS: Final[FrozenSet[str]] = frozenset(LEARNING_ACTION_ORDER)
+
+#: 明令禁止的"学习"产物：放宽权限/自动批准/放宽规则。它们在**闭集之外**，
+#: 所以就算有人把其中一个塞进学习路径，`learning_action_ok` 也会当场判 False。
+RELAXING_ACTIONS: Final[FrozenSet[str]] = frozenset({
+    "auto_approve", "auto_allow", "grant_permission", "widen_scope",
+    "relax_rule", "auto_relax", "downgrade_guard",
+})
+
+
+class RelaxationForbidden(AssertionError):
+    """有人试图让"学习"去**自动放宽**权限/规则 —— DL-04 硬约束 S-1。
+
+    继承 `AssertionError`：它是**断言**，不是可恢复的业务错误（`--optimize` 下
+    不许被优化掉的那种语义边界，这里用显式抛出来钉住）。
+    """
+
+
+def learning_action_ok(action: str) -> bool:
+    """这个"学习产物"是否合法（闭集内 + 不在放宽名单里）。
+
+    **认不出一律 False**：放行一个认不出的动作，等于给"自动放宽"留了一道后门。
+    """
+    a = str(action or "").strip()
+    return a in LEARNING_ACTIONS and a not in RELAXING_ACTIONS
+
+
+def assert_no_relaxation(action: str) -> None:
+    """DL-04 的断言：放宽动作当场抛 `RelaxationForbidden`。
+
+    放宽**只能是人的动作**（改配置/改规则文件/授权），不能是账本学习的结果。
+    """
+    if not learning_action_ok(action):
+        raise RelaxationForbidden(
+            f"学习结果不允许是 {action!r}：DL-04 只允许更严的规则（提议固化、人确认）"
+            f"或更会绕的路径（换实现、不改权限）；放宽只能是人的动作。"
+            f"合法学习动作：{sorted(LEARNING_ACTIONS)}")

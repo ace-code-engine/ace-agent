@@ -67,7 +67,13 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Set, Tuple
 
 from tools import ToolExecutor, repair_backslash_json
-from tools.status import counts_toward_breaker  # noqa: E402  （HL-03① 熔断准入的唯一判定处）
+from tools.status import (classify_refusal, counts_toward_breaker,  # noqa: E402
+                          ladder_action,
+                          LADDER_L0_RETRY, LADDER_L1_REROUTE, LADDER_L2_BREAKER,
+                          LADDER_L3_DEGRADE)
+from core.ace_ledgers import (BannedToolsView, FailureLedger, LedgerKey,  # noqa: E402
+                              RefusalLedger, RepeatFailView, defect_producer,
+                              fingerprint_call, hint_for)
 from core.ace_isolation import wrap_untrusted
 from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
 from core.ace_claims import claims_completed_action, PROMPT_UNVERIFIED_CLAIM  # noqa: E402
@@ -898,10 +904,37 @@ class ExecutionLayer:
         self.pending_permission: Optional[Dict] = None
         # 主动提问（WP-1 ask_user）：模型问一句，用户答一句，答案文本回流
         self.pending_ask_user: Optional[Dict] = None
-        # 重复失败熔断：同工具同错误连续 N 次 → 禁止再调用，防小模型死循环
-        self.repeat_fail: Dict[str, int] = {}
-        self.banned_tools: set = set()
+        # ── 两个账本（THREE-LAYERS §4 的枢纽）──────────────────────────────
+        # 键都是 `(goal_id, fingerprint, class)`，但**寿命不同**：
+        #   · 拒绝账本 = **长期/跨会话**（知识）→ 出口「提议固化规则 / 上报规则缺陷」；
+        #   · 失败账本 = **短期/本会话**（状态）→ 出口「熔断 / 降级 / 上报」。
+        # 旧键 `(tool, error)` 太粗：同工具的两种不同 403 共用一个计数、一起熔断；
+        # HL-01 换成"熔断**这条路**（指纹），不是整个工具"。
+        # 把"被拒过"当状态会丢知识；把"失败过"当知识会污染规则（H-19 的 bug）。
+        self.goal_id = ""            # 显式覆盖；空则从 goal_store 读当前活动目标
+        self._refusal_ledger_path = str((config or {}).get("refusal_ledger") or "")
+        # 落盘**默认关闭**：不给路径就只在内存里（免得每个项目偷偷多一个文件）。
+        # 给了路径 = 显式要"跨会话的知识"，与 RL-01 的"按需写"同一条纪律。
+        self.refusal_ledger = (RefusalLedger.load(self._refusal_ledger_path)
+                               if self._refusal_ledger_path else RefusalLedger())
+        self.failure_ledger = FailureLedger()
+        # 兼容视图：既有断言按 dict/set 读（`test_all [10]/[79]`）。它们与账本是
+        # **同一份状态**（`clear()`/`discard()` 真的动账本），不是副本 —— 否则会出现
+        # "测试清了视图、闸门还认旧账"的假绿。
+        self.repeat_fail = RepeatFailView(self.failure_ledger)
+        self.banned_tools = BannedToolsView(self.failure_ledger)
         self.repeat_fail_threshold = 3
+        # HL-02 的可见出口：每次升级的留痕 + L4 的**阻塞式**上报。
+        self.ladder_events: List[Dict[str, Any]] = []
+        self.pending_escalation: Optional[Dict[str, Any]] = None
+        self.escalations: List[Dict[str, Any]] = []
+        # DL-03 的学习产物（提议/缺陷）：结构化留档，等人确认/裁决，**绝不自动落地**。
+        self.rule_proposals: List[Any] = []
+        self.rule_defects: List[Any] = []
+        self._proposals_logged: Set[Tuple[str, str, str]] = set()
+        self._defects_logged: Set[str] = set()
+        # HL-05（三级预算）的接线口：0 = 没有配额（与现状一致）。见 `_ladder_budget_exhausted`。
+        self.refusal_budget = int((config or {}).get("refusal_budget") or 0)
         # L1/L2 路由结果缓存（五层网关）
         self.last_route: Optional[Dict] = None
         self.last_route_input: Optional[str] = None
@@ -917,6 +950,214 @@ class ExecutionLayer:
         if kind not in self._degrade_noted:
             self._degrade_noted.add(kind)
             print(f"⚠ 能力降级（{kind}）：{detail}", file=sys.stderr)
+
+    # ---------- 两个账本：键、回喂、学习出口（DL-03 / HL-01 / HL-02） ----------
+
+    def current_goal_id(self) -> str:
+        """这次调用属于哪个目标 —— 账本键的第一截。
+
+        优先显式 `self.goal_id`；否则读 `goal_store` 的当前活动目标；都没有 = `""`。
+        为什么从 store 读而不是让每个调用方传：账本的键必须与"目标"这**一个**事实源
+        一致，否则同一个目标换个入口就变成两个目标，动作④（跨目标上报）永远不触发。
+        """
+        if self.goal_id:
+            return str(self.goal_id)
+        try:
+            goal = self.goal_store.current() if self.goal_store else None
+            return str(getattr(goal, "id", "") or "")
+        except Exception:      # noqa: BLE001 —— 读目标失败不该影响裁决，最多是"没有目标"
+            return ""
+
+    def _ladder_budget_exhausted(self) -> bool:
+        """三级预算（**HL-05**）是否耗尽 —— 本包只留接线口，配额由 HL-05 填。
+
+        为什么留方法而不是写死 `False`：L4 的触发条件之一是"任一级预算耗尽"，
+        写死会让阶梯永远少一条腿。默认没有配额 = 与现状一致（不引入新行为）。
+        """
+        q = int(getattr(self, "refusal_budget", 0) or 0)
+        return bool(q) and self.refusal_ledger.total() >= q
+
+    def _fingerprint_gate_reason(self, tool_name: str,
+                                 tool_call: Dict[str, Any]) -> str:
+        """这条路（指纹）现在能不能走 —— 空串 = 能走，否则是给模型的原因（HL-01/L2/L4）。
+
+        闸门只认**指纹**：熔断的是那条路，不是整个工具。所以同一工具换一条路
+        （不同参数 → 不同指纹）照常执行 —— 这正是旧键 `(tool, error)` 做不到的。
+        """
+        fp = fingerprint_call(tool_name, tool_call or {})
+        esc = self.pending_escalation
+        if esc and fp in set(esc.get("fingerprints") or ()):
+            return (f"同类拒绝已跨目标反复出现（{esc.get('refusal_class') or '未分类'}），"
+                    f"已按 L4 **停下来问人** —— 等人回答，不要继续撞这条路（fp={fp[:6]}）")
+        if self.failure_ledger.is_fingerprint_banned(self.current_goal_id(), fp):
+            return (f"这条路（{tool_name} · fp={fp[:6]}）已因连续失败被熔断：本次对话禁止"
+                    "再调用**这一条路** —— 换参数/换工具都可以，不要原样重发")
+        if self.failure_ledger.is_tool_banned(tool_name):
+            return f"工具 '{tool_name}' 已被禁用（兼容/手工口径），本次对话禁止再调用"
+        return ""
+
+    def _escalation_material(self, tool_name: str, key: LedgerKey,
+                             entry: Any, reason: str = "") -> Dict[str, Any]:
+        """L4 的上报物料（§3.5）：**可判定** —— 观测到什么 + **是谁生产的**。
+
+        §0.1 那个案例上报了"模型死循环"却给不出 `Production producer`，于是修错了地方。
+        这里把生产者也一起报出去：同一类拒绝跨目标反复出现，生产者通常是**规则**，
+        不是模型。
+        """
+        rep = self.refusal_ledger.report_defect(key.refusal_class)
+        cls = key.refusal_class
+        fps = {key.fingerprint}
+        fps |= {e.key.fingerprint for e in self.refusal_ledger.entries()
+                if e.key.refusal_class == cls}
+        observed = (rep.observed if rep else
+                    f"{tool_name}（fp={key.fingerprint[:6]} · {cls or '未分类'}）已失败 "
+                    f"{getattr(entry, 'count', 0)} 次；触发原因：{reason or '阶梯升级'}")
+        return {
+            "refusal_class": cls, "tool": tool_name, "goal_id": key.goal_id,
+            "fingerprint": key.fingerprint, "count": int(getattr(entry, "count", 0)),
+            "goals": rep.goals if rep else self.refusal_ledger.distinct_goals(cls),
+            "tools": rep.tools if rep else [tool_name],
+            "fingerprints": sorted(fps),
+            "observed": observed,
+            "production_producer": (rep.production_producer if rep
+                                    else defect_producer(cls)),
+            "transition_path": ("同 (goal, fingerprint, class) 计数达阈值 → 阶梯升级到 L4"),
+            "authority": "人（L4 是阻塞式上报，等回答；账本自己没有放宽权）",
+            "requires_human": True,
+        }
+
+    def _ladder_note(self, tool_name: str, key: LedgerKey, level: str,
+                     entry: Any) -> str:
+        """按阶梯档位产出回喂文本；L3 顺带**声明降级**，L4 顺带生成上报物料。"""
+        if level in (LADDER_L0_RETRY, LADDER_L1_REROUTE):
+            return ""
+        action = ladder_action(level)
+        detail = (f"{tool_name} · fp={key.fingerprint[:6]} · "
+                  f"{key.refusal_class or '未分类'} · count={getattr(entry, 'count', 0)}")
+        ev = {"level": level, "action": action, "tool": tool_name,
+              "fingerprint": key.fingerprint, "refusal_class": key.refusal_class,
+              "count": int(getattr(entry, "count", 0)), "detail": detail}
+        self.ladder_events.append(ev)
+        if level == LADDER_L2_BREAKER:
+            note = (f" ⚠ L2 熔断：{tool_name} 的这条路（fp={key.fingerprint[:6]}）已连续失败 "
+                    f"{getattr(entry, 'count', 0)} 次，**这条指纹**已被禁（不是整个工具）。"
+                    "换参数/换路径即可，别原样重发。")
+        elif level == LADDER_L3_DEGRADE:
+            self._note_degrade(
+                "ladder",
+                f"{detail} → 走降级路径（L3）：降级方向只朝更严，且**必须声明**，不许静默回退")
+            note = (f" ⚠ L3 降级（已声明）：{detail} → 请换用受支持的能力/路径完成目标，"
+                    "不要静默退回原来的做法。")
+        else:
+            mat = self._escalation_material(tool_name, key, entry, reason="阶梯升级到 L4")
+            self.escalations.append(mat)
+            self.pending_escalation = mat
+            note = (" ⛔ L4 上报：同类拒绝跨目标反复出现/预算耗尽 → **停下来问人**，"
+                    f"不要再撞这条路。上报物料：" + str(mat.get("observed") or "")[:120])
+        if self.session_log:
+            self.session_log.record_ladder(
+                level, tool_name, action=action, goal_id=key.goal_id,
+                fingerprint=key.fingerprint, refusal_class=key.refusal_class,
+                count=int(getattr(entry, "count", 0)),
+                tool_count=self.failure_ledger.tool_count(tool_name), detail=detail)
+        return note
+
+    def _record_refusal(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
+                        *, refusal_class: str, source: str = "",
+                        hint: Optional[Dict[str, Any]] = None,
+                        message: str = "") -> str:
+        """把一次**拒绝**记进拒绝账本，并回喂动作①+②的结论（空串 = 没什么可说）。
+
+        刻意**不**碰失败账本：拒绝是知识，熔断是状态（§4）。这两件事在同一次调用里
+        可以都发生（例如 HOOK_BLOCKED），但必须各自独立记账 —— 混起来就是 §0.2 的病根。
+        """
+        cls = str(refusal_class or "").strip().upper()
+        if not cls:
+            return ""
+        key = LedgerKey(self.current_goal_id(),
+                        fingerprint_call(tool_name, tool_call or {}), cls)
+        h = dict(hint or {}) or hint_for(cls, tool_name, message)
+        try:
+            pattern = ace_rules.suggest_rule(tool_name, tool_call or {})
+        except Exception:      # noqa: BLE001 —— 猜模式失败不影响记账
+            pattern = ""
+        entry = self.refusal_ledger.record(key, tool=tool_name, hint=h,
+                                           source=source, pattern=pattern)
+        if self.session_log:
+            self.session_log.record_refusal(
+                tool_name, goal_id=key.goal_id, fingerprint=key.fingerprint,
+                refusal_class=key.refusal_class, count=entry.count,
+                closed=self.refusal_ledger.is_closed(key), source=source)
+        # 学习动作③：够次数 → 提议固化（**提议**，不落地；落地要人确认）
+        prop = self.refusal_ledger.propose_rule(key)
+        if prop is not None and key.as_tuple() not in self._proposals_logged:
+            self._proposals_logged.add(key.as_tuple())
+            self.rule_proposals.append(prop)
+            if self.session_log:
+                self.session_log.record_ledger_proposal(
+                    "propose_rule", tool=prop.tool, refusal_class=key.refusal_class,
+                    count=prop.count, pattern=prop.pattern, scope=prop.scope,
+                    action=prop.action, requires_human=True)
+        # 学习动作④：同 class 跨目标 → 上报规则缺陷（生产者在**规则**，不在模型）
+        rep = self.refusal_ledger.report_defect(key.refusal_class)
+        if rep is not None and rep.refusal_class not in self._defects_logged:
+            self._defects_logged.add(rep.refusal_class)
+            self.rule_defects.append(rep)
+            if self.session_log:
+                self.session_log.record_ledger_proposal(
+                    "report_defect", refusal_class=rep.refusal_class, goals=rep.goals,
+                    count=rep.count, observed=rep.observed,
+                    production_producer=rep.production_producer, requires_human=True)
+        return str(self.refusal_ledger.guidance(key, hint=h).get("message") or "")
+
+    def _note_refusal(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
+                      result: Any, source: str = "") -> str:
+        """执行层结果里的**拒绝**进账本（`ExecutionResult.refusal_class` 非空时）。"""
+        return self._record_refusal(
+            tool_name, tool_call,
+            refusal_class=str(getattr(result, "refusal_class", "") or ""),
+            source=source, hint=dict(getattr(result, "hint", None) or {}),
+            message=str(getattr(result, "message", "") or ""))
+
+    def _note_refusal_dict(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
+                           early: Optional[Dict[str, Any]], source: str = "") -> str:
+        """早退结果（dict）里的**拒绝**进账本。
+
+        `status` 本身就是数字码时（`"403"`/`"503"`）要把它同时当 `error_code` 传，
+        否则 `classify_refusal` 认不出（它按 `error_code` 判 403/503）—— 与
+        `_note_tool_failure` 同一口径。**只记账，不动返回值**（早退结果的形状是既有契约）。
+        """
+        if not isinstance(early, dict):
+            return ""
+        status = str(early.get("status") or "")
+        code = str(early.get("error_code") or status)
+        return self._record_refusal(
+            tool_name, tool_call, refusal_class=classify_refusal(status, code),
+            source=source, message=str(early.get("message") or ""))
+
+    def answer_escalation(self, text: str = "") -> bool:
+        """人回答了 L4 的上报 → 解除阻塞（返回是否真的处于上报状态）。"""
+        if self.pending_escalation is None:
+            return False
+        esc = self.pending_escalation
+        esc["answered"] = str(text or "")
+        self.pending_escalation = None
+        return True
+
+    def save_refusal_ledger(self, path: str = "") -> bool:
+        """把长期账本落盘（配置了路径才有；否则 False = 没地方写，不是失败）。"""
+        p = str(path or self._refusal_ledger_path or "")
+        if not p:
+            return False
+        return self.refusal_ledger.save(p)
+
+    def end_session(self) -> None:
+        """会话收尾：**失败账本清空**（状态）、**拒绝账本落盘**（知识）。
+
+        这是"同键不同命"最直白的一处：同一次拒绝在两个账本里各留各的命。
+        """
+        self.failure_ledger.clear()
+        self.save_refusal_ledger()
 
     # ---------- 命令审批（接 ace_execpolicy 的 prompt 档） ----------
 
@@ -1039,33 +1280,41 @@ class ExecutionLayer:
         tool_call, tool_name, early = self._stage_tool_precheck(
             parsed, user_input, route_meta)
         if early is not None:
+            self._note_refusal_dict(tool_name, tool_call, early, source="tool_precheck")
             return early
         # ⑦ 权限裁决：5.0 逐次确认闸门（→ ctx.confirmed）→ 等级判定
         early = self._stage_permission(tool_call, tool_name, route_meta, ctx)
         if early is not None:
+            # DL-03：权限拒绝（403 / PERMISSION_REQUEST / 503）是**知识** —— 记进拒绝
+            # 账本。只记账、不动 `early`：早退结果的形状是既有契约（ACC-02 还钉着
+            # "权限早退不落 tool/result"）。
+            self._note_refusal_dict(tool_name, tool_call, early, source="permission")
             return early
         # ⑧ code_execute 专属安全闸门：诱饵验证 + AST 行为检测（core/work.py）
         gate_warnings, early = self._stage_code_gate(tool_call, tool_name)
         if early is not None:
+            self._note_refusal_dict(tool_name, tool_call, early, source="code_gate")
             return early
         # ⑨ 写入操作前创建快照（core/guardian.py）→ ctx.snapshot_id（轮末回收）；
         # 拿不到快照就拒写（H-05）：与沙箱档位（503 不降级）、审批（非交互一律拒）
         # 同一立场 —— 安全机制不可用时绝不静默放行。
         early = self._stage_snapshot(tool_name, ctx, route_meta, tool_call)
         if early is not None:
+            self._note_refusal_dict(tool_name, tool_call, early, source="snapshot")
             return early
         # ⑩ 执行工具（全链路日志：调用原始参数 + 结果）
         result = self._stage_execute(tool_call, tool_name)
         # ⑪ L4 输出守门：成功结果过文本/代码规则；违规回滚 ctx.snapshot_id
         early = self._stage_output_guard(tool_name, result, user_input, ctx)
         if early is not None:
+            self._note_refusal_dict(tool_name, tool_call, early, source="output_guard")
             return early
         # ⑫ 诱饵重新武装 + ⑬ POC 指标（成功执行后按频率再验证）
         self._stage_bait_rearm(tool_name, result)
         self._stage_poc_metrics(tool_name, result)
         # ⑭ 构建返回：成功清该工具熔断计数；失败按错误码回喂示例/守门提示
         return self._stage_result(tool_name, result, parsed, injected_memory,
-                                  ctx, gate_warnings, route_meta)
+                                  ctx, gate_warnings, route_meta, tool_call)
 
     def run_tool_direct(self, tool_call: Dict[str, Any], source: str = "operator"):
         """**用户自己敲的**工具调用（`!命令` / `/review` 回填）：权限、快照、审计一个不少。
@@ -1322,11 +1571,15 @@ class ExecutionLayer:
                 "instruction": "模式 A 必须以 {\"tool\": \"...\"} JSON 对象输出工具调用"
             }
         tool_name = tool_call.get("tool", "")
-        # 4.4 控制类工具熔断：plan_propose / request_permission 连续失败同样禁止
-        if tool_name in ("plan_propose", "request_permission", "ask_user") and tool_name in self.banned_tools:
+        # 4.4/4.7 熔断闸门：**按指纹**判"这条路关没关"，不是按工具名（HL-01）。
+        # 旧口径 `tool_name in self.banned_tools` 会让同一工具的另一条路一起被禁；
+        # 现在闸门认 `(goal_id, fingerprint, class)` 里的指纹，工具名只留在兼容视图里。
+        _gate = self._fingerprint_gate_reason(tool_name, tool_call)
+        # 控制类工具（plan_propose / request_permission / ask_user）同样受闸门约束
+        if _gate and tool_name in ("plan_propose", "request_permission", "ask_user"):
             return None, tool_name, {
                 "status": "TOOL_BANNED",
-                "message": f"工具 '{tool_name}' 已因连续失败被熔断，本次对话禁止再调用",
+                "message": _gate,
                 "instruction": "请直接执行任务或回复用户，不要再调用被熔断的工具",
                 **route_meta,
             }
@@ -1348,13 +1601,13 @@ class ExecutionLayer:
                 "instruction": "请先等待 PLAN_PROPOSED 的批准结果",
                 **route_meta,
             }
-        # 4.7 重复失败熔断闸门：连续失败的工具直接拒绝，防死循环
-        if tool_name in self.banned_tools:
+        # 4.7 重复失败熔断闸门：这条路（指纹）被熔断过就直接拒绝，防死循环
+        if _gate:
             return None, tool_name, {
                 "status": "TOOL_BANNED",
-                "message": f"工具 '{tool_name}' 已因连续失败被熔断，本次对话禁止再调用",
-                "instruction": "请改用其他工具完成目标，或直接向用户说明无法完成的原因，"
-                               "不要再次调用被熔断的工具",
+                "message": _gate,
+                "instruction": "请改参数、换一条路，或改用其他工具完成目标，"
+                               "或直接向用户说明无法完成的原因；不要原样重发这条路",
                 **route_meta,
             }
         return tool_call, tool_name, None
@@ -2008,9 +2261,17 @@ class ExecutionLayer:
             # 实测耗时一起落盘（秒 → 毫秒）：它只活在 result.metadata 里的话，
             # 谁也聚合不了 —— 而 ts 只有秒级粒度，推不出"哪个工具慢"。
             _elapsed_ms = int(round(float(result.metadata.get("elapsed") or 0.0) * 1000))
+            # DL-03/HL-01：拒绝类的结果把**机器通道**也写进同一份事实源
+            # （RL-02 §9.5 边界③"refusal_class 还没流到账本"在这里补上）。
+            # 非拒绝（`refusal_class` 为空）只写 outcome —— 与"按需写"同一条纪律。
+            _cls = str(getattr(result, "refusal_class", "") or "")
             self.session_log.record_tool_result(
                 tool_name, result.status, result.message, elapsed_ms=_elapsed_ms,
-                outcome=str(getattr(result, "outcome", "") or ""))
+                outcome=str(getattr(result, "outcome", "") or ""),
+                refusal_class=_cls,
+                fingerprint=(fingerprint_call(tool_name, tool_call) if _cls else ""),
+                retryable=bool(getattr(result, "retryable", False)),
+                hint=dict(getattr(result, "hint", None) or {}))
         return result
 
 
@@ -2073,13 +2334,17 @@ class ExecutionLayer:
 
     def _stage_result(self, tool_name: str, result: Any, parsed: Dict[str, Any],
                       injected_memory: List[Dict], ctx: RoundCtx,
-                      gate_warnings: Optional[Dict], route_meta: Dict[str, Any]
+                      gate_warnings: Optional[Dict], route_meta: Dict[str, Any],
+                      tool_call: Optional[Dict[str, Any]] = None
                       ) -> Dict[str, Any]:
         """⑭ 构建返回：本轮快照引用用完即清（防止后续轮次误回滚）。
 
         H-07：同时把 `snapshot_state` 如实带出去 —— 调用方（尤其无头/CI）据此
         分辨"有回滚点""项目是空的""回滚点建不出来"，不必去猜 `snapshot_id is None`
         到底是哪一种。
+
+        `tool_call` 参与两个账本的键（`fingerprint` 从**关键参数**算出来）——
+        缺省 None 时退回"只有工具名"的空参数指纹（直接单测本阶段仍可用）。
         """
         snapshot_id = ctx.snapshot_id
         snapshot_state = ctx.snapshot_state
@@ -2089,8 +2354,9 @@ class ExecutionLayer:
             self.tools_ran_this_task += 1
             # 成功推进：只清空该工具的失败计数，保留其他工具的计数。
             # 防止模型"成功一个工具"就把失败工具的计数清零、交替绕过熔断。
-            self.repeat_fail = {k: v for k, v in self.repeat_fail.items()
-                                if not k.startswith(tool_name + ":")}
+            # HL-01：清的是该工具名下**所有指纹**的失败账本条目（拒绝账本不动 ——
+            # "被拒过"是知识，成功一次不该把知识抹掉）。
+            self.failure_ledger.clear_tool(tool_name)
             return {
                 "status": "SUCCESS",
                 "tool": tool_name,
@@ -2136,9 +2402,16 @@ class ExecutionLayer:
                 f"被 pre_tool 钩子拦下：{result.message or '用户规则'}。"
                 "不要重复同一个调用；换一种做法，或先向用户确认。")
         # 重复失败熔断：同工具同错误连续失败达阈值 → 禁止再调用
-        fail_hint = self._note_tool_failure(tool_name, result.error_code)
+        fail_hint = self._note_tool_failure(tool_name, result.error_code, tool_call,
+                                            getattr(result, "refusal_class", ""))
         if fail_hint:
             extra_instruction = (extra_instruction or "") + fail_hint
+        # DL-03：拒绝进**拒绝账本**（知识），并回喂动作①「这条路已关」+ 动作②替代路径。
+        # 与失败账本互不代偿：403 这类拒绝根本不进失败账本（SEC-019），
+        # 但仍进拒绝账本 —— 这正是"同键不同命"。
+        ref_hint = self._note_refusal(tool_name, tool_call, result, source="tool_result")
+        if ref_hint:
+            extra_instruction = (extra_instruction or "") + ref_hint
         return {
             "status": result.error_code or "ERROR",
             "message": result.message,
@@ -2173,15 +2446,22 @@ class ExecutionLayer:
             "other_tools": sorted({d["tool"] for d in self.security_denials} - {tool_name}),
         }
 
-    def _note_tool_failure(self, tool_name: str, error_code: str) -> Optional[str]:
-        """记录工具连续失败，返回附加 instruction；达阈值后熔断该工具。
+    def _note_tool_failure(self, tool_name: str, error_code: str,
+                           tool_call: Optional[Dict[str, Any]] = None,
+                           refusal_class: str = "") -> Optional[str]:
+        """记录工具失败（**失败账本**，HL-01），返回附加 instruction；达阈值后熔断**这个指纹**。
         防止小模型对同一错误重复调用死循环（如缺参数的 request_permission）。
         403 安全拦截（沙盒/白名单/路径越界）是执行层主动防御，不视为模型失败，不计数。
 
         HL-03 硬规则①（THREE-LAYERS §3.4）：**`MALFORMED` 永不计入熔断** ——
         截断/畸形该被"重新生成"，不是"升级处置"（H-19）。判据不在本函数里：
         它是 `tools.status.counts_toward_breaker`（唯一判定处），**唯一**的熔断
-        计数入口就是这里，所以新路径不可能绕过这道门。"""
+        计数入口就是这里，所以新路径不可能绕过这道门。
+
+        HL-01（§3.2）：键从 `(tool, error)` 改成 `(goal_id, fingerprint, class)` ——
+        熔断的是**那条路**（指纹），不是整个工具。同一工具换参数就是另一条路，
+        不再被一起禁掉（旧键会让 `file_write` 的两种不同错误互相压制）。
+        """
         if error_code == "403":
             return None
         # HL-03①：FORMAT_ERROR(⇒MALFORMED) 一律不进熔断账本。传 error_code 位同时
@@ -2189,23 +2469,37 @@ class ExecutionLayer:
         # （`_stage_result` 给 result.error_code；控制工具给 "FORMAT_ERROR"）。
         if not counts_toward_breaker(error_code, error_code):
             return None
-        fail_key = f"{tool_name}:{error_code or 'ERROR'}"
-        self.repeat_fail[fail_key] = self.repeat_fail.get(fail_key, 0) + 1
-        count = self.repeat_fail[fail_key]
+        _cls = str(refusal_class or "").strip().upper() \
+            or classify_refusal(error_code, error_code)
+        _goal = self.current_goal_id()
+        _fp = fingerprint_call(tool_name, tool_call or {})
         # 409（str_replace 定位不唯一）用更宽的阈值：上面的 instruction 明确要求
         # "补足上下文后重试同一工具"，而正常的消歧本来就要两三轮。按同一阈值算的话，
         # 照指令做事的模型会在第 3 次把这个工具用没了 —— 那是我们自己把路堵死。
         # 但也不能完全不计数：真死循环还是得掐，所以只是放宽到两倍。
         threshold = (self.repeat_fail_threshold * 2 if error_code == "409"
                      else self.repeat_fail_threshold)
+        # L4 的"同 class 跨目标"判据来自**拒绝账本**（知识）：跨目标这件事是跨会话的，
+        # 只靠本会话的失败计数看不见（§4 两个账本各司其职）。
+        cross_goals = (len(self.refusal_ledger.distinct_goals(_cls)) if _cls else 0)
+        key = LedgerKey(_goal, _fp, _cls)
+        entry = self.failure_ledger.record(
+            key, tool=tool_name, threshold=threshold, cross_goals=cross_goals,
+            budget_exhausted=self._ladder_budget_exhausted())
+        if entry is None:      # MALFORMED：账本自己也不收（第二道门）
+            return None
+        count = entry.count
+        # HL-02：阶梯先说话（L2 熔断 / L3 降级并声明 / L4 停下问人）
+        ladder_note = self._ladder_note(tool_name, key, entry.level, entry)
+        if ladder_note:
+            return ladder_note
         if count >= threshold:
-            self.banned_tools.add(tool_name)
-            return (f" ⚠ 工具 {tool_name} 已连续失败 {count} 次，已被熔断："
-                    "本次对话禁止再次调用它。请换用其他工具完成目标，"
-                    "或直接向用户说明无法完成的原因。")
+            return (f" ⚠ 这条路已关（{tool_name} · fp={_fp[:6]} · "
+                    f"{_cls or '未分类'}）：同一条路已连续失败 {count} 次，已被熔断。"
+                    "换参数/换工具都可以，**不要原样重发**。")
         if count >= threshold - 1:
-            return (f"（注意：{tool_name} 已连续失败 {count} 次，"
-                    "再失败一次将被熔断，请换用其他工具或直接回复用户）")
+            return (f"（注意：{tool_name} 的这条路（fp={_fp[:6]}）已连续失败 {count} 次，"
+                    "再失败一次将被熔断，请换参数或换工具，或直接回复用户）")
         return None
 
 
@@ -2533,12 +2827,12 @@ class ExecutionLayer:
                 self.permission.grant_temp(tool)
 
     def close(self) -> None:
-        """收尾：关掉 MCP 子进程。
+        """收尾：关掉 MCP 子进程；配置了长期账本路径就把拒绝账本落盘。
 
-        为什么必须显式关：Windows 上父进程退出**不会**带走子进程。不关就会留下一堆
-        孤儿 `npx`/`python` 进程，用户下次启动还会再起一批 —— 这类泄漏没人会去查，
-        只会觉得"这工具吃内存"。
+        为什么在这里落盘：**知识要跨会话**。失败账本是状态，随进程结束自然清掉；
+        拒绝账本若只在内存里，配了路径也等于没配（下一次会话又从头学）。
         """
+        self.save_refusal_ledger()
         if self.mcp is not None:
             try:
                 self.mcp.close()

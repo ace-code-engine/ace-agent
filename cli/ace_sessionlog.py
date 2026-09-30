@@ -53,6 +53,17 @@ K_MODEL_ERROR = "model/error"            # 模型 API 调用失败
 K_MODEL_USAGE = "model/usage"            # 每轮 token 用量与成本估算（本轮**增量**，不是累计）
 K_COMPACTION = "compaction/event"        # 上下文压缩
 K_MODEL_SWITCH = "model/switch"          # 模型/提供商切换
+# ── DL-03 / HL-01 两个账本（THREE-LAYERS §4）──
+# 为什么账本事件要落在**同一份** append-only 事实源里：§7 说两个账本与 HMAC 链式台账
+# **共用写入路径**（审计时是同一份序列）。拒绝是知识、失败是状态 —— 但"什么时候学到
+# 了什么、什么时候升到哪一级"必须可复核，否则 L4 上报就成了"失败了 8 次"（§3.5）。
+K_REFUSAL = "ledger/refusal"             # 拒绝账本：一条被拒的路（跨会话知识）
+K_LADDER = "ledger/ladder"               # 失败账本：一次升级（L2 熔断 / L3 降级 / L4 上报）
+K_LEDGER_PROPOSAL = "ledger/proposal"    # 学习出口：提议固化规则 / 上报规则缺陷
+
+#: `K_LEDGER_PROPOSAL` 的 kind 闭集（登记纪律：新增出口先登记，免得日志里出现
+#: 没人认识的 kind，事后谁也说不清它是什么意思）。
+PROPOSAL_KINDS = frozenset({"propose_rule", "report_defect"})
 
 
 MAC_FIELD = "mac"
@@ -321,7 +332,10 @@ class SessionLog:
         return self.append(K_TOOL_CALL, {"tool": tool, "params": params})
 
     def record_tool_result(self, tool: str, status: str, message: str = "",
-                           elapsed_ms: int = 0, outcome: str = "") -> int:
+                           elapsed_ms: int = 0, outcome: str = "",
+                           refusal_class: str = "", fingerprint: str = "",
+                           retryable: bool = False,
+                           hint: Optional[Dict[str, Any]] = None) -> int:
         """工具结果。`elapsed_ms` 是**实测耗时**（执行层 `result.metadata["elapsed"]`，秒 → 毫秒）。
 
         为什么要记它：耗时此前只活在内存里，落进日志之前谁也聚合不了 —— 而 `ts` 只有秒级
@@ -330,13 +344,96 @@ class SessionLog:
 
         `outcome`（RL-01 机器通道）**按需写**：拿到了才写，拿不到就不写那两个键的同一条纪律 ——
         空串不落盘，免得日志里多出一堆没有信息的 `"outcome": ""`。
+
+        **RL-02 的边界补上**：`refusal_class` / `fingerprint` / `retryable` / `hint` 与
+        `outcome` 同一条"按需写"纪律 —— 它们此前**没流到账本**（§9.5 边界③），
+        于是两个账本（§4）只能靠内存猜。现在拒绝/失败在**同一份事实源**里就能分开读。
         """
         payload = {"tool": tool, "status": status, "message": (message or "")[:300]}
         if elapsed_ms:
             payload["elapsed_ms"] = int(elapsed_ms)
         if outcome:
             payload["outcome"] = str(outcome)
+        if refusal_class:
+            payload["refusal_class"] = str(refusal_class)
+        if fingerprint:
+            payload["fingerprint"] = str(fingerprint)
+        if retryable:
+            payload["retryable"] = True
+        if hint:
+            payload["hint"] = {k: v for k, v in dict(hint).items() if v}
         return self.append(K_TOOL_RESULT, payload)
+
+    def record_refusal(self, tool: str, *, goal_id: str = "", fingerprint: str = "",
+                       refusal_class: str, count: int, closed: bool = False,
+                       source: str = "") -> int:
+        """拒绝账本落一条（跨会话知识）：哪条路、哪一类、第几次、这条路是否已关。
+
+        **只记事实，不做裁决** —— 裁决在 `core/ace_ledgers.py`（唯一的账本实现）。
+        """
+        payload = {"tool": tool, "refusal_class": str(refusal_class or ""),
+                   "count": int(count), "closed": bool(closed)}
+        if goal_id:
+            payload["goal_id"] = str(goal_id)
+        if fingerprint:
+            payload["fingerprint"] = str(fingerprint)
+        if source:
+            payload["source"] = str(source)
+        return self.append(K_REFUSAL, payload)
+
+    def record_ladder(self, level: str, tool: str, *, action: str = "",
+                      goal_id: str = "", fingerprint: str = "",
+                      refusal_class: str = "", count: int = 0,
+                      tool_count: int = 0, detail: str = "") -> int:
+        """失败账本升了一级（HL-02）：L2 熔断 / L3 降级 / L4 上报 —— 必须留痕。"""
+        payload = {"level": str(level or ""), "tool": tool,
+                   "action": str(action or ""), "count": int(count)}
+        if goal_id:
+            payload["goal_id"] = str(goal_id)
+        if fingerprint:
+            payload["fingerprint"] = str(fingerprint)
+        if refusal_class:
+            payload["refusal_class"] = str(refusal_class)
+        if tool_count:
+            payload["tool_count"] = int(tool_count)
+        if detail:
+            payload["detail"] = str(detail)[:300]
+        return self.append(K_LADDER, payload)
+
+    def record_ledger_proposal(self, kind: str, *, tool: str = "",
+                               refusal_class: str = "", goals: Any = (),
+                               count: int = 0, pattern: str = "",
+                               scope: str = "", action: str = "",
+                               requires_human: bool = True,
+                               observed: str = "",
+                               production_producer: str = "") -> int:
+        """学习出口（DL-03 动作③④）：提议固化规则 / 上报规则缺陷。
+
+        `kind` 必须是 `PROPOSAL_KINDS` 里的值（登记纪律）；`requires_human` 永远为真 ——
+        "自动固化"不是可选项（DL-04）。上报物料带 `production_producer`（§3.5/HL-04）。
+        """
+        k = str(kind or "").strip()
+        if k not in PROPOSAL_KINDS:
+            raise ValueError(f"未登记的学习出口 kind: {k!r}（可选 {sorted(PROPOSAL_KINDS)}）")
+        payload: Dict[str, Any] = {"proposal_kind": k, "count": int(count),
+                                   "requires_human": bool(requires_human)}
+        if tool:
+            payload["tool"] = tool
+        if refusal_class:
+            payload["refusal_class"] = str(refusal_class)
+        if goals:
+            payload["goals"] = list(goals)
+        if pattern:
+            payload["pattern"] = str(pattern)
+        if scope:
+            payload["scope"] = str(scope)
+        if action:
+            payload["action"] = str(action)
+        if observed:
+            payload["observed"] = str(observed)[:300]
+        if production_producer:
+            payload["production_producer"] = str(production_producer)[:300]
+        return self.append(K_LEDGER_PROPOSAL, payload)
 
     def record_usage(self, *, model: str, in_tokens: int, out_tokens: int,
                      usd: Optional[float] = None, subagent: str = "",

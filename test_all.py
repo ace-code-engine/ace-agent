@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79, "80""]
+             "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79, "80", "81""]
 _SEEN_SECTIONS: list = []
 
 
@@ -16123,6 +16123,81 @@ if _want("79"):
     check("[79] ②★快照不可用 → 403 拒写（fail-close）且如实带 snapshot_state=unavailable",
           _r79.get("status") == "403" and _r79.get("snapshot_state") == "unavailable", _r79)
 
+
+# ============================================================
+if _want("81"):
+    # ── [81] DL-03 拒绝账本 + HL-01 失败账本（同键不同命）+ HL-02 五级阶梯 ──
+    print("[81] DL-03 拒绝账本 + HL-01 失败账本 + HL-02 五级阶梯")
+    from core.ace_ledgers import (BannedToolsView as _BTV81,  # noqa: E402
+                                  FailureLedger as _FL81, LedgerKey as _LK81,
+                                  RefusalLedger as _RL81, RepeatFailView as _RFV81,
+                                  ladder_step as _ls81)
+    from tools import status as _st81  # noqa: E402
+
+    def _raises81(_fn):
+        try:
+            _fn()
+        except _st81.RelaxationForbidden:
+            return True
+        return False
+
+    _rl81, _fl81 = _RL81(), _FL81()
+    _k81 = _LK81("g1", "fpA", "BOUNDARY")
+    _rl81.record(_k81, tool="file_write")
+    _fl81.record(_k81, tool="file_write")
+    check("[81] ★同键不同命：拒绝账本可落盘（知识）、失败账本**没有**落盘 API（状态）",
+          hasattr(_RL81, "save") and hasattr(_RL81, "load")
+          and not hasattr(_FL81, "save") and not hasattr(_FL81, "load"), "")
+    check("[81] ★同键不同命：拒绝账本**从不**熔断（出口是提议/上报，不是禁用）",
+          _rl81.is_closed(_k81) and not hasattr(_RL81, "is_fingerprint_banned"), "")
+    _km81 = _LK81("g1", "fpM", "MALFORMED")
+    _fl81.record(_km81, tool="file_write")
+    _rl81.record(_km81, tool="file_write")
+    check("[81] ★失败账本拒收 MALFORMED（HL-03①/H-19：截断永不计入熔断）",
+          _fl81.count(_km81) == 0, _fl81.count(_km81))
+    check("[81] ★但 MALFORMED 仍进拒绝账本（知识：这个指纹老被截断）",
+          _rl81.count(_km81) >= 1, _rl81.count(_km81))
+    check("[81] ★兼容视图：repeat_fail 仍是 dict、banned_tools 仍是 set（既有断言零改）",
+          issubclass(_RFV81, dict) and issubclass(_BTV81, set), "")
+
+    _fl81b = _FL81()
+    _kb81 = _LK81("g1", "fpB", "BOUNDARY")
+    for _ in range(_st81.LADDER_BREAKER_N):
+        _fl81b.record(_LK81("g1", "fpA", "BOUNDARY"), tool="file_read")
+    check("[81] ★熔断的是**指纹**：3 次后禁的是这条路（fpA）",
+          _fl81b.is_fingerprint_banned("g1", "fpA") is True, "")
+    check("[81] ★★同工具**另一条路**（fpB）不受影响（旧 (tool,error) 键会一起压制）",
+          _fl81b.is_fingerprint_banned("g1", "fpB") is False and _fl81b.count(_kb81) == 0, "")
+
+    check("[81] 五级闭集 L0–L4 + 每级唯一动作",
+          tuple(_st81.LADDER_LEVELS) == ("L0", "L1", "L2", "L3", "L4")
+          and len(set(_st81.LADDER_ACTIONS.values())) == 5, _st81.LADDER_ACTIONS)
+    check("[81] ★L0 重试：TRANSIENT ⇒ L0/retry",
+          _ls81(refusal_class="TRANSIENT", fingerprint_count=1, tool_count=1)
+          == _st81.LADDER_L0_RETRY, "")
+    check("[81] ★L2 熔断：同 fp+class 第 3 次 ⇒ L2/breaker（禁掉这个指纹）",
+          _ls81(refusal_class="BOUNDARY", fingerprint_count=_st81.LADDER_BREAKER_N,
+                tool_count=3) == _st81.LADDER_L2_BREAKER, "")
+    check("[81] ★L3 降级：CAPABILITY ⇒ L3/degrade（必须声明，不许静默）",
+          _ls81(refusal_class="CAPABILITY", fingerprint_count=1, tool_count=1)
+          == _st81.LADDER_L3_DEGRADE, "")
+    check("[81] ★L4 上报：同 class 跨目标 ≥N ⇒ L4/escalate（停下问人）",
+          _ls81(refusal_class="POLICY", fingerprint_count=1, tool_count=1,
+                cross_goals=_st81.LADDER_CROSS_GOAL_N) == _st81.LADDER_L4_ESCALATE, "")
+    check("[81] ★MALFORMED 永远停在 L0（重新生成），任何计数都不升级",
+          _ls81(refusal_class="MALFORMED", fingerprint_count=99, tool_count=99)
+          == _st81.LADDER_L0_RETRY, "")
+    check("[81] 阶梯单调：L4>L3>L2>L1>L0（不存在朝松的档）",
+          _st81.ladder_rank(_st81.LADDER_L4_ESCALATE) > _st81.ladder_rank(_st81.LADDER_L3_DEGRADE)
+          > _st81.ladder_rank(_st81.LADDER_L2_BREAKER) > _st81.ladder_rank(_st81.LADDER_L1_REROUTE)
+          > _st81.ladder_rank(_st81.LADDER_L0_RETRY), "")
+    check("[81] ★DL-04：学习动作闭集四种 + 任何自动放宽当场抛 RelaxationForbidden",
+          set(_st81.LEARNING_ACTIONS) == {"no_resend", "alternatives", "propose_rule",
+                                          "report_defect"}
+          and all(_raises81(lambda a=a: _st81.assert_no_relaxation(a))
+                  for a in ("auto_approve", "auto_allow", "grant_permission"))
+          and not _st81.learning_action_ok("auto_approve")
+          and _st81.learning_action_ok("no_resend"), "")
 
 # ============================================================
 if _want("80"):

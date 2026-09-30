@@ -41,7 +41,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from core import ace_rules
 from core.ace_contracts import (  # HL-04：上报物料的模板与检查器（不另造一套）
@@ -49,6 +49,8 @@ from core.ace_contracts import (  # HL-04：上报物料的模板与检查器（
     producer_for, validate_escalation_material,
 )
 from tools.status import (
+    BUDGET_DIMENSIONS,
+    BUDGET_SCOPES,
     LADDER_BREAKER_N,
     LADDER_CROSS_GOAL_N,
     LADDER_DEGRADE_TOOL_N,
@@ -71,12 +73,16 @@ from tools.status import (
     RULE_PROPOSABLE_CLASSES,
     RelaxationForbidden,
     assert_no_relaxation,
+    budget_action,
+    budget_dimension_ok,
+    budget_scope_ok,
     class_closes_path,
     driver_action,
     ladder_highest,
 )
 
 __all__ = [
+    "Budget", "BudgetExhaustion", "BudgetPanel", "BudgetSpend",
     "CROSS_GOAL_N", "FingerprintOf", "FailureEntry", "FailureLedger",
     "LearningAction", "LedgerKey", "BannedToolsView", "RefusalEntry",
     "RefusalLedger", "RepeatFailView", "RULE_PROPOSAL_N", "RuleDefectReport",
@@ -252,6 +258,203 @@ def defect_producer_note(refusal_class: str) -> str:
 
 
 # ============================================================
+# HL-05 · 三级预算（§3.6）—— 配额 / 用量 / 耗尽判定（唯一判定处）
+# ============================================================
+#
+# **明确拒绝**"只靠全局 `MAX_ROUNDS`"：它把「一个目标卡住」与「整个会话失控」
+# 报成同一件事。三级各算各的账，且**耗尽的动作不同**（见 `tools.status.BUDGET_ACTIONS`）。
+#
+# 这里只做"算账 + 报出是哪一级"；配额从哪来（目标对象的 `budget` 字段 / 配置）
+# 由调用方决定，动作也由调用方执行 —— 账本/阶梯仍然是纯逻辑。
+
+def _to_int(value: Any) -> int:
+    """宽容取整：坏值当 0。配额读不出来 = **未配**（不是"配额为零"），绝不炸会话。"""
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+@dataclass
+class Budget:
+    """一份预算：`rounds` / `tokens` / `refusals`。**每个 0 = 该维度未配**。"""
+
+    rounds: int = 0
+    tokens: int = 0
+    refusals: int = 0
+
+    def __post_init__(self) -> None:
+        self.rounds = _to_int(self.rounds)
+        self.tokens = _to_int(self.tokens)
+        self.refusals = _to_int(self.refusals)
+
+    @classmethod
+    def from_any(cls, raw: Any) -> "Budget":
+        """吃 `Budget` / `{rounds,tokens,refusals}` / 单个数字（= refusals 上限）/ None。
+
+        为什么要吃单个数字：分类级预算最自然的写法就是 `{"POLICY": 3}`
+        （"这一类最多拒 3 次"）—— 让调用方每次写全三个维度纯属找错。
+        """
+        if isinstance(raw, Budget):
+            return cls(raw.rounds, raw.tokens, raw.refusals)
+        if isinstance(raw, bool):
+            return cls()
+        if isinstance(raw, (int, float)):
+            return cls(0, 0, _to_int(raw))
+        if isinstance(raw, Mapping):
+            return cls(raw.get("rounds", 0), raw.get("tokens", 0), raw.get("refusals", 0))
+        return cls()
+
+    def as_dict(self) -> Dict[str, int]:
+        return {"rounds": self.rounds, "tokens": self.tokens, "refusals": self.refusals}
+
+    def add(self, other: Any) -> "Budget":
+        """累加（返回**新对象**：配额/用量不该被就地改坏）。"""
+        o = Budget.from_any(other)
+        return Budget(self.rounds + o.rounds, self.tokens + o.tokens,
+                      self.refusals + o.refusals)
+
+    def is_unset(self) -> bool:
+        return not any((self.rounds, self.tokens, self.refusals))
+
+    def exhausted(self, used: Any) -> str:
+        """哪个维度耗尽了（空串 = 没耗尽）。配额 0 = 未配 ⇒ 永不耗尽；`>=` 即耗尽。"""
+        u = Budget.from_any(used)
+        for dim in BUDGET_DIMENSIONS:
+            quota = int(getattr(self, dim) or 0)
+            if quota and int(getattr(u, dim) or 0) >= quota:
+                return dim
+        return ""
+
+
+#: 用量与配额形状相同（`{rounds,tokens,refusals}`）—— 别名只为读起来分得清
+#: "配额"（`Budget`）与"已经花了多少"（`BudgetSpend`）。
+BudgetSpend = Budget
+
+
+@dataclass
+class BudgetExhaustion:
+    """一次预算耗尽：**报出是哪一级**（§3.6/§3.3 的硬要求）。"""
+
+    scope: str
+    dimension: str
+    spent: int = 0
+    quota: int = 0
+    action: str = ""
+    refusal_class: str = ""
+    goal_id: str = ""
+
+    def __post_init__(self) -> None:
+        self.scope = str(self.scope or "").strip()
+        self.dimension = str(self.dimension or "").strip()
+        self.spent = _to_int(self.spent)
+        self.quota = _to_int(self.quota)
+        self.refusal_class = str(self.refusal_class or "").strip().upper()
+        self.goal_id = str(self.goal_id or "")
+        if not self.action:
+            self.action = budget_action(self.scope)
+
+    def describe(self) -> str:
+        """一句人话 —— **必须点名是哪一级**（目标 vs 会话 vs 分类）。"""
+        if self.scope == "session":
+            return (f"会话级预算耗尽（{self.dimension} {self.spent}/{self.quota}）："
+                    "整个会话失控 —— 停下问人**并结束**本次会话")
+        if self.scope == "goal":
+            return (f"目标级预算耗尽（{self.dimension} {self.spent}/{self.quota}，"
+                    f"目标 {self.goal_id or '-'}）：**这个目标**做不完 —— 停下问人")
+        if self.scope == "class":
+            return (f"分类级预算耗尽（{self.refusal_class or '未分类'} 的 "
+                    f"{self.dimension} {self.spent}/{self.quota}）：这一类拒绝反复出现 —— "
+                    "提议固化规则（人确认）")
+        return f"未登记的预算级别耗尽：{self.scope}/{self.dimension}"
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"scope": self.scope, "dimension": self.dimension,
+                "spent": self.spent, "quota": self.quota, "action": self.action,
+                "refusal_class": self.refusal_class, "goal_id": self.goal_id,
+                "sentence": self.describe()}
+
+
+class BudgetPanel:
+    """三级预算的**唯一判定处**：给定用量，报出哪一级耗尽（含维度/用量/配额/动作）。
+
+    `goal` / `session` / `classes` 都是配额（`Budget` / dict / 数字）；`classes` 的键是
+    `refusal_class`，值只用到 `refusals`（分类级只有"该 class 拒了多少次"这一个维度）。
+    `legacy_session_refusals` 是上一轮 `config["refusal_budget"]` 的兼容口径：
+    它算的是**会话级 refusals**，用量来自拒绝账本总数（不是本会话拒绝计数）。
+    """
+
+    def __init__(self, *, goal: Any = None, session: Any = None,
+                 classes: Any = None, legacy_session_refusals: int = 0) -> None:
+        self.goal = Budget.from_any(goal)
+        self.session = Budget.from_any(session)
+        src = classes if isinstance(classes, Mapping) else {}
+        self.classes: Dict[str, Budget] = {str(k): Budget.from_any(v)
+                                           for k, v in src.items()}
+        self.legacy_session_refusals = _to_int(legacy_session_refusals)
+
+    def check(self, *, goal_used: Any = None, session_used: Any = None,
+              class_used: Any = None, goal_id: str = "",
+              legacy_used: int = 0) -> List[BudgetExhaustion]:
+        """列出**所有**耗尽的级别（顺序 = 会话 → 目标 → 分类）。空列表 = 都没耗尽。"""
+        gu, su = Budget.from_any(goal_used), Budget.from_any(session_used)
+        used = class_used if isinstance(class_used, Mapping) else {}
+        out: List[BudgetExhaustion] = []
+
+        dim = self.session.exhausted(su)
+        if not dim and self.legacy_session_refusals and \
+                _to_int(legacy_used) >= self.legacy_session_refusals:
+            dim = "refusals"
+        if dim:
+            quota = int(getattr(self.session, dim) or 0) or self.legacy_session_refusals
+            spent = int(getattr(su, dim) or 0) or _to_int(legacy_used)
+            out.append(BudgetExhaustion("session", dim, spent, quota, goal_id=goal_id))
+
+        dim = self.goal.exhausted(gu)
+        if dim:
+            out.append(BudgetExhaustion("goal", dim, int(getattr(gu, dim) or 0),
+                                        int(getattr(self.goal, dim) or 0), goal_id=goal_id))
+
+        for cls in sorted(self.classes):
+            budget = self.classes[cls]
+            n = _to_int(used.get(cls, 0))
+            dim = budget.exhausted(Budget(refusals=n))
+            if dim:
+                out.append(BudgetExhaustion("class", dim, n,
+                                            int(getattr(budget, dim) or 0),
+                                            refusal_class=cls, goal_id=goal_id))
+        return out
+
+    def highest(self, **kw: Any) -> Optional[BudgetExhaustion]:
+        """最高优先级的那个耗尽：**会话 > 目标 > 分类**（越全局越先报）。
+
+        为什么顺序写死在这里：把「整个会话失控」报成「某个目标卡住」正是本包要治的
+        那件事 —— 让调用方各自排序，早晚会有一处排反。
+        """
+        order = {s: i for i, s in enumerate(BUDGET_SCOPES)}
+        hits = self.check(**kw)
+        hits.sort(key=lambda e: order.get(e.scope, 99))
+        return hits[0] if hits else None
+
+    @classmethod
+    def from_config(cls, config: Any, *, goal: Any = None) -> "BudgetPanel":
+        """从配置装配：`goal_budget` / `session_budget` / `class_budgets` / `refusal_budget`。"""
+        cfg = config if isinstance(config, Mapping) else {}
+        return cls(goal=goal if goal is not None else cfg.get("goal_budget"),
+                   session=cfg.get("session_budget"),
+                   classes=cfg.get("class_budgets"),
+                   legacy_session_refusals=cfg.get("refusal_budget", 0))
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"goal": self.goal.as_dict(), "session": self.session.as_dict(),
+                "classes": {k: v.as_dict() for k, v in self.classes.items()},
+                "legacy_session_refusals": self.legacy_session_refusals}
+
+
+# ============================================================
 # HL-04 · L4 上报物料（§3.5）—— 三块契约 + 事实字段
 # ============================================================
 
@@ -261,7 +464,10 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
                               goals: Any = (), fingerprints: Any = (),
                               trigger: str = "cross_goal", observed: str = "",
                               producer: str = "", budget_exhausted: bool = False,
-                              source: str = "") -> Dict[str, Any]:
+                              source: str = "", population_size: Optional[int] = None,
+                              budget_scope: str = "", budget_dimension: str = "",
+                              budget_quota: int = 0,
+                              budget_spent: int = 0) -> Dict[str, Any]:
     """造一份**可判定**的 L4 上报物料（HL-04）；立不住就抛 `MaterialIncomplete`。
 
     物料 = 事实字段（计数/目标/指纹/触发原因）
@@ -269,11 +475,14 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
          + **缺陷可达性契约**六要素（要构造什么状态、**谁生产的**、怎么走到症状、…）
          + **五种偷换**逐条回答（没写"我没这样读"就无法证明没这样读）
 
-    三条"立不住"的硬门槛（宁可不出物料，也不出一份像样的假契约）：
+    四条"立不住"的硬门槛（宁可不出物料，也不出一份像样的假契约）：
       · `count <= 0`：没有总体 ⇒ 任何"全都成立"都是 `all([])` 那类假通过；
       · `observed` 为空：没有观测到的症状，就无从谈可达性；
       · `trigger == "cross_goal"` 却不足 `CROSS_GOAL_N` 个目标：那本身就是
-        `latest-as-all` 偷换（一次观察当总体）。
+        `latest-as-all` 偷换（一次观察当总体）；
+      · `trigger == "budget_exhausted"` 却没说**是哪一级**（HL-05 §3.6）：
+        把「一个目标卡住」与「整个会话失控」报成同一件事，正是本包要治的。
+
     生成后再过 `validate_escalation_material`（唯一判定处），有问题一律抛。
     """
     cls = str(refusal_class or "").strip().upper()
@@ -287,6 +496,9 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
         fp_list.append(str(fingerprint))
     n = int(count or 0)
     obs = str(observed or "").strip()
+    scope = str(budget_scope or "").strip()
+    dim = str(budget_dimension or "").strip()
+    quota, spent = _to_int(budget_quota), _to_int(budget_spent)
 
     if n <= 0:
         raise MaterialIncomplete(
@@ -301,11 +513,27 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
             f"物料拒绝生成：trigger=cross_goal 但只有 {len(goal_list)} 个目标"
             f"（需要 ≥{CROSS_GOAL_N}）—— 那是 latest-as-all 偷换："
             "一次观察当总体")
-    if budget_exhausted and trig == "cross_goal":
-        trig = "budget_exhausted"
+    if trig == "budget_exhausted":
+        if not budget_scope_ok(scope):
+            raise MaterialIncomplete(
+                "物料拒绝生成：预算耗尽型物料必须报出**是哪一级**"
+                f"（{'/'.join(BUDGET_SCOPES)}），拿到 {scope!r} —— "
+                "不许把『一个目标卡住』和『整个会话失控』报成同一件事（§3.6）")
+        if not budget_dimension_ok(dim):
+            raise MaterialIncomplete(
+                f"物料拒绝生成：预算耗尽型物料必须报出耗尽的**维度**"
+                f"（{'/'.join(BUDGET_DIMENSIONS)}），拿到 {dim!r}")
+        if spent <= 0:
+            raise MaterialIncomplete(
+                "物料拒绝生成：预算耗尽型物料必须带**用量**（budget_spent>0）——"
+                "没有用量就谈不上『耗尽』（那会是 unknown-as-true 的另一种写法）")
+    elif budget_exhausted:                       # 调用方只说 bool，没给级别
+        raise MaterialIncomplete(
+            "物料拒绝生成：budget_exhausted=True 但没给 budget_scope —— "
+            "预算耗尽必须报出是哪一级（§3.6）")
 
     site = str(producer or "").strip() or producer_for(cls)
-    pop = len(fp_list)
+    pop = _to_int(population_size) if population_size is not None else (len(fp_list) or 1)
     goals_txt = "、".join(goal_list) if goal_list else "（无活动目标，按会话级记录）"
     fps_short = "、".join(f[:6] for f in fp_list[:4]) or "（无）"
     unknown_list = [
@@ -314,16 +542,29 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
     ]
     if trig != "budget_exhausted":
         unknown_list.append("预算是否也会耗尽 —— 未评估（本次没走到那一级）")
+    else:
+        unknown_list.append("这个配额定得合不合适 —— 未评估（人裁决）")
 
-    mat: Dict[str, Any] = {
-        "kind": "escalation",
-        "refusal_class": cls, "tool": (tool_list[0] if tool_list else ""),
-        "goal_id": str(goal_id or ""), "fingerprint": str(fingerprint or ""),
-        "count": n, "goals": goal_list, "tools": tool_list,
-        "fingerprints": fp_list, "trigger": trig,
-        "source": str(source or ""), "budget_exhausted": bool(budget_exhausted),
-        # ── ACC-02 指标语义契约（五要素）──
-        "metric": metric_contract(
+    if trig == "budget_exhausted":
+        # 预算型：指标说的是**用量**（不是拒绝次数），总体就是那一级的账。
+        metric = metric_contract(
+            metric=f"{scope} 级预算的 {dim} 用量",
+            anchor=f"逐次累加**现算**（每一轮 / 每次拒绝 / 每次用量），不取最近一次、不缓存",
+            population=f"{scope} 级的账：{spent} / 配额 {quota}（{dim}）；"
+                       f"相关目标 {len(goal_list)} 个（{goals_txt}）、"
+                       f"相关工具 {len(tool_list)} 个",
+            excludes="没有配额的维度（配额 0 = 未配，永不耗尽）；不计入别的级别/别的维度",
+            reads_as=f"它是**预算用量**，不是拒绝次数、也不是「任务失败」—— "
+                     f"它说的是「该升级了」（{budget_action(scope)}）")
+        constructed = (
+            f"把 **{scope} 级**预算的 {dim} 走到 {spent}/{quota}"
+            + (f"（相关目标 {len(goal_list)} 个）" if goal_list else ""))
+        transition = (f"每一轮 / 每次拒绝 / 每次用量 → 累加该级用量 → "
+                      f"达配额 {quota} → 预算检查点判定**{scope} 级**耗尽 → L4 上报"
+                      f"{'并结束会话' if scope == 'session' else ''}；期间没有任何自动放宽")
+        reads_as_extra = f"这 {spent} 个单位的用量是**该级预算的账**"
+    else:
+        metric = metric_contract(
             metric=f"class={cls or '(未分类)'} 的拒绝在多个目标上的出现次数",
             anchor=f"按拒绝账本**现算**：逐条 (goal_id, fingerprint, class) 的 count 累加"
                    f"（{n} 条记录，{pop} 个指纹）；不取最近一次、不缓存",
@@ -332,22 +573,39 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
                        f"（{('、'.join(tool_list) or '（未知）')}）",
             excludes="成功/挂起的调用；goal_id 为空的条目**不算一个目标**"
                      "（所以单会话不会误触发跨目标）；MALFORMED 不计入熔断",
-            reads_as=f"它是**被拒次数**（执行层正常工作、策略生效），不是失败次数；"
-                     f"也**不是**「规则已判定有缺陷」—— 那要人裁决（judgement=pending_human）"),
+            reads_as="它是**被拒次数**（执行层正常工作、策略生效），不是失败次数；"
+                     "也**不是**「规则已判定有缺陷」—— 那要人裁决"
+                     "（judgement=pending_human）")
+        constructed = (
+            f"同一类拒绝（{cls or '未分类'}）在 {len(goal_list)} 个不同目标上各自命中"
+            f"同一类路障（指纹 {fps_short}）"
+            if trig == "cross_goal" else
+            f"同一类拒绝（{cls or '未分类'}）在本会话内把该级预算耗尽"
+            f"（{n} 条记录，指纹 {fps_short}）")
+        transition = (f"每次拒绝 → 拒绝账本记一条（count++）→ "
+                      + (f"跨目标数达 {CROSS_GOAL_N}" if trig == "cross_goal"
+                         else "该级预算耗尽")
+                      + " → 阶梯升到 L4 → 生成本物料；期间没有任何自动放宽"
+                      + (f"；现场来源 source={source}" if source else ""))
+        reads_as_extra = f"这 {n} 次是**被拒次数**（执行层正常工作）"
+
+    mat: Dict[str, Any] = {
+        "kind": "escalation",
+        "refusal_class": cls, "tool": (tool_list[0] if tool_list else ""),
+        "goal_id": str(goal_id or ""), "fingerprint": str(fingerprint or ""),
+        "count": n, "goals": goal_list, "tools": tool_list,
+        "fingerprints": fp_list, "trigger": trig,
+        "source": str(source or ""), "budget_exhausted": bool(budget_exhausted),
+        # ── HL-05：**是哪一级**（§3.6 的硬要求）──
+        "budget_tier": scope, "budget_dimension": dim,
+        "budget_quota": quota, "budget_spent": spent,
+        # ── ACC-02 指标语义契约（五要素）──
+        "metric": metric,
         # ── ACC-03 缺陷可达性契约（六要素）──
         "defect": defect_contract(
-            constructed_state=(
-                f"同一类拒绝（{cls or '未分类'}）在 {len(goal_list)} 个不同目标上各自命中"
-                f"同一类路障（指纹 {fps_short}）"
-                if trig == "cross_goal" else
-                f"同一类拒绝（{cls or '未分类'}）在本会话内把该级预算耗尽"
-                f"（{n} 条记录，指纹 {fps_short}）"),
+            constructed_state=constructed,
             production_producer=site,
-            transition_path=(f"每次拒绝 → 拒绝账本记一条（count++）→ "
-                             + (f"跨目标数达 {CROSS_GOAL_N}" if trig == "cross_goal"
-                                else "该级预算耗尽")
-                             + " → 阶梯升到 L4 → 生成本物料；期间没有任何自动放宽"
-                             + (f"；现场来源 source={source}" if source else "")),
+            transition_path=transition,
             persistence_boundary="拒绝账本是**长期/跨会话知识**"
                                  "（`config['refusal_ledger']` 给了路径就落盘 .json）；"
                                  "失败账本与会话同生共死（没有落盘 API）；"
@@ -358,16 +616,16 @@ def build_escalation_material(*, refusal_class: str, tool: str = "",
         # ── ACC-04 五种偷换：逐条回答"我是怎么读的" ──
         "substitutions": {
             "unknown-as-true":
-                f"总体不是空的：{pop} 个指纹 / {n} 条记录（population_size={pop}）；"
+                f"总体不是空的：{pop} 个单位 / {n} 条记录（population_size={pop}）；"
                 "「没数」不会被读成「全都成立」",
             "latest-as-all":
-                f"口径是**跨目标累计**（trigger={trig}，anchor 写明）；"
-                "不是「最近一份日志/最近一个目标」",
+                f"口径是**累计**（trigger={trig}，anchor 写明）；"
+                "不是「最近一份日志/最近一个目标/最近一次调用」",
             "accepted-as-closed":
                 "账本只是**记录**了这次升级（status=reported_open、requires_human=True）——"
                 "「被记录」≠「已闭合」：规则的处置权在人",
             "attempted-as-judged":
-                f"这 {n} 次是**被拒次数**（执行层正常工作），不是「已判定规则有缺陷」"
+                f"{reads_as_extra}，不是「已判定规则有缺陷」"
                 "（judgement=pending_human）",
             "unassessed-as-false":
                 "没人评过的维度登记进 `unknowns` 且 `rule_change_decided=None` ——"
@@ -686,6 +944,17 @@ class RefusalLedger:
         return sorted({e.key.goal_id for e in self._entries.values()
                        if e.key.refusal_class == cls and e.key.goal_id})
 
+    def class_counts(self) -> Dict[str, int]:
+        """每个 class 的总拒绝次数（HL-05 分类级预算的**用量来源**，唯一口径）。"""
+        out: Dict[str, int] = {}
+        for e in self._entries.values():
+            out[e.key.refusal_class] = out.get(e.key.refusal_class, 0) + e.count
+        return out
+
+    def class_total(self, refusal_class: str) -> int:
+        """某个 class 的总拒绝次数。"""
+        return self.class_counts().get(str(refusal_class or "").strip().upper(), 0)
+
     def guidance(self, key: LedgerKey,
                  hint: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """回喂给驱动层的结构化指导（动作①+②的合流出口）。"""
@@ -776,6 +1045,46 @@ class RefusalLedger:
         if prop is not None and not any(p.key == key for p in self.proposals):
             self.proposals.append(prop)
         return prop
+
+    def propose_rule_for_class(self, refusal_class: str,
+                               threshold: Optional[int] = None) -> List[RuleProposal]:
+        """**分类级预算耗尽**的唯一动作（HL-05 / §3.6 → DL-03 动作③）。
+
+        与 `propose_rule(key)` 的区别：那里按**单个指纹**提议，这里按**整个 class**
+        的总拒绝次数提议 —— 预算耗尽说的是"这一类反复出现"，那时该固化的往往不止
+        一条路。为该 class 涉及的每个工具各提一条 `deny`（pattern 取该工具最近一次
+        记录的 `suggest_rule` 口径），去重后追加进 `proposals`。
+
+        **仍然只是提议**：`requires_human=True`、`action=deny`（DL-04 一字未动）。
+        """
+        cls = str(refusal_class or "").strip().upper()
+        mine = [e for e in self._entries.values() if e.key.refusal_class == cls]
+        total = sum(e.count for e in mine)
+        n = _to_int(threshold) if threshold is not None else 0
+        if n and total < n:
+            return []
+        if not mine:
+            return []
+        tools = sorted({e.tool for e in mine if e.tool})
+        goals = self.distinct_goals(cls)
+        out: List[RuleProposal] = []
+        for tool in tools:
+            pattern = next((e.pattern for e in reversed(mine)
+                            if e.tool == tool and e.pattern), "")
+            prop = RuleProposal(
+                tool=tool, pattern=pattern, action=ace_rules.DENY, scope="local",
+                key=None, count=total,
+                evidence={"refusal_class": cls, "count": total, "goals": goals,
+                          "tools": tools, "budget_scope": "class",
+                          "threshold": n,
+                          "why": (f"{cls} 类拒绝累计 {total} 次，达到分类级预算上限"
+                                  f"（{n}）⇒ 提议固化成规则，免得每次会话重新撞一遍")})
+            if not any(p.tool == prop.tool and p.pattern == prop.pattern
+                       and (p.evidence or {}).get("budget_scope") == "class"
+                       for p in self.proposals):
+                self.proposals.append(prop)
+            out.append(prop)
+        return out
 
     def report_defect(self, refusal_class: str,
                       threshold: Optional[int] = None) -> Optional[RuleDefectReport]:

@@ -23,6 +23,7 @@
 | `session_end` | `rounds` `tools` `violations` `elapsed` | 会话结束 |
 | `model_delta` | `text` | 流式增量（**opt-in**：serve 握手带 `stream: true` 才发） |
 | `status` | `segments` | 状态行分段（`[{name, text, priority, level}]`） |
+| `agent_preset` | `name` `permission` | **agent 预设切换**（`WP-6`）：`name=""` = 切回无预设；`permission` 是四维生效值（`read`/`edit`/`webfetch`/`bash` → `allow`/`ask`/`deny`），`previous`/`changed`/`warnings` 可选。四壳据此同步"现在是谁在跑、比全局严在哪" |
 
 **两个时刻（驱动 UI 必须分清）**：`tool_call` 是**事后**发出的 —— 它在"执行层已跑完"
 的分支里（`ai_code.py:5208`），是审计记录，不是意图预告。想画"工具正在跑"必须用
@@ -62,7 +63,8 @@ __all__ = ["EVENT_TYPES", "EVENT_REQUIRED", "make_event", "validate_event",
 
 EVENT_TYPES = ("session_start", "user_message", "model_request", "tool_start",
                "tool_call", "tool_result", "permission_request", "choice_request",
-               "notice", "final", "session_end", "model_delta", "status")
+               "notice", "final", "session_end", "model_delta", "status",
+               "agent_preset")
 
 # 每个事件的必需字段（校验与文档的唯一来源）
 EVENT_REQUIRED: Dict[str, tuple] = {
@@ -82,6 +84,8 @@ EVENT_REQUIRED: Dict[str, tuple] = {
     "session_end": ("rounds", "tools", "violations", "elapsed"),
     "model_delta": ("text",),
     "status": ("segments",),
+    # WP-6：预设切换（`core/ace_agents.emit_switch`）。`name` 为空串 = 切回无预设。
+    "agent_preset": ("name", "permission"),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

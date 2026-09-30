@@ -240,7 +240,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
              "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
-             "80", "81", "82", "83", "84", "85"]
+             "80", "81", "82", "83", "84", "85", "86", "87", "88"]
 _SEEN_SECTIONS: list = []
 
 
@@ -16343,6 +16343,75 @@ if _want("85"):
                                  "TRANSIENT", "MALFORMED")),
           [c for c in ("POLICY", "BOUNDARY", "AUTH_PENDING", "CAPABILITY", "TRANSIENT",
                        "MALFORMED") if not _pf85(c)])
+
+
+# ============================================================
+if _want("86"):
+    # ── [86] WP-6 agent 预设：S-1 只许更严 + 无预设行为不变 ──
+    print("[86] WP-6 agent 预设 —— S-1 只许更严 / 无预设行为不变")
+    from core import ace_agents as _ag86  # noqa: E402
+    from execution_layer import CONFIRM_TOOLS as _CT86  # noqa: E402
+    from tools import status as _st86  # noqa: E402
+
+    check("[86] S-1 在**唯一判定处**（permission_relaxes / assert_no_permission_relaxation）",
+          callable(getattr(_st86, "permission_relaxes", None))
+          and callable(getattr(_st86, "assert_no_permission_relaxation", None)), "")
+    _red86 = False
+    try:
+        _st86.assert_no_permission_relaxation("bash", "allow", "ask")
+    except _st86.RelaxationForbidden:
+        _red86 = True
+    check("[86] ★S-1：全局 `bash: ask` 被预设改成 `allow` → RelaxationForbidden（红）",
+          _red86, "")
+    _red86b = False
+    try:
+        _st86.assert_no_permission_relaxation("bash", "denyy", "deny")
+    except _st86.RelaxationForbidden:
+        _red86b = True
+    check("[86] ★认不出的**取值**一律判「更松」→ 红（保守，不放行未知值）", _red86b, "")
+    check("[86] ★无预设：生效的逐次确认清单 == 全局 `CONFIRM_TOOLS`（逐字不变）",
+          _ag86.effective_confirm_tools(None) == set(_CT86),
+          _ag86.effective_confirm_tools(None) ^ set(_CT86))
+
+# ============================================================
+if _want("87"):
+    # ── [87] WP-7 Skill：只广告 name+description + 无效字段只 warning ──
+    print("[87] WP-7 Skill —— 只广告 name+description / 无效字段只 warning")
+    from tools.skill_tools import SkillLoader as _SL87, discover_skill_roots as _dsr87  # noqa: E402
+
+    check("[87] 唯一的技能发现器 + 装载器（命令面与工具面共用同一个）",
+          callable(_dsr87) and callable(_SL87), "")
+    try:
+        _sk87 = _SL87(_dsr87(str(FOLDER)))
+        _adv87 = _sk87.advertise()
+        check("[87] ★广告面**只有** name+description（正文不啃前缀）",
+              all(set(a) == {"name", "description"} for a in _adv87) if _adv87 else True,
+              [_a.keys() for _a in _adv87[:2]] if isinstance(_adv87, list) else _adv87)
+        check("[87] ★坏 SKILL.md 只 warning、不阻塞（好技能照样在）",
+              isinstance(_sk87.warnings(), list), type(_sk87.warnings()).__name__)
+    except Exception as _e87:  # noqa: BLE001 —— API 形状不符时判红，不崩整套
+        check("[87] ★广告面/告警 API 可用", False, repr(_e87))
+
+# ============================================================
+if _want("88"):
+    # ── [88] HL-05 三级预算：报得出哪一级 + 默认行为不变 ──
+    print("[88] HL-05 三级预算 —— 报得出哪一级 / 默认不变")
+    from core.ace_ledgers import Budget as _B88, BudgetPanel as _BP88  # noqa: E402
+    from tools import status as _st88  # noqa: E402
+
+    check("[88] 三级闭集且有序（session > goal > class）",
+          tuple(getattr(_st88, "BUDGET_SCOPES", ())) == ("session", "goal", "class"),
+          getattr(_st88, "BUDGET_SCOPES", None))
+    try:
+        _p88 = _BP88()
+        check("[88] ★没配预算：任一级都不耗尽（行为与现在逐字一致）",
+              _p88.highest(goal_used=_B88(rounds=10 ** 9), session_used=_B88(rounds=10 ** 9),
+                           class_used={}, goal_id="g1") is None, "")
+        check("[88] 三级各自有唯一动作（BUDGET_ACTIONS 三级齐）",
+              len(set(getattr(_st88, "BUDGET_ACTIONS", {}).values())) == 3,
+              getattr(_st88, "BUDGET_ACTIONS", None))
+    except Exception as _e88:  # noqa: BLE001
+        check("[88] ★三级预算判定 API 可用", False, repr(_e88))
 
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）

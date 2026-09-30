@@ -71,9 +71,10 @@ from tools.status import (classify_refusal, counts_toward_breaker,  # noqa: E402
                           ladder_action,
                           LADDER_CROSS_GOAL_N,
                           LADDER_L0_RETRY, LADDER_L1_REROUTE, LADDER_L2_BREAKER,
-                          LADDER_L3_DEGRADE)
+                          LADDER_L3_DEGRADE, LADDER_L4_ESCALATE)
 from core.ace_contracts import MaterialIncomplete, producer_for_source  # noqa: E402
-from core.ace_ledgers import (BannedToolsView, FailureLedger, LedgerKey,  # noqa: E402
+from core.ace_ledgers import (BannedToolsView, Budget, BudgetPanel,  # noqa: E402
+                              FailureLedger, LedgerKey,
                               RefusalLedger, RepeatFailView,
                               build_escalation_material, defect_producer,
                               fingerprint_call, hint_for)
@@ -936,8 +937,31 @@ class ExecutionLayer:
         self.rule_defects: List[Any] = []
         self._proposals_logged: Set[Tuple[str, str, str]] = set()
         self._defects_logged: Set[str] = set()
-        # HL-05（三级预算）的接线口：0 = 没有配额（与现状一致）。见 `_ladder_budget_exhausted`。
+        # ── HL-05 三级预算（§3.6）─────────────────────────────────────────
+        # **默认全未配**（每个维度 0 = 未配，`BUDGET_QUOTA_UNSET`）—— 没配预算时
+        # 一行行为都不变，全局 `MAX_ROUNDS` 仍在（本轮**不拆**既有防线）。
+        # 三级各算各的账：目标级（本目标 rounds/tokens/refusals）· 分类级（该 class
+        # 的总拒绝次数）· 会话级（总 token / 总轮数）。配额从哪来：
+        #   · 目标级：优先**目标对象自己的 `budget` 字段**（§1.2），否则 `config["goal_budget"]`；
+        #   · 分类级：`config["class_budgets"]`（`{"POLICY": 3}` = 这一类最多拒 3 次）；
+        #   · 会话级：`config["session_budget"]`。
+        self.goal_budget = Budget.from_any((config or {}).get("goal_budget"))
+        self.session_budget = Budget.from_any((config or {}).get("session_budget"))
+        self.class_budgets: Dict[str, Budget] = {
+            str(k): Budget.from_any(v)
+            for k, v in ((config or {}).get("class_budgets") or {}).items()}
+        self.session_spend = Budget()
+        self.goal_spend = Budget()
+        self._goal_spend_id = ""
+        self.budget_events: List[Dict[str, Any]] = []
+        self.pending_budget: Optional[Dict[str, Any]] = None
+        self.session_ended = False
+        self.end_reason = ""
+        # 上一轮（batch-4）的接线口：会话级 refusals 配额。保留 + 语义不变
+        # （用量口径不同：它算的是**拒绝账本总数**，见 `BudgetPanel.legacy_session_refusals`）。
         self.refusal_budget = int((config or {}).get("refusal_budget") or 0)
+        # 分类级提议的去重（同一 (工具, 模式) 只记一次事件）
+        self._budget_proposals_logged: Set[Tuple[str, str]] = set()
         # L1/L2 路由结果缓存（五层网关）
         self.last_route: Optional[Dict] = None
         self.last_route_input: Optional[str] = None
@@ -971,14 +995,172 @@ class ExecutionLayer:
         except Exception:      # noqa: BLE001 —— 读目标失败不该影响裁决，最多是"没有目标"
             return ""
 
-    def _ladder_budget_exhausted(self) -> bool:
-        """三级预算（**HL-05**）是否耗尽 —— 本包只留接线口，配额由 HL-05 填。
+    # ---------- HL-05 三级预算（§3.6）：配额 / 用量 / 检查点 ----------
 
-        为什么留方法而不是写死 `False`：L4 的触发条件之一是"任一级预算耗尽"，
-        写死会让阶梯永远少一条腿。默认没有配额 = 与现状一致（不引入新行为）。
+    def _goal_budget(self) -> Budget:
+        """目标级配额：优先**目标对象自己的 `budget`**（§1.2 的字段），否则配置兜底。
+
+        为什么先看目标对象：预算是**目标的属性**，不是会话的属性；配在配置里只是
+        "本会话所有目标的默认值"。目标对象还没有 `budget` 字段时这里读到 None ⇒
+        落配置兜底（缺字段=未配，行为不变）—— 不因为缺字段就跳过目标级预算。
         """
-        q = int(getattr(self, "refusal_budget", 0) or 0)
-        return bool(q) and self.refusal_ledger.total() >= q
+        try:
+            goal = self.goal_store.current() if self.goal_store else None
+            own = getattr(goal, "budget", None)
+            if own:
+                return Budget.from_any(own)
+        except Exception:      # noqa: BLE001 —— 读目标失败不该影响预算判定
+            pass
+        return self.goal_budget
+
+    def _budget_panel(self) -> BudgetPanel:
+        """当前配额面板（配额可能随目标切换/配置变化，所以现算 —— 不缓存）。"""
+        return BudgetPanel(goal=self._goal_budget(), session=self.session_budget,
+                           classes=self.class_budgets,
+                           legacy_session_refusals=int(
+                               getattr(self, "refusal_budget", 0) or 0))
+
+    def _sync_goal_scope(self) -> None:
+        """目标切换 ⇒ 目标级用量归零（新目标的账从零开始；不再翻旧目标的账）。"""
+        gid = self.current_goal_id()
+        if gid != self._goal_spend_id:
+            self._goal_spend_id = gid
+            self.goal_spend = Budget()
+
+    def note_round(self) -> Optional[Dict[str, Any]]:
+        """记一轮（模型调用轮）：会话级 + 目标级各 +1，然后查预算。**唯一的轮次入口**。"""
+        self._sync_goal_scope()
+        self.session_spend = self.session_spend.add(Budget(rounds=1))
+        self.goal_spend = self.goal_spend.add(Budget(rounds=1))
+        return self._check_budget()
+
+    def note_tokens(self, in_tokens: int = 0, out_tokens: int = 0
+                    ) -> Optional[Dict[str, Any]]:
+        """记一次 token 用量（**唯一的 token 入口**，由模型层调用；没调用就没 token 预算）。"""
+        n = int(in_tokens or 0) + int(out_tokens or 0)
+        if n <= 0:
+            return self.budget_exhaustion()
+        self._sync_goal_scope()
+        self.session_spend = self.session_spend.add(Budget(tokens=n))
+        self.goal_spend = self.goal_spend.add(Budget(tokens=n))
+        return self._check_budget()
+
+    def note_refusal(self, refusal_class: str = "") -> Optional[Dict[str, Any]]:
+        """记一次拒绝（会话级 + 目标级 refusals 各 +1），然后查预算。
+
+        分类级的用量**不在这里**：它直接读拒绝账本的 `class_counts()`（同一份知识，
+        不另立第二个计数器 —— 两个计数器迟早会对不上）。
+        """
+        self._sync_goal_scope()
+        self.session_spend = self.session_spend.add(Budget(refusals=1))
+        self.goal_spend = self.goal_spend.add(Budget(refusals=1))
+        return self._check_budget(refusal_class=refusal_class)
+
+    def budget_exhaustion(self, refusal_class: str = "") -> Optional[Dict[str, Any]]:
+        """哪一级预算耗尽了（`{scope,dimension,spent,quota,action,sentence,…}`）或 None。
+
+        唯一判定处是 `BudgetPanel.highest`（会话 > 目标 > 分类，越全局越先报）。
+        """
+        ex = self._budget_panel().highest(
+            goal_used=self.goal_spend, session_used=self.session_spend,
+            class_used=self.refusal_ledger.class_counts(),
+            goal_id=self.current_goal_id(),
+            legacy_used=self.refusal_ledger.total())
+        if ex is None:
+            return None
+        out = ex.as_dict()
+        if refusal_class and not out.get("refusal_class"):
+            out["refusal_class"] = str(refusal_class).strip().upper()
+        return out
+
+    def _ladder_budget_exhausted(self) -> bool:
+        """L4 的触发条件之一（§3.3「任一级预算耗尽」）—— 现在是真的三级判定。"""
+        return self.budget_exhaustion() is not None
+
+    def _check_budget(self, refusal_class: str = "") -> Optional[Dict[str, Any]]:
+        """预算检查点（HL-05 的**唯一入口**）：耗尽则执行该级的唯一动作。"""
+        ex = self.budget_exhaustion(refusal_class)
+        if ex is not None:
+            self._handle_budget_exhaustion(ex)
+        return ex
+
+    def _handle_budget_exhaustion(self, ex: Dict[str, Any]) -> None:
+        """执行该级耗尽的**唯一动作**（`tools.status.BUDGET_ACTIONS`）：
+
+        · 目标级 → L4 停下问人 + 目标标 `blocked_on_human`（**这个目标**做不完）；
+        · 分类级 → **提议固化规则**（DL-03③，人确认）+ L4 物料（§3.3）；
+        · 会话级 → L4 停下问人 **并结束**（`session_ended`，之后工具全被拒）。
+        """
+        scope = str(ex.get("scope") or "")
+        self.pending_budget = ex
+        if not any(e.get("scope") == scope and e.get("dimension") == ex.get("dimension")
+                   for e in self.budget_events):
+            self.budget_events.append(dict(ex))     # 每级每维度只留一条（不刷屏）
+            if self.session_log:
+                self.session_log.record_ladder(
+                    LADDER_L4_ESCALATE, ex.get("refusal_class") or "budget",
+                    action=str(ex.get("action") or ""), goal_id=ex.get("goal_id") or "",
+                    refusal_class=ex.get("refusal_class") or "",
+                    count=int(ex.get("spent") or 0),
+                    detail=f"HL-05 预算耗尽：{ex.get('sentence') or ''}")
+        # 分类级：唯一动作 = 提议固化规则（仍只是提议：人确认才落地，DL-04）
+        if scope == "class" and ex.get("refusal_class"):
+            for prop in self.refusal_ledger.propose_rule_for_class(
+                    ex["refusal_class"], threshold=ex.get("quota")):
+                sig = (prop.tool, prop.pattern)
+                if sig in self._budget_proposals_logged:
+                    continue
+                self._budget_proposals_logged.add(sig)
+                self.rule_proposals.append(prop)
+                if self.session_log:
+                    self.session_log.record_ledger_proposal(
+                        "propose_rule", tool=prop.tool,
+                        refusal_class=ex.get("refusal_class") or "",
+                        count=prop.count, pattern=prop.pattern, scope=prop.scope,
+                        action=prop.action, requires_human=True)
+        # 目标级：这个目标做不完 → 交给状态机（等人重新决定），而不是静默继续撞
+        if scope == "goal":
+            self._block_goal_on_human(str(ex.get("sentence") or ""))
+        # 会话级：结束（可观测：之后每一轮的工具调用都被拒）
+        if scope == "session":
+            self.session_ended = True
+            self.end_reason = str(ex.get("sentence") or "会话级预算耗尽")
+        # L4 上报（§3.3「任一级预算耗尽」）：三级都出物料，且物料里必须写明**是哪一级**。
+        # 阻塞范围按 §3.6 的动作分：目标级/会话级**全局停**（停下问人），
+        # 分类级的动作是"提议固化规则"，所以只报不全局停（否则一条规则的事会掐掉整个会话）。
+        self._budget_escalate(ex, block_all=(scope in ("goal", "session")))
+
+    def _block_goal_on_human(self, message: str) -> bool:
+        """把当前目标标成 `blocked_on_human`（DL-01 的状态机，不自己改文件）。"""
+        try:
+            goal = self.goal_store.current() if self.goal_store else None
+            if goal is None:
+                return False
+            if str(getattr(goal, "phase", "")) == "blocked_on_human":
+                return True
+            self.goal_store.update(
+                goal.id, goal.revision, phase="blocked_on_human",
+                reason_code="budget_exhausted",
+                reason_message=(message or "目标级预算耗尽：这个目标做不完，等人重新决定")[:300])
+            return True
+        except Exception as exc:      # noqa: BLE001 —— 标不上不该拖垮本轮，但要**声明**
+            self._note_degrade(
+                "budget_goal",
+                f"目标级预算耗尽，但没能把目标标成 blocked_on_human"
+                f"（{type(exc).__name__}: {exc}）—— 本轮不再继续执行该目标的工具")
+            return False
+
+    def _budget_escalate(self, ex: Dict[str, Any], *, block_all: bool = False
+                         ) -> Dict[str, Any]:
+        """预算耗尽的 L4 物料 + 阻塞（停下问人）。物料立不住时如实降级（不编契约）。"""
+        cls = str(ex.get("refusal_class") or "")
+        key = LedgerKey(str(ex.get("goal_id") or self.current_goal_id()), "", cls)
+        mat = self._escalation_material("", key, None, reason="预算耗尽", budget=ex)
+        if block_all:
+            mat["block_all"] = True
+        self.escalations.append(mat)
+        self.pending_escalation = mat
+        return mat
 
     def _fingerprint_gate_reason(self, tool_name: str,
                                  tool_call: Dict[str, Any]) -> str:
@@ -989,6 +1171,11 @@ class ExecutionLayer:
         """
         fp = fingerprint_call(tool_name, tool_call or {})
         esc = self.pending_escalation
+        # HL-05：预算耗尽（目标/会话级）**全局停** —— 不是某条路的问题，是"该升级了"
+        if esc and esc.get("block_all"):
+            tier = esc.get("budget_tier") or ""
+            return (f"预算已耗尽（{tier or 'budget'} 级）：已按 L4 **停下来问人** —— "
+                    f"等人回答，不要继续调用工具（{esc.get('sentence') or ''}）")
         if esc and fp in set(esc.get("fingerprints") or ()):
             return (f"同类拒绝已跨目标反复出现（{esc.get('refusal_class') or '未分类'}），"
                     f"已按 L4 **停下来问人** —— 等人回答，不要继续撞这条路（fp={fp[:6]}）")
@@ -999,8 +1186,9 @@ class ExecutionLayer:
             return f"工具 '{tool_name}' 已被禁用（兼容/手工口径），本次对话禁止再调用"
         return ""
 
-    def _escalation_material(self, tool_name: str, key: LedgerKey,
-                             entry: Any, reason: str = "") -> Dict[str, Any]:
+    def _escalation_material(self, tool_name: str, key: LedgerKey, entry: Any,
+                             reason: str = "",
+                             budget: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """L4 的上报物料（§3.5 / **HL-04**）：**可判定**，不是"失败了 N 次"。
 
         物料由三块拼成（都走 `core/ace_contracts.py` 的模板与检查器，不另造一套）：
@@ -1009,6 +1197,10 @@ class ExecutionLayer:
 
         `production_producer` 优先取**拒绝记录时**记下的现场定位符（谁拒的指谁）；
         取不到才落类级兜底 —— 从不是"规则本身有问题"这种症状描述（§0.1 的教训）。
+
+        `budget`（HL-05）非空 = 这次是**预算耗尽**型：物料必须报出**是哪一级**
+        （目标 / 分类 / 会话），生产现场指预算检查点 `_check_budget`。
+
         物料立不住（`MaterialIncomplete`）时**声明降级**并如实标 `incomplete`，
         绝不编一份看起来可复核的假契约。
         """
@@ -1017,37 +1209,64 @@ class ExecutionLayer:
         fps = {key.fingerprint} | {e.key.fingerprint for e in mine}
         rep = self.refusal_ledger.report_defect(cls)
         goals = rep.goals if rep else self.refusal_ledger.distinct_goals(cls)
+        tools = (rep.tools if rep else
+                 sorted({e.tool for e in mine if e.tool}) or
+                 ([tool_name] if tool_name else []))
         site = next((e.producer for e in mine if e.producer), "") or defect_producer(cls)
         source = next((e.source for e in mine if e.source), "failure_ledger")
         count = int(getattr(entry, "count", 0))
         observed = (rep.observed if rep else
-                    f"{tool_name}（fp={key.fingerprint[:6]} · {cls or '未分类'}）已失败 "
+                    f"{tool_name or '(预算检查点)'}"
+                    f"（fp={key.fingerprint[:6] or '-'} · {cls or '未分类'}）已失败 "
                     f"{count} 次；触发原因：{reason or '阶梯升级'}")
-        trigger = ("cross_goal" if len(goals) >= LADDER_CROSS_GOAL_N
-                   else ("budget_exhausted" if self._ladder_budget_exhausted()
+
+        # 预算耗尽型：物料必须带级别/维度/配额/用量（§3.6），现场指检查点本身
+        spend: Dict[str, Any] = {}
+        if budget:
+            count = max(count, int(budget.get("spent") or 0))
+            observed = str(budget.get("sentence") or observed)
+            site = producer_for_source("budget")
+            source = "budget"
+            spend = {"budget_scope": str(budget.get("scope") or ""),
+                     "budget_dimension": str(budget.get("dimension") or ""),
+                     "budget_quota": int(budget.get("quota") or 0),
+                     "budget_spent": int(budget.get("spent") or 0),
+                     "population_size": int(budget.get("spent") or 0)}
+            cls = str(budget.get("refusal_class") or cls)
+            goals = goals or ([budget["goal_id"]] if budget.get("goal_id") else [])
+        elif self._ladder_budget_exhausted():
+            # 阶梯升级时正好也耗尽了（§3.3「任一级预算耗尽」）—— 自动带上级别
+            ex = self.budget_exhaustion(cls)
+            if ex:
+                return self._escalation_material(tool_name, key, entry, reason,
+                                                 budget=ex)
+
+        trigger = ("budget_exhausted" if budget
+                   else ("cross_goal" if len(goals) >= LADDER_CROSS_GOAL_N
                          else "ladder"))
         try:
             return build_escalation_material(
-                refusal_class=cls, tool=tool_name,
-                tools=rep.tools if rep else [tool_name], goal_id=key.goal_id,
-                fingerprint=key.fingerprint, count=count, goals=goals,
-                fingerprints=sorted(fps), trigger=trigger, observed=observed,
-                producer=site, budget_exhausted=(trigger == "budget_exhausted"),
-                source=source)
+                refusal_class=cls, tool=tool_name, tools=tools,
+                goal_id=key.goal_id, fingerprint=key.fingerprint, count=count,
+                goals=goals, fingerprints=sorted(fps), trigger=trigger,
+                observed=observed, producer=site,
+                budget_exhausted=bool(budget or trigger == "budget_exhausted"),
+                source=source, **spend)
         except MaterialIncomplete as exc:
             # 物料立不住 = 上报能力降级：**必须声明**（HL-03②），并如实标 incomplete。
             self._note_degrade("hl04_material",
                                f"L4 物料无法判定（{exc}）—— 本次只带事实字段，"
                                "不编造五要素/六要素契约")
-            return {
+            fallback = {
                 "kind": "escalation", "incomplete": str(exc),
                 "refusal_class": cls, "tool": tool_name, "goal_id": key.goal_id,
                 "fingerprint": key.fingerprint, "count": count, "goals": goals,
-                "tools": rep.tools if rep else [tool_name],
-                "fingerprints": sorted(fps), "observed": observed,
+                "tools": tools, "fingerprints": sorted(fps), "observed": observed,
                 "production_producer": site, "requires_human": True,
                 "trigger": trigger,
             }
+            fallback.update(spend)
+            return fallback
 
     def _ladder_note(self, tool_name: str, key: LedgerKey, level: str,
                      entry: Any) -> str:
@@ -1135,6 +1354,9 @@ class ExecutionLayer:
                     "report_defect", refusal_class=rep.refusal_class, goals=rep.goals,
                     count=rep.count, observed=rep.observed,
                     production_producer=rep.production_producer, requires_human=True)
+        # HL-05：记账 + 查预算（会话级/目标级 refusals + 分类级读账本 class_counts）。
+        # 放在最后：先把这条拒绝完整记进知识，再让预算判定"该不该升级"。
+        self.note_refusal(key.refusal_class)
         return str(self.refusal_ledger.guidance(key, hint=h).get("message") or "")
 
     def _note_refusal(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
@@ -1193,6 +1415,22 @@ class ExecutionLayer:
         """
         self.failure_ledger.clear()
         self.save_refusal_ledger()
+
+    def reset_session_budget(self) -> bool:
+        """开一段**新会话**的预算：会话用量归零、解除 `session_ended` 与上报阻塞。
+
+        为什么要有它：会话级预算是"整个会话"的账，会话结束了就该重新开始 ——
+        否则用完一次之后这个进程永远动不了。**目标级/分类级的账不动**：它们是
+        别的寿命（目标级随目标切换归零，分类级是跨会话的知识口径）。
+        """
+        self.session_spend = Budget()
+        self.session_ended = False
+        self.end_reason = ""
+        self.pending_budget = None
+        esc = self.pending_escalation
+        if esc and (esc.get("budget_tier") or esc.get("block_all")):
+            self.pending_escalation = None
+        return True
 
     # ---------- 命令审批（接 ace_execpolicy 的 prompt 档） ----------
 
@@ -1299,6 +1537,9 @@ class ExecutionLayer:
         """
         # ① 新任务重置：任务身份变化时清空跨任务诱饵/计划/权限残留
         self._stage_new_task(user_input, task_id)
+        # HL-05：先记一轮（会话级/目标级 rounds 各 +1）并查预算 —— 耗尽则本轮的
+        # 工具调用会被 `_fingerprint_gate_reason`（block_all）当场拦下（停下问人）。
+        self.note_round()
         # ② L1 意图识别 + L2 技能推荐（五层网关，仅新输入时计算一次）
         route_meta = self._stage_route(user_input)
         # ③ 解析 Agent 输出（含 Windows 路径反斜杠修复）；格式错误立即返回
@@ -1606,6 +1847,18 @@ class ExecutionLayer:
                 "instruction": "模式 A 必须以 {\"tool\": \"...\"} JSON 对象输出工具调用"
             }
         tool_name = tool_call.get("tool", "")
+        # HL-05：**会话级预算耗尽 ⇒ 结束**（§3.6 的"L4 上报并结束"）。
+        # 放在最前面：会话已经结束，任何工具都不再执行 —— "结束"必须是可观测的，
+        # 而不是只把 `session_ended` 写在一个没人读的字段里。
+        if self.session_ended:
+            return None, tool_name, {
+                "status": "TOOL_BANNED",
+                "message": (f"会话级预算已耗尽：已按 L4 上报**并结束**本次会话"
+                            f"（{self.end_reason or '预算耗尽'}）。不要再调用工具。"),
+                "instruction": ("把上面的上报物料如实报给用户并停下 —— 本次会话到此结束；"
+                                "要继续请让用户开新会话或显式 reset_session_budget()。"),
+                **route_meta,
+            }
         # 4.4/4.7 熔断闸门：**按指纹**判"这条路关没关"，不是按工具名（HL-01）。
         # 旧口径 `tool_name in self.banned_tools` 会让同一工具的另一条路一起被禁；
         # 现在闸门认 `(goal_id, fingerprint, class)` 里的指纹，工具名只留在兼容视图里。

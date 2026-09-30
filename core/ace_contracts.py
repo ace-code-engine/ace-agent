@@ -49,6 +49,9 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Mapping, Optional
 
+# HL-05 的级别闭集来自 `tools.status`（唯一登记处）—— 这里只是消费它。
+from tools.status import BUDGET_SCOPES as _BUDGET_SCOPES
+
 __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "metric", "defect", "substitution", "all_assessed",
            "validate_metric", "validate_defect", "validate_substitution",
@@ -534,6 +537,8 @@ REFUSAL_SOURCE_PRODUCERS: Dict[str, str] = {
     "snapshot": "execution_layer.py:_snapshot_unavailable",
     "output_guard": "execution_layer.py:_stage_output_guard",
     "tool_precheck": "execution_layer.py:_stage_tool_precheck",
+    # HL-05：预算耗尽的生产现场 —— 就是那个**预算检查点**（不是"目标/会话"这种症状）
+    "budget": "execution_layer.py:_check_budget",
 }
 
 #: 六类拒绝（+ 未分类）的**类级**生产者：取不到现场来源时的兜底。
@@ -650,7 +655,10 @@ def validate_escalation_material(mat: Any) -> List[str]:
     if not isinstance(mat, Mapping):
         return ["物料不是映射（L4 上报物料是一条 dict）"]
     problems: List[str] = []
-    if _blank(mat.get("refusal_class")):
+    # 预算耗尽型物料说的**不是某一类拒绝**（会话 rounds 用尽与 refusal_class 无关）：
+    # 它的"是谁"由 `budget_tier` 承担（下面单独判）。其余物料必须有 refusal_class。
+    _is_budget = str(mat.get("trigger") or "") == "budget_exhausted"
+    if _blank(mat.get("refusal_class")) and not _is_budget:
         problems.append("缺字段 refusal_class（或为空）")
     for block in ("metric", "defect", "substitutions"):
         if block not in mat:
@@ -664,5 +672,18 @@ def validate_escalation_material(mat: Any) -> List[str]:
     if isinstance(mat.get("substitutions"), Mapping):
         problems += [f"substitutions: {p}"
                      for p in validate_substitution_answers(mat["substitutions"])]
+    # HL-05（§3.6）：预算耗尽型物料**必须报出是哪一级** —— 否则"一个目标卡住"与
+    # "整个会话失控"会以同一份物料出现在人面前（本包要治的正是这件事）。
+    if str(mat.get("trigger") or "") == "budget_exhausted":
+        tier = str(mat.get("budget_tier") or "").strip()
+        if tier not in _BUDGET_SCOPES:
+            problems.append(
+                f"budget_tier: 预算耗尽型物料必须报出是哪一级（{list(_BUDGET_SCOPES)}），"
+                f"拿到 {tier!r} —— 级别不可辨的上报等于没有上报")
+        dim = str(mat.get("budget_dimension") or "").strip()
+        if not dim:
+            problems.append("budget_dimension: 预算耗尽型物料必须报出耗尽的维度")
+        if not int(mat.get("budget_spent") or 0):
+            problems.append("budget_spent: 预算耗尽型物料必须带用量（没有用量就谈不上耗尽）")
     problems += detect_substitutions(mat)
     return problems

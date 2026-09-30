@@ -116,6 +116,7 @@ ace-agent/
 │   ├── ace_serve.py            #   双向 NDJSON 协议服务端（ace --serve）：帧编解码 + 派发 + 审批往返，给独立进程前端用
 │   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
 │   ├── ace_workspace.py        #   WP-4 工作区四层：Task→Workspace→Session→ExecutionProcess + allowedRoots 注册表（纯逻辑，回滚只经 /undo）
+│   ├── ace_agents.py           #   WP-6 agent 预设：agents/*.md 扫描 + 四维权限投影 + **S-1 只许更严**（复用 RelaxationForbidden）
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
 │   ├── ace_styles.py           #   输出风格预设：提示词片段 + 界面旗标（一份预设两个面）
@@ -214,7 +215,8 @@ ace-agent/
 │   │   ├── CONFIRM-BOUNDARY.md     #   确认与只读边界加固立项卡（H-27~H-31：前缀免确认 / 确认对象 / 只读越界 / 无边界不执行）
 │   │   ├── THREE-LAYERS.md         #   三层脊柱设计卡（DL 驱动 / RL 响应 / HL 自愈；两个共用账本 / 五级升级阶梯 / 拒绝六分类 / 验收 A1-A8）
 │   │   ├── WP-0-TAIL-TECH.md        #   WP-0/ACC 尾活技术难点与解法（切片 C 终端权限提示统一 + benchmarks 校验器接法）
-│   │   └── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
+│   │   ├── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
+│   │   └── WP-6-AGENT-PRESETS.md    #   WP-6 立项卡（C4 要求单独立卡）：per-agent 权限预设 + **S-1 只许更严**
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

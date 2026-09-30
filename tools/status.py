@@ -390,3 +390,124 @@ def assert_no_relaxation(action: str) -> None:
             f"学习结果不允许是 {action!r}：DL-04 只允许更严的规则（提议固化、人确认）"
             f"或更会绕的路径（换实现、不改权限）；放宽只能是人的动作。"
             f"合法学习动作：{sorted(LEARNING_ACTIONS)}")
+
+
+# ============================================================
+# WP-6 S-1：**预设只许更严或相等** —— 与 DL-04 同一个判定处
+# ============================================================
+#
+# DL-04 管的是"**学习**产物不许放宽"（上面那一段）；WP-6 管的是"**预设文件**不许
+# 放宽"（`docs/design/WP-6-AGENT-PRESETS.md` §二）。两者是**同一条硬约束 S-1**
+# 的两个入口，所以共用同一个异常类 `RelaxationForbidden`、同一处判定（本文件）——
+# 不新开第二套判定/异常，免得两处判据哪天走岔（那正是 S-1 想防的事）。
+#
+# 预设文件本身**不是放宽入口**：想放宽得改全局配置或持久规则，那两样都是人写的。
+
+PERMISSION_ACTION_ALLOW: Final[str] = "allow"
+PERMISSION_ACTION_ASK: Final[str] = "ask"
+PERMISSION_ACTION_DENY: Final[str] = "deny"
+
+#: 预设四维的取值闭集（`read`/`edit`/`webfetch`/`bash` 四维共用这一套值）。
+PERMISSION_ACTIONS: Final[Tuple[str, ...]] = (
+    PERMISSION_ACTION_ALLOW, PERMISSION_ACTION_ASK, PERMISSION_ACTION_DENY,
+)
+
+#: 严格度：**越大越严**。S-1 的比较只有这一条（`allow < ask < deny`），
+#: 任何"更松"的写法都落成 `strictness(预设) < strictness(全局)`。
+PERMISSION_STRICTNESS: Final[Dict[str, int]] = {
+    PERMISSION_ACTION_ALLOW: 0,
+    PERMISSION_ACTION_ASK: 1,
+    PERMISSION_ACTION_DENY: 2,
+}
+
+
+def permission_relaxes(preset_value: str, global_value: str) -> bool:
+    """预设值是否比全局值**更松**（WP-6 S-1）。认不出的值一律按"更松"处理。
+
+    为什么认不出要按更松算：`deny` 与 `ask` 之间差的是"要不要问人"，
+    放行一个我们读不懂的值 = 默认不问人 —— 方向朝松，且是静默的。
+    """
+    p = str(preset_value or "").strip().lower()
+    g = str(global_value or "").strip().lower()
+    if g not in PERMISSION_STRICTNESS:
+        return True                     # 全局值都认不出 ⇒ 不比它松是做不到的承诺
+    if p not in PERMISSION_STRICTNESS:
+        return True                     # 认不出的预设值：保守判"更松"（会被拒）
+    return PERMISSION_STRICTNESS[p] < PERMISSION_STRICTNESS[g]
+
+
+def assert_no_permission_relaxation(scope: str, preset_value: str,
+                                    global_value: str) -> None:
+    """WP-6 S-1 的断言：预设比全局更松 ⇒ 当场抛 `RelaxationForbidden`。
+
+    与 `assert_no_relaxation` 同一条纪律、同一个异常类、同一个文件 ——
+    **放宽只能是人的动作**，预设文件不是那个入口。
+    """
+    if permission_relaxes(preset_value, global_value):
+        raise RelaxationForbidden(
+            f"预设 {scope!r} 想写 {preset_value!r}，但全局是 {global_value!r} —— "
+            f"预设只许更严或相等（S-1）：{list(PERMISSION_ACTIONS)} 中越靠后越严。"
+            f"要放宽请改全局配置或持久规则（那是人的动作），不要写进预设文件。")
+
+
+# ============================================================
+# HL-05 三级预算（THREE-LAYERS §3.6）—— 契约的唯一判定处
+# ============================================================
+#
+# **明确拒绝**："只靠全局轮数上限"（`agent_runner.MAX_ROUNDS`）。它今天会把两件
+# 不同的事报成同一件：「一个目标卡住」与「整个会话失控」。三级各有配额与**唯一**动作：
+#
+# | 级 | 配额 | 耗尽时 |
+# |---|---|---|
+# | 目标级 | 该目标的 `budget.{rounds,tokens,refusals}` | L4 上报（**这个目标**做不完） |
+# | 分类级 | 该 `class` 的总拒绝次数上限 | **提议固化规则**（DL-03 第 3 条） |
+# | 会话级 | 总 token / 总轮数 | L4 上报**并结束** |
+#
+# 为什么动作表住在这里：与 `LADDER_ACTIONS` / `DRIVER_ACTIONS` 同一条登记纪律 ——
+# 新增一级预算必须先在这里登记；`budget_action` 认不出一律返回 `""`（不默认"重试"）。
+# 配额 `0` = **未配**（不是"配额为零"）：没配预算时一行行为都不变。
+
+BUDGET_SCOPE_SESSION: Final[str] = "session"   # 整个会话失控（最全局，优先报）
+BUDGET_SCOPE_GOAL: Final[str] = "goal"         # 这个目标做不完
+BUDGET_SCOPE_CLASS: Final[str] = "class"       # 这一类拒绝反复出现（该固化规则了）
+
+#: 有序：越靠前越全局。多级同时耗尽时**先报会话级** —— 把"会话失控"报成
+#: "某个目标卡住"正是本包要治的那件事。
+BUDGET_SCOPES: Final[Tuple[str, ...]] = (
+    BUDGET_SCOPE_SESSION, BUDGET_SCOPE_GOAL, BUDGET_SCOPE_CLASS,
+)
+
+BUDGET_DIM_ROUNDS: Final[str] = "rounds"
+BUDGET_DIM_TOKENS: Final[str] = "tokens"
+BUDGET_DIM_REFUSALS: Final[str] = "refusals"
+BUDGET_DIMENSIONS: Final[Tuple[str, ...]] = (
+    BUDGET_DIM_ROUNDS, BUDGET_DIM_TOKENS, BUDGET_DIM_REFUSALS,
+)
+
+#: 每级耗尽的**唯一**动作（§3.6 那张表的"耗尽时"列）。
+BUDGET_ACTION_ESCALATE: Final[str] = "escalate"            # 停下问人（这个目标做不完）
+BUDGET_ACTION_PROPOSE_RULE: Final[str] = "propose_rule"    # 提议固化规则（DL-03③，人确认）
+BUDGET_ACTION_ESCALATE_END: Final[str] = "escalate_end"    # 停下问人**并结束**会话
+BUDGET_ACTIONS: Final[Dict[str, str]] = {
+    BUDGET_SCOPE_SESSION: BUDGET_ACTION_ESCALATE_END,
+    BUDGET_SCOPE_GOAL: BUDGET_ACTION_ESCALATE,
+    BUDGET_SCOPE_CLASS: BUDGET_ACTION_PROPOSE_RULE,
+}
+
+#: 配额 `0` 的含义（登记一次，免得各处各写一遍）：**未配**，永不耗尽。
+BUDGET_QUOTA_UNSET: Final[int] = 0
+
+
+def budget_action(scope: str) -> str:
+    """该级预算耗尽时的唯一动作；认不出的级别返回 `""`（**绝不**默认成"重试"）。"""
+    return BUDGET_ACTIONS.get(str(scope or "").strip(), "")
+
+
+def budget_scope_ok(scope: str) -> bool:
+    """是不是登记过的预算级别（session/goal/class）。"""
+    return str(scope or "").strip() in BUDGET_SCOPES
+
+
+def budget_dimension_ok(dimension: str) -> bool:
+    """是不是登记过的预算维度（rounds/tokens/refusals）。"""
+    return str(dimension or "").strip() in BUDGET_DIMENSIONS

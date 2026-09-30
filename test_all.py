@@ -14234,6 +14234,22 @@ if _want("70"):
               _utv70({"in_tokens": 100, "out_tokens": 100,
                       "measured_in_tokens": 90, "measured_out_tokens": 1000}) == "flag", "")
 
+    # benchmarks 接校验器（ACC-02 落点 ① 的形状校验器）：报告结构可校验，坏报告当场红。
+    _vbr70 = getattr(_acc70c, "validate_bench_report", None)
+    check("benchmarks 接校验器 · `validate_bench_report` 存在", _vbr70 is not None, "")
+    if _vbr70 is not None:
+        check("benchmarks 接校验器 ★合格报告 → 无问题",
+              _vbr70({"sysinfo": {"python": "3", "platform": "x"},
+                      "checks": {"passed": 1, "total": 1},
+                      "metrics": [{"name": "x", "value": 1}]}) == [], "")
+        check("benchmarks 接校验器 ★坏报告（正确性有失败）→ 报问题",
+              _vbr70({"sysinfo": {"python": "3", "platform": "x"},
+                      "checks": {"passed": 0, "total": 1},
+                      "metrics": [{"name": "x", "value": 1}]}) != [], "")
+        check("benchmarks 接校验器 ★坏报告（缺 metrics）→ 报问题",
+              _vbr70({"sysinfo": {"python": "3", "platform": "x"},
+                      "checks": {"passed": 1, "total": 1}}) != [], "")
+
     # ── 主页度量行：J1–J2 ──
     # `/status` 与主页共用 `_cross_session_line()`（一处口径、一处文案）。
     # 主页那一行挂在标题**下面**，不占分区、不进入选择序列 —— 它不需要被选中。

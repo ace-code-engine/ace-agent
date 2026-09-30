@@ -310,6 +310,25 @@ try:
 except Exception as e:  # noqa: BLE001
     check("memory 可运行", False, repr(e))
 
+# ================================================================ token
+# ACC-01 ③ 的"标红"自检 —— **合成偏差数据，非真实会话**（真实 before/after 要等 WP-10）。
+# 这里只验证 `token_verdict`/`usage_token_verdict` 判据本身：超阈值那组必须给 `flag`，
+# 没实测必须给 `None`（不拿"没数"当"一致"）。
+print("[token] 自报 token 偏差判据自检（合成数据，非真实会话）")
+try:
+    from core import ace_contracts as _acc  # noqa: E402
+    for _label, _est, _mes, _expect in (
+            ("偏差 10% 在阈值内 → ok", 100, 90, "ok"),
+            ("偏差 90% 超阈值 → flag", 100, 1000, "flag"),
+            ("没实测 → None（不评）", 100, None, None)):
+        _got = _acc.token_verdict(_est, _mes)
+        check(f"token 判据自检：{_label}", _got == _expect, f"got={_got} expect={_expect}")
+    _agg = _acc.usage_token_verdict({"in_tokens": 100, "out_tokens": 100,
+                                     "measured_in_tokens": 90, "measured_out_tokens": 1000})
+    check("token 判据自检：聚合任一方向超阈值 → flag", _agg == "flag", str(_agg))
+except Exception as e:  # noqa: BLE001
+    check("token 判据自检可运行", False, repr(e))
+
 # ================================================================ 汇总输出
 passed = sum(1 for c in CHECKS if c["passed"])
 total = len(CHECKS)
@@ -326,6 +345,11 @@ payload = {
                "items": [{"name": c["name"], "passed": c["passed"]} for c in CHECKS]},
     "metrics": RESULT,
 }
+
+# 报告写盘前过一遍形状校验器（"benchmarks 接校验器"的那半：坏报告当场红，不落盘）。
+from core import ace_contracts as _acc_check  # noqa: E402
+for _p in _acc_check.validate_bench_report(payload):
+    print(f"❌ bench 报告校验失败: {_p}")
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 (OUT_DIR / "bench_report.json").write_text(

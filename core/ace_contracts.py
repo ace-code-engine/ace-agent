@@ -57,7 +57,7 @@ __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "CROSS_SESSION_PLACEHOLDERS", "CROSS_SESSION_METRICS", "INTERNAL_ONLY",
            "KNOWN_DEFECTS", "SUBSTITUTIONS", "PERMISSION_RENDERERS",
            "TOKEN_DEVIATION_THRESHOLD", "token_deviation", "token_verdict",
-           "usage_token_verdict"]
+           "usage_token_verdict", "validate_bench_report"]
 
 # 五要素 / 六要素的**唯一来源**（顺序即文档里的顺序）
 METRIC_FIELDS = ("metric", "anchor", "population", "excludes", "reads_as")
@@ -468,3 +468,27 @@ def usage_token_verdict(usage: Mapping[str, Any]) -> Optional[str]:
     if "ok" in verdicts:
         return "ok"
     return None
+
+
+def validate_bench_report(payload: Any) -> List[str]:
+    """校验 `benchmarks/results/bench_report.json` 的形状（ACC-02 落点 ① 的形状校验器）。
+
+    这是"benchmarks 接校验器"里**现在能做的那半**：报告结构可校验，坏报告当场红。
+    真实 before/after token 数据要等 WP-10 —— 那半进来时替换数据、校验器不用改。
+    返回问题列表（空 = 合格）。
+    """
+    problems: List[str] = []
+    if not isinstance(payload, Mapping):
+        return ["报告不是 JSON 对象"]
+    sysinfo = payload.get("sysinfo")
+    if not isinstance(sysinfo, Mapping) or not sysinfo.get("python") or not sysinfo.get("platform"):
+        problems.append("缺 sysinfo（python/platform）")
+    checks = payload.get("checks")
+    if not isinstance(checks, Mapping) or "passed" not in checks or "total" not in checks:
+        problems.append("缺 checks（passed/total）")
+    elif int(checks.get("passed", -1)) != int(checks.get("total", -2)):
+        problems.append(f"正确性检查有失败：{checks.get('passed')}/{checks.get('total')}")
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, list) or not metrics:
+        problems.append("缺 metrics（非空列表）")
+    return problems

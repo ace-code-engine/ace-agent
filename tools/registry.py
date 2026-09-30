@@ -373,10 +373,18 @@ TOOL_SPECS: List[ToolSpec] = [
         name="goal_create", permission=PERM_READ, handler="_exec_goal_create",
         description="创建持久化目标：长任务自动逐轮续跑，直到完成/暂停/阻塞或轮次预算耗尽。"
                     "objective 写清最终交付物；acceptance 必填——写清「怎么算完成」的**可执行判据**"
-                    "（测试通过 / 文件存在 / 断言成立），不是形容词；max_rounds 默认 20",
+                    "（测试通过 / 文件存在 / 断言成立），不是形容词；max_rounds 默认 20。"
+                    "可选 deps/blocks 登记依赖 DAG 的边（deps=我依赖谁，blocks=我挡着谁，"
+                    "同一条边两种写法）——排序按拓扑序+三档算，不由模型主观排",
         parameters=_obj({"objective": {"type": "string"},
                          "acceptance": {"type": "string"},
-                         "max_rounds": {"type": "integer"}}, ["objective", "acceptance"]),
+                         "max_rounds": {"type": "integer"},
+                         "deps": {"type": "array", "items": {"type": "string"},
+                                  "description": "前置目标 id 列表（我依赖谁，做完它们我才做得了）"},
+                         "blocks": {"type": "array", "items": {"type": "string"},
+                                    "description": "下游目标 id 列表（我挡着谁）——"
+                                                   "与对方 deps 里的我等价，不要两边写成矛盾"}},
+                        ["objective", "acceptance"]),
         example='{"tool":"goal_create","objective":"实现登录模块并跑通测试",'
                 '"acceptance":"test_all.py --only login 通过且覆盖率不降","max_rounds":10}',
     ),
@@ -386,11 +394,15 @@ TOOL_SPECS: List[ToolSpec] = [
                     "必须携带当前 revision（用 goal_status 查）。"
                     "自报 blocked 必须给机器 code（missing_dependency/api_unavailable/"
                     "permission_blocked/invalid_input/environment_broken）与人类说明；"
-                    "难度/不确定不算阻塞",
+                    "难度/不确定不算阻塞。可选 deps/blocks 改依赖边（不传=不改，传 [] =清空）",
         parameters=_obj({"id": {"type": "string"}, "revision": {"type": "integer"},
                          "phase": {"type": "string"},
                          "reason_code": {"type": "string"},
-                         "reason_message": {"type": "string"}},
+                         "reason_message": {"type": "string"},
+                         "deps": {"type": "array", "items": {"type": "string"},
+                                  "description": "前置目标 id 列表（不传=不改，[] = 清空）"},
+                         "blocks": {"type": "array", "items": {"type": "string"},
+                                    "description": "下游目标 id 列表（不传=不改，[] = 清空）"}},
                         ["id", "revision", "phase"]),
         example='{"tool":"goal_update","id":"...","revision":3,'
                 '"phase":"blocked","reason_code":"api_unavailable",'
@@ -398,7 +410,7 @@ TOOL_SPECS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="goal_status", permission=PERM_READ, handler="_exec_goal_status",
-        description="查询当前目标状态（含 revision，更新前必查）",
+        description="查询当前目标状态（含 revision 与依赖边 deps/blocks，更新前必查）",
         parameters=_obj({}),
         example='{"tool":"goal_status"}',
     ),

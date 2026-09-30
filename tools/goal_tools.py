@@ -18,18 +18,25 @@
   须人类显式 resume 才重新武装 —— 重启不会无授权地自己接着干。
 - **轮次预算**：rounds_started < max_rounds 才允许 active 续跑。
 - **JSON 持久化**：项目根 .ace_goals.json，原子写（临时文件 + rename）。
+- **DL-02 优先级**：`Goal` 带 `deps` / `blocks`（依赖 DAG 的边，同一时刻仍只跟踪一个目标；
+  DAG 的**排序**做成作用于"目标集合"的**纯函数**：`priority_tier` / `priority_order`）。
+  排序 = 拓扑序 + 三档（blocking / enabling / filler），tie-break 是 `(档位, id)`
+  —— **同输入两次运行必须同序**（可复现）；依赖成环显式报 `GOAL_DEPENDENCY_CYCLE`，
+  不死循环。**明确拒绝**"按模型觉得重要排"：那不可复现。
 """
 
 from __future__ import annotations
 
+import heapq
 import json
 import os
+import re
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from tools.result import ExecutionResult
 
@@ -70,6 +77,77 @@ _VAGUE_ACCEPTANCE = frozenset({
 
 GOAL_FILE = ".ace_goals.json"
 
+# ---------- DL-02：三档优先级 ----------
+# 判据见 priority_tier()：下游（含未完成者）= 杠杆。
+TIER_BLOCKING = "blocking"   # 有未完成下游 + 自身就绪 —— 当前瓶颈，最前
+TIER_ENABLING = "enabling"   # 有未完成下游，但自身还被前置卡着 —— 迟早的解锁者，次之
+TIER_FILLER = "filler"       # 没有未完成下游（没人在等它）—— 最后
+TIERS = (TIER_BLOCKING, TIER_ENABLING, TIER_FILLER)
+TIER_RANK = {t: i for i, t in enumerate(TIERS)}   # 排序键里的"档位序"
+
+_IDS_SPLIT_RE = re.compile(r"[,;\s]+")
+
+
+def _iter_id_tokens(value: Any) -> Optional[List[Any]]:
+    """把 deps/blocks 的几种写法摊平成候选 token；无法识别 → None。
+
+    容忍三种写法：列表 / 逗号或空白分隔的字符串 / JSON 数组字符串
+    —— 后两种是模型给参数时的常见形态（见 §9.7 那把"必填 acceptance"的教训：
+    参数校验要在工具边界做，不能指望模型每次都给规范类型）。
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+            except (json.JSONDecodeError, ValueError):
+                parsed = None
+            if isinstance(parsed, list):
+                return parsed
+        return _IDS_SPLIT_RE.split(s)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return list(value)
+    return None
+
+
+def _normalize_ids(value: Any) -> List[str]:
+    """宽容归一（读路径）：脏数据退化成"尽量可用"，不让 GoalStore 构造崩。
+
+    边的顺序本来就没有语义 ⇒ 排序去重让持久化内容与比较**稳定**（可复现的前提之一）。
+    """
+    tokens = _iter_id_tokens(value)
+    if tokens is None:
+        return []
+    out: List[str] = []
+    for t in tokens:
+        if isinstance(t, str):
+            s = t.strip()
+            if s and s not in out:
+                out.append(s)
+    return sorted(out)
+
+
+def coerce_goal_ids(value: Any, field: str = "deps") -> List[str]:
+    """严格归一（工具/API 边界）：非法输入报 `GOAL_BAD_DEPS`，不静默吞。"""
+    tokens = _iter_id_tokens(value)
+    if tokens is None:
+        raise GoalError("GOAL_BAD_DEPS",
+                        f"{field} 应为目标 id 列表（或逗号分隔 / JSON 数组字符串），"
+                        f"收到 {type(value).__name__}: {value!r}")
+    out: List[str] = []
+    for t in tokens:
+        if not isinstance(t, str):
+            raise GoalError("GOAL_BAD_DEPS",
+                            f"{field} 的元素必须是字符串 id，收到 {t!r}")
+        s = t.strip()
+        if s and s not in out:
+            out.append(s)
+    return sorted(out)
+
 
 def _acceptance_error(acceptance: str) -> str:
     """acceptance 的判据检查：返回空串 = 合格，否则返回理由。"""
@@ -90,6 +168,8 @@ class Goal:
     revision: int
     objective: str
     acceptance: str = ""             # DL-01：怎么算完成的可执行判据（测试通过/文件存在/断言成立）
+    deps: List[str] = field(default_factory=list)     # DL-02：前置目标 id（我依赖谁）
+    blocks: List[str] = field(default_factory=list)   # DL-02：下游目标 id（我挡着谁）
     phase: str = PHASE_ACTIVE
     rounds_started: int = 0
     max_rounds: int = 20
@@ -98,6 +178,11 @@ class Goal:
     blocked_reason_message: str = ""
     created_at: str = ""
     updated_at: str = ""
+
+    def __post_init__(self) -> None:
+        # 归一（宽容，不抛）：边是无序集合 ⇒ 排序去重让持久化稳定；手改坏的 JSON 退化成 []。
+        self.deps = _normalize_ids(self.deps)
+        self.blocks = _normalize_ids(self.blocks)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -114,6 +199,161 @@ class GoalError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+# ---------- DL-02：依赖 DAG + 三档（纯函数，作用于"目标集合"） ----------
+#
+# 为什么是纯函数而不是"多目标 GoalStore"：单目标 store 的 API 是既有调用方的契约
+# （test_all [25]/[75] 直接钉住它），扩成多目标会牵状态机、CAS、持久化格式与续跑语义，
+# 风险远大于收益。而"排序"这件事本来就不需要状态 —— 它只需要一份**目标集合**。
+# 于是：Goal 上存 deps/blocks（单目标也存得下），排序/判档做成无副作用的纯函数，
+# 将来真出多目标 store 时这些函数原样可用（见实施报告的"形态选择"）。
+
+def _index_by_id(goals: Any) -> Dict[str, Goal]:
+    """id → Goal 的索引；id 重复直接报错（排序要求 id 唯一，否则 tie-break 无意义）。"""
+    items: Dict[str, Goal] = {}
+    for g in goals:
+        if g.id in items:
+            raise GoalError("GOAL_DUPLICATE_ID",
+                            f"目标 id 重复: {g.id}（优先级排序要求 id 唯一）")
+        items[g.id] = g
+    return items
+
+
+def dependency_edges(goals: Any) -> Dict[str, Tuple[str, ...]]:
+    """归一化依赖边：id → 它的**前置** id（都落在给定集合内），确定性（排序去重）。
+
+    `deps` 与 `blocks` 是**同一条边**的两种写法：`a.deps=[b]` ≡ `b.blocks=[a]`（b 是 a 的前置）。
+    两种声明取**并集**，所以"谁写的"不影响结果 —— 这是可复现的前提（同 DAG 不同写法同序）。
+    指向集合外的 id 视为"不在本次工作集内" ⇒ **忽略**（见模块报告"边界"）。
+    自环（自己出现在自己的 deps/blocks 里）保留，由 find_dependency_cycle 当环报出。
+    """
+    items = _index_by_id(goals)
+    edges: Dict[str, set] = {gid: set() for gid in items}
+    for gid, g in items.items():
+        for d in _normalize_ids(g.deps):
+            if d in items:
+                edges[gid].add(d)
+        for b in _normalize_ids(g.blocks):
+            if b in items:
+                edges[b].add(gid)
+    return {gid: tuple(sorted(v)) for gid, v in edges.items()}
+
+
+def _dependents_map(goals: Any) -> Dict[str, Tuple[str, ...]]:
+    """反向边：id → 依赖它的目标 id（确定性排序）。"""
+    edges = dependency_edges(goals)
+    rev: Dict[str, set] = {gid: set() for gid in edges}
+    for gid, pres in edges.items():
+        for p in pres:
+            rev[p].add(gid)
+    return {gid: tuple(sorted(v)) for gid, v in rev.items()}
+
+
+def priority_tier(goal: Goal, all_goals: Any) -> str:
+    """DL-02 三档判据（THREE-LAYERS §1.3）。
+
+    - `blocking`：**有未完成的下游**（有人等着它），且**自身前置已全完成** ——
+      它就是当前推得动的那个瓶颈；先做它，别人的路才通。
+    - `enabling`：有未完成的下游，但自身还被前置卡着 —— 迟早要解锁别人，次之。
+    - `filler`：没有未完成的下游（含"下游都已完成"）—— 没人在等它，最后。
+
+    **两条消歧（必须写清，否则三档分不开）**：§1.3 给出的一档判据是
+    "`blocks` 非空且下游未完成"，但它**只够判 blocking**，无法同时把 enabling 与
+    blocking 分开（凡下游未完成者都满足它）。本包补两条，都是"挡着别人"的常识读法：
+    ① 下游**已完成**的目标不再挡着谁 ⇒ 降为 `filler`（已完成的目标自身也一律 `filler`）；
+    ② "挡着"取**当前瓶颈**语义：自己被前置卡住时还不是瓶颈，而是 `enabling`。
+
+    `all_goals` 是解析边的总体；`goal` 不在其中时会被并入（自身 blocks 声明不能被忽略），
+    且一律以**传入的这个对象**为准（不拿集合里的同名旧副本判档）。
+    纯函数：只看传入的 phase 与边，不读文件、不依赖 dict 顺序。
+    """
+    pop = [g for g in all_goals if g.id != goal.id]
+    items = _index_by_id(pop)
+    items[goal.id] = goal
+    pop = list(items.values())
+
+    if goal.phase == PHASE_COMPLETE:
+        return TIER_FILLER
+    downstream = _dependents_map(pop).get(goal.id, ())
+    if not any(items[d].phase != PHASE_COMPLETE for d in downstream):
+        return TIER_FILLER
+    pres = dependency_edges(pop).get(goal.id, ())
+    if all(items[p].phase == PHASE_COMPLETE for p in pres):
+        return TIER_BLOCKING
+    return TIER_ENABLING
+
+
+def find_dependency_cycle(goals: Any) -> Optional[List[str]]:
+    """找一条依赖环，返回闭合路径（首尾同点）；无环 → None。
+
+    显式检测，而不是让排序在环上打转/递归爆栈 —— 环是**数据错误**，必须点名报错。
+    路径方向：`edges[g]` 是 g 的前置，故 `[g, p1, p2, g]` 读作"g 依赖 p1 依赖 p2 依赖 g"。
+    确定性：起点按 id、邻居按 id（迭代式 DFS，避免深链递归）。
+    """
+    edges = dependency_edges(goals)
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: Dict[str, int] = {gid: WHITE for gid in edges}
+    for start in sorted(edges):
+        if color[start] != WHITE:
+            continue
+        stack: List[Tuple[str, Any]] = [(start, iter(edges[start]))]
+        path: List[str] = [start]
+        color[start] = GRAY
+        while stack:
+            node, it = stack[-1]
+            advanced = False
+            for nxt in it:
+                if color[nxt] == GRAY:              # 回到栈上的点 = 环
+                    return path[path.index(nxt):] + [nxt]
+                if color[nxt] == WHITE:
+                    color[nxt] = GRAY
+                    path.append(nxt)
+                    stack.append((nxt, iter(edges[nxt])))
+                    advanced = True
+                    break
+            if not advanced:
+                color[node] = BLACK
+                stack.pop()
+                path.pop()
+    return None
+
+
+def priority_order(goals: Any) -> List[Goal]:
+    """可复现的优先级排序：**依赖 DAG 拓扑序 + 三档**（THREE-LAYERS §1.3）。
+
+    - **拓扑约束（硬）**：前置一定排在依赖它的目标之前 —— "挡着别人的最前"。
+    - **档位（决定就绪节点谁先走）**：blocking → enabling → filler。
+    - **tie-break**：`(档位序, 目标 id)`，id 唯一 ⇒ 输出与**输入顺序无关**、
+      也不依赖 dict 迭代顺序；**同输入两次运行必然同序**（可复现）。
+      （`PYTHONHASHSEED` 变化也不影响：全程不用 dict/set 的迭代顺序做决策。）
+    - **环**：显式抛 `GOAL_DEPENDENCY_CYCLE`（消息带闭合路径），绝不空转。
+
+    **明确拒绝**"按模型觉得重要排"：那种排序没有判据，同输入两次运行会给不同顺序。
+    只排"给定集合"：想只排待办可先 filter 掉 `phase == complete` —— 集合外的前置
+    被视为已满足（不在本次工作集内），拓扑约束不会因此丢。
+    """
+    items = _index_by_id(goals)
+    cycle = find_dependency_cycle(goals)
+    if cycle is not None:
+        raise GoalError("GOAL_DEPENDENCY_CYCLE",
+                        "依赖成环，无法排序：" + " → ".join(cycle)
+                        + "（请断开其中一条 deps/blocks）")
+    edges = dependency_edges(goals)
+    rev = _dependents_map(goals)
+    remaining = {gid: len(pres) for gid, pres in edges.items()}
+    rank = {gid: TIER_RANK[priority_tier(g, items.values())] for gid, g in items.items()}
+    ready = [(rank[gid], gid) for gid in items if remaining[gid] == 0]
+    heapq.heapify(ready)
+    out: List[Goal] = []
+    while ready:
+        _, gid = heapq.heappop(ready)          # 档位优先，再按 id —— 确定性
+        out.append(items[gid])
+        for dep in rev.get(gid, ()):           # dep 依赖 gid：前置已出，剩余前置数减一
+            remaining[dep] -= 1
+            if remaining[dep] == 0:
+                heapq.heappush(ready, (rank[dep], dep))
+    return out
 
 
 class GoalStore:
@@ -179,7 +419,21 @@ class GoalStore:
 
     # ---------- 变更（全部走 revision CAS） ----------
 
-    def create(self, objective: str, max_rounds: int = 20, acceptance: str = "") -> Goal:
+    @staticmethod
+    def _validate_edges(gid: str, deps: List[str], blocks: List[str]) -> None:
+        """单目标 store 能查的那部分 DAG 合法性（跨目标的环由 priority_order 查）。"""
+        if gid in deps:
+            raise GoalError("GOAL_SELF_DEPENDENCY", "目标不能依赖自己（deps 含自身 id）")
+        if gid in blocks:
+            raise GoalError("GOAL_SELF_DEPENDENCY", "目标不能挡着自己（blocks 含自身 id）")
+        both = sorted(set(deps) & set(blocks))
+        if both:
+            raise GoalError("GOAL_CONFLICTING_DEPS",
+                            f"同一条边不能同时写在 deps 与 blocks 里（{both}）："
+                            "那等于 A 依赖 B 又挡着 B，自相矛盾")
+
+    def create(self, objective: str, max_rounds: int = 20, acceptance: str = "",
+               deps: Any = None, blocks: Any = None) -> Goal:
         objective = (objective or "").strip()
         if not objective:
             raise GoalError("GOAL_EMPTY_OBJECTIVE", "目标内容为空")
@@ -188,12 +442,17 @@ class GoalStore:
             raise GoalError("GOAL_BAD_ACCEPTANCE", _acc_err)
         if not (1 <= int(max_rounds) <= 1000):
             raise GoalError("GOAL_BAD_ROUNDS", "max_rounds 应在 1~1000 之间")
+        _deps = coerce_goal_ids(deps, "deps")
+        _blocks = coerce_goal_ids(blocks, "blocks")
         with self._lock:
             now = time.strftime("%Y-%m-%d %H:%M:%S")
+            gid = f"{int(time.time() * 1000):x}{uuid.uuid4().hex[:4]}"
+            self._validate_edges(gid, _deps, _blocks)   # 先校验再落盘（抛了就不留半截目标）
             self._goal = Goal(
-                id=f"{int(time.time() * 1000):x}{uuid.uuid4().hex[:4]}",
+                id=gid,
                 revision=1, objective=objective,
                 acceptance=(acceptance or "").strip(), phase=PHASE_ACTIVE,
+                deps=_deps, blocks=_blocks,
                 max_rounds=int(max_rounds), armed=True,
                 created_at=now, updated_at=now)
             self._save()
@@ -201,7 +460,9 @@ class GoalStore:
 
     def update(self, goal_id: str, expected_revision: int, *,
                phase: Optional[str] = None,
-               reason_code: str = "", reason_message: str = "") -> Goal:
+               reason_code: str = "", reason_message: str = "",
+               deps: Any = None, blocks: Any = None) -> Goal:
+        """`deps` / `blocks` 传 `None` = **不改**，传 `[]` = 显式清空（不静默清边）。"""
         with self._lock:
             self._reload()          # CAS 该比的是磁盘上的当前 revision，不是过期副本
             g = self._goal
@@ -214,8 +475,14 @@ class GoalStore:
                 raise GoalError("GOAL_STALE_REVISION",
                                 f"修订号过期（当前 {g.revision}，传入 {expected_revision}），"
                                 "请重新读取 goal_status 后再更新")
+            # 会抛的全部先算完（校验在改内存之前），避免"phase 改了、边没改"的半截状态
+            new_deps = list(g.deps) if deps is None else coerce_goal_ids(deps, "deps")
+            new_blocks = list(g.blocks) if blocks is None else coerce_goal_ids(blocks, "blocks")
+            self._validate_edges(g.id, new_deps, new_blocks)
             if phase is not None:
                 self._apply_phase(g, phase, reason_code, reason_message)
+            g.deps = new_deps
+            g.blocks = new_blocks
             g.revision += 1
             g.updated_at = time.strftime("%Y-%m-%d %H:%M:%S")
             self._save()
@@ -372,7 +639,8 @@ class GoalTools:
             g = self._goal_store().create(
                 str(params.get("objective", "")),
                 int(params.get("max_rounds", 20) or 20),
-                acceptance=str(params.get("acceptance", "")))
+                acceptance=str(params.get("acceptance", "")),
+                deps=params.get("deps"), blocks=params.get("blocks"))
         except GoalError as e:
             return ExecutionResult(status="error", error_code=e.code, message=e.message)
         except (TypeError, ValueError):
@@ -389,7 +657,10 @@ class GoalTools:
                 str(params.get("id", "")), int(params.get("revision", 0)),
                 phase=str(params.get("phase", "")).strip() or None,
                 reason_code=str(params.get("reason_code", "")),
-                reason_message=str(params.get("reason_message", "")))
+                reason_message=str(params.get("reason_message", "")),
+                # 没给这个键 = 不改 DAG 边；给了 [] = 显式清空
+                deps=params.get("deps") if "deps" in params else None,
+                blocks=params.get("blocks") if "blocks" in params else None)
         except GoalError as e:
             return ExecutionResult(status="error", error_code=e.code, message=e.message)
         except (TypeError, ValueError):

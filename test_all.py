@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "75"]
+             "69", "70", "71", "72", "73", "74", "75"]
 _SEEN_SECTIONS: list = []
 
 
@@ -15562,6 +15562,166 @@ if _want("73"):
           "core/ace_contracts.py" in _dev73 and "[73]" in _dev73
           and any("ACC-02" in _l and "ACC-03" in _l for _l in _dev73.splitlines()),
           "DEVELOPMENT.md 少了其中一项")
+
+# ============================================================
+if _want("74"):
+    # ── [74] ask_user 四壳接线（WP-1 边界收口）：REPL / TUI / Ink 消费 ASK_USER ──
+    print("[74] ask_user 四壳接线 —— REPL/TUI/Ink 消费 ASK_USER，文本答案回流")
+    import builtins as _bi74  # noqa: E402
+    import contextlib as _ctx74  # noqa: E402
+    import io as _io74  # noqa: E402
+    import json as _json74  # noqa: E402
+
+    _Q74 = "改成哪个文件？"
+    _A74 = "notes.txt"
+
+    class _Script74:
+        """脚本化假模型：步骤 1/2 都调 ask_user（同题），步骤 3 出最终回复。"""
+        def __init__(self, expected=_A74):
+            self.prompts = []
+            self.step = 0
+            self.expected = expected
+
+        def __call__(self, prompt):
+            self.prompts.append(prompt)
+            self.step += 1
+            if self.step in (1, 2):
+                return ('<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] 调用 ask_user\n'
+                        '[/INTERNAL_THINKING]\n</INTERNAL>\n'
+                        '<EXTERNAL>\nanswer.\n{"tool":"ask_user","question":'
+                        + _json74.dumps(_Q74, ensure_ascii=False) + '}\n</EXTERNAL>')
+            _seen = self.expected in prompt
+            return ('<INTERNAL>\n[INTERNAL_THINKING]\n[OBSERVE] 拿到答案\n'
+                    '[/INTERNAL_THINKING]\n</INTERNAL>\n<EXTERNAL>\nanswer.\n'
+                    + ("GOT:" + self.expected if _seen else "MISSING") + '\n</EXTERNAL>')
+
+    class _FakeUI74:
+        """最小界面宿主：ask_question 收题回答案（模拟 TUI 文本模态的宿主契约）。"""
+        def __init__(self, answer):
+            self.answer = answer
+            self.asked = []
+
+        def ask_question(self, question):
+            self.asked.append(question)
+            return self.answer
+
+        def ask_text(self, prompt, default="", **kw):
+            self.asked.append(prompt)
+            return self.answer
+
+    def _cli74():
+        return ai_code.AgentCLI({"project_root": mktemp("asku74"), "permission": "readonly",
+                                 "bait": False, "base_url": "", "api_key": "", "model": "mock"},
+                                mock=True)
+
+    def _run74(cli, script, attach=None):
+        if attach is not None:
+            cli.attach_ui(attach)
+        cli.client._mock_provider.generate_mock = script
+        _buf = _io74.StringIO()
+        with _ctx74.redirect_stdout(_buf):
+            cli.converse("帮我确认一个文件名", echo_input=False)
+        return _buf.getvalue()
+
+    # 场景 1：REPL + 界面宿主（TUI 契约）→ 问 → 答 → 模型重试取回
+    _cli74a = _cli74()
+    _ui74 = _FakeUI74(_A74)
+    _s74a = _Script74()
+    _o74a = _run74(_cli74a, _s74a, attach=_ui74)
+    check("[74] ★ASK_USER 问题真的问到界面宿主（ask_question 收到原题）",
+          bool(_ui74.asked) and _Q74 in str(_ui74.asked[0]), _ui74.asked)
+    check("[74] ASK_USER 终端打印了提问标题与已回答提示",
+          "Agent 提问" in _o74a and _Q74 in _o74a, _o74a[-160:])
+    check("[74] ★ask_user 答案真回流：模型重试后拿到 SUCCESS + 答案文本",
+          ("GOT:" + _A74) in _o74a, _o74a[-160:])
+    check("[74] ASK_USER 挂起问题已消费（pending_ask_user 清空）",
+          getattr(_cli74a.el, "pending_ask_user", "?") is None,
+          repr(getattr(_cli74a.el, "pending_ask_user", "?")))
+
+    # 场景 2：非交互（无界面 + stdin 非 tty）→ 如实告知，不装死
+    class _NoTTY74:
+        def isatty(self):
+            return False
+
+    _cli74b = _cli74()
+    _s74b = _Script74()
+    _calls74 = []
+    _rin74 = sys.stdin
+    _rinp74 = _bi74.input
+    try:
+        sys.stdin = _NoTTY74()
+        _bi74.input = lambda *a, **k: (_calls74.append(a), "x")[1]
+        _o74b = _run74(_cli74b, _s74b)
+    finally:
+        sys.stdin = _rin74
+        _bi74.input = _rinp74
+    check("[74] 非交互时不碰 input()（不挂死、不假装问过）", not _calls74, _calls74)
+    check("[74] 无人可回答时如实说明（不装死）", "无人可回答" in _o74b, _o74b[-160:])
+    check("[74] 没人回答时挂起问题保留（状态不丢）",
+          getattr(_cli74b.el, "pending_ask_user", None) is not None
+          and getattr(_cli74b.el, "pending_ask_user", {}).get("answer") is None,
+          repr(getattr(_cli74b.el, "pending_ask_user", None)))
+
+    # 场景 3：Ink 通道 —— 真 ServeUIHost 对着 stub 服务端（choice_request(kind=text)）
+    from core import ace_serve as _srv74  # noqa: E402
+
+    class _StubSrv74:
+        def __init__(self):
+            self.events = []
+
+        def send_event(self, type_, **fields):
+            ev = {"type": type_, **fields}
+            self.events.append(ev)
+            return ev
+
+        def wait_for(self, method, timeout=None):
+            assert method == "choice.answer", method
+            return {"text": "frontend-typed.txt"}
+
+    _stub74 = _StubSrv74()
+    _host74 = _srv74.ServeUIHost(_stub74, timeout=5)
+    _cli74c = _cli74()
+    _s74c = _Script74(expected="frontend-typed.txt")
+    _o74c = _run74(_cli74c, _s74c, attach=_host74)
+    _cev74 = [e for e in _stub74.events if e.get("type") == "choice_request"]
+    check("[74] ★Ink 通道：引擎发了 choice_request(kind=text)（前端据此弹文本输入）",
+          bool(_cev74) and _cev74[0].get("kind") == "text"
+          and _cev74[0].get("title") == _Q74, repr(_cev74[:1]))
+    check("[74] ★Ink 通道：前端答案经 choice.answer 回流被记录（模型重试拿到）",
+          "GOT:frontend-typed.txt" in _o74c, _o74c[-160:])
+
+    # 场景 4：TUI 文本输入模态（ask_question 用它）
+    try:
+        from tui.app import AceTuiApp as _App74  # noqa: E402
+        from tui.app import TextScreen as _TS74  # noqa: E402
+        check("[74] TUI 宿主有 ask_question 接口 + TextScreen 文本模态",
+              callable(getattr(_App74, "ask_question", None)) and _TS74 is not None, "")
+    except Exception as _e74:  # noqa: BLE001 —— textual 不在时如实标注，不假绿
+        check("[74] TUI 宿主有 ask_question 接口（textual 不可用，断言记跳过）", False, repr(_e74))
+
+    # 场景 5：纯终端 REPL —— isatty 真 → input() 收答案 → answer_ask_user
+    class _TTY74:
+        def isatty(self):
+            return True
+
+    _cli74d = _cli74()
+    _s74d = _Script74()
+    _pr74 = []
+    _ans74 = iter([_A74])
+    _rin74b = sys.stdin
+    _rinp74b = _bi74.input
+    try:
+        sys.stdin = _TTY74()
+        _bi74.input = lambda *a, **k: (_pr74.append(a[0] if a else ""), next(_ans74))[1]
+        _o74d = _run74(_cli74d, _s74d)
+    finally:
+        sys.stdin = _rin74b
+        _bi74.input = _rinp74b
+    check("[74] 纯终端 REPL：input() 提示是短提示（不重复整题）",
+          bool(_pr74) and "你的回答" in _pr74[0] and _Q74 not in _pr74[0], repr(_pr74))
+    check("[74] ★纯终端 REPL：input() 收的答案真回流（模型重试拿到）",
+          ("GOT:" + _A74) in _o74d, _o74d[-160:])
+
 
 # ============================================================
 if _want("75"):

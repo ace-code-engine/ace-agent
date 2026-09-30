@@ -1154,6 +1154,16 @@ class AceTuiApp(App):
                                                    password=hidden),
                            prompt, None)
 
+    def ask_question(self, question: str) -> Optional[str]:
+        """模型主动提问（ask_user）：弹文本输入模态（WP-1）。
+
+        问题即模态框标题；回车交答案，Esc/关掉 → None（没人答）。
+        与 `ask_permission` 一样阻塞引擎线程，答案由 CLI 存进 pending_ask_user。
+        """
+        return self._modal(
+            lambda done: TextScreen(str(question or ""), self._msg, done, ""),
+            str(question or ""), None)
+
     def confirm(self, question: str) -> bool:
         """二选一确认：**默认否**（关掉/超时都不等于同意）。"""
         yes = self._msg("confirm_yes")

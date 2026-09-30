@@ -115,6 +115,15 @@ MAX_ROUNDS = 20
 STALL_ABORT_ROUNDS = 6  # 连续失败轮数阈值：达到即中止会话（防死循环烧轮数）
 MAX_DIFF_HISTORY = 20   # /diff 保留的改动条数（给人翻的清单，审计日志另有其物）
 
+# ask_user（WP-1）两态回喂提示：与 PROMPT_PERM_* 同一件事 —— 告诉模型"刚才那次
+# 调用接下来该怎么办"。答了就**用同一个 question 重试**取回答案文本；没人答就明说，
+# 不让它反复重试烧轮数（执行层的往返契约见 execution_layer._handle_ask_user）。
+PROMPT_ASK_USER_ANSWERED = ("用户已回答该问题。请用**同一个 question**重试 ask_user "
+                            "工具取回答案文本，然后基于答案继续任务。")
+PROMPT_ASK_USER_UNANSWERED = ("该问题未能问到用户（当前环境无法交互、界面已关闭或用户"
+                              "未作答）。请不要反复重试 ask_user；基于现有信息继续，"
+                              "确实必须依赖用户输入才能确定的内容请如实说明。")
+
 # Windows 无默认打开程序时，这些文本类扩展名回退记事本打开
 _TEXT_EXTENSIONS = {".py", ".txt", ".md", ".json", ".log", ".csv", ".ini", ".cfg",
                     ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".js",
@@ -4011,6 +4020,32 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                          grace_hint=c("dim", t("grace_inflight")),
                          tool=str(tool_name or ""), reason=str(reason or ""))
 
+    def _ask_user_text(self, question: str) -> Optional[str]:
+        """收模型主动提问（ask_user）的答案：界面优先（TUI/协议前端），否则终端 input()。
+
+        与 `_ask_permission` 同一条口径：**没人可问就返回 None**（非 TTY、界面关掉、
+        前端断开/超时），调用方据此如实告诉模型"没拿到答案"，绝不装死、更不替用户
+        编一个答案 —— 文本问题没有危险方向，唯一的保守就是"不编答案"。
+        """
+        ui = self._ui
+        if ui is not None and callable(getattr(ui, "ask_question", None)):
+            try:
+                return ui.ask_question(question)
+            except Exception:  # noqa: BLE001 —— 界面答不了就回落，不把流程卡死
+                pass
+        if ui is not None and callable(getattr(ui, "ask_text", None)):
+            try:
+                return ui.ask_text(question)
+            except Exception:  # noqa: BLE001
+                pass
+        if not sys.stdin.isatty():
+            return None
+        try:
+            return input(t("ask_user_input_prompt"))
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+
     # ---------- 交互入口：组件界面在的时候**一律走界面** ----------
     #
     # 为什么要有这一层：在组件界面里 `sys.stdin.isatty()` 仍然是 True，但 stdin 已经
@@ -5805,8 +5840,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             if result.get("tool") not in _VIEW_TOOLS:
                 self._fail_streak = 0
         elif _status in ("PLAN_PROPOSED", "PLAN_ALREADY_APPROVED",
-                         "PERMISSION_REQUEST", "PLAN_PENDING"):
-            pass                                 # 计划/权限交互是正常流程
+                         "PERMISSION_REQUEST", "PLAN_PENDING", "ASK_USER"):
+            pass                                 # 计划/权限/提问交互是正常流程
         else:
             self._fail_streak += 1
             if self._fail_streak >= STALL_ABORT_ROUNDS:
@@ -6016,7 +6051,24 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     str(tool_name or ""), result.get("params") or {}, decision)
                 continue
 
-
+            if result["status"] == "ASK_USER":
+                # WP-1 主动提问：把问题摆给人，收文本答案存进 pending，让模型重试同题
+                # 取回。三壳同一条路：界面宿主（TUI 文本模态 / 协议前端 choice_request）
+                # 优先，都没有才落到终端 input()。没人可问（非交互/界面关掉/前端断开）
+                # 时如实告诉模型 —— 与 PERMISSION_REQUEST 的 fail-close 同一条口径。
+                question = str(result.get("question")
+                               or result.get("message") or "")
+                self._set_title(t("title_waiting"))
+                print(c("cyan", "\n" + t("ask_user_title", question=question)))
+                answer = self._ask_user_text(question)
+                if answer is None:
+                    print(c("yellow", t("ask_user_no_answer")))
+                    next_user = PROMPT_ASK_USER_UNANSWERED
+                else:
+                    self.el.answer_ask_user(answer)
+                    print(c("green", t("ask_user_answered")))
+                    next_user = PROMPT_ASK_USER_ANSWERED
+                continue
 
             if result["status"] == "FINAL_REPLY":
                 # 反幻觉闸门：模型声称"已创建/已保存/已执行"，但本次请求里一个工具都

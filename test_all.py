@@ -16269,6 +16269,37 @@ if _want("82"):
 
 
 # ============================================================
+if _want("84"):
+    # ── [84] WP-5 会话树：entry 树 + 向后兼容 + 只有 active branch 进上下文 ──
+    print("[84] WP-5 会话树 —— entry 树 / 向后兼容 / 只有 active branch 进上下文")
+    import json as _json84  # noqa: E402
+
+    from cli.ace_sessionlog import (SessionLog as _SL84, active_head as _ah84,  # noqa: E402
+                                    assemble_branch as _ab84, branch_tips as _bt84)
+
+    _p84 = Path(mktemp("wp5_84")) / "old.jsonl"
+    _old84 = [
+        {"seq": 1, "kind": "user/message", "content": "老一问"},
+        {"seq": 2, "kind": "assistant/message", "content": "老一答"},
+        {"seq": 3, "kind": "user/message", "content": "老二问"},
+        {"seq": 4, "kind": "assistant/message", "content": "老二答"},
+    ]
+    _p84.write_text("\n".join(_json84.dumps(x, ensure_ascii=False) for x in _old84) + "\n",
+                    encoding="utf-8")
+    _evs84 = list(_SL84(str(_p84)).events())
+    check("[84] ★向后兼容：老格式（无 parent 指针）线性 JSONL 读得动、条数不变",
+          len(_evs84) == 4, len(_evs84))
+    check("[84] ★老格式内容逐条不变（顺序与正文一致）",
+          [e.get("content") for e in _evs84 if "content" in e]
+          == ["老一问", "老一答", "老二问", "老二答"], [e.get("content") for e in _evs84])
+    check("[84] active head = 线性链尾；分支 tip 只有一条",
+          _ah84(_evs84) == 4 and [t["seq"] for t in _bt84(_evs84)] == [4],
+          (_ah84(_evs84), [t["seq"] for t in _bt84(_evs84)]))
+    check("[84] ★装配 = 全量消息（不报错、不丢）",
+          [m["content"] for m in _ab84(_evs84)]
+          == ["老一问", "老一答", "老二问", "老二答"], [m.get("content") for m in _ab84(_evs84)])
+
+# ============================================================
 if _want("83"):
     # ── [83] WP-4 工作区四层（第一切片）：四层模型 + 回滚纪律 + allowedRoots ──
     print("[83] WP-4 工作区四层 —— 四层模型 / 回滚纪律 / allowedRoots")

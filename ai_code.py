@@ -1613,7 +1613,8 @@ class _SlashCommands:
                            "/statusline", "/tasks", "/fullscreen", "/stats",
                            "/expand", "/expandall",
                            "/history", "/sessions", "/resume", "/fork",
-                           "/rewind", "/compact", "/context", "/plan", "/btw",
+                           "/clone", "/tree", "/rewind", "/compact", "/context",
+                           "/plan", "/btw",
                            "/rename", "/recap", "/export",
                            "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
@@ -1693,6 +1694,8 @@ class _SlashCommands:
         "/sessions": "cmd_sessions",
         "/resume": "cmd_resume",
         "/fork": "cmd_fork",
+        "/clone": "cmd_clone",
+        "/tree": "cmd_tree",
         "/rewind": "cmd_rewind",
         "/compact": "cmd_compact",
         "/context": "cmd_context",
@@ -1770,6 +1773,8 @@ class _SlashCommands:
         "/sessions": ("_cmd_sessions", True),
         "/resume": ("_cmd_resume", True),
         "/fork": ("_cmd_fork", True),
+        "/clone": ("_cmd_clone", True),
+        "/tree": ("_cmd_tree", True),
         "/rewind": ("_cmd_rewind", True),
         "/review": ("_cmd_review", True),
         "/diff": ("_cmd_diff", True),
@@ -3739,13 +3744,14 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                           if p != current]
             if not candidates:
                 return
-            from cli.ace_sessionlog import SessionLog as _SL, chain_notice
+            from cli.ace_sessionlog import SessionLog as _SL, chain_notice, assemble_branch
             prev = _SL(str(candidates[0]))
             # RG-02（深化）：自动续聊同样是"把那份记录读进上下文"，体检一次并说出来
             _prev_warn = chain_notice(prev)
             if _prev_warn:
                 print(c("yellow", "  " + _prev_warn))
-            history = prev.replay_messages()[-20:]
+            # WP-5：恢复的是**活跃分支**（老格式无 parent → 线性链，行为不变）
+            history = assemble_branch(prev.events())[-20:]
             if history:
                 self.messages = history
                 self._resumed_from = candidates[0].name
@@ -5147,8 +5153,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             return True
         self.messages = outcome.messages
         after = ace_context.measure(outcome.messages)
+        # WP-5：摘要全文一并落盘成**摘要条目**（原始条目 append-only 一条不删）
         self.session_log.record_compaction(
-            before, after, "compacted" if outcome.compacted else "truncated")
+            before, after, "compacted" if outcome.compacted else "truncated",
+            summary=outcome.summary or "")
         if outcome.compacted:
             print(c("green", t("compact_done", before=before, after=after)))
         else:
@@ -5322,10 +5330,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def _switch_session(self, path: Path, info: Optional[Dict] = None) -> bool:
         """把当前会话切到 `path`：消息历史按该会话重建，之后的事件也写进那个文件。"""
         from cli import ace_sessions as _sess
-        from cli.ace_sessionlog import SessionLog as _SL, chain_notice
+        from cli.ace_sessionlog import SessionLog as _SL, chain_notice, assemble_branch
         evs = self._load_session_events(path)
         info = info or _sess.summarize(evs)
-        self.messages = _sess.head_for_resume(evs)
+        # WP-5：续聊带的是**活跃分支**（不是把同一文件里别的分支一起塞进上下文），
+        # 仍按 MAX_RESUME_MESSAGES 截尾（旧会话不把上下文一次吃满）。
+        self.messages = assemble_branch(evs)[-_sess.MAX_RESUME_MESSAGES:]
         self.session_log = _SL(str(path))
         # RG-02（深化）：恢复动作正是把那份记录**读进上下文**的一刻，所以在这里就把台账
         # 体检一次并说出来 —— 而不是等谁想起来跑 `/audit stats`。
@@ -5370,27 +5380,57 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         return self._switch_session(pick["path"], pick["info"])
 
     def _cmd_fork(self, parts: List[str]) -> bool:
-        """`/fork [编号]`：以某会话（默认当前）为起点开一段新会话。
+        """`/fork [轮次|@编号]`：**从早期用户消息**开一段新会话（WP-5 三态之一）。
 
-        分叉 = 新文件 + 复制最近消息。为什么不做"共享历史"：两条线各自往后走，
-        共享历史就得处理分叉点之后的合并 —— 那是版本控制的问题，不是聊天界面的。
+        - `/fork 3`：把当前会话截到第 3 轮（含该轮回复），开一份新会话文件；
+        - `/fork @2`：老用法 —— 从 `/sessions` 列表的第 2 份会话分叉（带上最近消息）；
+        - 不带参数：从第 1 轮（最早的用户消息）重新开始。
+
+        与 `/clone`（复制当前**整条**活跃分支）严格区分：fork 是**截断到过去某个点**，
+        clone 是**整支复制** —— 两种动词、两种落盘结果、两条文案。
         """
         from cli import ace_sessions as _sess
         from cli.ace_sessionlog import SessionLog as _SL
+        evs = list(self.session_log.events()) if self.session_log else []
+        turns = _sess.turn_count(iter(evs))
+        if turns == 0:
+            print(c("dim", t("fork_empty")))
+            return True
+        src_note = Path(str(self.cfg.get("session_log") or "")).name
+        target = 1
         if len(parts) > 1:
-            files = self._session_files()
-            rows = [{"path": p, "info": _sess.summarize(self._load_session_events(p))}
-                    for p in files]
-            pick = _sess.pick_by_index(rows, parts[1])
-            if pick is None:
-                print(c("yellow", t("sessions_bad_index", raw=parts[1])))
-                return True
-            src_events = self._load_session_events(pick["path"])
-            src_note = pick["path"].name
+            raw = str(parts[1]).strip()
+            if raw.startswith("@"):
+                # 老用法：从 /sessions 列表里的另一份会话分叉（按编号）
+                try:
+                    idx = int(raw[1:])
+                except ValueError:
+                    print(c("yellow", t("fork_usage", turns=turns)))
+                    return True
+                files = self._session_files()
+                rows = [{"path": p,
+                         "info": _sess.summarize(self._load_session_events(p))}
+                        for p in files]
+                pick = _sess.pick_by_index(rows, str(idx))
+                if pick is None:
+                    print(c("yellow", t("sessions_bad_index", raw=raw)))
+                    return True
+                evs = self._load_session_events(pick["path"])
+                src_note = pick["path"].name
+                msgs = _sess.head_for_resume(evs)
+                target = 0
+            else:
+                try:
+                    target = int(raw)
+                except ValueError:
+                    print(c("yellow", t("fork_usage", turns=turns)))
+                    return True
+                if not (1 <= target <= turns):
+                    print(c("yellow", t("fork_usage", turns=turns)))
+                    return True
+                msgs = _sess.messages_at_turn(evs, target)
         else:
-            src_events = list(self.session_log.events()) if self.session_log else []
-            src_note = Path(str(self.cfg.get("session_log") or "")).name
-        msgs = _sess.head_for_resume(src_events)
+            msgs = _sess.messages_at_turn(evs, 1)
         new_path = Path(self.cfg.get("project_root", ".")) / ".ace_sessions" / \
             f"{int(time.time() * 1000)}.jsonl"
         new_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5409,12 +5449,146 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 pass
         self.messages = msgs
         try:
-            self.session_log.append("session/fork", {"from": src_note,
-                                                     "messages": len(msgs)})
+            payload = {"from": src_note, "messages": len(msgs)}
+            if target:
+                payload["turn"] = target
+            self.session_log.append("session/fork", payload)
         except Exception:  # noqa: BLE001
             pass
-        print(c("green", t("sessions_forked", n=len(msgs), file=new_path.name)))
+        if target:
+            print(c("green", t("fork_done", turn=target, n=len(msgs),
+                               file=new_path.name)))
+        else:
+            print(c("green", t("sessions_forked", n=len(msgs), file=new_path.name)))
         return True
+
+    def _cmd_clone(self, parts: List[str]) -> bool:
+        """`/clone`：**复制当前活跃分支**（整条链）到新会话文件（WP-5 三态之一）。
+
+        与 `/fork`（截断到某个早期用户消息）严格区分：clone 带走的是活跃分支的
+        **全部**消息（另一分支的条目不进上下文，也不被复制）。
+        """
+        from cli.ace_sessionlog import SessionLog as _SL, assemble_branch
+        evs = list(self.session_log.events()) if self.session_log else []
+        msgs = assemble_branch(evs)
+        if not msgs:
+            print(c("dim", t("clone_empty")))
+            return True
+        src_note = Path(str(self.cfg.get("session_log") or "")).name
+        new_path = Path(self.cfg.get("project_root", ".")) / ".ace_sessions" / \
+            f"{int(time.time() * 1000)}.jsonl"
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        self.session_log = _SL(str(new_path))
+        self.cfg["session_log"] = str(new_path)
+        try:
+            self.el.session_log = self.session_log
+        except Exception:  # noqa: BLE001
+            pass
+        self._rebind_todo_store()
+        for m in msgs:
+            try:
+                self.session_log.append("user/message" if m["role"] == "user"
+                                        else "assistant/message", {"content": m["content"]})
+            except Exception:  # noqa: BLE001
+                pass
+        self.messages = msgs
+        try:
+            self.session_log.append("session/clone", {"from": src_note,
+                                                      "messages": len(msgs)})
+        except Exception:  # noqa: BLE001
+            pass
+        print(c("green", t("clone_done", n=len(msgs), file=new_path.name)))
+        return True
+
+    def _cmd_tree(self, parts: List[str]) -> bool:
+        """`/tree [编号|@轮次]`：**同文件内移动**活跃分支（WP-5 三态之一）。
+
+        - 无参数：列出当前文件里的各分支（tip 与其末句），标出活跃的一条；
+        - `/tree <编号>`：切换到该分支 tip —— 继续写就从那里长出新消息（原链不动）；
+        - `/tree @<轮次>`：跳到第 N 轮末尾 —— 从那条链中间长新分支的入口。
+
+        与 `/fork`（新文件、截断到早期用户消息）和 `/clone`（新文件、整支复制）区分：
+        tree 不建新文件，只在同一文件里移动指针。
+        """
+        from cli import ace_sessions as _sess
+        from cli.ace_sessionlog import (branch_tips, active_head, assemble_branch)
+        evs = list(self.session_log.events()) if self.session_log else []
+        arg = str(parts[1]).strip() if len(parts) > 1 else ""
+        if arg.startswith("@"):
+            try:
+                turn = int(arg[1:])
+            except ValueError:
+                print(c("yellow", t("tree_bad_index", raw=arg)))
+                return True
+            turns = _sess.turn_count(iter(evs))
+            if not (1 <= turn <= turns):
+                print(c("yellow", t("tree_bad_index", raw=arg)))
+                return True
+            head = self._last_msg_seq_of_turn(evs, turn)
+            if not head:
+                print(c("yellow", t("tree_bad_index", raw=arg)))
+                return True
+            try:
+                self.session_log.switch_branch(head)
+            except Exception:  # noqa: BLE001
+                print(c("red", t("tree_switch_failed")))
+                return True
+            self.messages = assemble_branch(evs, head_seq=head)
+            print(c("green", t("tree_switched_turn", turn=turn,
+                               msgs=len(self.messages))))
+            return True
+        tips = branch_tips(evs)
+        if len(tips) <= 1:
+            print(c("dim", t("tree_single")))
+            return True
+        active = active_head(evs)
+        if not arg:
+            print(c("bold", t("tree_title", n=len(tips))))
+            for i, tip in enumerate(tips, 1):
+                mark = t("tree_active") if tip["seq"] == active else ""
+                print(f"  {i}. {c('dim', str(tip.get('content') or '')[:40])}"
+                      f"{c('cyan', mark)}")
+            print(c("dim", t("tree_hint")))
+            return True
+        try:
+            idx = int(arg)
+        except ValueError:
+            print(c("yellow", t("tree_bad_index", raw=arg)))
+            return True
+        if not (1 <= idx <= len(tips)):
+            print(c("yellow", t("tree_bad_index", raw=arg)))
+            return True
+        tip = tips[idx - 1]
+        try:
+            self.session_log.switch_branch(int(tip["seq"]))
+        except Exception:  # noqa: BLE001
+            print(c("red", t("tree_switch_failed")))
+            return True
+        self.messages = assemble_branch(evs, head_seq=int(tip["seq"]))
+        print(c("green", t("tree_switched", n=idx, msgs=len(self.messages))))
+        return True
+
+    @staticmethod
+    def _last_msg_seq_of_turn(events: List[Dict], turn: int) -> int:
+        """第 `turn` 轮最后一条消息事件的 seq（`/tree @N` 的落点）。"""
+        from cli.ace_sessionlog import MESSAGE_KINDS
+        seen_users = 0
+        last_seq = 0
+        for ev in events or []:
+            if not isinstance(ev, dict):
+                continue
+            if str(ev.get("kind") or "") not in MESSAGE_KINDS:
+                continue
+            if ev.get("kind") == "user/message":
+                seen_users += 1
+                if seen_users > turn:
+                    break
+            if seen_users == turn:
+                try:
+                    last_seq = int(ev.get("seq", 0) or 0)
+                except (TypeError, ValueError):
+                    last_seq = 0
+        return last_seq
 
     def _cmd_rewind(self, parts: List[str]) -> bool:
         """`/rewind [轮次]`：把**对话**退回到第 n 轮之后（默认退掉最后一轮）。
@@ -5584,8 +5758,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.messages = outcome.messages
         # 会话事件日志：压缩是无损的（被替换的原始消息已逐条落在日志里），
         # 这里记录压缩发生本身，让"这段历史去哪了"可审计、可追溯。
+        # WP-5：摘要全文一并落盘成**摘要条目**（原始条目 append-only 一条不删）。
         self.session_log.record_compaction(
-            before, after, "compacted" if outcome.compacted else "truncated")
+            before, after, "compacted" if outcome.compacted else "truncated",
+            summary=outcome.summary or "")
         if outcome.compacted:
             print(c("dim", t("compact_done", before=before, after=after)))
         else:

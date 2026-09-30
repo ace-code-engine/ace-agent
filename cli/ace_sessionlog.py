@@ -60,10 +60,16 @@ K_MODEL_SWITCH = "model/switch"          # 模型/提供商切换
 K_REFUSAL = "ledger/refusal"             # 拒绝账本：一条被拒的路（跨会话知识）
 K_LADDER = "ledger/ladder"               # 失败账本：一次升级（L2 熔断 / L3 降级 / L4 上报）
 K_LEDGER_PROPOSAL = "ledger/proposal"    # 学习出口：提议固化规则 / 上报规则缺陷
+# ── WP-5 会话树（G-10）──
+K_BRANCH_SWITCH = "branch/switch"        # 同文件内移动：active head 指向某个既有条目
+K_SESSION_CLONE = "session/clone"        # 复制当前活跃分支到新文件（与 session/fork 严格区分）
 
 #: `K_LEDGER_PROPOSAL` 的 kind 闭集（登记纪律：新增出口先登记，免得日志里出现
 #: 没人认识的 kind，事后谁也说不清它是什么意思）。
 PROPOSAL_KINDS = frozenset({"propose_rule", "report_defect"})
+
+#: 消息链上的条目种类（WP-5 entry 树：只有它们携带 `parent` 并推进分支 tip）。
+MESSAGE_KINDS = frozenset({K_USER_MESSAGE, K_ASSISTANT_MESSAGE})
 
 
 MAC_FIELD = "mac"
@@ -118,6 +124,112 @@ def chain_notice(log: "SessionLog") -> str:
     return ""
 
 
+# ============================================================
+# WP-5 entry 树（G-10）—— 纯函数：从事件流派生树/分支/上下文
+# ============================================================
+# 落盘契约：
+#   - 消息条目（`MESSAGE_KINDS`）带 `parent` = 本分支上一条消息的 seq（第一条省略）；
+#   - `branch/switch` 事件带 `to` = 新的 active head（同文件内移动）；
+#   - 老格式（WP-5 之前）没有 `parent` → 读取侧按**线性链**补父指针（parent = 上一条消息），
+#     于是老会话照读不误、条目不丢 —— 向后兼容就是"缺 parent 即线性"。
+
+def _as_int(v: Any) -> int:
+    """宽松取整数 seq（bool 不算数；缺了/脏了就当 0）。"""
+    if isinstance(v, bool):
+        return 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def message_chain(events: Iterator[Dict[str, Any]]) -> List[Tuple[int, Dict[str, Any], int]]:
+    """消息链：`[(seq, ev, parent_seq)]`，只含 `MESSAGE_KINDS`。
+
+    缺 `parent` 的条目按线性链补（parent = 上一条消息的 seq）—— 这是向后兼容的
+    唯一翻译点：老日志没有指针，线性就是它原来的语义。
+    """
+    chain: List[Tuple[int, Dict[str, Any], int]] = []
+    prev = 0
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        if str(ev.get("kind") or "") not in MESSAGE_KINDS:
+            continue
+        seq = _as_int(ev.get("seq"))
+        p = _as_int(ev.get("parent"))
+        parent = p if p > 0 else prev
+        chain.append((seq, ev, parent))
+        prev = seq
+    return chain
+
+
+def active_head(events: Iterator[Dict[str, Any]]) -> int:
+    """当前活跃分支头（一条消息的 seq）。
+
+    规则：最后一个 `branch/switch` 的 `to`（若它排在最后一条消息**之后**）——
+    即"切过去但还没写"时，活跃头是切换目标；否则就是最后一条消息本身。
+    老格式没有 switch → 恒为最后一条消息（线性链尾）。
+    """
+    last_msg = 0
+    last_switch = 0
+    switch_to = 0
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        kind = str(ev.get("kind") or "")
+        seq = _as_int(ev.get("seq"))
+        if kind in MESSAGE_KINDS:
+            last_msg = seq
+        elif kind == K_BRANCH_SWITCH:
+            last_switch = seq
+            switch_to = _as_int(ev.get("to"))
+    if last_switch and last_switch > last_msg:
+        return switch_to
+    return last_msg
+
+
+def branch_tips(events: Iterator[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """各分支的 tip：seq 不被任何消息 parent 引用的消息条目（多分支 = 多 tip）。
+
+    返回 `[{seq, kind, content(前60字)}]`；线性会话恒为一条。
+    """
+    chain = message_chain(events)
+    parents = {p for _s, _e, p in chain if p}
+    return [{"seq": s, "kind": str(e.get("kind") or ""),
+             "content": " ".join(str(e.get("content") or "").split())[:60]}
+            for s, e, _p in chain if s and s not in parents]
+
+
+def assemble_branch(events: Iterator[Dict[str, Any]],
+                    head_seq: Optional[int] = None) -> List[Dict[str, str]]:
+    """**只有 active branch 进上下文**：从 head 沿 parent 走到根，产出消息列表。
+
+    - `head_seq` 缺省 = `active_head(events)`；
+    - 只走本分支的链：其它分支的条目**不会**出现在结果里（哪怕它们在同一个文件）；
+    - 遇到不认识的 seq（损坏文件）就停下，不报错、不编造。
+    """
+    evs = list(events or [])
+    head = _as_int(head_seq) if head_seq is not None else active_head(evs)
+    if not head:
+        return []
+    by_seq = {s: (e, p) for s, e, p in message_chain(evs) if s}
+    out: List[Dict[str, str]] = []
+    cur = head
+    seen = set()
+    while cur and cur not in seen:
+        seen.add(cur)
+        item = by_seq.get(cur)
+        if item is None:
+            break
+        ev, parent = item
+        out.append({"role": "user" if ev.get("kind") == K_USER_MESSAGE else "assistant",
+                    "content": str(ev.get("content") or "")})
+        cur = parent
+    out.reverse()
+    return out
+
+
 class SessionLog:
     """append-only 会话事件日志。path 指向 .jsonl 文件。"""
 
@@ -136,16 +248,24 @@ class SessionLog:
         # 锚的定位需要项目根：默认取日志目录的上一级（`.ace_sessions/x.jsonl` → 项目根）
         self._project_root = Path(project_root) if project_root else self.path.parent.parent
         self._anchor_dir = anchor_dir    # 与 Guardian 同义的注入点（受限环境/测试）
+        # WP-5 entry 树：当前活跃分支 tip（新消息事件的 parent 就是它）。
+        self._tip_seq = 0
         self._load_seq()
 
     def _load_seq(self) -> None:
-        """从已有文件恢复 seq **与链尾**：任何时刻重放都能接着写（跨进程续记）。"""
+        """从已有文件恢复 seq **与链尾**：任何时刻重放都能接着写（跨进程续记）。
+
+        WP-5：同一遍扫描还恢复 entry 树的活跃 tip（老格式无 `parent` → 线性链尾）。
+        """
         try:
             if self.path.exists():
                 with open(self.path, "r", encoding="utf-8") as f:
                     last = 0
                     prefix = 0
                     started = False
+                    last_msg = 0
+                    last_switch = 0
+                    switch_to = 0
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -155,6 +275,12 @@ class SessionLog:
                             last = max(last, int(ev.get("seq", 0)))
                         except (json.JSONDecodeError, ValueError, TypeError):
                             continue   # 半截尾部（崩溃残留）跳过，不阻塞续记
+                        kind = str(ev.get("kind") or "")
+                        if kind in MESSAGE_KINDS:
+                            last_msg = int(ev.get("seq", 0) or 0)
+                        elif kind == K_BRANCH_SWITCH:
+                            last_switch = int(ev.get("seq", 0) or 0)
+                            switch_to = int(ev.get("to", 0) or 0)
                         mac = ev.get("mac")
                         if isinstance(mac, str) and mac:
                             started = True
@@ -163,6 +289,9 @@ class SessionLog:
                             prefix += 1        # 老日志：这一段没签名，续写时另起链段
                     self._next_seq = last + 1
                     self._legacy_prefix = prefix
+                    self._tip_seq = (switch_to
+                                     if last_switch and last_switch > last_msg
+                                     else last_msg)
         except OSError:
             pass
 
@@ -190,7 +319,11 @@ class SessionLog:
         return self._mac_key
 
     def append(self, kind: str, payload: Dict[str, Any]) -> int:
-        """追加一个事件，返回其 seq。payload 必须是可 JSON 序列化的 dict（深冻结）。"""
+        """追加一个事件，返回其 seq。payload 必须是可 JSON 序列化的 dict（深冻结）。
+
+        WP-5 entry 树：`MESSAGE_KINDS` 的条目自动带 `parent` = 当前分支 tip（第一条省略），
+        写完后 tip 推进到它；其它事件是元数据，不参与链、不动 tip。
+        """
         with self._lock:
             ev: Dict[str, Any] = {
                 "seq": self._next_seq,
@@ -198,6 +331,9 @@ class SessionLog:
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                 **payload,
             }
+            move_tip = kind in MESSAGE_KINDS
+            if move_tip and self._tip_seq:
+                ev["parent"] = self._tip_seq
             # 深冻结契约要在**算 MAC 之前**兑现：不可序列化的 payload 必须在这里当场失败，
             # 抛既有的 ValueError（有断言盯着）；否则会在规范化那步漏出 TypeError。
             try:
@@ -222,7 +358,20 @@ class SessionLog:
                 self._prev_mac = ev[MAC_FIELD]
             seq = self._next_seq
             self._next_seq += 1
+            if move_tip:
+                self._tip_seq = seq
             return seq
+
+    def switch_branch(self, to_seq: int) -> int:
+        """同文件内移动 active head（`/tree` 的落盘动作，WP-5）。
+
+        落一条 `branch/switch`（`to` = 目标条目 seq），并把续写父指针改到目标 ——
+        之后的新消息会从那里接着长，原链保持原样，于是同一文件里出现多条分支。
+        """
+        seq = self.append(K_BRANCH_SWITCH, {"to": int(to_seq)})
+        with self._lock:
+            self._tip_seq = int(to_seq)
+        return seq
 
     def verify_chain(self) -> Tuple[str, str]:
         """校验整链。返回 `(status, detail)`：
@@ -505,9 +654,21 @@ class SessionLog:
         return self.append(K_MODEL_ERROR, {"error": (err or "")[:300],
                                            "hint": (hint or "")[:200]})
 
-    def record_compaction(self, before: int, after: int, reason: str) -> int:
-        return self.append(K_COMPACTION, {
-            "before": before, "after": after, "reason": reason})
+    def record_compaction(self, before: int, after: int, reason: str,
+                          summary: str = "") -> int:
+        """压缩事件。WP-5：`summary`（模型写出的交接说明全文）一并落盘成**摘要条目**。
+
+        原始 user/assistant 条目**一条都不删**（append-only）—— 摘要只是新增一条
+        事实，让"压掉了什么"事后可查；进上下文的取舍在装配侧（`assemble_branch`）。
+        """
+        payload: Dict[str, Any] = {"before": before, "after": after, "reason": reason}
+        if summary:
+            payload["summary"] = str(summary)
+        return self.append(K_COMPACTION, payload)
+
+    def active_messages(self) -> List[Dict[str, str]]:
+        """当前活跃分支装配出的消息列表（`assemble_branch` 的实例便捷入口）。"""
+        return assemble_branch(self.events())
 
     # ---------- 从日志重建（DSH B2：消息历史 = 日志派生，不单独存储） ----------
 

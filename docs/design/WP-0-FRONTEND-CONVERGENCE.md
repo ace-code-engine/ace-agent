@@ -9,7 +9,7 @@
 > 同批的 **`RL-01` 结果信封已落地**（`THREE-LAYERS` §9）· 头号发现（**R-2** Ink 无宽限期）已修 ·
 > **W0-C 的 P-07 / P-08 / P-09 已做**（路由单一来源、`ui/`+`tui/` 冻结标记、回落契约）·
 > **R-10 已定案（不收）**。
-> **仍未完成**：**W0-B 全部（P-04/05/06/10）· W0-C 的「4 份重复对话框合一」**
+> **仍未完成**：**W0-B 的 P-10（让用户自己输入选项）· W0-C 的「4 份重复对话框合一」**
 > ⇒ **批次 0 的出口条件尚未达成**。W0-A 的"第 5 份实现就红"
 > 那条断言也仍**没做**（如实标注，见 §2 W0-A 验收）。
 > 来源：2026-09-27（HEAD `b94ab7f`，v3.45.0，工作树干净）**逐项在现码上实测复核**；
@@ -506,10 +506,19 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 
 | ID | 事项 | 证据 | 改法形状 |
 |---|---|---|---|
-| **P-04** | `status` / `tool_start` 两条"驱动 UI"的契约要被外壳**真正消费** | `ace_events.py:41-47` 已规定 `status` 发分段 + `level` 上色，且 `name == "permission"` 那一段由前端按 `meta.permission` 决定三档色 | 补一张"哪些外壳已消费 `status` / `tool_start`"的实测表；未消费的列出缺口 |
-| **P-05** | 事件**必需字段**的唯一来源 | `ace_events.EVENT_REQUIRED`；`test_all.py:7491` 已有"`EVENT_TYPES` ↔ `EVENT_REQUIRED` 键集相等"的断言 | 新增字段必须**同时**进这两处；新事件必须先登记（登记是纪律，不是文档） |
-| **P-06** | 前端协议消费者与 Python 契约的漂移 | `frontend/src/protocol/types.ts`(230) 是手抄的 TS 镜像；钉住它的是 `frontend/test/protocol.test.ts`(66) | 新事件必须**同时**补 `types.ts` 与 `protocol.test.ts`，否则 parity 测试红 |
-| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | 协议侧**已经**支持：`choice_request.kind` = `choose / confirm / text`（`ace_events.py:20` 与 `:79`），发射点 `core/ace_serve.py:521`。丢的是**外壳侧**：`ai_code.py:4000` `return list(items).index(str(picked))`（**拿 label 当答案**）与 `ui/ace_dialog.py:367` `labels = [it.text() for it in selectable]`（**丢 key**） | 4 个外壳统一回传 **key** 而不是显示文本；`kind='text'` 的回传路径逐外壳打通；与 `WP-1` 的 `ask_user` 工具（G-04）共用这条通道 |
+| **P-04** | `status` / `tool_start` 两条"驱动 UI"的契约要被外壳**真正消费** | ✅ **已审计（2026-09-27）**：唯一**跨进程**的协议消费者是 Ink，而它**消费全了** —— `tool_start`（`store.ts:178` → 工具卡 `running`）、`status`（`store.ts:261`，含 `priority`/`level`，`StatusLine.tsx:53` 把 `level` 折成主题色、`permission` 段由 `meta.permission` 上色）。REPL / TUI 是**进程内**外壳（自身就是引擎，`_footer`/`ace_turn` 本地算，不走事件），MCP 是集成面非外壳 ⇒ **无缺口** | 表已补，见下 |
+| **P-05** | 事件**必需字段**的唯一来源 | ✅ **已在守**：`ace_events.EVENT_REQUIRED` 是唯一来源，`test_all [38]` 有"`EVENT_TYPES` ↔ `EVENT_REQUIRED` 键集相等"的断言。本会话新增 `outcome`/`secret` 两字段都同时进了契约表 | 新字段必须**同时**进 `EVENT_REQUIRED` 与 `types.ts`（登记是纪律，不是文档） |
+| **P-06** | 前端协议消费者与 Python 契约的漂移 | ✅ **已在守**：`frontend/test/protocol.test.ts` 读 `EVENT_REQUIRED` 比对事件类型集合；`types.ts` 是形状镜像（不重复定义必填字段，见其头部注释） | 新事件必须**同时**补 `types.ts` 与 `protocol.test.ts`，否则 parity 红 |
+| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | 协议侧**已经**支持：`choice_request.kind` = `choose / confirm / text`（`ace_events.py:20` 与 `:79`），发射点 `core/ace_serve.py`。丢的是**外壳侧**：`ai_code._select_index` `return list(items).index(str(picked))`（**拿 label 当答案**，`kind='text'` 的自填值在这里必然 `ValueError` 被丢掉） | ⏸ **剩余**：4 个外壳统一回传 **key**；`kind='text'` 的回传逐外壳打通（含与 `WP-1` 的 `ask_user`（G-04）共用通道） |
+
+**P-04 的实测表**（谁消费 `status` / `tool_start`）：
+
+| 外壳 | 进程 | 消费 `status` | 消费 `tool_start` | 缺口 |
+|---|---|---|---|---|
+| **Ink（`frontend/`）** | **独立进程**（`ace --serve`） | ✅ `store.ts` 的 `status` 分支 + `StatusLine.tsx`（`priority` 决定去留、`level` 决定颜色、`permission` 段由 `meta.permission` 上色） | ✅ `store.ts` 的 `tool_start` 分支 → 工具卡 `running` 态（驱动"正在跑"） | **无** |
+| REPL（`ui/`） | 进程内 | — 自身就是引擎，`_footer` 本地算，不经事件 | — 工具卡直接来自执行层 | 无 |
+| TUI（`tui/`） | 进程内 | — 同上 | — `ace_turn` 本地 | 无 |
+| MCP（`core/ace_mcp`） | 集成面（非外壳） | — | — | — |
 
 **W0-B 验收**：`python test_all.py` 的 `[38]`/`[39]` 全绿 + `cd frontend && npx vitest run` 里
 **10 个** parity 测试全绿；`PROTOCOL_VERSION` 不变；`kind='text'` 的回答在**每个外壳**上都能回传到 `ai_code`（P-10）。

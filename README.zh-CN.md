@@ -270,7 +270,6 @@ ruff check . --select E9,F63,F7,F82     # CI 硬错误子集
 
 | 欠什么 | 一句话 | 权威记录 |
 |---|---|---|
-| **批次 0 未收口** | 口径对齐、`RL-01`、`R-2`、`R-7`、W0-C 的 P-07/08/09、W0-B 的 P-04/05/06/10 都已落地，**只剩 W0-C 的「4 份重复对话框合一」** | [`docs/design/WP-0-FRONTEND-CONVERGENCE.md`](docs/design/WP-0-FRONTEND-CONVERGENCE.md) · 批次表见 [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
 | **验收门槛还剩收尾** | 四道 ACC 门槛的机器那一半、A0b（`measured_*` 聚合）、**阈值判据**（`token_verdict`，暂用阈值 50%）都已落地；**只剩** `benchmarks/results/` 接校验器（要等 WP-10 的"下沉前/后可复核数据"） | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
 | **三层脊柱只落地了一条** | `RL-01`（结果信封）已实现并验收；`RL-02~04` · `HL-01~05` · `DL-01~04` 全部**未开工** | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
 | **批次 1 ~ 6 与 WP-10 未开工** | 四个便宜的面 · git · 前缀缓存 · 工作区四层 · 会话树 · 预设 · skill · 出网与快照 · 沙箱后端 · Rust 核心化 | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |

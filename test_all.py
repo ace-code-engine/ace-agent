@@ -9637,6 +9637,16 @@ if _want("54"):
               if _ar54.parse_grant_answer(a) != (d, f)]
     check("授权：字母/编号/拒绝+理由三类写法都认，空输入按拒绝（回车不放行）",
           not _bad54, _bad54)
+    # 对话框合一 · 切片 A：盲打编号 1/2/3 与界面选项顺序 once/session/deny **钉死**。
+    # 现状：终端 `parse_grant_answer` 与 `ui/ace_turn.PERMISSION_OPTIONS` 各自硬编码、
+    # 靠"顺序一致"隐式对齐，没有断言 —— 界面把 deny 挪到第一位、终端的 1 还指 once，
+    # 两边就静默漂移（这正是"重复对话框"要防的）。
+    from ui import ace_turn as _turn54  # noqa: E402
+    _drift54 = [f"终端 {k}→{_ar54.parse_grant_answer(k)[0]} ≠ 界面第{i+1}项 {_turn54.PERMISSION_OPTIONS[i][0]}"
+                for k, i in (("1", 0), ("2", 1), ("3", 2))
+                if _ar54.parse_grant_answer(k)[0] != _turn54.PERMISSION_OPTIONS[i][0]]
+    check("对话框合一 A ★盲打编号 1/2/3 ↔ 界面选项顺序 once/session/deny 钉死",
+          not _drift54, _drift54)
     check("授权：理由长度被夹住（不让一句抱怨把上下文吃掉）",
           len(_ar54.parse_grant_answer("n " + "x" * 900)[1]) <= 400, "")
     check("授权：越界输入一律落到拒绝（危险对话框 fail-close）",

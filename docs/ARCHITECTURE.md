@@ -115,6 +115,7 @@ ace-agent/
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
 │   ├── ace_serve.py            #   双向 NDJSON 协议服务端（ace --serve）：帧编解码 + 派发 + 审批往返，给独立进程前端用
 │   ├── ace_todos.py            #   逐项待办清单（纯状态机 + 事件日志重放）
+│   ├── ace_workspace.py        #   WP-4 工作区四层：Task→Workspace→Session→ExecutionProcess + allowedRoots 注册表（纯逻辑，回滚只经 /undo）
 │   ├── ace_cost.py             #   成本估算：价格表（子串匹配）+ $ 计算（估算，非账单）
 │   ├── ace_patch.py            #   最小 unified diff 应用器（/review 回填用）
 │   ├── ace_styles.py           #   输出风格预设：提示词片段 + 界面旗标（一份预设两个面）
@@ -212,7 +213,8 @@ ace-agent/
 │   │   └── MCP-SERVER.md           #   MCP server 立项卡（外部 host 借执行层：暴露面 / 审批矩阵 / 非目标 / 验收）
 │   │   ├── CONFIRM-BOUNDARY.md     #   确认与只读边界加固立项卡（H-27~H-31：前缀免确认 / 确认对象 / 只读越界 / 无边界不执行）
 │   │   ├── THREE-LAYERS.md         #   三层脊柱设计卡（DL 驱动 / RL 响应 / HL 自愈；两个共用账本 / 五级升级阶梯 / 拒绝六分类 / 验收 A1-A8）
-│   │   └── WP-0-TAIL-TECH.md        #   WP-0/ACC 尾活技术难点与解法（切片 C 终端权限提示统一 + benchmarks 校验器接法）
+│   │   ├── WP-0-TAIL-TECH.md        #   WP-0/ACC 尾活技术难点与解法（切片 C 终端权限提示统一 + benchmarks 校验器接法）
+│   │   └── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

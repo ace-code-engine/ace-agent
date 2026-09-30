@@ -504,3 +504,108 @@ def undo_autocommit(project_root: "str | Path", commit_hash: str) -> Tuple[str, 
                                   or "git reset 失败")
     return "undone", (f"已撤销 auto-commit {cur[:8]}（git reset --mixed，"
                       "工作区保持快照还原后的状态）")
+
+
+# ============================================================
+# worktree 助手（WP-4 工作区四层：创建/删除/列举）
+# ============================================================
+# 分档照旧：worktree_list 是只读助手；worktree_add / worktree_remove 是写类助手
+# （调用方负责过既有确认门 —— 这里只做 git 动作，不自己弹确认）。
+# 回滚纪律（C5 卡）：这些助手**不 import、不调用 guardian**，删除 worktree 只是
+# "这个工作区不再用了"，**绝不还原任何文件** —— 回滚只有 /undo 那一条路。
+# 状态：ok / no_repo / unsupported / error —— 前两者之外的失败全部如实声明（HL-03②）。
+
+WORKTREE_OK = "ok"
+WORKTREE_NO_REPO = "no_repo"          # 不在 git 仓库里
+WORKTREE_UNSUPPORTED = "unsupported"  # git 版本/仓库不支持 worktree
+WORKTREE_ERROR = "error"              # git 命令失败（detail = stderr 摘要）
+
+
+def _worktree_probe(root: str) -> Tuple[str, str]:
+    """worktree 支持性探针：ok / no_repo / unsupported（+ 声明文本）。"""
+    probe = _quiet_git(["git", "worktree", "list"], root, 15)
+    if probe is None:
+        return WORKTREE_UNSUPPORTED, "git 不在 PATH（worktree 助手不可用）"
+    if probe.returncode != 0:
+        err = (probe.stderr or "").strip()
+        if "not a git repository" in err.lower():
+            return WORKTREE_NO_REPO, ("当前目录不是 git 仓库，worktree 不可用；"
+                                      "按单工作区语义处理（不静默回落，这是如实声明）")
+        return WORKTREE_UNSUPPORTED, f"git worktree 不可用: {err[:200]}"
+    return WORKTREE_OK, ""
+
+
+def worktree_list(project_root: "str | Path") -> Tuple[str, object]:
+    """只读：`git worktree list --porcelain` → 解析成 [{path, branch, detached}]。
+
+    返回 (status, data)：status="ok" 时 data 是列表；否则 data 是**如实声明**文本
+    （no_repo / unsupported / error）。
+    """
+    root = str(project_root or ".")
+    status, note = _worktree_probe(root)
+    if status != WORKTREE_OK:
+        return status, note
+    res = _quiet_git(["git", "worktree", "list", "--porcelain"], root, 15)
+    if res is None or res.returncode != 0:
+        return WORKTREE_ERROR, ((res.stderr if res else "").strip()[:200]
+                                or "git worktree list 失败")
+    entries: List[Dict[str, object]] = []
+    cur: Optional[Dict[str, object]] = None
+    for line in (res.stdout or "").splitlines():
+        if line.startswith("worktree "):
+            cur = {"path": line[len("worktree "):], "branch": "", "detached": False}
+            entries.append(cur)
+        elif cur is not None and line.startswith("branch "):
+            _ref = line[len("branch "):]
+            cur["branch"] = _ref[len("refs/heads/"):] if _ref.startswith("refs/heads/") else _ref
+        elif cur is not None and line.strip() == "detached":
+            cur["detached"] = True
+    return WORKTREE_OK, entries
+
+
+def worktree_add(project_root: "str | Path", path: "str | Path",
+                 branch: str, base: Optional[str] = None) -> Tuple[str, str]:
+    """写类：`git worktree add <path> -b <branch> [base]`（注册一个工作区用）。
+
+    返回 (status, detail)：ok → detail=解析后的 worktree 路径；其余如实声明。
+    path 必须在**主工作区之外**（git 自己的约束，冲突时如实带回 stderr）。
+    """
+    root = str(project_root or ".")
+    status, note = _worktree_probe(root)
+    if status != WORKTREE_OK:
+        return status, note
+    argv = ["git", "worktree", "add", str(path), "-b", str(branch)]
+    if base:
+        argv.append(str(base))
+    res = _quiet_git(argv, root, 120)
+    if res is None or res.returncode != 0:
+        return WORKTREE_ERROR, ((res.stderr if res else "").strip()[:200]
+                                or "git worktree add 失败")
+    try:
+        added = str(Path(str(path)).resolve())
+    except OSError:
+        added = str(path)
+    return WORKTREE_OK, added
+
+
+def worktree_remove(project_root: "str | Path", path: "str | Path",
+                    force: bool = False) -> Tuple[str, str]:
+    """写类：`git worktree remove [--force] <path>`（删注册 + 清空目录）。
+
+    **回滚纪律（C5）**：这是"删除"，**不是回滚** —— 不还原任何文件、不碰快照。
+    - 不带 force：worktree 里有未提交变更时 git 自己拒绝（不静默丢数据），如实带回；
+    - force：明确授权后连目录一起删，**主工作区与其它 worktree 的内容分毫不动**。
+    """
+    root = str(project_root or ".")
+    status, note = _worktree_probe(root)
+    if status != WORKTREE_OK:
+        return status, note
+    argv = ["git", "worktree", "remove"]
+    if force:
+        argv.append("--force")
+    argv.append(str(path))
+    res = _quiet_git(argv, root, 120)
+    if res is None or res.returncode != 0:
+        return WORKTREE_ERROR, ((res.stderr if res else "").strip()[:200]
+                                or "git worktree remove 失败")
+    return WORKTREE_OK, f"worktree 已删除: {path}"

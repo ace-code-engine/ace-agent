@@ -79,6 +79,7 @@ from ui import ace_turn  # noqa: E402  （一轮的交互状态机：排队/两�
 from ui import ace_home  # noqa: E402  （主页模型：分区/条目/渲染，纯逻辑）
 from core import ace_styles  # noqa: E402  （输出风格预设：提示词 + 显示旗标）
 from core import ace_effort  # noqa: E402  （思考强度：档位 + 提示词增量，纯逻辑）
+from core import ace_prefix  # noqa: E402  （WP-3：前缀指纹/归因/drift + 工具面预算，纯逻辑）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 from tools.status import outcome_for  # noqa: E402  （RL-01：拒绝 vs 失败的唯一判定处）
 try:
@@ -90,6 +91,7 @@ from agent_runner import (ERROR_STATUSES, GRANT_DENY, GRANT_SESSION,  # noqa: E4
                           PROMPT_PLAN_APPROVED, PROMPT_TOOL_RESULT,
                           PROMPT_UNVERIFIED_CLAIM,
                           ModelProvider, ask_grant, ask_yes_no,
+                          TOOL_NAMES,
                           TruncatedOutput,
                           claims_completed_action,
                           content_to_tool_protocol, final_reply_protocol,
@@ -922,12 +924,43 @@ class ModelClient:
         # ACC-01：厂商响应里报的**实测**用量（本轮）。`stream_generate` 每次开始都清空，
         # 由 `_note_provider_usage` 写入；拿不到就是 None —— **不拿估算冒充实测**。
         self._last_provider_usage: Optional[Dict[str, int]] = None
+        # WP-3 工具面预算：由 AgentCLI 从配置建好后挂上来（None = 不折叠，与改动前逐字相同）。
+        # 挂在 client 上而不是每次现建，是因为"激活过的工具"是**会话级 sticky 状态**。
+        self.surface: Optional["ace_prefix.ToolSurfaceBudget"] = None
+        # HL-03 规则②（降级必须声明，不许静默）：端点拒绝原生工具调用时置位。
+        # 它是个**可查的状态字段**（`describe()` 会带上），不再只是"悄悄换了协议"。
+        self.tools_degraded = False
+
+    def tool_surface(self, permission: Optional[str] = None) -> List[Dict]:
+        """发往模型的工具清单：权限裁剪 + 运行时注册的工具 + 工具面预算（WP-3）。
+
+        权限裁剪的唯一来源仍然是 `agent_runner.tools_for_permission`（等级 → 集合的映射
+        只写一份）。但它的底表 `agent_runner.TOOLS` 是**导入期快照**：MCP / 插件在运行时
+        `registry.register()` 的工具进不了那份清单 —— 而配置文档承诺的正是"模型看到的
+        工具列表里就能直接调用它们"。所以这里再并上注册表里**快照没有的**那些（按同一
+        等级过滤，允许集合取自执行层现算的 `PermissionManager.allowed_tools`）。
+        """
+        from execution_layer import CONTROL_TOOLS, PermissionManager   # noqa: PLC0415
+        from tools.registry import openai_tools                        # noqa: PLC0415
+        # 权限以调用方现算的为准；副本只作兜底（与 stream_generate 的说明同一条口径）
+        level = permission or self.permission_level
+        tools = tools_for_permission(level)
+        allowed = set(PermissionManager.allowed_tools(level)) | set(CONTROL_TOOLS)
+        extras = [t for t in openai_tools()
+                  if t["function"]["name"] not in TOOL_NAMES
+                  and t["function"]["name"] in allowed]
+        if extras:
+            tools = tools + extras
+        if self.surface is None:
+            return tools
+        return self.surface.apply(tools).resident
 
     def describe(self) -> str:
         if self.mock:
             return "mock（离线演示）"
+        _deg = "，工具调用已降级为文本协议" if self.tools_degraded else ""
         return (f"{self.model} @ {self.base_url} "
-                f"(api: {self.api_format}, key: {mask_secret(self.api_key)})")
+                f"(api: {self.api_format}, key: {mask_secret(self.api_key)}{_deg})")
 
     def stream_generate(self, system: str, messages: List[Dict],
                         on_delta: Optional[Callable] = None,
@@ -992,13 +1025,23 @@ class ModelClient:
         try:
             full, calls = ace_client.chat_stream(
                 self.base_url, self.api_key, self.model, "openai", system, messages,
-                tools=tools_for_permission(level) if self.tools_ok else None,
+                tools=self.tool_surface(level) if self.tools_ok else None,
                 on_delta=on_delta, on_retry=retry_notice, should_degrade=_degrade,
                 on_usage=self._note_provider_usage)
         finally:
             if degraded["hit"]:
-                # 端点不认 tools：本次降级为文本协议，并永久关掉以免每轮都撞一次
+                # 端点不认 tools：本次降级为文本协议，并永久关掉以免每轮都撞一次。
+                # HL-03 规则②（降级必须声明，不许静默）：降级换掉的是**模型看到的面**
+                # （原生 function calling → 提示词里的文本协议），所以这里既置一个可查的
+                # 状态字段（`tools_degraded`，`describe()` 会带出来），也在 stderr 说一声
+                # —— 此前两样都没有，用户只会觉得"工具怎么不灵了"。
+                # 它同时是一次**前缀变化**（scope 里 tools_ok 从 tools → text），调用方
+                # （AgentCLI._model_turn）据此补一条带理由的归因，免得被记成 drift。
                 self.tools_ok = False
+                self.tools_degraded = True
+                print(c("yellow", "  ⚠ 端点不支持原生工具调用（HTTP 400/404）：本次起降级为"
+                                  "文本协议，工具清单改由提示词承载（/model 可查该状态）"),
+                      file=sys.stderr)
         if on_delta is None and not self.tools_ok:
             print()          # 流式分支把正文直接打到 stdout，收尾换行由这里补
         if calls:
@@ -1343,6 +1386,10 @@ class _AtCommands:
             return self.lang
         self.lang = code
         set_language(code)
+        # 语言指令进的是**系统提示词**（`_build_system_prompt` 的【语言指令】段）——
+        # 前缀变了就得有人认领（@lang 与 /lang 共用这一处，所以声明也放这里）。
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, f"语言切到 {code}",
+                                 detail="/lang 或 @lang")
         return code
 
     def _at_skill(self, arg: str) -> None:
@@ -1361,6 +1408,8 @@ class _AtCommands:
                              names=", ".join(SKILLS))))
             return
         self.skill = key
+        # 技能段（【当前技能】+ 推荐工具）在系统提示词里：带了理由地声明一次。
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, f"技能切到 {key}", detail="@skill")
         print(c("green", t("at_skill_switched",
                            name=t(f"skill_{key}"),
                            desc=t(f"skill_{key}_desc"))))
@@ -1385,6 +1434,8 @@ class _AtCommands:
             content = content[:4000] + "\n…(已截断)"
         self.context_refs.append(f"{p}\n{content}")
         self.context_refs = self.context_refs[-3:]
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, f"@file 注入 {p}（已引用上下文段）",
+                                 detail=f"chars={len(content)}")
         print(c("green", t("at_file_added", path=p, n=len(content))))
 
     def _at_session(self, arg: str) -> None:
@@ -1475,6 +1526,8 @@ class _AtCommands:
         _header = t("at_session_header", when=_when, label=_label)
         self.context_refs.append(f"{_header}\n{_body}")
         self.context_refs = self.context_refs[-3:]
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, "@session 注入会话片段（已引用上下文段）",
+                                 detail=_label[:80])
         print(c("green", t("at_session_added", n=len(_msgs), label=_label[:40])))
         if _dropped:
             print(c("dim", t("at_session_truncated", chars=AT_SESSION_MAX_CHARS)))
@@ -1496,6 +1549,8 @@ class _AtCommands:
             items = items[:30] + ["…(更多)"]
         self.context_refs.append(f"{p}\n" + "\n".join(items))
         self.context_refs = self.context_refs[-3:]
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, f"@folder 注入 {p}（已引用上下文段）",
+                                 detail=f"items={len(items)}")
         print(c("green", t("at_folder_added", path=p, n=len(items))))
 
     def _at_image(self, arg: str) -> None:
@@ -1804,6 +1859,9 @@ class _SlashCommands:
         self.messages.clear()
         self.context_refs = []
         self._init_execution_layer()
+        # 上下文整体重建（含新会话日志与新执行层）：前缀基线一并重置，
+        # 否则下一轮会拿"上一段会话的前缀"当基线，凭空判一次 drift。
+        self._reset_prefix("/clear")
         self.session.update(rounds=0, tools=0, violations=0, start=time.time())
         # 历史清空 → 水位归零：新会话里该提醒的时候还要能提醒
         self._ctx_warn_band = 0
@@ -2069,6 +2127,11 @@ class _SlashCommands:
                     print(c("yellow", t("goal_no_goal")))
                     return
                 store.resume(snap["id"], snap["revision"])
+                # WP-3：目标也是"谁让这次请求变了"的一条 —— goal 的正文进的是**用户消息**
+                # （见 converse 的目标续跑），不进不可变前缀，所以这里只记声明，不换 pin
+                # （诚实口径见 _check_prefix 的 declare_noop）。
+                self._note_prefix_change(ace_prefix.FIELD_GOAL, "/goal resume（目标恢复）",
+                                         detail=str(snap["id"]))
                 print(c("green", t("goal_resumed", obj=snap['objective'][:60])))
                 return
             if action == "pause":
@@ -2076,6 +2139,8 @@ class _SlashCommands:
                     print(c("yellow", t("goal_no_pauseable")))
                     return
                 store.update(snap["id"], snap["revision"], phase="paused")
+                self._note_prefix_change(ace_prefix.FIELD_GOAL, "/goal pause（目标暂停）",
+                                         detail=str(snap["id"]))
                 print(c("green", t("goal_paused")))
                 return
             if action == "complete":
@@ -2083,6 +2148,8 @@ class _SlashCommands:
                     print(c("yellow", t("goal_no_completable")))
                     return
                 store.update(snap["id"], snap["revision"], phase="complete")
+                self._note_prefix_change(ace_prefix.FIELD_GOAL, "/goal complete（目标完成）",
+                                         detail=str(snap["id"]))
                 print(c("green", t("goal_completed")))
                 return
             if action not in ("", "status"):
@@ -2256,6 +2323,11 @@ class _SlashCommands:
     def _set_net(self, enabled: bool) -> None:
         self.el.executor.network_enabled = enabled
         self.cfg["network_enabled"] = enabled
+        # 联网开关会往系统提示词里加/去一段"先查再答"的指令（见 `_net_thinking_hint`）：
+        # 声明一次，别让它变成没人认领的 drift。
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM,
+                                 f"/net {'on' if enabled else 'off'}（联网思考提示词段）",
+                                 detail="network_enabled")
         print(c("green" if enabled else "yellow",
                 t("net_status", state=t("net_on") if enabled else t("net_off"))))
 
@@ -2391,11 +2463,16 @@ class _SlashCommands:
             return t("rules_group_confirm")
         return t("rules_group_write")
 
-    def _set_permission(self, level: str) -> None:
+    def _set_permission(self, level: str, reason: str = "") -> None:
         if level not in ("readonly", "write", "full"):
             return
         self.el.permission.upgrade(level)
         self.cfg["permission"] = level
+        # WP-3：权限档是**模式轴**（ACE 里的 "/mode"）——它决定发给模型的工具清单，
+        # 所以它一变，前缀就换了桶：带理由声明一次（否则下一次校验会记成 drift）。
+        self._note_prefix_change(ace_prefix.FIELD_MODE,
+                                 reason or f"/permission 切到 {level}",
+                                 detail=f"level={level}")
         print(c("green", f"权限已切换为 {level}"))
 
     def _handle_sandbox(self, parts: List[str]) -> None:
@@ -2892,9 +2969,34 @@ class _SlashCommands:
     # ---------- 模型自定义 ----------
 
     def _reload_client(self) -> None:
-        """配置变更后重建模型客户端（保留 mock 模式）"""
+        """配置变更后重建模型客户端（保留 mock 模式）。
+
+        归因理由走**一次性字段** `self._reload_reason`（由 `_reload_client_for` 设置）
+        而不是位置参数：这个方法被测试/嵌入方替换成**零参 lambda**（test_all [50] 三处
+        就是这么打桩的），给它加位置参数等于当场把那些桩打挂。
+        """
+        _reason = str(getattr(self, "_reload_reason", "") or "")
+        self._reload_reason = ""
         was_mock = self.client.mock
+        _before = f"{self.client.model} @ {self.client.base_url}"
         self.client = ModelClient(self.cfg, mock=was_mock)
+        self.client.surface = self._surface      # 预算是会话级对象，换客户端要重新挂上
+        self._note_prefix_change(
+            ace_prefix.FIELD_MODEL,
+            _reason or "配置变更后重建模型客户端",
+            detail=f"{_before} → {self.client.model} @ {self.client.base_url}")
+
+    def _reload_client_for(self, reason: str) -> None:
+        """**带理由**地重建客户端（WP-3：换模型/端点必须归因 —— 前缀缓存按模型分桶）。
+
+        理由用一次性字段传（见 `_reload_client`），并在 `finally` 里清掉：即使
+        `_reload_client` 被替换成空实现，也不会有一条理由粘到下一次重建上。
+        """
+        self._reload_reason = str(reason or "")
+        try:
+            self._reload_client()
+        finally:
+            self._reload_reason = ""
 
     def _handle_model(self, parts: List[str]) -> None:
         if len(parts) == 1:
@@ -2917,7 +3019,7 @@ class _SlashCommands:
                     if _picked:
                         self.cfg["model"] = _picked
                         save_cli_config(self.cfg)
-                        self._reload_client()
+                        self._reload_client_for(f"/model 选择器切到 {_picked}")
                         print(c("green", f"模型已切换: {_picked}，已保存"))
                         return
             print(c("dim", "  切换: /model <模型名> | 换提供商: /provider | 设密钥: /model api-key <key>"))
@@ -2925,18 +3027,18 @@ class _SlashCommands:
         if parts[1] == "base-url" and len(parts) >= 3:
             self.cfg["base_url"] = parts[2]
             save_cli_config(self.cfg)
-            self._reload_client()
+            self._reload_client_for(f"/model base-url 改为 {parts[2]}")
             print(c("green", f"端点已设置: {parts[2]}（自动识别为 {detect_api_format(parts[2])} 格式），已保存"))
         elif parts[1] == "api-key" and len(parts) >= 3:
             self.cfg["api_key"] = parts[2]
             save_cli_config(self.cfg)
-            self._reload_client()
+            self._reload_client_for("/model api-key 更新（值不回显）")
             print(c("green", f"密钥已更新: {mask_secret(parts[2])}，已保存"))
         else:
             model_name = " ".join(parts[1:]).strip()
             self.cfg["model"] = model_name
             save_cli_config(self.cfg)
-            self._reload_client()
+            self._reload_client_for(f"/model 切到 {model_name}")
             print(c("green", f"模型已切换: {model_name}，已保存到 ~/.ai_code.json"))
 
     def _handle_provider(self, parts: List[str]) -> None:
@@ -2979,7 +3081,7 @@ class _SlashCommands:
         if len(parts) >= 3:
             self.cfg["api_key"] = parts[2]
         save_cli_config(self.cfg)
-        self._reload_client()
+        self._reload_client_for(f"/provider 切到 {target['name']}")
         print(c("green", f"已切换提供商: {target['name']}"))
         print(f"  端点: {target['base_url']}（{target['api_format']} 格式）")
         print(f"  模型: {self.cfg['model']}（可选: {' / '.join(target['models'][:6])}，用 /model <名> 换）")
@@ -3034,7 +3136,7 @@ class _SlashCommands:
             return
         self._apply_config_answers(state.answers)
         save_cli_config(self.cfg)
-        self._reload_client()
+        self._reload_client_for("/config 向导保存后重建客户端")
         print(c("green", t("wizard_saved", desc=self.client.describe())))
 
     def _config_steps(self, answers: Dict[str, str]) -> List["ace_dialog.WizardStep"]:
@@ -3525,6 +3627,22 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._resumed_from: Optional[str] = None
         self._init_execution_layer()
         self.session_log = self.el.session_log
+        # WP-3：前缀稳定性（指纹 / 归因 / drift）+ 工具面预算。
+        # 默认**开**指纹校验：它不改请求形状，只回答"前缀变没变、谁让它变的"；
+        # 预算默认**关**（`tool_surface_budget` <= 0 = 全量常驻，与改动前逐字相同）。
+        self._prefix = ace_prefix.PrefixStabilityManager(on_event=self._prefix_event_sink)
+        self._degrade_noted = False          # HL-03②：降级只声明一次
+        self._reload_reason = ""             # WP-3：一次性归因理由（见 _reload_client_for）
+        _budget = int(self.cfg.get("tool_surface_budget", 0) or 0)
+        self._surface = (ace_prefix.ToolSurfaceBudget(_budget) if _budget > 0 else None)
+        self.client.surface = self._surface
+        if getattr(self.el, "mcp_registered", None):
+            # MCP 重 pin：这些工具是**运行时**注册进注册表的（启动时，用户没插手），
+            # 但它确实改变了前缀 —— 声明一次，免得第一轮就被记成 drift。
+            self._note_prefix_change(
+                ace_prefix.FIELD_MCP,
+                f"启动时注册 {len(self.el.mcp_registered)} 个 MCP 工具",
+                detail=", ".join(list(self.el.mcp_registered)[:8]))
         self._write_session_header()
         # session_start 钩子：会话真的建起来了才跑（执行层构造失败时不该跑）
         _hk_start = self._fire_hook("session_start")
@@ -3918,6 +4036,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     def _clear_turn_effort(self) -> None:
         """清掉"这一轮"的临时思考强度（关键词逃生门用完即焚）。"""
+        if self._turn_effort:
+            # 清掉它同样会改系统提示词（思考强度段）：带理由声明，别留一次 drift。
+            self._note_prefix_change(ace_prefix.FIELD_SYSTEM,
+                                     "本轮临时思考强度到期被清掉",
+                                     detail=f"was={self._turn_effort}")
         self._turn_effort = ""
 
     def _maybe_notify_done(self, secs: float) -> None:
@@ -4371,6 +4494,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 _save(self.cfg)
             except Exception:      # noqa: BLE001 —— 存不下也先把当前会话改好
                 pass
+        # 思考强度提示词段（`ace_effort.prompt_hint`）在系统提示词里：带理由声明一次。
+        self._note_prefix_change(ace_prefix.FIELD_SYSTEM, f"/effort 切到 {new}",
+                                 detail=f"prev={cur}")
         print(c("green", "  " + t("effort_set", level=new,
                                   what=t(ace_effort.labels(new)[1]))))
         print(c("dim", "  " + t("effort_hint_added") if ace_effort.prompt_hint(new)
@@ -4429,6 +4555,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.context_refs = []
         self._pending_images = []
         self._init_execution_layer()
+        self._reset_prefix("/new")
         self.session.update(rounds=0, tools=0, violations=0, start=time.time())
         self._ctx_warn_band = 0
         print(c("green", "  " + t("new_session_done")))
@@ -4913,6 +5040,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 pass
             print(c("red", t("cd_failed", err=e)))
             return True
+        # 工作目录变了 → 系统提示词的【工作目录】段与项目指令（AGENTS.md/…）都换了：
+        # 重建基线（并说明理由），别把这次变化当成"没人认领的 drift"。
+        self._reset_prefix(f"/cd {old} → {p}")
         print(c("green", t("cd_done", path=str(p))))
         print(c("dim", t("cd_caveat")))
         return True
@@ -5688,6 +5818,175 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         print(c("yellow", t(key, pct=usage["pct"], tokens=usage["tokens"],
                             trigger=usage["trigger"])))
 
+    # ---------- WP-3：前缀稳定性（指纹 / 归因 / drift）与工具面伸缩 ----------
+
+    def _prefix_event_sink(self, ev: "ace_prefix.PrefixEvent") -> None:
+        """前缀事件 → 会话台账（pin / repin / attribution / drift / declare_noop **全留痕**）。
+
+        为什么连普通的 `pin` 也记：台账里没有"上一次的前缀是什么"，drift 就无从对照；
+        而 drift 的定义恰恰是"和上一次比，多了个没人声明的变化"。
+        """
+        log = getattr(self, "session_log", None)
+        if log is None:
+            return
+        try:
+            log.record_guard("prefix_stability", ev.kind,
+                             f"field={ev.field} reason={ev.reason} detail={ev.detail} "
+                             f"changed={'+'.join(ev.changed_fields)} "
+                             f"digest={(ev.digest or '')[:12]}")
+        except Exception:       # noqa: BLE001 —— 台账写不进去不该让请求挂掉
+            pass
+
+    def _note_prefix_change(self, field: str, reason: str, detail: str = "") -> None:
+        """声明一次前缀变化（**变化强制归因**）：台账 + 前缀管理器各留一条。
+
+        空理由由 `ace_prefix` 当场拒绝；这里兜住并如实报警 —— 一次漏写的理由不该
+        把整轮会话打挂，但也绝不能静默（静默就等于没有归因）。
+        """
+        if getattr(self, "_prefix", None) is None:
+            return          # 会话还没建起来（构造期）：没有 pin 可归因，也没有台账
+        if not self._prefix_enabled():
+            return          # 显式关掉了前缀校验（prefix_cache=false）：声明无处可落，不必攒
+        try:
+            self._prefix.attribute(field, reason, detail=detail)
+        except Exception as e:      # noqa: BLE001
+            print(f"⚠ 前缀归因失败（{type(e).__name__}: {e}）", file=sys.stderr)
+            return
+        if field != ace_prefix.FIELD_MODEL:
+            return
+        # 模型/提供商切换另有一条**专用**事件（`model/switch` 早就在 KINDS 里，一直没人写）
+        try:
+            from cli.ace_sessionlog import K_MODEL_SWITCH   # noqa: PLC0415
+            self.session_log.append(K_MODEL_SWITCH, {
+                "model": self.client.model, "base_url": self.client.base_url,
+                "reason": str(reason), "detail": str(detail or "")[:200]})
+        except Exception as e:      # noqa: BLE001
+            print(f"⚠ model/switch 台账写入失败（{type(e).__name__}: {e}）", file=sys.stderr)
+
+    def _prefix_enabled(self) -> bool:
+        """前缀校验开关（配置 `prefix_cache`，默认开）。
+
+        默认开：它不改请求形状（system 与工具清单逐字节不变），只是把"变没变、谁让它变的"
+        记下来并在恒等时省一次快照。关掉它只会让台账少一条线 —— 所以这是个排障开关，
+        不是"性能开关"。
+        """
+        return bool(self.cfg.get("prefix_cache", True))
+
+    def _prefix_scope(self) -> str:
+        """缓存键的第三维：模型 / 端点 / 权限档 / 是否原生工具 / 工具面预算。
+
+        为什么这些进 scope 而不进提示词正文：前缀缓存是**按模型分桶**的，同样的
+        system+tools 换个模型就是另一个缓存条目；不区分就会"命中"一份不属于它的前缀。
+        权限档同理 —— 它决定发给模型的工具清单。
+        """
+        return "|".join((str(self.client.model), str(self.client.base_url),
+                         str(self.el.permission.level),
+                         "tools" if self.client.tools_ok else "text",
+                         str(self.cfg.get("tool_surface_budget", 0) or 0)))
+
+    def _check_prefix(self, system: str) -> "ace_prefix.PrefixCheck":
+        """每请求前校验一次前缀指纹（WP-3 的第一件事）。
+
+        三态：命中快路径（调用方据此跳过 snapshot + stringify）/ 带理由重 pin /
+        drift（如实上报，**原 pin 不丢**）。校验本身不是闸门：它坏了请求照发，
+        但会打一次警告（静默降级 = 以后没人知道缓存为什么不命中）。
+        """
+        tools: List[Dict] = []
+        if not self._prefix_enabled():
+            # 显式关掉：返回"永远不快路径"的结论（调用方照旧记快照），不发任何声明。
+            return ace_prefix.PrefixCheck(
+                state=ace_prefix.prefix_fingerprint(system, [], scope=""),
+                pin=self._prefix.pin)
+        if self.client.tools_ok:
+            try:
+                tools = self.client.tool_surface(self.el.permission.level)
+            except Exception as e:      # noqa: BLE001
+                print(f"⚠ 工具面装配失败（{type(e).__name__}: {e}）；"
+                      "本轮按无工具前缀校验", file=sys.stderr)
+        try:
+            check = self._prefix.verify(system, tools, scope=self._prefix_scope())
+        except Exception as e:          # noqa: BLE001
+            print(f"⚠ 前缀校验失败（{type(e).__name__}: {e}）", file=sys.stderr)
+            return ace_prefix.PrefixCheck(
+                state=ace_prefix.prefix_fingerprint(system, [], scope=""),
+                pin=self._prefix.pin)
+        if check.drift and check.reported:
+            print(c("yellow", "  ⚠ 前缀 drift：不可变前缀变了，但没有任何地方声明过"
+                              f"（{'/'.join(check.changed_fields) or '未知'}）。"
+                              "原 pin 保留 —— 要收敛就补一条带理由的声明。"),
+                  file=sys.stderr)
+        return check
+
+    def _reset_prefix(self, reason: str) -> None:
+        """丢掉前缀 pin（会话 / 工作目录 / 工具面被整体重建）：下一次请求重立基线。"""
+        if getattr(self, "_prefix", None) is None:
+            return
+        try:
+            self._prefix.reset()
+        except Exception as e:          # noqa: BLE001
+            print(f"⚠ 前缀基线重置失败（{type(e).__name__}: {e}）", file=sys.stderr)
+            return
+        print(c("dim", f"  [prefix] 基线已重置（{reason}）"))
+
+    def _tool_search_result(self, call: Dict) -> Dict:
+        """`tool_search` 的结果 —— 由**工具面**自己回答（它不在注册表里，执行层不认识它）。
+
+        命中即激活：下一轮它们就是常驻工具。工具面因此变了，所以这里必须**声明归因**
+        —— 否则下一次校验会把它记成 drift，而它其实是模型自己要求的变化。
+        """
+        surf = self._surface
+        query = str(call.get("query") or call.get("keywords") or "").strip()
+        if surf is None:
+            return {"status": "SUCCESS", "tool": ace_prefix.TOOL_SEARCH_NAME, "params": call,
+                    "message": "本会话没有折叠工具（tool_surface_budget 未开启）",
+                    "data": {"query": query, "matches": [], "activated": []}}
+        if not surf.catalog.folded_names():
+            # 目录还没装过（例如原生工具本轮没开、只有纯逻辑校验跑过）：按当前权限档现装
+            # 一次。不装就搜，模型会在一个**空目录**上得到"无匹配" —— 那是把"我们没准备"
+            # 说成"没有这个工具"。
+            try:
+                self.client.tool_surface(self.el.permission.level)
+            except Exception as e:      # noqa: BLE001
+                print(f"⚠ 工具目录装配失败（{type(e).__name__}: {e}）", file=sys.stderr)
+        hits = surf.search(query)
+        activated = surf.activate([h["name"] for h in hits]) if hits else []
+        if activated:
+            self._note_prefix_change(
+                ace_prefix.FIELD_TOOL_SURFACE,
+                f"tool_search(query={query!r}) 按需激活 {len(activated)} 个折叠工具",
+                detail=", ".join(activated[:10]))
+        names = ", ".join(str(h["name"]) for h in hits) or "（无匹配）"
+        return {"status": "SUCCESS", "tool": ace_prefix.TOOL_SEARCH_NAME, "params": call,
+                "message": (f"命中 {len(hits)} 个被折叠的工具：{names}"
+                            + (f"；已激活 {len(activated)} 个，下一轮可直接调用"
+                               if activated else "")),
+                "data": {"query": query, "matches": hits, "activated": activated}}
+
+    def _run_tool_search(self, call: Dict) -> str:
+        """截住一次 `tool_search`：记台账 / 事件 / 卡片，返回给模型的回喂文本。"""
+        res = self._tool_search_result(call)
+        try:
+            self.session_log.record_tool_call(ace_prefix.TOOL_SEARCH_NAME, dict(call))
+            self.session_log.record_tool_result(
+                ace_prefix.TOOL_SEARCH_NAME, str(res["status"]),
+                str(res.get("message") or "")[:200])
+        except Exception as e:      # noqa: BLE001
+            print(f"⚠ tool_search 台账写入失败（{type(e).__name__}: {e}）", file=sys.stderr)
+        if self.json_mode:
+            self.events.emit("tool_call", tool=ace_prefix.TOOL_SEARCH_NAME, params=dict(call))
+            self.events.emit("tool_result", tool=ace_prefix.TOOL_SEARCH_NAME,
+                             status=str(res["status"]), outcome="ok", elapsed=0.0,
+                             message=str(res.get("message") or "")[:500],
+                             data=res.get("data"))
+        for _i, _ln in enumerate(tool_card(ace_prefix.TOOL_SEARCH_NAME, str(res["status"]),
+                                          params=dict(call),
+                                          message=str(res.get("message") or ""),
+                                          collapsed=not self._expand_all(),
+                                          max_lines=8 if not self._expand_all() else 500)):
+            print(c("cyan" if _i == 0 else "dim", _ln))
+        self._round_tools.append((ace_prefix.TOOL_SEARCH_NAME, str(res["status"]), 0.0, None))
+        return PROMPT_TOOL_RESULT.format(rendered=render_tool_result(res))
+
     def _record_turn_usage(self, in_tokens: int, out_tokens: int) -> None:
         """把本轮用量写进会话日志：**估算值与厂商实测并列**（ACC-01）。
 
@@ -5723,6 +6022,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 顺序有讲究：先建系统提示词（占用估算要把它算进去）、再提醒，最后才起
         # spinner —— 否则提醒文字会和 spinner 的 \r 重绘叠在同一行上。
         system = self._build_system_prompt()
+        # WP-3：每请求前校验不可变前缀（system + 工具面）的指纹。命中快路径时**不重写**
+        # system 快照（`record_system` 每次都是几十 KB 的原文）—— 这就是"跳过 snapshot +
+        # stringify"落在此处的那一半。
+        _pchk = self._check_prefix(system)
         self._warn_context_if_near(msgs, system)
         spinner = _Spinner(t("thinking"), verbs=ace_layout.spinner_verbs(t),
                            reduce_motion=self._reduce_motion())
@@ -5740,7 +6043,10 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 permission=str(self.cfg.get("permission", "readonly")),
                 system_len=len(system),
                 messages_count=len(msgs))
-            self.session_log.record_system(system)
+            if not _pchk.fast_path:
+                # 前缀逐字节没变时不重写（快路径）；变了才落盘，并附上"这次为什么变"
+                # —— 归因/漂移的判据要能在台账里对照（见 _prefix_event_sink / drift 警告）。
+                self.session_log.record_system(system)
             if self.json_mode:
                 self.events.emit("model_request", round=round_no,
                                  messages_count=len(msgs), system_len=len(system),
@@ -5749,6 +6055,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 self._emit_status()
             output = self.client.stream_generate(system, msgs, on_delta=disp["on_delta"],
                                                  permission=self.el.permission.level)
+            # HL-03 规则②（降级必须声明）：端点刚拒绝原生工具调用 → 前缀的 scope 变了
+            # （tools_ok 从 tools 变 text），这里补一条**带理由**的归因，下一次校验就是
+            # 名正言顺的 re-pin，而不是一条没人认领的 drift。降级本身已在传输层报过一次。
+            if self.client.tools_degraded and not self._degrade_noted:
+                self._degrade_noted = True
+                self._note_prefix_change(
+                    ace_prefix.FIELD_TOOLS,
+                    "端点不支持原生工具调用（400/404）→ 降级为文本协议",
+                    detail="工具清单改由提示词承载；scope 的 tools 维度改变")
             # 流式正文收尾：渲染器按行交付，最后一行往往没有换行符，
             # 不 flush 就会把回答的最后一句话永远留在缓冲里（探针里踩到过）。
             disp["flush"]()
@@ -5868,6 +6183,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         _kw = ace_effort.keyword_level(user_input)
         self._turn_effort = _kw
         if _kw:
+            # 关键词逃生门改的是**这一轮**的系统提示词（思考强度段）：同样要带理由声明，
+            # 否则本轮请求在前缀台账里就是一次无人认领的变化。
+            self._note_prefix_change(ace_prefix.FIELD_SYSTEM,
+                                     f"关键词逃生门按最高档走（{_kw}）",
+                                     detail="ultrathink/认真想，仅本轮")
             print(c("cyan", "  " + t("effort_turn_override",
                                      level=_kw, what=t(ace_effort.labels(_kw)[0]))))
         next_user = self.el.prepare_context(user_input)
@@ -5924,6 +6244,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             # 与"正在读取 ace/ui/ace_menu.py"给人的信息量差一个量级。
             _tool_name = _peek_tool_name(output)
             _tool_target = _peek_tool_target(output)
+            # WP-3：`tool_search` 是**工具面的工具**（不在注册表里），必须在分发给执行层
+            # **之前**截住 —— 否则模型拿到的是"未知工具 400"，而它只是想把被折叠的工具
+            # 找回来。截住即回答：命中项在下一轮成为常驻工具（见 _tool_search_result）。
+            if self._surface is not None:
+                _ts_call = ace_prefix.find_tool_search_call(output)
+                if _ts_call is not None:
+                    next_user = self._run_tool_search(_ts_call)
+                    self.session["rounds"] += 1
+                    continue
             # `tool_start`：**执行前**发一条，前端据此画"正在跑"。
             # 为什么非要有它：`tool_call` 是执行**之后**发的审计记录（见 ai_code.py:5208
             # 的分支），拿它驱动"运行中"UI 只能得到事后播报 —— 工具早跑完了才亮起来。

@@ -383,6 +383,23 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
   4. `ToolSurfaceBudget` + 延迟工具目录（`tool_search` / `retrieve_tool_result`）。
 - **验收**：新增"前缀稳定性"断言——同一轮内重复构建必须命中快路径；`/model` 切换必须产生一条带理由的归因日志；drift 出现时原 pin 仍在。
 - **风险**：中（触及模型调用路径，但**不触及权限**）。
+- **进度（2026-09-30）**：四件事全部落地 —— `core/ace_prefix.py`（新文件，纯逻辑）：
+  `PrefixStabilityManager`（pin / verify / attribute / drift，指纹 = SHA-256(system + **解析后的**
+  工具 schema + scope)，**只解析一遍**工具规格以免活体 getter 让摘要与快照自相矛盾）、
+  `ToolSurfaceBudget` + `DeferredToolCatalog`（超预算折叠、`tool_search` 常驻、命中即激活且
+  sticky、预算装得下就不摆空目录）、`ResultStash`（`retrieve_tool_result` **只落接口**）。
+  `ai_code.py`：`_model_turn` 里每请求前校验（指纹不变 → 不重写 `system/snapshot`，恒等快路径）、
+  `/model` `/provider` `/permission` `/effort` 关键词逃生门 `/lang` `/net` 技能 `@file|@folder|@session`
+  goal resume/pause/complete MCP 重 pin `tool_search` 激活 **全部带理由归因**（`model/switch` +
+  `guard/verdict(rule=prefix_stability)`，空理由当场拒绝）；drift 一次/每个新指纹上报 stderr，
+  **原 pin 不丢**；工具面改**现算**（`registry.openai_tools()`）—— 顺带修掉"运行时注册的 MCP 工具
+  进不了请求清单"（`agent_runner.TOOLS` 是导入期快照）；配置键 `prefix_cache` / `tool_surface_budget`
+  进了 `docs/CONFIGURATION.md`；断言在 `.test_tmp/wp3_check.py`（61 项，先红后绿）。
+  **边界**：`retrieve_tool_result` 未接线（见 CONFIGURATION.md）；`tool_search` 不进 registry
+  （由工具面在分发前截住）；goal 声明如实记为 `declare_noop`（它走用户消息，不进不可变前缀）；
+  `skill_load` 工具路径换技能未声明（只覆盖了 `@skill` 命令路径）。
+- **顺带（HL-03 规则②）**：`ModelClient` 的原生工具调用降级（400/404）此前**静默**，现补
+  `tools_degraded` 状态字段 + stderr 一行 + 一条带理由的前缀归因（`describe()` 可查）。
 
 ### WP-4 · 工作区四层（G-09）
 

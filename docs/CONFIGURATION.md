@@ -34,6 +34,8 @@ config = {
                "timeout": 20,               # 可选：握手/列工具超时（秒）
                "call_timeout": 120},        # 可选：单次工具调用超时（秒）
     },
+    "prefix_cache": True,                   # WP-3：每请求前校验不可变前缀的 SHA-256 指纹（默认开）
+    "tool_surface_budget": 0,               # WP-3：工具常驻上限；0 = 全量常驻（与改动前逐字相同）
 }
 ```
 
@@ -208,6 +210,66 @@ python -m cli.ace_mandate show --file mandate.json      # 检查签名/有效期
 - `browser_open` 也过清单。连接交给系统浏览器之后就不经过本进程（拦不住浏览器自己跟的重定向），但"要不要把这个域名交出去"这个决定本进程还能做。
 - 条目写法宽松：`api.github.com`、`.github.com`（含子域）、`https://api.github.com/x`（只取主机）都认。匹配按标签边界，`evil-github.com` 不会命中 `github.com`。
 - **`notify_send` 的 SMTP 也归它管**：那条路直连 `smtplib`，主机来自宿主配置而非模型参数（所以不是 SSRF 面），但正文和收件人是模型给的 —— 是实打实的外发通道，所以走同一份清单。
+
+### 前缀稳定性与工具面伸缩（`prefix_cache` / `tool_surface_budget`，WP-3）
+
+系统提示词此前**每轮重新拼串**，而 49 个暴露工具的描述**全部常驻**在每次请求里：前者让
+上游前缀缓存（按前缀命中）随时可能白建，后者按工具数线性啃前缀。这两件事的代码面在
+`core/ace_prefix.py`（纯逻辑，可单测），配置面就是下面两个键。
+
+```json
+"prefix_cache": true,          // 默认 true：每请求前校验不可变前缀的 SHA-256 指纹
+"tool_surface_budget": 0       // 默认 0 = 不折叠（与改动前逐字相同）；>0 = 常驻上限
+```
+
+**不可变前缀 = system + 工具 schema + scope**，指纹是这三者的 SHA-256。三个刻意的口径：
+
+- **比解析后的 `parameters`，不比工具容器**。工具 schema 里的 `parameters` 可能是活体
+  getter（property / 无参函数 / 每次算一份新 schema 的对象）：容器身份一直没变，内容却
+  每轮都不同。按容器比会得到一个"永远稳定"的假指纹，而上游收到的是另一份 schema。
+- **scope 也是指纹的一部分**（`model|base_url|permission|tools_ok|tool_surface_budget`）。
+  前缀缓存按模型分桶：同样一份字节换个模型就是另一个缓存条目，`/model` 必须换桶。
+- **drift 不更新基线**。没人声明的变化只**如实上报**（stderr 一次 + 台账一条），原 pin
+  保留 —— 顺手采纳等于把漂移洗成基线，下一次就再也查不出是哪一步漂的。
+
+**变化强制归因**：`/model`、`/provider`、api-key、`/permission`（模式轴）、`/effort`、
+关键词逃生门、`/lang`、`/net`、技能切换、`@file`/`@folder`/`@session`、goal 的
+resume/pause/complete、MCP 重 pin、`tool_search` 激活，都会先声明理由；空理由在
+`ace_prefix` 里当场被拒（`ValueError`）。归因落两条：
+
+| 事件 | 内容 |
+|---|---|
+| `model/switch` | 模型 / 端点 / 密钥切换：`model`、`base_url`、`reason`、`detail`（值不回显） |
+| `guard/verdict`（`rule=prefix_stability`）| 全部前缀事件：`action` ∈ `pin`/`repin`/`attribution`/`drift`/`declare_noop`，`detail` 带 `field=`/`reason=`/`changed=` |
+
+**恒等快路径**：指纹不变时**跳过 snapshot + stringify** —— 具体就是不再往台账重写一遍
+system 原文（`system/snapshot` 每次请求几十 KB），并复用上一次那份快照。台账里的
+`request/snapshot` 照记（省的是前缀快照，不是审计）。效果可直接数事件：
+同一轮内重复构建前缀 → 2 条 `request/snapshot`、1 条 `system/snapshot`。
+
+**工具面伸缩**（`tool_surface_budget > 0` 时生效）：
+
+- 常驻数**不超过**预算，`tool_search` 自己占一个名额（它不被看见，折叠的工具就永远找不回来）；
+- 超出的工具进**延迟目录**；模型用常驻的 `tool_search` 按关键词检索，命中项**下一轮**成为
+  常驻（sticky：已经要过一次的工具不再折回去）；
+- **只有真的折了东西才注入 `tool_search`** —— 预算装得下就全量常驻，不摆一个空目录；
+- `budget <= 0` = 与改动前逐字相同（全量常驻、不注入 `tool_search`）。
+
+边界（如实写在这里，免得当成已实现）：
+
+- **`tool_search` 没有进 `tools/registry.py`**，它是工具面自己的一等工具，调用在执行层**分发
+  之前**被截住（`ai_code.converse`）—— 所以它不会以"未知工具 400"的形式落到模型面前。
+  它也不出现在提示词的工具清单里（清单与注册表的一致性由 test_all 守着）。
+- **`retrieve_tool_result` 只落了接口**（`ace_prefix.ResultStash` + schema），**没有接线**：
+  跨轮留存被折叠的工具结果需要一条上限与过期策略，并与现有 `/expand` 折叠路径统一，
+  那是另一件事。在接线之前把它塞进清单，等于承诺一个调用就 400 的工具。
+- **goal 不进不可变前缀**：目标正文进的是**用户消息**（目标续跑那一段），所以 `/goal` 的
+  变化被记为 `attribution` + 下一次 `declare_noop`（声明了、但前缀确实没变）——这是诚实的
+  结果，不是漏记。
+- **MCP / 插件工具现在真的进请求清单了**：工具面改为**现算**（`registry.openai_tools()`），
+  不再用 `agent_runner.TOOLS` 的导入期快照 —— 后者让运行时注册的工具永远进不了清单，
+  与本文档 MCP 一节的承诺不符。
+- `prefix_cache: false` 只关掉指纹校验与归因（排障用），**不改**请求里的 system/工具清单。
 
 ### 检索工具的边界（`grep` / `glob`）
 

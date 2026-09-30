@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "74", "75", "76", "78", "79"]
+             "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79"]
 _SEEN_SECTIONS: list = []
 
 
@@ -15915,6 +15915,149 @@ if _want("76"):
     finally:
         _sh76.rmtree(_repo76, ignore_errors=True)
 
+# ============================================================
+if _want("77"):
+    # ── [77] WP-3：前缀指纹 / 变化强制归因 / drift / 恒等快路径 + 工具面伸缩 ──
+    print("[77] WP-3 前缀缓存 + 工具面伸缩 —— 指纹 / 归因 / drift / 恒等快路径")
+    from core import ace_prefix as _ap77  # noqa: E402
+
+    def _t77(_n, _p):
+        return {"type": "function",
+                "function": {"name": _n, "description": "d", "parameters": _p}}
+
+    _SYS77 = "SYSTEM-A（不可变前缀）"
+    _TL77 = [_t77("alpha", {"type": "object", "properties": {"x": {"type": "string"}}}),
+             _t77("beta", {"type": "object", "properties": {}})]
+    _m77 = _ap77.PrefixStabilityManager()
+    _c1_77 = _m77.verify(_SYS77, _TL77, scope="m1|readonly")
+    _c2_77 = _m77.verify(_SYS77, _TL77, scope="m1|readonly")
+    check("[77] ★同一前缀重复构建：指纹相同 + 第二次命中恒等快路径",
+          _c1_77.state.digest == _c2_77.state.digest
+          and _c2_77.fast_path and not _c2_77.changed,
+          (_c1_77.state.digest == _c2_77.state.digest, _c2_77.fast_path, _c2_77.changed))
+    _st77 = _m77.stats()
+    check("[77] ★快路径跳过 snapshot + stringify（各只做 1 次）",
+          _st77.get("snapshots_taken") == 1 and _st77.get("payloads_built") == 1
+          and _st77.get("fingerprints_computed") == 2 and _st77.get("fast_path_hits") == 1,
+          _st77)
+
+    class _Live77:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self):
+            self.calls += 1
+            return {"type": "object",
+                    "properties": {"n": {"type": "integer", "default": self.calls}}}
+
+    _live77 = _Live77()
+    _lt77 = {"type": "function",
+             "function": {"name": "live", "description": "d", "parameters": _live77}}
+    _m77b = _ap77.PrefixStabilityManager()
+    _d1_77 = _m77b.verify(_SYS77, [_lt77], scope="s").state.digest
+    _d2_77 = _m77b.verify(_SYS77, [_lt77], scope="s").state.digest
+    check("[77] ★活体 getter 每次被解析（容器身份不变也算得出变化）",
+          _d1_77 != _d2_77 and _live77.calls == 2, (_d1_77 == _d2_77, _live77.calls))
+
+    _m77c = _ap77.PrefixStabilityManager()
+    _m77c.verify(_SYS77, _TL77, scope="m1|readonly")
+    _empty77 = False
+    try:
+        _m77c.attribute("model", "")
+    except ValueError:
+        _empty77 = True
+    check("[77] ★变化强制归因：空理由被当场拒绝", _empty77, "")
+    _ev77 = _m77c.attribute("model", "用户 /model 切到 m2")
+    _c3_77 = _m77c.verify(_SYS77, _TL77, scope="m2|readonly")
+    check("[77] ★/model 换桶是带理由的 re-pin（不是 drift）",
+          _ev77.kind == "attribution" and _ev77.field == "model"
+          and _c3_77.changed and not _c3_77.drift
+          and _c3_77.declared_by == "model" and _c3_77.reason == "用户 /model 切到 m2",
+          (_ev77.kind, _ev77.field, _c3_77.drift, _c3_77.declared_by))
+
+    _m77d = _ap77.PrefixStabilityManager()
+    _m77d.verify(_SYS77, _TL77, scope="s")
+    _orig77 = _m77d.pin
+    _c4_77 = _m77d.verify("SYSTEM-B（没人声明过）", _TL77, scope="s")
+    check("[77] ★未声明的变化 → drift 上报；**原 pin 不丢**",
+          _c4_77.drift and _c4_77.changed and not _c4_77.fast_path
+          and _c4_77.reported and _m77d.pin is _orig77,
+          (_c4_77.drift, _c4_77.changed, _c4_77.reported, _m77d.pin is _orig77))
+    check("[77] drift 事件说清是谁变了（changed_fields 含 system）",
+          any(e.kind == "drift" and "system" in e.changed_fields for e in _m77d.events()),
+          [(e.kind, getattr(e, "changed_fields", None)) for e in _m77d.events()])
+
+    # 工具面：超预算折叠 + tool_search 找回
+    from tools.registry import openai_tools as _oai77  # noqa: E402
+
+    def _sn77(t):
+        return t["function"]["name"]
+
+    _ALL77 = _oai77()
+    _bud77 = _ap77.ToolSurfaceBudget(budget=12, search_tool=True)
+    _res77 = _bud77.apply(_ALL77)
+    check("[77] ★工具面超预算时不全量常驻（tool_search 占一个名额）",
+          len(_res77.resident) < len(_ALL77) and len(_res77.folded) > 0
+          and len(_res77.resident) <= 12 and _ap77.TOOL_SEARCH_NAME in [_sn77(t) for t in _res77.resident],
+          (len(_res77.resident), len(_ALL77), len(_res77.folded)))
+    _hits77 = _bud77.search("git")
+    check("[77] ★tool_search 能找回被折叠的工具（git_status）+ 带用途说明",
+          "git_status" in [h["name"] for h in _hits77] and _hits77
+          and all(h.get("description") for h in _hits77),
+          [h.get("name") for h in _hits77][:6])
+    _act77 = _bud77.activate([h["name"] for h in _hits77])
+    _res77b = _bud77.apply(_ALL77)
+    check("[77] 命中后激活 sticky：下一轮进入常驻",
+          "git_status" in _act77 and "git_status" in {_sn77(t) for t in _res77b.resident},
+          [h["name"] for h in _hits77][:6])
+
+
+# ============================================================
+if _want("78"):
+    # ── [78] RL-03 三段式回传 ──
+    print("[78] RL-03 三段式回传 —— 必进摘要行 / 按需证据块 / 指纹压缩")
+    from agent_runner import (FeedbackLedger as _FL78,  # noqa: E402
+                              retrieve_evidence as _rev78,
+                              summary_line as _sum78)
+    from core import ace_isolation as _iso78  # noqa: E402
+
+    _SENT78 = "SECRET_RL03_EVIDENCE_9f3a"
+    _deny78 = {"status": "error", "tool": "file_write", "error_code": "403",
+               "message": f"路径越界：E:\\outside\\{_SENT78}.txt 不在项目根内（请改用项目内路径）",
+               "outcome": "denied", "refusal_class": "BOUNDARY",
+               "fingerprint": "a3f2c8d1e0b4a3f2c8d1e0b4",
+               "hint": {"alternatives": ["写到项目内"]}}
+    _ok78 = {"status": "SUCCESS", "tool": "file_read",
+             "data": {"content": f"{_SENT78} 文件正文"}}
+    _sum78s = _sum78(_deny78)
+    check("[78] ★摘要行是一行、含 outcome/class/指纹短码",
+          "\n" not in _sum78s and "[denied]" in _sum78s
+          and "BOUNDARY" in _sum78s and "fp=a3f2" in _sum78s, _sum78s)
+    _first78 = _FL78().render(_deny78)
+    check("[78] ★摘要行**进**默认回喂，全文**不进**（三段式的命门）",
+          _sum78s in _first78 and _SENT78 not in _first78, _first78)
+    check("[78] ★证据块索取才给（retrieve_evidence 给全文）",
+          _SENT78 in _rev78(_deny78), "")
+    check("[78] RL-04 不倒退：协议报错的证据块**不套**隔离块",
+          _SENT78 in _rev78({"status": "FORMAT_ERROR", "message": _SENT78})
+          and _iso78.UNTRUSTED_BEGIN not in _rev78({"status": "FORMAT_ERROR", "message": _SENT78}), "")
+    check("[78] RL-04 不倒退：工具结果的证据块**仍带**隔离块（SEC-011 没被削弱）",
+          _iso78.UNTRUSTED_BEGIN in _rev78(_ok78) and _SENT78 in _rev78(_ok78), "")
+    _l78 = _FL78()
+    _r1_78 = _l78.render(_deny78)
+    _r2_78 = _l78.render(_deny78)
+    _r3_78 = _l78.render(_deny78)
+    check("[78] ★指纹压缩：同指纹重复 → `(同上，第 2/3 次)`",
+          "(同上" not in _r1_78 and "(同上，第 2 次)" in _r2_78
+          and "(同上，第 3 次)" in _r3_78, (_r1_78[:60], _r2_78[:60], _r3_78[:60]))
+    check("[78] ★压缩后长度**不随重复增长**",
+          len(_r2_78) <= len(_r1_78) and len(_r3_78) == len(_r2_78),
+          (len(_r1_78), len(_r2_78), len(_r3_78)))
+    _l78b = _FL78()
+    _l78b.render(_deny78)
+    check("[78] 对照：不同指纹（另一条路）不压缩",
+          "(同上" not in _l78b.render(dict(_deny78, tool="file_delete",
+                                          fingerprint="ffff0000ffff0000ffff0000")), "")
 
 # ============================================================
 if _want("79"):
@@ -15980,53 +16123,6 @@ if _want("79"):
     check("[79] ②★快照不可用 → 403 拒写（fail-close）且如实带 snapshot_state=unavailable",
           _r79.get("status") == "403" and _r79.get("snapshot_state") == "unavailable", _r79)
 
-
-# ============================================================
-if _want("78"):
-    # ── [78] RL-03 三段式回传 ──
-    print("[78] RL-03 三段式回传 —— 必进摘要行 / 按需证据块 / 指纹压缩")
-    from agent_runner import (FeedbackLedger as _FL78,  # noqa: E402
-                              retrieve_evidence as _rev78,
-                              summary_line as _sum78)
-    from core import ace_isolation as _iso78  # noqa: E402
-
-    _SENT78 = "SECRET_RL03_EVIDENCE_9f3a"
-    _deny78 = {"status": "error", "tool": "file_write", "error_code": "403",
-               "message": f"路径越界：E:\\outside\\{_SENT78}.txt 不在项目根内（请改用项目内路径）",
-               "outcome": "denied", "refusal_class": "BOUNDARY",
-               "fingerprint": "a3f2c8d1e0b4a3f2c8d1e0b4",
-               "hint": {"alternatives": ["写到项目内"]}}
-    _ok78 = {"status": "SUCCESS", "tool": "file_read",
-             "data": {"content": f"{_SENT78} 文件正文"}}
-    _sum78s = _sum78(_deny78)
-    check("[78] ★摘要行是一行、含 outcome/class/指纹短码",
-          "\n" not in _sum78s and "[denied]" in _sum78s
-          and "BOUNDARY" in _sum78s and "fp=a3f2" in _sum78s, _sum78s)
-    _first78 = _FL78().render(_deny78)
-    check("[78] ★摘要行**进**默认回喂，全文**不进**（三段式的命门）",
-          _sum78s in _first78 and _SENT78 not in _first78, _first78)
-    check("[78] ★证据块索取才给（retrieve_evidence 给全文）",
-          _SENT78 in _rev78(_deny78), "")
-    check("[78] RL-04 不倒退：协议报错的证据块**不套**隔离块",
-          _SENT78 in _rev78({"status": "FORMAT_ERROR", "message": _SENT78})
-          and _iso78.UNTRUSTED_BEGIN not in _rev78({"status": "FORMAT_ERROR", "message": _SENT78}), "")
-    check("[78] RL-04 不倒退：工具结果的证据块**仍带**隔离块（SEC-011 没被削弱）",
-          _iso78.UNTRUSTED_BEGIN in _rev78(_ok78) and _SENT78 in _rev78(_ok78), "")
-    _l78 = _FL78()
-    _r1_78 = _l78.render(_deny78)
-    _r2_78 = _l78.render(_deny78)
-    _r3_78 = _l78.render(_deny78)
-    check("[78] ★指纹压缩：同指纹重复 → `(同上，第 2/3 次)`",
-          "(同上" not in _r1_78 and "(同上，第 2 次)" in _r2_78
-          and "(同上，第 3 次)" in _r3_78, (_r1_78[:60], _r2_78[:60], _r3_78[:60]))
-    check("[78] ★压缩后长度**不随重复增长**",
-          len(_r2_78) <= len(_r1_78) and len(_r3_78) == len(_r2_78),
-          (len(_r1_78), len(_r2_78), len(_r3_78)))
-    _l78b = _FL78()
-    _l78b.render(_deny78)
-    check("[78] 对照：不同指纹（另一条路）不压缩",
-          "(同上" not in _l78b.render(dict(_deny78, tool="file_delete",
-                                          fingerprint="ffff0000ffff0000ffff0000")), "")
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
 if not (_ONLY or _SKIP or _UPTO or _LIST):

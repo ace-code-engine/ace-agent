@@ -495,3 +495,66 @@ TH-R1 的"穷举"钉的是**拒绝**路径（3 类覆盖全部 denied），不�
 **边界**：① **按指纹的升级（HL-02）尚未建** —— H-21 指纹只管 `_stage_parse` 那一层；
 ② `ai_code.py:999-1001` 的降级仍静默（跨 scope，下一轮）；③ `core/ace_rules.load_rules` 的"读坏就当空"
 方向偏松（丢用户 deny），只补声明、未改 fail-close（牵会话可用性，**决策项**）。
+
+### 9.11 实施记录：`DL-02` 优先级 = 依赖 DAG 拓扑序 + 三档（2026-09-30）
+
+> §1.3。`Goal` 加 `deps` / `blocks`；**排序做成"目标集合"的纯函数**（`GoalStore` 的单目标 API 零改动 ——
+> 它是既有契约，被 `test_all [25]/[75]` 直接钉死；而"排序"本来就不需要状态，需要的正是一份目标集合）。
+
+| 位置 | 内容 |
+|---|---|
+| `tools/goal_tools.py` | `TIER_BLOCKING/ENABLING/FILLER` + `TIER_RANK`；id 归一（列表/逗号串/JSON 串 + 严格写 `GOAL_BAD_DEPS`）；`Goal.deps/blocks`（`__post_init__` 排序去重）；纯函数 `dependency_edges` / **`priority_tier`** / `find_dependency_cycle` / **`priority_order`**（Kahn + `(档位序, id)` 确定性 tie-break） |
+| `tools/registry.py` | `goal_create`/`goal_update` 加可选 `deps`/`blocks`；`goal_status` 描述补依赖边 |
+
+**⚠ Lead 裁决（三档消歧，本包的设计决定）**：§1.3 原文只给了 `blocking` 一条判据（"`blocks` 非空且下游未完成"）——
+**它判不出 `enabling`**（凡下游未完成者都满足它 ⇒ `enabling` 恒空）。本包的消歧（**采纳**）：
+
+```
+blocking : 有未完成下游 且 自身前置已全完成  → 当前瓶颈，最前
+enabling : 有未完成下游 但 自身还被前置卡着  → 迟早的解锁者，次之
+filler   : 没有未完成下游（含下游都已完成）  → 最后
+```
+
+**可复现性是命门**：Kahn 拓扑 + `(档位序, id)` 取最小；id 唯一（重复 → `GOAL_DUPLICATE_ID`）；
+deps 与 blocks 归一成同一条边；落盘排序去重 ⇒ 与输入顺序、dict 迭代顺序无关。
+**跨进程证据**：`PYTHONHASHSEED=0 / 4242 / random` 三份 `ORDER_SIGNATURE` **逐字相同**。
+**环检测**：`find_dependency_cycle`（迭代式 DFS、确定性）返回闭合路径，`priority_order` 抛
+`GOAL_DEPENDENCY_CYCLE`（信息点名环上节点），不死循环。
+
+**验收**：`test_all [80]`（Lead 集成）+ 队友 `.test_tmp/dl02_check.py`（39 条）。
+**边界**：① 集合外 id 被忽略（可只对待办子集排序，代价是写错的 dep id 不报错）；
+② 单目标 store 查不到跨目标环（由排序时查）；③ 排序不筛可执行性（`blocked/paused` 照排 —— 档位是杠杆不是可做性）；
+④ 未给模型排序入口（单目标 store 拿不到 `all_goals` 真值源；建议 `/goal order` 跨包做）；⑤ 新增 code 未进 `tools/status.py` 登记表。
+
+### 9.12 实施记录：`DL-03` 拒绝账本 + `HL-01` 失败账本（C3 同批）+ `HL-02` 五级阶梯（2026-09-30）
+
+> §1.4 / §3.2 / §3.3 / §4。**同键不同命**是这一包的枢纽。
+
+| 位置 | 内容 |
+|---|---|
+| `core/ace_ledgers.py`（**新**，700 行） | `LedgerKey(goal_id, fingerprint, class)` · **`RefusalLedger`**（知识 / 可 `save`/`load` / `propose_rule` / `report_defect`）· **`FailureLedger`**（状态 / **无落盘 API** / `is_fingerprint_banned`）· `RepeatFailView(dict)` / `BannedToolsView(set)` **兼容视图** · `ladder_step` |
+| `tools/status.py` | HL-02 阶梯闭集 `LADDER_LEVELS`/`LADDER_ACTIONS`/`ladder_action`/`ladder_rank` + 阈值 3/5/3 · 六类唯一驱动动作 `DRIVER_ACTIONS` · **DL-04**：`LEARNING_ACTIONS` 闭集 / `RELAXING_ACTIONS` / `RelaxationForbidden` / `assert_no_relaxation` / `learning_action_ok` |
+| `cli/ace_sessionlog.py` | 新事件 `ledger/refusal` · `ledger/ladder` · `ledger/proposal`；`record_tool_result` 按需补 `refusal_class`/`fingerprint`/`retryable`/`hint`（补上 §9.5 边界③） |
+| `execution_layer.py` | 两账本 + 兼容视图；`current_goal_id()`；`_fingerprint_gate_reason` 闸门（只问 `is_fingerprint_banned(goal_id, fp)`）；**`_note_tool_failure` 换键**（`tool:fingerprint:class`）；`_stage_result` 成功只清自己那份失败计数、失败回喂 ①②；`answer_escalation` / `save_refusal_ledger` / `end_session` |
+
+**熔断指纹不是工具**：闸门不再读 `banned_tools`（它降级成**兼容视图** —— `set` 子类，与账本同一份状态，`discard()` 真解禁）。
+**DL-04 写成断言**：`RuleProposal(action="allow")` 当场抛 `RelaxationForbidden`；`accept_proposal(confirmed_by="")` 抛异常；
+产物只能是 **deny** 规则；账本里**没有任何** `approve`/`grant`/`allow`/`relax` 入口。**放宽只能是人的动作**。
+
+**Lead 裁决（两处，均采纳本包做法）**：
+1. **§3.2 举例要更正**：卡里"`file_write` 的两种不同 403 互相压制"**在现行代码里不成立** —— `_note_tool_failure`
+   对 403 早退（`test_all [40]` SEC-019 钉住"安全 403 不进熔断"）。粗键真正伤害的是**可计数的失败**（两条不同
+   路径的 404 等）。所以"两条不同 fingerprint 互不影响"落在两处：**拒绝账本**（403 的**知识**按指纹分开、工具
+   完全不熔断）+ **失败账本**（可计数失败一条熔断不压制另一条）。
+2. **403 的分类缝隙**：持久规则 deny（403 字典）按 `classify_refusal("403","403")` 归 `BOUNDARY`，与 RL-02 把
+   "策略/黑名单"叫 `POLICY` 有语义缝隙。**取舍**：宁可留缝隙也不新开第二份分类表（唯一判定处是 RL-02 的纪律）。
+
+**兼容性（零断言改动）**：`RepeatFailView`/`BannedToolsView` 让 `[10]/[40]/[43]/[79]` 的 `repeat_fail == {}`、`.clear()`、
+`"file_read" in banned_tools`、`banned_tools.discard()`、409 两倍阈值全部照旧。**`test_all` 一条都没改。**
+
+**边界**：① 账本是内存 dict（非线程安全，执行层单会话单线程）；`RefusalLedger` 5000 条按 `last_at` 淘汰（**有损**）；
+② **落盘默认关**（`config["refusal_ledger"]=<path>` 才跨会话），CLI 还没接线这个配置项；
+③ `goal_id` 从 `goal_store.current()` 读，空 `goal_id` **不算**一个目标（单会话不会误触发跨目标 L4）；
+④ **L4 是阻塞式**，靠 `answer_escalation(text)` 解除；**四个外壳还没消费它**（UI 接线跨包，同 RL-01 那句"字段到了、用途还没到"）；
+⑤ **HL-05 三级预算只留接线口**（`config["refusal_budget"]` 默认 0 = 行为与现状一致）；
+⑥ 学习出口只到"提议/上报"，`accept_proposal` 是唯一落地入口且强制人签字 —— **CLI/TUI 的"确认固化"交互尚未接**（TH-R3 的完整闭环还差这一段）。

@@ -55,7 +55,7 @@ __all__ = ["METRIC_FIELDS", "DEFECT_FIELDS", "SUBSTITUTION_FIELDS",
            "metric_paths", "unclassified_metrics", "placeholder_set",
            "audit_metric_declaration", "CROSS_SESSION_TEMPLATE",
            "CROSS_SESSION_PLACEHOLDERS", "CROSS_SESSION_METRICS", "INTERNAL_ONLY",
-           "KNOWN_DEFECTS", "SUBSTITUTIONS"]
+           "KNOWN_DEFECTS", "SUBSTITUTIONS", "PERMISSION_RENDERERS"]
 
 # 五要素 / 六要素的**唯一来源**（顺序即文档里的顺序）
 METRIC_FIELDS = ("metric", "anchor", "population", "excludes", "reads_as")
@@ -384,3 +384,28 @@ def audit_metric_declaration(templates: Mapping[str, str]) -> List[str]:
     if len(set(seen.values())) > 1:
         problems.append(f"三种语言的占位符不一致：{seen}")
     return problems
+
+
+# ============================================================
+# 权限渲染器名单（`WP-0` W0-A P-01 的数据化）
+# ============================================================
+#
+# 「第 5 份权限对话框出现就红」的**机器可读来源** —— 谁在渲染"要不要授权"这个三态问题。
+#
+# 实测（见 `WP-0` 卡 P-01）：权限渲染器是 **3 份**，不是 `ROADMAP` S-2 的「×4」。
+# 第 4 个候选（`ui/ace_dialog.run_dialog` + `ui/ace_selector`）是 REPL 的**选择**浮层，不渲染
+# 权限请求；`ChoiceScreen`（tui）与 `ChoiceDialog`（ink）同理是选择/确认；`ServeUIHost` 是**桥**，
+# 只发事件等答案。这些**不是**权限渲染器，不在这张表里 —— 混进来会把计数越数越乱（P-01 结论）。
+#
+# 纪律与 `EVENT_TYPES ↔ EVENT_REQUIRED` 同一条：**新增一个权限渲染器 = 先在这里登记**，
+# 然后 `test_all` 的"数量钉住"断言会红，逼你把「为什么是第 4 份」写清楚 ——
+# 这正是"先看着它红"要防的：静默多出一个渲染器而无人知晓。
+PERMISSION_RENDERERS = (
+    {"id": "repl", "role": "REPL 权限渲染器（行式）",
+     "file": "agent_runner.py", "symbol": "def ask_grant"},
+    {"id": "tui", "role": "Textual 权限渲染器",
+     "file": "tui/app.py", "symbol": "class PermissionScreen"},
+    {"id": "ink", "role": "Ink 权限渲染器",
+     "file": "frontend/src/components/PermissionDialog.tsx",
+     "symbol": "export function PermissionDialog"},
+)

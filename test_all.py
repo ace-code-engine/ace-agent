@@ -6789,6 +6789,22 @@ if _want("38"):
         check("[38] 无未使用的导入（F401 口径；ruff 不在本机时也拦得住）",
               not _f401_bad, _f401_bad[:6])
 
+    # W0-A ②（补做，2026-09-30）：权限渲染器名单数据化 —— "第 5 份权限对话框出现就红"。
+    # 依据 `WP-0` 卡 P-01（实测 **3 份**渲染器，×4 不成立）+ W0-A 验收 ② 的退档标注
+    # （"名单要数据化再挂断言，拿正则刮 Markdown 是假钉"）。
+    from core.ace_contracts import PERMISSION_RENDERERS as _pr  # noqa: E402
+    check("W0-A ② ★权限渲染器名单 = 3 份（新增第 4 份必须先改这里、再解释为什么）",
+          len(_pr) == 3, [r.get("id") for r in _pr])
+    _pr_bad = [f"{r.get('id')}:{r.get('file')}::{r.get('symbol')}" for r in _pr
+               if not (FOLDER / str(r.get("file"))).is_file()
+               or str(r.get("symbol")) not in (FOLDER / str(r.get("file"))).read_text(
+                   encoding="utf-8", errors="replace")]
+    check("W0-A ② ★名单里每个渲染器的 文件:符号 都真实存在（名单不陈旧，也不许指错地方）",
+          not _pr_bad, _pr_bad)
+    _pr_ids = [str(r.get("id")) for r in _pr]
+    check("W0-A ② 名单 id 唯一（不许重复登记同一个渲染器）",
+          len(_pr_ids) == len(set(_pr_ids)), _pr_ids)
+
 
     # ============================================================
 

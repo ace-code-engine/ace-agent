@@ -8,9 +8,12 @@
 核心设计（与 DSH goal 子系统对齐的务实子集）：
 - **revision CAS**：每次变更必须携带期望 revision，stale 即拒绝（GOAL_STALE_REVISION）。
   防的是模型重试/并发时用旧状态覆盖新状态。
-- **phase 状态机**：active / paused / blocked / complete。
+- **phase 状态机**：active / paused / blocked / blocked_on_auth / blocked_on_human / complete。
   blocked 只能由 active 进入，且必须给出 机器 code + 人类 message；
   difficulty / uncertainty 这类"难但不是阻塞"的 code 会被拒绝。
+  DL-01：blocked 的正交拆分 —— blocked_on_auth（等人授权，reason_code 限 permission_blocked
+  白名单类，呼应 RL-02 AUTH_PENDING）与 blocked_on_human（等人重新决定目标，给人类可读
+  message）；两者互不直接转换。blocked 保留为兼容别名，语义不变。
 - **armed / disarmed 分离**：重启后自动 disarmed（phase 保留但不会自动续跑），
   须人类显式 resume 才重新武装 —— 重启不会无授权地自己接着干。
 - **轮次预算**：rounds_started < max_rounds 才允许 active 续跑。
@@ -34,8 +37,11 @@ from tools.result import ExecutionResult
 PHASE_ACTIVE = "active"
 PHASE_PAUSED = "paused"
 PHASE_BLOCKED = "blocked"
+PHASE_BLOCKED_ON_AUTH = "blocked_on_auth"      # DL-01：等人授权（RL-02 AUTH_PENDING 落点）
+PHASE_BLOCKED_ON_HUMAN = "blocked_on_human"    # DL-01：等人重新决定目标
 PHASE_COMPLETE = "complete"
-PHASES = (PHASE_ACTIVE, PHASE_PAUSED, PHASE_BLOCKED, PHASE_COMPLETE)
+PHASES = (PHASE_ACTIVE, PHASE_PAUSED, PHASE_BLOCKED,
+          PHASE_BLOCKED_ON_AUTH, PHASE_BLOCKED_ON_HUMAN, PHASE_COMPLETE)
 
 # 允许自报 blocked 的机器 code（reason_code 白名单）。
 # "难""不确定""耗时"这类不算阻塞：它们不是无法继续，只是没有进展，
@@ -49,6 +55,10 @@ BLOCKED_CODES = {
 }
 # 明确不算阻塞的 code（difficulty/uncertainty 类），被拒时给明确理由
 NOT_BLOCKED_CODES = {"difficulty", "uncertainty", "too_hard", "unsure"}
+
+# DL-01：blocked_on_auth 等一个授权（RL-02 AUTH_PENDING 的 goal 层落点），
+# 它的 reason_code 必须是"权限被拒等授权"类；其余机器 code 沿用 blocked。
+AUTH_BLOCKED_CODES = frozenset({"permission_blocked"})
 
 # DL-01：acceptance 是"怎么算完成"的**可执行判据**，不是形容词（"模型自己声明完成"被明确拒绝）。
 # 这一小撮是"形容词/自我声明"的兜底黑名单 —— 它拦得住"完成""搞定"这种裸形容词，
@@ -239,6 +249,40 @@ class GoalStore:
             g.blocked_reason_message = msg
             g.armed = False
             return
+        if phase == PHASE_BLOCKED_ON_AUTH:
+            if g.phase != PHASE_ACTIVE:
+                raise GoalError("GOAL_BAD_TRANSITION",
+                                f"只有 active 目标可以进入 blocked_on_auth（当前 {g.phase}）")
+            code = (reason_code or "").strip().lower()
+            if not code:
+                raise GoalError("GOAL_AUTH_NEEDS_CODE",
+                                "blocked_on_auth 必须给出等授权类的机器 reason_code"
+                                "（如 permission_blocked）")
+            if code not in AUTH_BLOCKED_CODES:
+                raise GoalError("GOAL_NOT_AUTH_CODE",
+                                f"blocked_on_auth 的 reason_code 必须是等授权类"
+                                f"（{sorted(AUTH_BLOCKED_CODES)}）：'{code}' 不是；"
+                                "其他阻塞请用 blocked（机器 code）或"
+                                " blocked_on_human（等人重新决定目标）")
+            g.phase = PHASE_BLOCKED_ON_AUTH
+            g.blocked_reason_code = code
+            g.blocked_reason_message = (reason_message or "").strip()
+            g.armed = False
+            return
+        if phase == PHASE_BLOCKED_ON_HUMAN:
+            if g.phase != PHASE_ACTIVE:
+                raise GoalError("GOAL_BAD_TRANSITION",
+                                f"只有 active 目标可以进入 blocked_on_human（当前 {g.phase}）")
+            msg = (reason_message or "").strip()
+            if not msg:
+                raise GoalError("GOAL_HUMAN_NEEDS_MESSAGE",
+                                "blocked_on_human 必须给出人类可读的说明"
+                                "（为什么需要人重新决定目标）")
+            g.phase = PHASE_BLOCKED_ON_HUMAN
+            g.blocked_reason_code = (reason_code or "").strip().lower()
+            g.blocked_reason_message = msg
+            g.armed = False
+            return
         if phase == PHASE_COMPLETE:
             if g.phase != PHASE_ACTIVE:
                 raise GoalError("GOAL_BAD_TRANSITION",
@@ -253,9 +297,11 @@ class GoalStore:
             g.phase = PHASE_PAUSED
             return
         if phase == PHASE_ACTIVE:
-            if g.phase not in (PHASE_PAUSED, PHASE_BLOCKED):
+            if g.phase not in (PHASE_PAUSED, PHASE_BLOCKED,
+                               PHASE_BLOCKED_ON_AUTH, PHASE_BLOCKED_ON_HUMAN):
                 raise GoalError("GOAL_BAD_TRANSITION",
-                                f"只有 paused/blocked 目标可以恢复 active（当前 {g.phase}）")
+                                f"只有 paused/blocked/blocked_on_auth/blocked_on_human"
+                                f" 目标可以恢复 active（当前 {g.phase}）")
             if g.rounds_started >= g.max_rounds:
                 raise GoalError("GOAL_ROUNDS_EXHAUSTED",
                                 f"轮次预算已用完（{g.rounds_started}/{g.max_rounds}），无法继续")

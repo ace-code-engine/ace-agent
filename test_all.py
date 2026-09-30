@@ -239,7 +239,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73"]
+             "69", "70", "71", "72", "73", "75"]
 _SEEN_SECTIONS: list = []
 
 
@@ -15562,6 +15562,77 @@ if _want("73"):
           "core/ace_contracts.py" in _dev73 and "[73]" in _dev73
           and any("ACC-02" in _l and "ACC-03" in _l for _l in _dev73.splitlines()),
           "DEVELOPMENT.md 少了其中一项")
+
+# ============================================================
+if _want("75"):
+    # ── [75] DL-01：blocked 正交拆成 blocked_on_auth / blocked_on_human ──
+    print("[75] DL-01 —— blocked 正交拆成 blocked_on_auth / blocked_on_human")
+    from tools.goal_tools import (AUTH_BLOCKED_CODES as _ABC75,  # noqa: E402
+                                  PHASE_ACTIVE as _PA75, PHASE_BLOCKED as _PB75,
+                                  PHASE_BLOCKED_ON_AUTH as _BA75,
+                                  PHASE_BLOCKED_ON_HUMAN as _BH75,
+                                  PHASE_PAUSED as _PP75, PHASES as _PHS75,
+                                  GoalError as _GE75, GoalStore as _GS75)
+    check("[75] 两个新 phase 常量进 PHASES（blocked 兼容别名仍在）",
+          _BA75 == "blocked_on_auth" and _BH75 == "blocked_on_human"
+          and {_BA75, _BH75, _PB75, _PA75, _PP75} <= set(_PHS75), sorted(_PHS75))
+    check("[75] AUTH_BLOCKED_CODES = {permission_blocked}（呼应 RL-02 AUTH_PENDING）",
+          set(_ABC75) == {"permission_blocked"}, sorted(_ABC75))
+
+    def _err75(fn):
+        try:
+            fn()
+        except _GE75 as e:
+            return e.code
+        return ""
+
+    _g75 = _GS75(str(mktemp("dl01_75")))
+    _goal75 = _g75.create("A", max_rounds=10, acceptance="dl01_75 断言全绿")
+    check("[75] blocked_on_auth 拒绝非授权类 code → GOAL_NOT_AUTH_CODE",
+          _err75(lambda: _g75.update(_goal75.id, _goal75.revision,
+                                     phase=_BA75, reason_code="api_unavailable")) == "GOAL_NOT_AUTH_CODE", "")
+    check("[75] blocked_on_auth 缺 code → GOAL_AUTH_NEEDS_CODE",
+          _err75(lambda: _g75.update(_goal75.id, _goal75.revision, phase=_BA75)) == "GOAL_AUTH_NEEDS_CODE", "")
+    _g75b = _g75.update(_goal75.id, _goal75.revision, phase=_BA75,
+                        reason_code="permission_blocked", reason_message="等授权写文件")
+    check("[75] ★active → blocked_on_auth 成功且 disarm（存 reason）",
+          _g75b.phase == "blocked_on_auth" and _g75b.armed is False
+          and _g75b.blocked_reason_code == "permission_blocked", _g75b.to_dict())
+    check("[75] ★blocked_on_auth → blocked_on_human 直接转换被拒 → GOAL_BAD_TRANSITION",
+          _err75(lambda: _g75.update(_g75b.id, _g75b.revision, phase=_BH75,
+                                     reason_message="人重定目标")) == "GOAL_BAD_TRANSITION", "")
+    _g75c = _g75.update(_g75b.id, _g75b.revision, phase=_PA75)
+    check("[75] blocked_on_auth → active 恢复且清 reason",
+          _g75c.phase == _PA75 and _g75c.blocked_reason_code == "", _g75c.to_dict())
+
+    _g75d = _GS75(str(mktemp("dl01_75b")))
+    _goal75d = _g75d.create("B", max_rounds=10, acceptance="dl01_75 断言全绿")
+    check("[75] blocked_on_human 缺 message → GOAL_HUMAN_NEEDS_MESSAGE",
+          _err75(lambda: _g75d.update(_goal75d.id, _goal75d.revision,
+                                      phase=_BH75)) == "GOAL_HUMAN_NEEDS_MESSAGE", "")
+    _g75e = _g75d.update(_goal75d.id, _goal75d.revision, phase=_BH75,
+                         reason_message="先做 B 而不是 A")
+    check("[75] ★active → blocked_on_human 成功且 disarm（存人类 message）",
+          _g75e.phase == "blocked_on_human" and _g75e.armed is False
+          and _g75e.blocked_reason_message == "先做 B 而不是 A", _g75e.to_dict())
+    check("[75] ★blocked_on_human → blocked_on_auth 直接转换被拒",
+          _err75(lambda: _g75d.update(_g75e.id, _g75e.revision, phase=_BA75,
+                                      reason_code="permission_blocked")) == "GOAL_BAD_TRANSITION", "")
+    _g75f = _g75d.update(_g75e.id, _g75e.revision, phase=_PA75)
+    check("[75] blocked_on_human → active 恢复且清 message",
+          _g75f.phase == _PA75 and _g75f.blocked_reason_message == "", _g75f.to_dict())
+
+    # 兼容：blocked 别名语义不变（既有调用方/test_all [25] 靠它）
+    _g75g = _GS75(str(mktemp("dl01_75c")))
+    _goal75g = _g75g.create("C", max_rounds=10, acceptance="dl01_75 断言全绿")
+    _g75h = _g75g.update(_goal75g.id, _goal75g.revision, phase=_PB75,
+                         reason_code="api_unavailable", reason_message="API 401")
+    check("[75] 兼容：blocked + api_unavailable 仍存 phase='blocked'（语义不变）",
+          _g75h.phase == "blocked" and _g75h.armed is False, _g75h.to_dict())
+    _g75i = _g75g.update(_g75h.id, _g75h.revision, phase=_PA75)
+    _g75j = _g75g.update(_g75i.id, _g75i.revision, phase=_PP75)
+    check("[75] 兼容：active → paused 仍可用（[25] 既有用法）", _g75j.phase == "paused", _g75j.to_dict())
+
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
 if not (_ONLY or _SKIP or _UPTO or _LIST):

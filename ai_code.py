@@ -1848,11 +1848,11 @@ class _SlashCommands:
         # 交互终端里给一个选择器：挑中就把那条填进输入框（不自动发送 —— 历史里
         # 的那句话是当时的上下文，直接发出去大概率不是你这次想说的）
         if self._can_pick():
-            picked = self._select_index(
+            res = self._select_index(
                 t("history_pick"),
                 [" ".join(entries[i].split())[:120] for i, _score in hits])
-            if picked is not None and 0 <= picked < len(hits):
-                self._pending_input = " ".join(entries[hits[picked][0]].split())
+            if isinstance(res, int) and 0 <= res < len(hits):
+                self._pending_input = " ".join(entries[hits[res][0]].split())
             return True
         for i, (_idx, _score) in enumerate(hits, 1):
             one = " ".join(entries[_idx].split())
@@ -2873,13 +2873,18 @@ class _SlashCommands:
             if prov and prov.get("models") and self._can_pick():
                 _models = prov.get("models") or []
                 if _models:
-                    idx = self._select_index(
+                    res = self._select_index(
                         t("model_pick"), [str(m) for m in _models], with_effort=True)
-                    if idx is not None and 0 <= idx < len(_models):
-                        self.cfg["model"] = _models[idx]
+                    _picked = None
+                    if isinstance(res, str):
+                        _picked = res                      # P-10：自填的模型名
+                    elif isinstance(res, int) and 0 <= res < len(_models):
+                        _picked = _models[res]
+                    if _picked:
+                        self.cfg["model"] = _picked
                         save_cli_config(self.cfg)
                         self._reload_client()
-                        print(c("green", f"模型已切换: {_models[idx]}，已保存"))
+                        print(c("green", f"模型已切换: {_picked}，已保存"))
                         return
             print(c("dim", "  切换: /model <模型名> | 换提供商: /provider | 设密钥: /model api-key <key>"))
             return
@@ -2907,9 +2912,9 @@ class _SlashCommands:
             # （测试环境 stdout 被重定向 → 不弹选择器，直接打印清单）
             if self._can_pick():
                 _items = [f"{p['name']}  {p['base_url']}" for p in PROVIDERS]
-                idx = self._select_index(t("provider_pick"), _items)
-                if idx is not None and 0 <= idx < len(PROVIDERS):
-                    parts = ["/provider", str(idx + 1)]
+                res = self._select_index(t("provider_pick"), _items)
+                if isinstance(res, int) and 0 <= res < len(PROVIDERS):
+                    parts = ["/provider", str(res + 1)]
                     self._handle_provider(parts)
                     return
             print(c("bold", "\nAI 提供商（/provider <编号或id> [api-key] 一键切换）:"))
@@ -3997,8 +4002,12 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 and sys.stdout.isatty())
 
     def _select_index(self, title: str, items: List[str],
-                      with_effort: bool = False) -> Optional[int]:
-        """从一串文本里选一个，返回下标；取消返回 None。界面优先。
+                      with_effort: bool = False) -> Optional[Any]:
+        """从一串文本里选一个，返回**下标**；取消返回 None。界面优先。
+
+        **P-10**：界面回传的是**值**（列表里的文本，或用户自填的串）。列表里的 → 折回下标；
+        列表外的 → **原样回传自填串**（"让用户自己输入选项"—— `/model` 会把它当模型名）。
+        调用方要按 `isinstance(res, str)` / `isinstance(res, int)` 分派。
 
         `with_effort=True`：选择框里多一行思考强度（接口老一点的宿主不认识这个参数，
         自动退回两参数调用 —— 不为一个新装饰把兼容性弄坏）。
@@ -4019,10 +4028,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 picked = None
             if picked is None:
                 return None
+            s = str(picked)
             try:
-                return list(items).index(str(picked))
+                return list(items).index(s)
             except ValueError:
-                return None
+                return s        # P-10：列表外的值 = 自填答案，别吞成 None
         if run_selector is not None and sys.stdin.isatty() and sys.stdout.isatty():
             return run_selector(title, list(items))
         return None
@@ -5069,7 +5079,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 [f"{i}. [{r.get('project') or '?'}] {r['when']} · "
                  f"{r.get('turns', 0)} 轮 · {r['label']}"
                  for i, r in enumerate(rows, 1)])
-            if idx is not None and 0 <= idx < len(rows):
+            if isinstance(idx, int) and 0 <= idx < len(rows):
                 pick = rows[idx]
         print(c("dim", t("sessions_hint")))
         if pick is not None:

@@ -121,6 +121,12 @@ export function ChoiceDialog({
         return;
       }
       if (key.return) {
+        // P-10：命中 0 项却按回车 = 用户要输入一个列表里没有的值（"自己输入"）。
+        // 此前 `picked` 是 undefined → 什么都不发生，自填值被静默吞掉。
+        if (filtered.length === 0 && query.trim() !== '') {
+          onAnswer({ values: [query] });
+          return;
+        }
         const picked = filtered[sel];
         if (picked !== undefined) onAnswer({ values: [picked] });
         return;

@@ -528,7 +528,9 @@ class ServeUIHost:
         vals = ans.get("values")
         if isinstance(vals, list) and vals:
             picked = str(vals[0])
-            return picked if picked in items else None
+            # P-10：列表外的值 = 用户自填的答案（"让用户自己输入选项"）。
+            # 引擎不再用 `picked in items` 主动拒绝 —— 自填值原样回传，调用方自己定夺。
+            return picked
         return None
 
     def confirm(self, question: str) -> bool:

@@ -9,7 +9,7 @@
 > 同批的 **`RL-01` 结果信封已落地**（`THREE-LAYERS` §9）· 头号发现（**R-2** Ink 无宽限期）已修 ·
 > **W0-C 的 P-07 / P-08 / P-09 已做**（路由单一来源、`ui/`+`tui/` 冻结标记、回落契约）·
 > **R-10 已定案（不收）**。
-> **仍未完成**：**W0-B 的 P-10（让用户自己输入选项）· W0-C 的「4 份重复对话框合一」**
+> **仍未完成**：**W0-C 的「4 份重复对话框合一」**
 > ⇒ **批次 0 的出口条件尚未达成**。W0-A 的"第 5 份实现就红"
 > 那条断言也仍**没做**（如实标注，见 §2 W0-A 验收）。
 > 来源：2026-09-27（HEAD `b94ab7f`，v3.45.0，工作树干净）**逐项在现码上实测复核**；
@@ -509,7 +509,7 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 | **P-04** | `status` / `tool_start` 两条"驱动 UI"的契约要被外壳**真正消费** | ✅ **已审计（2026-09-27）**：唯一**跨进程**的协议消费者是 Ink，而它**消费全了** —— `tool_start`（`store.ts:178` → 工具卡 `running`）、`status`（`store.ts:261`，含 `priority`/`level`，`StatusLine.tsx:53` 把 `level` 折成主题色、`permission` 段由 `meta.permission` 上色）。REPL / TUI 是**进程内**外壳（自身就是引擎，`_footer`/`ace_turn` 本地算，不走事件），MCP 是集成面非外壳 ⇒ **无缺口** | 表已补，见下 |
 | **P-05** | 事件**必需字段**的唯一来源 | ✅ **已在守**：`ace_events.EVENT_REQUIRED` 是唯一来源，`test_all [38]` 有"`EVENT_TYPES` ↔ `EVENT_REQUIRED` 键集相等"的断言。本会话新增 `outcome`/`secret` 两字段都同时进了契约表 | 新字段必须**同时**进 `EVENT_REQUIRED` 与 `types.ts`（登记是纪律，不是文档） |
 | **P-06** | 前端协议消费者与 Python 契约的漂移 | ✅ **已在守**：`frontend/test/protocol.test.ts` 读 `EVENT_REQUIRED` 比对事件类型集合；`types.ts` 是形状镜像（不重复定义必填字段，见其头部注释） | 新事件必须**同时**补 `types.ts` 与 `protocol.test.ts`，否则 parity 红 |
-| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | 协议侧**已经**支持 `choice_request.kind = choose/confirm/text`；**丢的在外壳与引擎两层**（见下面「P-10 实测复核」） | ⏸ **剩余**：分两半 —— 半 A 引擎接受自填值；半 B 各外壳加"自己输入"交互 + `/model` 消费自填串（详见下） |
+| **P-10** | **"让用户自己输入选项"打通**（`ROADMAP` §3.3 的 **① 与 ② 归本卡**） | ✅ **已落地（2026-09-30）**：引擎接受自填 + `_select_index` 回传值 + `/model` 消费自填 + Ink 命中 0 项即提交自填串（详见下「P-10 已落地」）。② 已过时（`ace_dialog` 现返回 key） | 半 A + 半 B（主外壳 Ink）都做完；TUI/REPL 拾取器的"自己输入"交互留作冻结 fallback 的后续（有 `/model <名>` 逃生口） |
 
 **P-04 的实测表**（谁消费 `status` / `tool_start`）：
 
@@ -547,6 +547,24 @@ permission_request  choice_request  notice  final  session_end  model_delta  sta
 
 > 一句话：**P-10 = "引擎别再拒绝自填"（半 A，小）+ "外壳给一条自填的路"（半 B，跨壳 UX）**。
 > 半 A 本身没有可观测收益（自填值仍会在 `_select_index` 的 `index()` 处被丢），所以两半要**一起提交才见红**。
+
+#### ✅ P-10 已落地（2026-09-30，先红后绿）
+
+| 层 | 改动 |
+|---|---|
+| 引擎 `ServeUIHost.choose` | 去掉 `return picked if picked in items else None` —— 自填值原样返回（`core/ace_serve.py`） |
+| 引擎 `_select_index` | 返回 `int\|str`：列表里的 → 下标；列表外的 → **原样回传自填串**（不再 `index()` 的 ValueError 吞成 None）。docstring 写明调用方要 `isinstance` 分派 |
+| `/model` | `isinstance(res, str)` → 自填串当模型名；`isinstance(res, int)` → 取列表值 |
+| `/provider` `/history` `/sessions` | 加 `isinstance(res, int)` 守卫（自填不适用于下标语义，`str < int` 会 TypeError） |
+| Ink `ChoiceDialog` | `choose` 分支：**命中 0 项却按回车 → `onAnswer({values:[query]})`**（此前 `picked === undefined` 什么都不发生） |
+
+**红 → 绿**（3 处）：`test_all [63]`（`_select_index` 返回自填串）+ `[69]`（`choose` 接受列表外值）+
+`frontend/test/choice-custom.test.tsx`（命中 0 项 + 回车 = 提交自填串，含对照组"命中 ≥1 项仍选列表值"）。
+
+**边界（如实）**：自填的**拾取器交互**只做了主外壳 Ink；TUI `ChoiceScreen` 与 REPL `run_selector`
+仍只回传列表选中项 —— 它们有 `/model <名>` 这个**逃生口**（直接打命令），且按 P-08 已冻结为 fallback。
+"4 个外壳统一回传 key"在本包里的兑现是：**引擎接受 + `_select_index` 回传值 + `/model` 消费**，这三个
+对**所有外壳**生效；拾取器 UI 的那一步只在 Ink 上补了。
 
 **W0-B 验收**：`python test_all.py` 的 `[38]`/`[39]` 全绿 + `cd frontend && npx vitest run` 里
 **10 个** parity 测试全绿；`PROTOCOL_VERSION` 不变；`kind='text'` 的回答在**每个外壳**上都能回传到 `ai_code`（P-10）。

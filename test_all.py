@@ -11070,6 +11070,16 @@ if _want("63"):
     import ai_code as _ai63  # noqa: E402
     _ai63.CONFIG_PATH = mktemp() / "cfg63.json"
 
+    # P-10：`_select_index` 不再把"列表外的自填值"吞成 None（`index(label)` 的 ValueError）
+    class _UI63p10:
+        def choose(self, _t, _opts, **_kw):
+            return "custom-model-x"
+    _cli63p10 = _ai63.AgentCLI.__new__(_ai63.AgentCLI)
+    _cli63p10._ui = _UI63p10()
+    check("P-10 ★`_select_index` 返回自填串（列表外的值不再被吞成 None）",
+          _cli63p10._select_index("选模型", ["m1", "m2"]) == "custom-model-x",
+          _cli63p10._select_index("选模型", ["m1", "m2"]))
+
     class _AutoUI63:
         """自动作答的假界面：记录被问了什么，直接给第一个选项 / 否。"""
         def __init__(self) -> None:
@@ -12444,6 +12454,11 @@ if _want("69"):
 
     check("宿主 choose：往返拿到选中的那条文本",
           _h69.choose("选个模型", ["deepseek", "qwen", "zhipu"]) == "qwen", "")
+
+    # P-10 半 A：choose 接受**列表外**的自填值（"让用户自己输入选项"的引擎侧）
+    _h10, _ = _host69([(1, "choice.answer", {"values": ["custom-model-x"]})])
+    check("P-10 ★choose 接受列表外的自填值（引擎不再用 `picked in items` 主动拒绝）",
+          _h10.choose("选个模型", ["deepseek", "qwen"]) == "custom-model-x", "")
     check("宿主 confirm：往返拿到同意",
           _h69.confirm("确定要继续吗？") is True, "")
     check("宿主 ask_text：往返拿到文本",

@@ -27,6 +27,7 @@ config = {
     "sandbox_policy": "workspace_write",   # 判定用沙箱策略：read_only / workspace_write / danger_full_access
     "steering_mode": "queue",              # 繁忙时「纠偏」消息策略：queue（默认）/ interrupt（先触发第一段中断再入队）
     "followup_mode": "queue",              # 繁忙时「追加」消息策略：queue（默认）/ drop（如实拒绝，不排队）
+    "auto_commit": False,                  # WP-2：aider 式自动提交（成功写操作后自动 git commit；默认关 = 行为与现在逐字一致）
     "mcp_servers": {                        # MCP server（外部进程工具，v3.17.0 起）
         "fs": {"command": "npx",
                "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
@@ -68,6 +69,37 @@ config = {
   调用**都建一次，所以这个默认就是"每次写多花约 1.8 s（347 文件规模）换坏快照早暴露"。
   上面那组数字表明这 1.8 s **降不下来**（读回不可省、哈希不要钱、并发已到顶），所以它是个
   明码标价的取舍，而不是一个待修的慢点；不接受就显式改这一行。
+
+### aider 式自动提交与 `/undo` 的统一（`auto_commit`，WP-2）
+
+```json
+"auto_commit": false   // 默认关：行为与现在逐字一致
+```
+
+`auto_commit: true` 时，每次**成功的写操作**（`file_write` / `str_replace` / `terminal_exec` 等，
+**不含** git 写类工具 `git_commit_plan` / `git_fetch` / `git_merge_tree` —— 它们自己管 git）之后，
+自动执行一次 `git add -A && git commit`，提交信息形如 `ace: auto-commit file_write tools/registry.py`。
+这是 aider 式的**增量提交**：每次提交只含那次写操作造成的变更。
+
+**不是第二套回滚**（ROADMAP §8 R-2 的"两套回滚"是灾难，这里刻意绕开）：`/undo` 依旧走既有的
+快照回滚路（`guardian.rollback`，**文件内容由快照还原，这是唯一来源**），只额外做一件 git 侧
+记账 —— 若最近那次快照对应的写入已被 auto-commit，把分支指针 `git reset --mixed` 回写前提交：
+
+| 侧 | 由谁还原 |
+|---|---|
+| 文件内容 | guardian 快照回滚（既有路径，唯一来源，`/undo` 从来都走它） |
+| git 分支指针 | 伴随 `git reset --mixed`（只在确实有 auto-commit 时，且不改工作区） |
+
+边界（**如实声明，不静默降级**，HL-03②）：
+
+- 当前目录不是 git 仓库 / 找不到 git：`auto_commit` 开启时**会话内声明一次**，之后不再刷屏；
+  写操作仍受快照保护，`/undo` 照常可用。
+- 工作区没有变更：如实不提交（无事可做，不是降级，也不打印）。
+- `HEAD` 已不是那条 auto-commit（中间有用户自己的提交）：`/undo` 只回滚快照，
+  git 侧不动并如实说明。
+- 快照→提交的配对台账只在**会话内**：`/undo` 只撤销**本次会话**的 auto-commit；
+  `/rollback <id>` 与跨会话回滚**不碰 git**。
+- git 提交失败（如 `user.name`/`email` 未配置）：如实打印 git 的报错，写操作仍受快照保护。
 
 ### 签名锚：密钥存在哪（RG-01）
 

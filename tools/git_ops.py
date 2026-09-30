@@ -414,3 +414,93 @@ class GitOps:
                     message=f"tree-ish 形状不合法（只允许字母数字与 _./@^~{{}}-，"
                             f"最长 64）: {t!r}")
         return self._run_git(["git", "merge-tree"] + parts[2:])
+
+
+# ============================================================
+# aider 式 auto-commit 助手（WP-2 收尾：与 /undo 统一，不另起回滚）
+# ============================================================
+# 这些是**非交互纯函数**，由 ai_code.py 的轮循环调用（它看得见工具结果与 snapshot_id）。
+# 只做 git 侧记账：文件内容的还原永远是 guardian 快照回滚（同一条路），
+# 这里只有"提交/撤销提交"这两件事 —— 所以 auto-commit 不会变成第二套回滚（ROADMAP R-2）。
+
+AUTOCOMMIT_OK = "committed"      # 已提交，detail = 短 hash
+AUTOCOMMIT_CLEAN = "clean"       # 工作区没有变更，未提交（如实，不是错误）
+AUTOCOMMIT_NO_REPO = "no_repo"   # 当前目录不是 git 仓库（如实声明，不静默）
+AUTOCOMMIT_NO_GIT = "no_git"     # 找不到 git 可执行文件
+AUTOCOMMIT_ERROR = "error"       # git 命令失败，detail = stderr 摘要
+
+
+def _quiet_git(argv, root: str, timeout: int) -> Optional[subprocess.CompletedProcess]:
+    """跑一条 git 命令；FileNotFoundError/超时由调用方按如实声明处理。"""
+    try:
+        return subprocess.run(argv, capture_output=True, timeout=timeout,
+                              cwd=root, shell=False, stdin=subprocess.DEVNULL,
+                              encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def run_autocommit(project_root: "str | Path", message: str) -> Tuple[str, str]:
+    """执行一次 aider 式 auto-commit（非交互）。
+
+    流程：确认在 git 仓库 → 看有没有变更（含未跟踪）→ add -A → commit。
+    任何一步失败都如实返回（no_repo / no_git / error），绝不静默吞掉 ——
+    调用方据此向用户**声明一次**（HL-03②）。返回 (status, detail)。
+    """
+    root = str(project_root or ".")
+    probe = _quiet_git(["git", "rev-parse", "--is-inside-work-tree"], root, 10)
+    if probe is None or probe.returncode != 0:
+        return AUTOCOMMIT_NO_REPO, "当前目录不是 git 仓库（rev-parse 未通过）"
+    st = _quiet_git(["git", "status", "--porcelain"], root, 10)
+    if st is None:
+        return AUTOCOMMIT_ERROR, "git status 执行失败（超时或无法启动 git）"
+    if st.returncode != 0:
+        return AUTOCOMMIT_ERROR, (st.stderr or "").strip()[:200] or "git status 失败"
+    if not (st.stdout or "").strip():
+        return AUTOCOMMIT_CLEAN, ""
+    add = _quiet_git(["git", "add", "-A"], root, 20)
+    if add is None or add.returncode != 0:
+        return AUTOCOMMIT_ERROR, ((add.stderr if add else "").strip()[:200]
+                                  or "git add 失败")
+    commit = _quiet_git(["git", "commit", "-m", message], root, 60)
+    if commit is None or commit.returncode != 0:
+        # 最常见：user.name/email 未配置 → git 自己报错，如实带出去
+        return AUTOCOMMIT_ERROR, ((commit.stderr if commit else "").strip()[:200]
+                                  or "git commit 失败")
+    short = _quiet_git(["git", "rev-parse", "--short", "HEAD"], root, 10)
+    return AUTOCOMMIT_OK, ((short.stdout if short else "") or "").strip()
+
+
+def undo_autocommit(project_root: "str | Path", commit_hash: str) -> Tuple[str, str]:
+    """撤销一条 auto-commit：分支指针 reset --mixed 回它之前的提交（不动工作区）。
+
+    与快照回滚的分工（/undo 的调用顺序）：**先** guardian.rollback 把文件还原到
+    写前状态，**再**调用这里把 git 分支指针同步回同一个"写前"时刻 —— 两侧指向
+    同一状态，auto-commit 只是快照之上的一层 git 记账，不是第二套回滚。
+
+    HEAD 已不是那条提交（中间有别的提交）时**不动 git**，如实返回 head_moved。
+    """
+    root = str(project_root or ".")
+    head = _quiet_git(["git", "rev-parse", "HEAD"], root, 10)
+    if head is None or head.returncode != 0:
+        return AUTOCOMMIT_NO_REPO, "当前目录不是 git 仓库（rev-parse HEAD 未通过）"
+    cur = (head.stdout or "").strip()
+    want = str(commit_hash or "").strip()
+    # 台账里存的是短 hash（run_autocommit 记 rev-parse --short），这里解析成全长再比，
+    # 否则"HEAD 是不是那条提交"永远判成否。
+    resolved = _quiet_git(["git", "rev-parse", "--verify", want + "^{commit}"], root, 10)
+    full_want = (resolved.stdout or "").strip() if resolved is not None and resolved.returncode == 0 else ""
+    if not full_want:
+        return "head_moved", (f"找不到台账里的提交 {want[:8]}（已被移除或对象缺失），"
+                              "git 侧未动；文件已由快照还原")
+    if cur != full_want:
+        return "head_moved", (f"HEAD 已不是那条 auto-commit（现在 {cur[:8]}），"
+                              "git 侧未动；文件已由快照还原")
+    reset = _quiet_git(["git", "reset", "--mixed", "HEAD~1"], root, 20)
+    if reset is None or reset.returncode != 0:
+        return AUTOCOMMIT_ERROR, ((reset.stderr if reset else "").strip()[:200]
+                                  or "git reset 失败")
+    return "undone", (f"已撤销 auto-commit {cur[:8]}（git reset --mixed，"
+                      "工作区保持快照还原后的状态）")

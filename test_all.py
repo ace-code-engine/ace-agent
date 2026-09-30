@@ -239,7 +239,8 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "30", "31", "33", "32", "35", "36", "37", "38", "39", "40", "41", "42",
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
-             "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79, "80", "81""]
+             "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
+             "80", "81", "82"]
 _SEEN_SECTIONS: list = []
 
 
@@ -16125,6 +16126,53 @@ if _want("79"):
 
 
 # ============================================================
+if _want("80"):
+    # ── [80] DL-02 优先级 = 依赖 DAG 拓扑序 + 三档（可复现） ──
+    print("[80] DL-02 优先级 = 依赖 DAG 拓扑序 + 三档")
+    from tools.goal_tools import (Goal as _Goal80, GoalError as _GE80,  # noqa: E402
+                                  GoalStore as _GS80, find_dependency_cycle as _fdc80,
+                                  priority_order as _po80, priority_tier as _pt80,
+                                  TIER_BLOCKING as _TB80, TIER_ENABLING as _TE80,
+                                  TIER_FILLER as _TF80)
+
+    def _g80(_id, deps=(), blocks=()):
+        return _Goal80(id=_id, revision=1, objective=f"目标 {_id}",
+                       acceptance="断言全绿", deps=list(deps), blocks=list(blocks))
+
+    _chain80 = [_g80("a", blocks=["b"]), _g80("b", deps=["a"]), _g80("c", deps=["b"])]
+    _a80, _b80, _c80 = _chain80
+    check("[80] 三档①blocking：有未完成下游 + 自身前置已全完成（当前瓶颈）",
+          _pt80(_a80, _chain80) == _TB80, _pt80(_a80, _chain80))
+    check("[80] 三档②enabling：有未完成下游但自身还被前置卡着（迟早的解锁者）",
+          _pt80(_b80, _chain80) == _TE80, _pt80(_b80, _chain80))
+    check("[80] 三档③filler：无未完成下游", _pt80(_c80, _chain80) == _TF80,
+          _pt80(_c80, _chain80))
+    _ord80 = [g.id for g in _po80(_chain80)]
+    check("[80] ★拓扑序：前置排在依赖它的目标之前（a→b→c）", _ord80 == ["a", "b", "c"], _ord80)
+    check("[80] ★可复现：输入顺序打乱 → 输出完全一致（不依赖 dict/list 顺序）",
+          [g.id for g in _po80([_c80, _a80, _b80])] == _ord80, _ord80)
+
+    _cyc80 = [_g80("x", deps=["y"]), _g80("y", deps=["x"])]
+    _cyc_code80 = ""
+    try:
+        _po80(_cyc80)
+    except _GE80 as _e80:
+        _cyc_code80 = _e80.code
+    check("[80] ★环检测：deps 成环 → GOAL_DEPENDENCY_CYCLE（不是死循环）",
+          _cyc_code80 == "GOAL_DEPENDENCY_CYCLE", _cyc_code80)
+    _path80 = _fdc80(_cyc80)
+    check("[80] 环路径闭合（首尾同点、覆盖环上两节点）",
+          _path80 is not None and _path80[0] == _path80[-1] and set(_path80) == {"x", "y"},
+          _path80)
+
+    _gs80 = _GS80(str(mktemp("dl02_80")))
+    _goal80 = _gs80.create("A", max_rounds=10, acceptance="断言全绿",
+                           deps=["z"], blocks=["w"])
+    check("[80] GoalStore 存得下 deps/blocks（goal_status 看得见边）",
+          list(_goal80.deps) == ["z"] and list(_goal80.blocks) == ["w"],
+          (_goal80.deps, _goal80.blocks))
+
+# ============================================================
 if _want("81"):
     # ── [81] DL-03 拒绝账本 + HL-01 失败账本（同键不同命）+ HL-02 五级阶梯 ──
     print("[81] DL-03 拒绝账本 + HL-01 失败账本 + HL-02 五级阶梯")
@@ -16200,51 +16248,25 @@ if _want("81"):
           and _st81.learning_action_ok("no_resend"), "")
 
 # ============================================================
-if _want("80"):
-    # ── [80] DL-02 优先级 = 依赖 DAG 拓扑序 + 三档（可复现） ──
-    print("[80] DL-02 优先级 = 依赖 DAG 拓扑序 + 三档")
-    from tools.goal_tools import (Goal as _Goal80, GoalError as _GE80,  # noqa: E402
-                                  GoalStore as _GS80, find_dependency_cycle as _fdc80,
-                                  priority_order as _po80, priority_tier as _pt80,
-                                  TIER_BLOCKING as _TB80, TIER_ENABLING as _TE80,
-                                  TIER_FILLER as _TF80)
+if _want("82"):
+    # ── [82] WP-2 剩余：aider 式 auto-commit 与 /undo 统一（R-2） ──
+    print("[82] WP-2 剩余 —— aider 式 auto-commit 与 /undo 统一")
+    from tools.git_ops import run_autocommit as _rac82, undo_autocommit as _uac82  # noqa: E402
 
-    def _g80(_id, deps=(), blocks=()):
-        return _Goal80(id=_id, revision=1, objective=f"目标 {_id}",
-                       acceptance="断言全绿", deps=list(deps), blocks=list(blocks))
-
-    _chain80 = [_g80("a", blocks=["b"]), _g80("b", deps=["a"]), _g80("c", deps=["b"])]
-    _a80, _b80, _c80 = _chain80
-    check("[80] 三档①blocking：有未完成下游 + 自身前置已全完成（当前瓶颈）",
-          _pt80(_a80, _chain80) == _TB80, _pt80(_a80, _chain80))
-    check("[80] 三档②enabling：有未完成下游但自身还被前置卡着（迟早的解锁者）",
-          _pt80(_b80, _chain80) == _TE80, _pt80(_b80, _chain80))
-    check("[80] 三档③filler：无未完成下游", _pt80(_c80, _chain80) == _TF80,
-          _pt80(_c80, _chain80))
-    _ord80 = [g.id for g in _po80(_chain80)]
-    check("[80] ★拓扑序：前置排在依赖它的目标之前（a→b→c）", _ord80 == ["a", "b", "c"], _ord80)
-    check("[80] ★可复现：输入顺序打乱 → 输出完全一致（不依赖 dict/list 顺序）",
-          [g.id for g in _po80([_c80, _a80, _b80])] == _ord80, _ord80)
-
-    _cyc80 = [_g80("x", deps=["y"]), _g80("y", deps=["x"])]
-    _cyc_code80 = ""
+    check("[82] git_ops 提供 run_autocommit / undo_autocommit（非交互纯函数）",
+          callable(_rac82) and callable(_uac82), "")
+    check("[82] ★auto_commit 默认关（行为与现在逐字一致）",
+          ai_code.CLIConfig.from_dict({}).auto_commit is False, "")
+    check("[82] AgentCLI 接上了 _maybe_autocommit / _undo_last（一条回滚路）",
+          callable(getattr(ai_code.AgentCLI, "_maybe_autocommit", None))
+          and callable(getattr(ai_code.AgentCLI, "_undo_last", None)), "")
+    _bad82 = False
     try:
-        _po80(_cyc80)
-    except _GE80 as _e80:
-        _cyc_code80 = _e80.code
-    check("[80] ★环检测：deps 成环 → GOAL_DEPENDENCY_CYCLE（不是死循环）",
-          _cyc_code80 == "GOAL_DEPENDENCY_CYCLE", _cyc_code80)
-    _path80 = _fdc80(_cyc80)
-    check("[80] 环路径闭合（首尾同点、覆盖环上两节点）",
-          _path80 is not None and _path80[0] == _path80[-1] and set(_path80) == {"x", "y"},
-          _path80)
+        ai_code.CLIConfig.from_dict({"auto_commit": "yes"})
+    except ValueError:
+        _bad82 = True
+    check("[82] 非法 auto_commit 类型被 CLIConfig 当场拒绝", _bad82, "")
 
-    _gs80 = _GS80(str(mktemp("dl02_80")))
-    _goal80 = _gs80.create("A", max_rounds=10, acceptance="断言全绿",
-                           deps=["z"], blocks=["w"])
-    check("[80] GoalStore 存得下 deps/blocks（goal_status 看得见边）",
-          list(_goal80.deps) == ["z"] and list(_goal80.blocks) == ["w"],
-          (_goal80.deps, _goal80.blocks))
 
 # 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
 if not (_ONLY or _SKIP or _UPTO or _LIST):

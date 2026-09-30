@@ -239,7 +239,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | M-28 | Python 终端 UI | `ui/` 24 文件 / 5050 | Py | 已有 → **降为 fallback** |
 | M-29 | TUI | `tui/app.py` 1609 + `bridge.py` 53 | Py | 已有 → **降为 fallback** |
 | M-30 | MCP 集成面 | `core/ace_mcp.py` 530 · `ace_mcp_server.py` 279 | Py | 已有（**保留，不参与收敛**） |
-| M-31 | 设置与配置 | **31** 个 config key（`docs/CONFIGURATION.md`） | Py + TS | 已有 → **WP-1** `/settings` |
+| M-31 | 设置与配置 | **32** 个 config key（`docs/CONFIGURATION.md`） | Py + TS | 已有 → **WP-1** `/settings` |
 | | **平面 6 · 支撑** | | | |
 | M-32 | 快照与恢复 | `core/guardian.py` 587 · `ace_recovery.py` 167 · `ace_patch.py` 97 | Py → **Rust(R1)** | 已有 → **Q-16 的 1.8 s** |
 | M-33 | **Rust 加速层** | `engine/src/` 6 个 `.rs`（events 435 / protocol 519 / json 368 / main 320 / simhash 243 / md5 103） | **Rust** | 已有 → **WP-10** 核心化 |
@@ -272,7 +272,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 
 | ID | 缺口 | ACE 实测 | 参照系（可抄） | 严重度 |
 |---|---|---|---|---|
-| **G-01** | **git 工具族** | 工具数 **8**（51 个工具中 git 族占 8 个；auto-commit + `/undo` 尚未做） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
+| **G-01** | **git 工具族** | 工具数 **8**（51 个工具中 git 族占 8 个；auto-commit + `/undo` 已与快照回滚统一落地） | Codewhale **8 个** `git_*`（status/diff/commit_plan/log/show/blame/fetch/merge_tree）；oh-my-pi **6 个** `gh*`；aider auto-commit + `/undo` | **高** |
 | **G-02** | **前缀缓存后两半** | 只有"稳定拼接"，**无指纹校验、无变化归因** | Reasonix `cache_policy.go:21-36`（路由级 TTL）→ Codewhale `core/src/prefix_cache.rs`（1220 行，SHA-256 pin + 强制归因 + drift）→ oh-my-pi `append-only-context.ts:97-151`（恒等快路径） | **高** |
 | **G-03** | **工具面按需伸缩** | 51 个工具（49 暴露）描述**全部常驻**，啃前缀 | Codewhale `ToolSurfaceBudget` + `DEFAULT_ACTIVE_NATIVE_TOOLS` + 延迟目录（`tool_search` / `retrieve_tool_result`）；Reasonix `code_index` / `context_budget` | 中 |
 | **G-04** | **面向模型的问题工具** | **0**（所有提问都在 UI 层，模型不能主动问人） | codex `RequestUserInput`；crush `question_choice_base` | 中 |
@@ -372,7 +372,11 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > PERM_WRITE + `confirm=True` 逐次确认，`command` 参数接 `confirm_subject` 预览与
 > `_prefix_auto_approved` / `BANNED_AUTO_PREFIXES` 同前缀免确认；`git config` 写路径未重开
 > （argv[1] 结构锁定 + -c/--config/-C 显式拒绝）；`.git` 内部与敏感目标经 `sensitive_target` 协同拦截。
-> **aider 式 auto-commit + `/undo` 未做**（auto-commit 涉及跨轮后台提交语义，与现有快照回滚需要统一，记边界）。
+> **aider 式 auto-commit + `/undo` 已落地**（同日收尾）：config key `auto_commit`（**默认关**，行为逐字一致）；
+> 成功写操作后自动 `git commit`（`ace: auto-commit <tool> <主题>`，git 写类工具除外）；
+> `/undo` 仍走**同一条**快照回滚路（guardian.rollback 还原文件），仅伴随 `git reset --mixed`
+> 把分支指针同步回写前提交 —— **不是第二套回滚**（§8 R-2）。非 git 仓库/无 git 如实声明一次。
+> 边界见 `docs/CONFIGURATION.md`「aider 式自动提交与 `/undo` 的统一」。
 
 ### WP-3 · 前缀缓存后两半（G-02 / G-03）
 

@@ -57,6 +57,7 @@ _ACE_SHOW_THINKING = False
 sys.path.insert(0, str(FOLDER))
 
 from execution_layer import ExecutionLayer  # noqa: E402
+from execution_layer import WRITE_TOOLS  # noqa: E402  （WP-2 auto-commit：写类工具集合，由注册表派生）
 import execution_layer  # noqa: E402  （模块级纯函数：无人值守边界判断）
 from ui.ace_cards import (message_prefix,  # noqa: E402
                           status_mark, thinking_block, tool_card)
@@ -82,6 +83,9 @@ from core import ace_effort  # noqa: E402  （思考强度：档位 + 提示词�
 from core import ace_prefix  # noqa: E402  （WP-3：前缀指纹/归因/drift + 工具面预算，纯逻辑）
 from core import ace_rules  # noqa: E402  （持久授权规则：查/增/删与作用域）
 from tools.status import outcome_for  # noqa: E402  （RL-01：拒绝 vs 失败的唯一判定处）
+from tools.git_ops import (AUTOCOMMIT_CLEAN, AUTOCOMMIT_NO_GIT,  # noqa: E402
+                           AUTOCOMMIT_NO_REPO, AUTOCOMMIT_OK,
+                           run_autocommit, undo_autocommit)
 try:
     from ui.ace_selector import run_selector  # noqa: E402
 except ImportError:
@@ -116,6 +120,10 @@ CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 MAX_ROUNDS = 20
 STALL_ABORT_ROUNDS = 6  # 连续失败轮数阈值：达到即中止会话（防死循环烧轮数）
 MAX_DIFF_HISTORY = 20   # /diff 保留的改动条数（给人翻的清单，审计日志另有其物）
+
+# WP-2 收尾：auto-commit 对**写类**工具生效，但 git 写类工具自己管 git
+# （git_commit_plan 自己提交、git_fetch/merge_tree 动的是 refs/对象库），不再叠一层。
+_AUTOCOMMIT_SKIP_TOOLS = frozenset({"git_commit_plan", "git_fetch", "git_merge_tree"})
 
 # ask_user（WP-1）两态回喂提示：与 PROMPT_PERM_* 同一件事 —— 告诉模型"刚才那次
 # 调用接下来该怎么办"。答了就**用同一个 question 重试**取回答案文本；没人答就明说，
@@ -524,6 +532,9 @@ class CLIConfig:
     # WP-1 繁忙发送策略：忙时 steering（纠偏/换方向）与 followUp（追加/继续）各用什么策略。
     steering_mode: str = "queue"     # queue | interrupt（interrupt = 触发第一段中断再入队）
     followup_mode: str = "queue"     # queue | drop（drop = 忙时如实拒绝，不排队）
+    # WP-2 收尾：aider 式 auto-commit（成功写操作后自动 git commit）。
+    # 默认关 = 行为与现在逐字一致；开启后 /undo 用同一条快照回滚路 + 伴随 reset 撤销它。
+    auto_commit: bool = False
 
     @classmethod
     def from_dict(cls, data: Dict) -> "CLIConfig":
@@ -551,6 +562,8 @@ class CLIConfig:
             raise ValueError(f"steering_mode 必须是 queue/interrupt，收到: {self.steering_mode!r}")
         if self.followup_mode not in ("queue", "drop"):
             raise ValueError(f"followup_mode 必须是 queue/drop，收到: {self.followup_mode!r}")
+        if not isinstance(self.auto_commit, bool):
+            raise ValueError(f"auto_commit 必须是布尔值，收到: {self.auto_commit!r}")
 
 # ---- ANSI 颜色（非 tty 或 NO_COLOR 时自动关闭，遵循 NO_COLOR 约定）----
 ANSI = {
@@ -857,6 +870,8 @@ def merge_config(args) -> Dict:
     # WP-1 繁忙发送策略：忙时 steering / followUp 各用什么策略（见 CONFIGURATION.md）
     cfg.setdefault("steering_mode", "queue")
     cfg.setdefault("followup_mode", "queue")
+    # WP-2 收尾：aider 式 auto-commit（默认关 = 行为与现在逐字一致，见 CONFIGURATION.md）
+    cfg.setdefault("auto_commit", False)
     # 配置校验与归一化（纯 stdlib dataclass）
     try:
         cli_cfg = CLIConfig.from_dict(cfg)
@@ -3557,6 +3572,15 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self.lang = str(cfg.get("lang", "zh"))
         set_language(self.lang)  # 界面语言跟随配置/@lang
         self.skill = str(cfg.get("skill", "general"))
+        # WP-2 收尾：aider 式 auto-commit（默认关 = 与改动前逐字一致）。
+        # 开启后：成功写操作 → 自动 git commit；/undo 仍走同一条快照回滚路，
+        # 只额外把分支指针 reset --mixed 回写前提交（见 _maybe_autocommit / _undo_last）。
+        self.auto_commit = bool(cfg.get("auto_commit", False))
+        # 会话内 auto-commit 台账：{snapshot_id, commit} —— /undo 靠它把快照与提交配对。
+        # 只活在本会话（/rollback <id> 与跨会话不碰 git，边界写在 CONFIGURATION.md）。
+        self._autocommit_log: List[Dict] = []
+        # 非 git 仓库/无 git 的如实声明（HL-03②）：一次会话只声明一次，不刷屏。
+        self._autocommit_note = ""
         self.context_refs: List[str] = []
         # 自定义斜杠命令（.ace/commands/*.md + 插件提供的）：{名字: CustomCommand}
         self.custom_commands: Dict[str, Any] = {}
@@ -6575,6 +6599,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                     self._emit_status()
                 if result["status"] == "SUCCESS":
                     self._print_clickables(result)
+                    # WP-2 收尾：aider 式 auto-commit —— 成功写操作后自动 git commit
+                    # （默认关；开启后与 /undo 共用快照回滚路，见 _maybe_autocommit）
+                    self._maybe_autocommit(result)
                 if result.get("memory_injected"):
                     print(c("dim", t("memory_injected",
                                      n=len(result["memory_injected"]))))
@@ -6591,10 +6618,84 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 next_user = PROMPT_TOOL_RESULT.format(rendered=render_tool_result(result))
         print(c("yellow", t("max_rounds")))
 
-    # ---------- 无感回滚 ----------
+    # ---------- 无感回滚（/undo）+ aider 式 auto-commit（WP-2 收尾） ----------
+
+    def _autocommit_subject(self, result: Dict) -> str:
+        """提交信息里的一句话主题：路径/命令摘要（确定性、不超长、路径相对项目根）。"""
+        data = result.get("data") or {}
+        subject = ""
+        if isinstance(data, dict):
+            for key in ("path", "dest", "source", "filename"):
+                v = str(data.get(key) or "").strip()
+                if v:
+                    subject = v
+                    break
+            if not subject:
+                subject = str(data.get("command") or data.get("query") or "").strip()
+        if subject:
+            try:
+                _p = Path(subject)
+                if _p.is_absolute():
+                    _rel = os.path.relpath(str(_p), str(self.el.project_root))
+                    if not _rel.startswith(".."):
+                        subject = _rel      # 项目内路径折成相对路径，历史里不拖绝对盘符
+            except (ValueError, OSError):
+                pass
+        return " ".join(subject.split())[:60]
+
+    def _maybe_autocommit(self, result: Dict) -> None:
+        """aider 式 auto-commit：成功写操作之后自动 `git add -A && git commit`。
+
+        - 默认关（self.auto_commit=False）→ 直接返回，行为与改动前逐字一致；
+        - 只对写类工具生效；git 写类工具（git_commit_plan/git_fetch/git_merge_tree）
+          自己管 git，不再叠一层提交；
+        - 非 git 仓库 / 找不到 git / git 失败：如实**声明一次**（HL-03②），不静默降级；
+        - 工作区没有变更（clean）：如实不提交 —— 无事可做，不是降级。
+
+        台账 `self._autocommit_log` 记录 snapshot_id→commit 的配对：/undo 据此在
+        快照回滚（同一条路）之外，把分支指针 reset --mixed 回写前提交。
+        """
+        if not self.auto_commit:
+            return
+        tool = str(result.get("tool") or "")
+        if tool not in WRITE_TOOLS or tool in _AUTOCOMMIT_SKIP_TOOLS:
+            return
+        subject = self._autocommit_subject(result)
+        message = f"ace: auto-commit {tool}" + (f" {subject}" if subject else "")
+        status, detail = run_autocommit(str(self.el.project_root), message)
+        if status == AUTOCOMMIT_OK:
+            snap = result.get("snapshot_id")
+            if snap:
+                self._autocommit_log.append({"snapshot_id": snap, "commit": detail})
+            print(c("green", f"⚑ auto-commit {detail}: {message}"))
+        elif status == AUTOCOMMIT_CLEAN:
+            return
+        else:
+            self._declare_autocommit_problem(status, detail)
+
+    def _declare_autocommit_problem(self, status: str, detail: str) -> None:
+        """auto-commit 打不开时的如实声明（HL-03②）：一次会话只声明一次。"""
+        if self._autocommit_note:
+            return
+        self._autocommit_note = status or "error"
+        if status == AUTOCOMMIT_NO_REPO:
+            print(c("yellow", "auto_commit 已开启，但当前目录不是 git 仓库 —— 本次会话"
+                              "不会自动提交（写操作仍受快照保护，/undo 照常可用）"))
+        elif status == AUTOCOMMIT_NO_GIT:
+            print(c("yellow", "auto_commit 已开启，但找不到 git 可执行文件 —— 本次会话"
+                              "不会自动提交（写操作仍受快照保护，/undo 照常可用）"))
+        else:
+            print(c("yellow", f"auto-commit 未执行: {str(detail)[:160]}"
+                              "（写操作仍受快照保护，/undo 照常可用）"))
 
     def _undo_last(self) -> None:
-        """一键回滚到最近一次自动快照（无需记 id，写入操作前都会自动快照）"""
+        """一键回滚到最近一次自动快照（无需记 id，写入操作前都会自动快照）
+
+        WP-2 收尾（与 auto-commit 统一，**不是第二套回滚**）：文件内容**仍然**由
+        guardian 快照回滚还原（同一条路）；若最近这次快照对应的写入已被 auto-commit，
+        再把分支指针 `git reset --mixed` 回写前提交 —— git 侧与快照侧指向同一个
+        "写前"时刻。HEAD 已变动（中间有别的提交）时不动 git 并如实说明。
+        """
         if not self.el.guardian:
             print(c("red", t("snap_disabled")))
             return
@@ -6603,11 +6704,24 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             print(t("undo_none"))
             return
         latest = snaps[-1]
+        linked = next((e for e in self._autocommit_log
+                       if e.get("snapshot_id") == latest["id"]), None)
         try:
             ok = self.el.guardian.rollback(latest["id"])
             if ok:
+                _git_note = ""
+                if linked:
+                    _status, _detail = undo_autocommit(
+                        str(self.el.project_root), str(linked.get("commit") or ""))
+                    _git_note = "；" + _detail if _status == "undone" \
+                        else f"；git 侧：{_detail}"
+                    # 这条台账已消费：/undo 不再重复撤销同一条提交
+                    self._autocommit_log = [
+                        e for e in self._autocommit_log
+                        if e.get("snapshot_id") != latest["id"]]
                 print(c("green", t("undo_done", id=latest["id"]) +
-                                 f"（{latest.get('created_iso')}，{latest.get('file_count')} 个文件）"))
+                                 f"（{latest.get('created_iso')}，"
+                                 f"{latest.get('file_count')} 个文件）{_git_note}"))
             else:
                 print(c("red", t("rollback_partial")))
         except Exception as e:

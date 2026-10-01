@@ -5,6 +5,25 @@
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），**以 `python test_all.py` 的实际输出为准，本文不写死数字**（历史条目里的数字是当时那次运行的记录）。
 
+## [Unreleased] —— 裁决面收口 + 三平台平衡 + 执行边界证据链
+
+### 🛡️ 安全
+- **项目级规则过信任门**：`.ace/permissions.json` 的 `allow` 规则在**信任工作区之前会被丢弃**（`deny` 仍生效），`trust_project_hooks` / `trusted_workspaces` 真正接入配置文件 —— `git clone` 陌生仓库再也不能让"逐次问人"静默失效。
+- **写侧黑名单补全**：文件工具拒绝写 `.git/`（hooks/config）、`.gitmodules`、`.ace/permissions*.json` —— 模型不能自植后门、不能给自己发通行证。
+- **POSIX 进程组整树回收**：Go 执行器 Tier-0 非 Windows 从 `Process.Kill` 改为 `Setpgid` + `kill(-pgid, SIGKILL)`，孙进程不再成孤儿（Linux/macOS）。
+- **Landlock 写隔离（Linux）**：Go 执行器在 Linux 上自动叠加内核写隔离 —— 子进程到处可读/执行，但**只能在工作区内写**。纯 syscall、零外部依赖，WSL2 真内核验证。
+
+### ✨ 新增
+- `/audit boundary`（别名 receipt/evidence）：**执行边界证据链** —— 复用 HMAC 链式台账，输出"本会话被哪些机制约束"的可核验自证（权限/安全/守卫/快照命中 + 拦截明细）。
+- `/rules check`（别名 health/体检）：**规则体检** —— deny/allow 命中 + 仍未覆盖、需人确认的风险面。
+- `/replay`：被边界拦下的调用存证到 `.ace/denied_cases.jsonl`，重放 `sensitive_target` 证明边界还在（回归自证）。
+- **执行边界进上下文**：系统提示词新增 `【执行边界】`，正向说清本次会话的权限/沙箱/网络/工作区，让模型不靠猜、不靠绕。
+- `security-review` 技能（SKILL.md 生态）：以执行层裁决面视角审代码（凭据/路径/注入/边界绕过）。
+
+### ⚙️ 改进
+- **macOS 进 CI** 测试矩阵（此前 `test_all.py` 从未在 mac 上跑过）。
+- **冻结发行启动明示**：不含 Ink 主外壳时打 stderr 提示（三语），README "四外壳" 口径修正为"Python 外壳"。
+
 ## [v1.0.0] · 2026-10-01 —— 公测（Public Beta）：执行层 / MCP 服务 / 沙箱底座三形态发布
 
 > **版本号说明**：自本条起版本号重新起算为 `1.0.0`。此前的 `3.3`–`3.47` 为内部能力路线图迭代，

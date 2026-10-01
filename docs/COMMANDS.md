@@ -13,7 +13,7 @@
 |---|---|
 | 会话 | `/help` `/keys` `/stash` `/queue` `/clear` `/status` `/statusline` `/tasks` `/fullscreen` `/stats` `/audit` `/history` `/sessions` `/resume` `/fork` `/rewind` `/todo` `/expand` `/mcp` `/exit` |
 | 扩展 | `/hooks`（事件钩子与上次结果） `/plugins`（插件与它们贡献的命令/钩子） `/vim`（vi 模式与自定义键位） `/keys`（键位表与冲突警告） `/term`（终端能力与自检） `/rules`（持久授权规则） |
-| 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` |
+| 安全 | `/permission [level]` `/snapshots` `/undo` `/rollback <id>` `/sandbox [档]` `/net [on\|off]` `/replay` |
 | 模型 | `/provider [名称\|编号] [key]` `/model <名称>` `/config` `/mock` `/thinking [on\|off]` `/style [id]` |
 | 工具 | `/open <路径>` `/edit <路径>` `/review` `/diff [序号]` `/search <关键词>` `/memory` `/report` `/goal [动作]` |
 
@@ -104,6 +104,7 @@
 /rules add terminal_exec '!rm:*' local   # 前缀 ! = 直接拒绝，写进不进 git 的 .ace/permissions.local.json
 /rules                                   # 列出：序号 / 动作 / 说明 / 作用域 / 来源文件
 /rules remove 2
+/rules check                             # 规则体检：deny/allow 命中 + 仍需人确认的未覆盖风险面
 ```
 
 - 作用域三档（优先级 local > project > user）：`local` = `.ace/permissions.local.json`（不进 git）、`project` = `.ace/permissions.json`（随仓库）、`user` = `~/.ace/permissions.json`（全局）
@@ -184,6 +185,11 @@
 - `/resume <编号|文件名>` — 续聊一个已有会话：消息历史按它重建，**之后的事件也写进那份日志**（不是复制）
 - `/fork [编号]` — 以某会话为起点开**一段新会话**（新文件 + 带上最近 10 轮消息）
 - `/rewind [轮次]` — 把**对话**退回到第 n 轮之后（默认退掉最后一轮）。**只动对话**：文件要靠 `/rollback`（快照），提示里会写明这一点
+
+**审计与边界自证**（数据源都是 `.ace_sessions/*.jsonl` 那份 HMAC 链式台账 + `.ace/denied_cases.jsonl`）：
+
+- `/audit boundary`（别名 receipt/evidence）— **执行边界证据链**：整链可核验状态 + 权限/安全/守卫/快照命中统计 + 实际拦截明细（"这次会话我被哪些机制约束了"）
+- `/replay` — 重放被边界拦下的调用，重跑 `sensitive_target` 证明边界还在（路径类不再命中 = 边界回归；命令类如实标不可重放）
 
 **逐项待办**（与 `todo_write` 工具共用同一份清单，人和模型看到的是同一个）：
 

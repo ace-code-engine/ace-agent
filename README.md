@@ -228,11 +228,11 @@ and **it is a folder, not a file** (keep `ace.exe` next to its `_internal\`).
 | Capability | One-line hook |
 |---|---|
 | Three permission levels | `readonly` / `write` / `full`. The tool list is trimmed per level, declared once in `tools/registry.py`, so the model only chooses among tools it can actually see. |
-| Three sandbox tiers | `off` (in-process policy) / `job` (Windows Job Object: process tree, memory cap, restricted token) / `docker` (one-shot container, `network none`, `cap-drop ALL`). Unreachable boundary → 503, never a silent fallback. |
+| Sandbox tiers | `off` (in-process policy) / `job` (Windows Job Object: process tree, memory cap, restricted token) / `docker` (one-shot container, `network none`, `cap-drop ALL`). **On Linux the Go executor also applies Landlock write-isolation** (workspace writable, everything else read-only to the child). Unreachable boundary → 503, never a silent fallback. |
 | Pre-write snapshots | every write takes a physical snapshot first, and `/undo` rolls back. HMAC-signed, and the snapshot directory is not writable by the agent itself. |
 | Egress gate | data headed for a **model-chosen** destination is confirmed per call unless the destination is allowlisted; `egress_allowlist` means one-time authorization. |
 | Security triage | security blocks (path escape, allowlist, sandbox) are counted apart from ordinary argument errors, and a run of them raises a user-facing alert — that usually means something is injecting instructions through a file or a page. |
-| Go executor | dangerous tools are delegated to a separate Go process over NDJSON, with whole-tree reaping via Job Object plus a second policy check. Official prebuilt binary via `ace --install-executor`. |
+| Go executor | dangerous tools are delegated to a separate Go process over NDJSON, with whole-tree reaping via Job Object (Windows) / process-group `SIGKILL` (Linux/macOS) plus a second policy check; on Linux it also applies **Landlock write-isolation**. Official prebuilt binary via `ace --install-executor` — 5 platforms (win / linux / macos × amd64 / arm64). |
 
 ### Agent
 
@@ -268,6 +268,9 @@ Landing page: **↑/↓** to move, digits to jump, **Enter** to confirm, **Esc/q
 /provider zhipu              # switch to Zhipu in one command
 /permission write            # elevate (read-only by default)
 /undo                        # roll back to the pre-write snapshot
+/audit boundary              # the HMAC-chained boundary receipt: what actually constrained this session
+/rules check                 # rule health: what your rules blocked vs. what still needed a human
+/replay                      # re-run recorded denied calls to prove the boundary still holds
 ```
 
 Input and output: `Alt+Enter` / `Ctrl+J` newline · `Ctrl+R` walk history backwards (`/history dsk` fuzzy-finds it) ·
@@ -288,6 +291,7 @@ long tool output is folded into the card, `/expand` reprints it · write cards c
 | Prompt | guides the model only — **promises nothing** |
 | Application (default) | execution-layer policy: three permission levels, AST behaviour checks, pre-write snapshot and rollback, path boundaries, SSRF and allowlist egress checks, and egress-destination confirmation (including "overwrite or delete something outside the project" ⇒ ask) |
 | OS (optional, Windows) | `--sandbox job`: Job Object process and memory caps plus a restricted token |
+| OS (optional, Linux) | **Landlock write-isolation** (automatic in the Go executor): the child can read/execute anywhere but write only inside the workspace |
 | Container (optional) | `--sandbox docker`: one-shot container, `network none`, `cap-drop ALL`, `read-only` root, `--init`, only the workspace mounted |
 
 The sandbox image is built once locally from `docker/Dockerfile.sandbox`; a registry-hosted image can be pulled with `ACE_SANDBOX_PULL=1`.

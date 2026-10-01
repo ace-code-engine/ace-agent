@@ -142,6 +142,8 @@ jobs:
 
           - 安装：\`ace --install-executor\`（Windows 上 \`--sandbox job\` 不再需要手工 \`go build\`）
           - 自编译：\`cd executor && go build -o ace-executor(.exe) .\` 仍支持
+          - Linux 产物自带 **Landlock 写隔离**（工作区内可写、区外只读，纯 syscall 零依赖）
+          - Linux/macOS 超时/取消走**进程组 SIGKILL 整树回收**（孙进程不成孤儿）
           - 详见 docs/EXECUTOR-RELEASE.md"
           fi
 

@@ -233,12 +233,12 @@ ace --kb D:\我的资料库         # 外挂知识库（kb_search/kb_add 跨会�
 | 能力 | 一句话钩子 |
 |---|---|
 | 三级权限 + 按权限裁剪工具表 | `readonly` / `write` / `full`。工具清单随档位裁剪，单点声明在 `tools/registry.py`，模型只在"看得见用得了"的工具里决策。 |
-| 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树、内存上限、受限令牌）/ `docker`（一次性容器：`network none` + `cap-drop ALL`）。拿不到边界就 503，绝不静默回退。 |
+| 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树、内存上限、受限令牌）/ `docker`（一次性容器：`network none` + `cap-drop ALL`）。**Linux 上 Go 执行器还会自动叠加 Landlock 写隔离**（工作区内可写、区外只读）。拿不到边界就 503，绝不静默回退。 |
 | 写入前快照 | 每次写操作自动物理快照，`/undo` 一键回滚。HMAC 签名防伪造，快照目录 Agent 自身不可写。 |
 | 外发闸门 | 数据去往**模型指定的目的地**时，目的地不在白名单内就逐次问人；配置 `egress_allowlist` 即一次性授权。 |
 | 安全事件分级 | 403 里"执行层主动防御"与"模型参数写错"分开计数：前者本会话累计到阈值就明确告警 —— 那通常意味着有东西在借被读取的文件或网页注入指令。 |
 | 行为检测闸门 | 首次 `code_execute` 注入语义诱饵验证模型清醒 + AST 6 规则（无限递归 / 硬编码密钥 / SQL 注入等）。 |
-| Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），Job Object 整树回收 + 第二道策略复检；官方产物 `ace --install-executor`。 |
+| Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），整树回收（Windows Job Object / Linux·macOS 进程组 SIGKILL）+ 第二道策略复检；Linux 上还叠加 **Landlock 写隔离**。官方产物 `ace --install-executor` —— 5 平台（win / linux / macos × amd64 / arm64）。 |
 
 ### Agent 能力
 
@@ -274,6 +274,9 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 /provider zhipu              # 一键切智谱（自动换到 glm-4.7-flash）
 /permission write            # 提权（默认 readonly）
 /undo                        # 写入前快照 → 一键回滚
+/audit boundary              # HMAC 链式边界回执：本会话到底被哪些机制约束
+/rules check                 # 规则体检：你的规则实际拦了什么 vs 还要人确认什么
+/replay                      # 重放被拦的调用，证明边界还在
 ```
 
 输入输出：`Alt+Enter` / `Ctrl+J` 换行 · `Ctrl+R` 逐条往回翻历史（`/history dsk` 按关键词模糊找）·
@@ -295,6 +298,7 @@ Gateway（L1 / L2 / L4 / L5）是执行层**每轮内调用**的策略辅助层 
 | Prompt 层 | 提示词只做引导，**不承诺安全** |
 | Application 层（默认） | 执行层策略：三级权限 + AST 行为检测 + 写前快照/回滚 + 路径边界 + 网络 SSRF/白名单闸门 + 外发目的地确认（含项目外覆盖/删除要人点头） |
 | OS 层（可选，Windows） | `--sandbox job`：Job Object 进程树/内存上限 + 受限令牌 |
+| OS 层（可选，Linux） | **Landlock 写隔离**（Go 执行器自动叠加）：子进程到处可读/执行，但只能在**工作区内写** |
 | Container 层（可选） | `--sandbox docker`：一次性容器，`network none` + `cap-drop ALL` + `read-only` 根 + `--init` + 只挂工作目录 |
 
 沙箱镜像本地构建一次（`docker/Dockerfile.sandbox`）；放在 registry 里的可用 `ACE_SANDBOX_PULL=1` 自动拉。

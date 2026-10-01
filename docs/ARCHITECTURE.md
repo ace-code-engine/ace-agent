@@ -133,7 +133,7 @@ ace-agent/
 │   ├── ace_prefix.py           #   前缀稳定性与工具面伸缩（WP-3）：SHA-256 前缀指纹 / 变化强制归因 / 恒等快路径 / ToolSurfaceBudget
 │   ├── ace_ledgers.py          #   两个账本（DL-03 拒绝账本 / HL-01 失败账本）：同键 (goal_id,fingerprint,class) 不同命 + 五级阶梯（HL-02）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
-├── executor/                   # Go 执行器：Windows Job Object / Linux Landlock 写隔离 / 三平台进程组整树回收（官方产物 ace --install-executor；或自编译）
+├── executor/                   # Go 执行器：Windows Job Object / Linux Landlock 写隔离 + seccomp 网络默认拒绝 / 三平台进程组整树回收（官方产物 ace --install-executor；或自编译）
 ├── engine/                     # Rust 内置计算引擎：分词/指纹/召回等**无裁决权**的纯计算 sidecar（NDJSON，同 ADR-002；不碰文件系统、不判权限）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）

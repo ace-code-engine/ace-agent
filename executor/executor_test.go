@@ -65,6 +65,9 @@ func helperMain() {
 		}
 		_ = f.Close()
 		os.Exit(0)
+	case "seccomp":
+		// 真 Linux 内核上验证网络默认拒绝：probe 里 apply seccomp 后建 socket，成功=洞、EPERM=对。
+		os.Exit(seccompSocketProbe())
 	}
 	os.Exit(0)
 }

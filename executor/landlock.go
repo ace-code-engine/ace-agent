@@ -62,11 +62,12 @@ type landlockPathBeneathAttr struct {
 	parentFd      int32
 }
 
-// landlockWrap 把子进程改写成"先重入自己应用 landlock，再 exec 真实命令"。
-// restrict_self 只能作用于调用者，父进程代劳不了，所以走 re-exec：
-// `/proc/self/exe --landlock-apply <workspace> -- <真实 argv>`。Setpgid 由 prepare
-// 先设好，re-exec 之后再 syscall.Exec 同 PID、同进程组，整树回收不受影响。
-// 只在 Linux 且能定出工作区时生效；其它平台 / 定不出工作区 = no-op（如实不做，不装）。
+// landlockWrap 把子进程改写成"先重入自己应用 landlock（写隔离）+ seccomp（网络默认拒绝），
+// 再 exec 真实命令"。restrict_self 与 seccomp 都只作用于调用者，父进程代劳不了，所以走 re-exec：
+// `/proc/self/exe --landlock-apply <workspace> -- <真实 argv>`。Setpgid 由 prepare 先设好，
+// re-exec 之后再 syscall.Exec 同 PID、同进程组，整树回收不受影响。
+// 只在 Linux 生效；其它平台 = no-op（如实不做，不装）。workspace 定不出时空串也照 re-exec：
+// 那样只施 seccomp、跳过 landlock（网络拒绝不依赖工作区）。
 func landlockWrap(cmd *exec.Cmd) {
 	if runtime.GOOS != "linux" {
 		return
@@ -76,9 +77,6 @@ func landlockWrap(cmd *exec.Cmd) {
 		if wd, err := os.Getwd(); err == nil {
 			ws = wd
 		}
-	}
-	if ws == "" {
-		return
 	}
 	self, err := os.Executable()
 	if err != nil {

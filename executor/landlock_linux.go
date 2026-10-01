@@ -51,9 +51,16 @@ func landlockApplyEntry() bool {
 	}
 	ws := os.Args[2]
 	rest := os.Args[4:]
-	if err := applyLandlockWriteIsolation(ws); err != nil {
-		fmt.Fprintln(os.Stderr, "landlock apply failed:", err)
+	// 网络默认拒绝（WP-8 非 URL 出网通道）—— 与 landlock 一起在 re-exec 里施加。
+	if err := applySeccompNetworkDenial(); err != nil {
+		fmt.Fprintln(os.Stderr, "seccomp apply failed:", err)
 		os.Exit(126)
+	}
+	if ws != "" {
+		if err := applyLandlockWriteIsolation(ws); err != nil {
+			fmt.Fprintln(os.Stderr, "landlock apply failed:", err)
+			os.Exit(126)
+		}
 	}
 	// syscall.Exec 不搜 PATH（只收绝对/相对路径），得先用 exec.LookPath 解析。
 	bin, err := exec.LookPath(rest[0])

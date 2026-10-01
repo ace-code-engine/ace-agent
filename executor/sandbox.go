@@ -36,6 +36,9 @@ type sandboxApplied struct {
 	// 把等级如实报出来，比让宿主从 "restricted_token=true" 推断出一个更强的结论要好。
 	// 非 Windows 平台为空（完整性等级是 Windows 特有概念）。
 	IntegrityLevel string `json:"integrity_level,omitempty"`
+	// NetworkDenied 表示子进程的网络被 seccomp 默认拒绝（WP-8 非 URL 出网通道）。
+	// 只有 Linux 为 true；Windows/macOS 没有这层（如实报 false，不是"没试过"）。
+	NetworkDenied  bool   `json:"network_denied"`
 	Degraded       bool   `json:"degraded"`
 	DegradedReason string `json:"degraded_reason,omitempty"`
 }
@@ -113,6 +116,7 @@ func (processConfinement) applied() sandboxApplied {
 		// 没有受限令牌时子进程继承执行器自己的令牌，所以子进程实际跑在哪一档
 		// 完整性等级，问执行器自己就是答案。
 		IntegrityLevel: selfIntegrityLevel(),
+		NetworkDenied:  runtime.GOOS == "linux",
 		Degraded:       false,
 		DegradedReason: "",
 	}

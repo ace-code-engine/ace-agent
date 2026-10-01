@@ -529,7 +529,10 @@ if _want("7"):
     check("沙箱拦截写模式 open", r6["status"] == "403", r6.get("message"))
 
     # —— 快照 + 守门回滚 ——
-    el_w = ExecutionLayer(project_root=str(sandbox_root), permission_level="write",
+    # 用**全新空目录**：前面沙箱拦截测试已在 sandbox_root 里落了 denied_cases 存证
+    # （SEC-017 的存证），那就不再是"空项目"，快照语义会变。
+    _snap_fresh = mktemp()
+    el_w = ExecutionLayer(project_root=str(_snap_fresh), permission_level="write",
                           config={"bait": {"enabled": False}, "sandbox_base": str(TEST_TMP)})
     r = run_agent(el_w, "file_write", path="snap_test.txt", content="version-one")
     check("首次写入（空项目无快照）", r["status"] == "SUCCESS" and r["snapshot_id"] is None, r)
@@ -16587,6 +16590,26 @@ if _want("83"):
     check("[83] ★授权文件自己堵死：不能写 .ace/permissions*.json（给自己发通行证）",
           _sens83(_proj83 / ".ace" / "permissions.json") is not None
           and _sens83(_proj83 / ".ace" / "permissions.local.json") is not None, "")
+
+    # ── /replay：被拒命令存证 + 重放自证（边界回归测试） ──
+    _rp_root = Path(mktemp("replay"))
+    _el_rp = ExecutionLayer(project_root=str(_rp_root), permission_level="write",
+                            config={"bait": {"enabled": False}})
+    _el_rp._record_denied_case("file_write", {"path": str(_rp_root / ".ssh" / "id_rsa")}, "敏感文件")
+    _rp_file = _rp_root / ".ace" / "denied_cases.jsonl"
+    check("[83] ★存证：被拦的调用落进 .ace/denied_cases.jsonl（append-only）",
+          _rp_file.exists() and "id_rsa" in _rp_file.read_text(encoding="utf-8"), "")
+    _cli_rp = ai_code.AgentCLI({"project_root": str(_rp_root), "permission": "write",
+                                "bait": False, "base_url": "", "api_key": "",
+                                "model": "m1"}, mock=True)
+    _bufrp = io.StringIO()
+    with contextlib.redirect_stdout(_bufrp):
+        _cli_rp._cmd_replay([])
+    _outrp = _bufrp.getvalue()
+    check("[83] ★重放：sensitive_target 仍命中 → 报仍被拦（边界没退化）",
+          "仍被拦：1 条" in _outrp, _outrp[:200])
+    _cli_rp.close()
+    _el_rp.close()
 
     # ── C5 规则 3：快照基盖不住 worktree 根这件事，必须走**结果**而不是 stderr ──
     # 快照基 = `guardian.project_root`；注册过的 worktree 根按定义在它之外。

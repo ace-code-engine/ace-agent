@@ -1744,6 +1744,7 @@ class _SlashCommands:
         "/expand": "cmd_expand",
         "/expandall": "cmd_expandall",
         "/rules": "cmd_rules",
+        "/replay": "cmd_replay",
         # 技能：只广告 name+description、正文按需加载（WP-7）。描述键复用技能标题
         # （本地化包不在本 WP 的改动面里；加新键要同步 locales/{zh,en,ja}.json）。
         "/skill": "at_skills_title",
@@ -1818,6 +1819,7 @@ class _SlashCommands:
         "/expand": ("_cmd_expand", False),
         "/expandall": ("_cmd_expandall", True),
         "/rules": ("_cmd_rules", True),
+        "/replay": ("_cmd_replay", True),
         "/skill": ("_cmd_skill", True),
         "/open": ("_cmd_open", True),
         "/edit": ("_cmd_edit", True),
@@ -4780,6 +4782,57 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 print(f"    ✗ {tool}: {str(detail)[:72]}")
         if not deny and not allow and not confirm:
             print("  " + t("rules_check_none"))
+
+    def _cmd_replay(self, parts: List[str]) -> bool:
+        """`/replay`：把被边界拦下的调用重放一遍，证明"边界还在"（回归自证）。
+
+        数据源是 `.ace/denied_cases.jsonl`（执行层每次安全拦截时 append）。重放**不真执行**，
+        只重跑 `sensitive_target` 判据：还命中 = 边界没退化；路径类目标不再命中 = 边界回归
+        （要查）；命令类目标（terminal_exec / code_execute）的判据不是 `sensitive_target`，
+        如实标"不可重放"，不当成回归报。
+        """
+        from core.sensitive import sensitive_target
+        path = os.path.join(str(self.cfg.get("project_root", ".")), ".ace",
+                            "denied_cases.jsonl")
+        cases: List[dict] = []
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            cases.append(json.loads(line))
+                        except Exception:
+                            continue
+        except FileNotFoundError:
+            cases = []
+        except Exception as e:  # noqa: BLE001
+            print(c("red", f"denied_cases 读不动：{e}"))
+            return True
+        if not cases:
+            print(c("dim", t("replay_none")))
+            return True
+        still = 0
+        skipped = 0
+        regressed = 0
+        for case in cases:
+            target = case.get("target", "")
+            if not target:
+                continue
+            if sensitive_target(target):
+                still += 1
+            elif case.get("tool", "") in ("terminal_exec", "code_execute"):
+                skipped += 1
+            else:
+                regressed += 1
+                print(c("red", f"  ✗ 边界退化：{case.get('tool')} {target!r} 现在放行了"))
+        print(c("bold", t("replay_title", n=len(cases))))
+        print("  " + t("replay_still", n=still))
+        if skipped:
+            print("  " + t("replay_skipped", n=skipped))
+        if regressed:
+            print(c("red", t("replay_regressed", n=regressed)))
+        return True
 
     def _cmd_rules(self, parts: List[str]) -> bool:
         """`/rules [add <工具> <模式> [作用域] | remove <序号>]`：持久授权规则的查/增/删。

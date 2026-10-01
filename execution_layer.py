@@ -2736,7 +2736,8 @@ class ExecutionLayer:
                     "这是执行层安全限制（路径越界/白名单/沙盒拦截），不是权限问题。"
                     "请改用项目目录内的合法路径或换用其他工具，不要调用 request_permission。")
                 # SEC-017：安全拦截单列计数、写进事件日志，到阈值就向用户告警
-                security_alerts = self.note_security_denial(tool_name, result.message or "")
+                security_alerts = self.note_security_denial(tool_name, result.message or "",
+                                                             tool_call)
                 if security_alerts:
                     extra_instruction += (
                         f"（本会话第 {security_alerts['count']} 次安全拦截，已向用户告警；"
@@ -2782,7 +2783,8 @@ class ExecutionLayer:
             **route_meta,
         }
 
-    def note_security_denial(self, tool_name: str, reason: str) -> Optional[Dict[str, Any]]:
+    def note_security_denial(self, tool_name: str, reason: str,
+                             tool_call: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """登记一次执行层安全拦截，到阈值时返回给用户看的告警数据（否则 None）。
 
         返回结构而不是成句文案：面向用户的措辞要过 i18n，由前端渲染（与权限提示同一纪律）。
@@ -2791,6 +2793,7 @@ class ExecutionLayer:
         count = len(self.security_denials)
         if self.session_log:
             self.session_log.record_security(tool_name, reason or "", count)
+        self._record_denied_case(tool_name, tool_call, reason or "")
         hit = (count == SECURITY_ALERT_THRESHOLD
                or (count > SECURITY_ALERT_THRESHOLD
                    and count % SECURITY_ALERT_REPEAT_EVERY == 0))
@@ -2802,6 +2805,38 @@ class ExecutionLayer:
             "last_reason": (reason or "")[:200],
             "other_tools": sorted({d["tool"] for d in self.security_denials} - {tool_name}),
         }
+
+    @staticmethod
+    def _deny_target(tool_call: Optional[Dict[str, Any]]) -> str:
+        """从被拒的调用里抽出可复现的"目标"（路径 / 命令 / URL），给 denied_cases 存证。"""
+        p = tool_call if isinstance(tool_call, dict) else {}
+        for k in ("path", "dest", "target", "source", "command", "code", "url"):
+            v = p.get(k)
+            if isinstance(v, str) and v:
+                return v
+        return ""
+
+    def _record_denied_case(self, tool_name: str, tool_call: Optional[Dict[str, Any]],
+                            reason: str) -> None:
+        """把一次被边界拦下的调用存成永久回归用例（`.ace/denied_cases.jsonl`，append-only）。
+
+        为什么值得存：deny 是"边界真的挡下了什么"的事实；存下来之后 `/replay` 能重放
+        `sensitive_target` 判据证明"边界还在"——边界代码回归时重放当场红，而不是等
+        下一次真拦。它是**测试资产**，不是闸门，所以写失败不拖垮会话（pass，不炸）。
+        """
+        target = self._deny_target(tool_call)
+        if not target:
+            return
+        try:
+            path = os.path.join(str(self.project_root), ".ace", "denied_cases.jsonl")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            entry = {"tool": tool_name, "target": target,
+                     "reason": (reason or "")[:200],
+                     "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:  # noqa: BLE001 —— 存证是增强，坏了也不能拖垮裁决
+            return
 
     def _note_tool_failure(self, tool_name: str, error_code: str,
                            tool_call: Optional[Dict[str, Any]] = None,

@@ -19,6 +19,31 @@
   The model proposes; permission, isolation, snapshots and rollback are decided by code it cannot argue with.</strong>
 </p>
 
+---
+
+## Name notice — which "ACE" this is
+
+Several unrelated projects, frameworks and certifications are called **ACE**. This repository is
+**ACE · AI Code Engine** (`ace-code-engine/ace-agent`): an **execution layer for coding agents** —
+it decides, before a tool call runs, whether it may run, and records what happened.
+
+It is **not** any of the following, and is not affiliated with them:
+
+- the **ACE editor** (Ajax.org Cloud9 Editor, distributed as `ace-builds`) — a browser-based source
+  code editor;
+- the **ACE framework** (Adaptive Communication Environment) — a C++ network programming toolkit,
+  packaged as `libace`;
+- **ACE-Step** — an open-source music generation model;
+- **ACE: Agentic Context Engineering** — a research method for evolving model context;
+- the **Adobe Certified Expert** or **American Council on Exercise** certifications.
+
+If you arrived here looking for a code editor, a music model, a C++ framework or a
+context-engineering method, this is a different project. The distinguishing facts about this one:
+the entry point is `ai_code.py`, the installed command is `ace`, the decision logic lives in
+`execution_layer.py`, and the safety core has no third-party dependencies.
+
+---
+
 ## 1. Overview
 
 ACE (AI Code Engine) is an execution layer for coding agents. Every tool call — file access, command

@@ -22,6 +22,26 @@
 
 ---
 
+## 名称说明 —— 此 "ACE" 非彼 "ACE"
+
+有多个互不相关的项目、框架与认证都叫 **ACE**。本仓库是 **ACE · AI Code Engine**
+（`ace-code-engine/ace-agent`）：一个面向编码代理的**执行层** —— 在每次工具调用执行之前裁决
+它能不能执行，并记录发生过什么。
+
+本仓库**不是**以下任何一个，且与其无任何关联：
+
+- **ACE 编辑器**（Ajax.org Cloud9 Editor，以 `ace-builds` 发行）—— 一个浏览器端源代码编辑器；
+- **ACE 框架**（Adaptive Communication Environment）—— C++ 网络编程工具包，发行包名为 `libace`；
+- **ACE-Step** —— 一个开源的音乐生成模型；
+- **ACE: Agentic Context Engineering** —— 一种演化模型上下文的研究方法；
+- **Adobe Certified Expert** 与 **American Council on Exercise** 两项认证。
+
+若你是为找代码编辑器、音乐模型、C++ 框架或上下文工程方法而来，那是另一个项目。
+本项目可辨识的事实：入口文件是 `ai_code.py`，安装后的命令是 `ace`，裁决逻辑在
+`execution_layer.py`，安全核心零第三方依赖。
+
+---
+
 ## 一、概述
 
 ACE（AI Code Engine）是面向编码代理的**执行层**。每一次工具调用 —— 文件访问、命令执行、出网、

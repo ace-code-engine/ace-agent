@@ -5,6 +5,21 @@
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），**以 `python test_all.py` 的实际输出为准，本文不写死数字**（历史条目里的数字是当时那次运行的记录）。
 
+## Unreleased · 2026-10-01（v3.47.0 之后的验证）
+
+### ✅ M8 真 host 冒烟：读路径闭环（发布后第一次真实使用）
+
+- **真 host = Cline**（VSCode 扩展 `hybridtalentcomputing.cline-chinese` / `saoudrizwan.claude-dev`），
+  经 MCP 调 ACE 的 `file_read` 读 `G:\AI_Project\ace\README.md`，返回 `<p align="center">`（第一行）。
+- **判据不是"界面看起来通了"，是 ACE 自己的台账**（`.ace_sessions/<ts>.jsonl`，五条、每条带 MAC）：
+  `permission/decision`（allowed, readonly）→ `tool/call`（`{"path":"README.md"}`）→
+  `tool/result`（success）→ **`guard/verdict` 的 `rule="mcp:external agent"`**。
+  最后那条是"这句指令是**外部 agent** 说的、不是用户说的"的归属标记（RG-03）——
+  没有它，"Cline 用自己的读取器读的"与"经 ACE 读的"在界面上分不出来。
+- MCP 卡 `docs/design/MCP-SERVER.md` 的状态行相应改为"**M8 读路径已闭环 · 写路径待做**"。
+  写路径要被人有意提权（`--permission write` + 走清单第 3~5 步），**不代劳**：那是一次真实的授权决定。
+
+
 ## [v3.47.0] · 2026-10-01 —— ACE 打包成 MCP 安全子层：主 agent 的子安全层 + 共用 CubeSandbox 底座（WP-11 · SEC-022）
 
 ### 🛡️ WP-11 MCP 安全子层（ACE-as-a-service，2026-10-01）

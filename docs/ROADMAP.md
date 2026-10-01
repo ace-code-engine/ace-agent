@@ -595,7 +595,8 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > `agent_preset` 事件**四外壳全都有**（底栏段加在引擎侧，`status` 事件每次发全量分段 ——
 > 不用每个外壳各画一份，各画一份正是"某个外壳忘了"的病根）。
 > **WP-11 已开工**（MCP 安全子层：`ace_security_scan` / `ace_sandbox_exec` 上线，
-> `e2e/mcp_probe.py` 46 条全过；真机冒烟 A5 待做 —— 需要一台部署了 CubeSandbox 的机器）。
+> `e2e/mcp_probe.py` 46 条全过；**M8 读路径已由真 host（Cline）闭环**，台账 `mcp:external agent` 为证；
+> 写路径待有意提权后走；沙箱真机冒烟 A5 待做 —— 需要一台部署了 CubeSandbox 的机器）。
 > **未开始**：**WP-9** 沙箱后端（C6 前置未做，卡与 SEC-020 已立）· 横向 **WP-10**（R1 依据已被复测推翻）。
 > **明确不做**（各有理由，不是没做完）：WP-4 的"进程内切 `project_root`"（半途实现会产生 C5 卡禁止的
 > 两套回滚，理由见 `WP-4-SNAPSHOT-SEMANTICS.md` §6）· WP-8 的非 URL 出网通道（脆弱 shell 解析，H-27 的教训）。

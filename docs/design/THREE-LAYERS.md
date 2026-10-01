@@ -1,7 +1,7 @@
 # 三层脊柱设计卡 —— 驱动层 / 响应层 / 自愈层
 
 > 编号：`DL-`（驱动）/ `RL-`（响应）/ `HL-`（自愈）／`LDG-`（共用账本）
-> 上级：`docs/ROADMAP.md` §0.5。 状态：**设计；`RL-01`（结果信封）、`RL-02`（拒绝六分类）、`DL-01`（目标可判定的 acceptance）已实施**（见 **§9**），其余未开工。
+> 上级：`docs/ROADMAP.md` §0.5。 状态：**13 条全部已实施**（`RL-01~04` / `DL-01~04` / `HL-01~05`，见 §9.1–§9.14）；唯一残留是 `HL-04` 的「接 ACC 门槛」仍被 WP-10 的 before/after 数据卡着。
 > 缘起：立项走到"功能模块（§3.1）+ 工作面（§4）"之后，真正没设计过的只剩这三段 ——
 > **执行层已经很硬，但"上面怎么指挥、中间怎么回报、撞墙了怎么办"从来没有设计。**
 
@@ -585,3 +585,14 @@ deps 与 blocks 归一成同一条边；落盘排序去重 ⇒ 与输入顺序�
 ③ "结束"是**执行层意义上**的结束（`session_ended` + 后续调用被拒），让 CLI 真正跳出轮询需一行 `break`（跨 scope）；
 ④ 分类级**不全局停**（要改成全停只需改 `_budget_escalate(block_all=...)` 一处）；
 ⑤ 预算物料仍只存内存，整份落会话账本需改 `cli/ace_sessionlog.py`。
+
+### 9.14 实施记录：`HL-04` 上报物料可判定（2026-10-01 补记）
+
+> §3.5。**不允许**只上报"失败了 8 次"—— L4 上报物料必须能被复核：指标语义五要素 + 缺陷可达性六要素，五种偷换（`unknown→true` / `latest→all` / `accepted→closed` / `attempted→judged` / `未评估→false`）当场拒收。
+
+- **形状与检查器单源**：`core/ace_contracts.py` —— `metric`（五要素）/ `defect`（六要素）契约 + `MaterialIncomplete` + `producer_for_source`。
+- **造物料时强制可判定**：`core/ace_ledgers.py` `build_material` —— 缺要素 / 要素立不住 → 抛 `MaterialIncomplete`，而不是静默降级成"大概"。
+- **上报路径接线**：`execution_layer.py` 的 L4 / 预算上报用 `producer_for_source` 定 producer；`MaterialIncomplete` 被捕获时**声明降级并如实标 `incomplete`**（不谎报"完成"）。
+- **五种偷换被机器钉死**：`test_all [73]` 覆盖 ACC-02/03 两份契约与 ACC-04 五种偷换。
+
+**边界（仍没做）**：`MaterialIncomplete` 只保"交上来的物料可判定"，不保"该交的地方都交了"——后一半是 **ACC 收尾**（`benchmarks/results/` 接校验器），仍被 WP-10 的"下沉前/后可复核数据"卡着。

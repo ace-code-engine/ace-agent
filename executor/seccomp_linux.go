@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -74,15 +75,18 @@ func denyNetworkFilter() []sockFilter {
 }
 
 // applySeccompNetworkDenial 让**调用进程**从此无法创建/连接任何 socket。
-// TSYNC 把过滤器同步到全部线程（Go 运行时是多线程的，避免 goroutine 换线程后漏过滤）。
+// 不用 TSYNC：Go 运行时多线程，TSYNC 跨线程同步在容器/CI 里容易 EINVAL。
+// 改成 LockOSThread 把 goroutine 钉在当前线程 + 只给当前线程上过滤器 ——
+// 后续的 socket 探测 / syscall.Exec 都发生在这同一条线程上，过滤器一定生效。
 func applySeccompNetworkDenial() error {
+	runtime.LockOSThread()
 	if _, _, errno := syscall.Syscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
 		return fmt.Errorf("prctl(NO_NEW_PRIVS): %v", errno)
 	}
 	prog := denyNetworkFilter()
 	fprog := sockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
 	if _, _, errno := syscall.Syscall(seccompSyscallNo, seccompSetModeFilter,
-		seccompFilterFlagTsync, uintptr(unsafe.Pointer(&fprog))); errno != 0 {
+		0, uintptr(unsafe.Pointer(&fprog))); errno != 0 {
 		return fmt.Errorf("seccomp(SET_MODE_FILTER): %v", errno)
 	}
 	return nil

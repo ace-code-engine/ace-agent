@@ -5391,7 +5391,6 @@ if _want("26"):
           or "tool/result" in _bufa3.getvalue(), _bufa3.getvalue()[:200])
 
     # —— /audit boundary：执行边界证据链（同一份 HMAC 台账的聚合视图） ——
-    from cli.ace_sessionlog import K_SECURITY as _K_SEC  # noqa: E402
     _slb_root = Path(mktemp("slogbnd"))
     _slb_path = str(_slb_root / "bnd.jsonl")
     _cli_bnd = ai_code.AgentCLI({"project_root": str(_slb_root), "permission": "write",
@@ -13364,8 +13363,10 @@ if _want("70"):
 
     _home70 = Path(os.path.expanduser("~"))
     _p70v = mktemp("混淆")
-    _out70v = _p70v.parent / "h13_out.txt"
-    _dest70v = _p70v.parent / "h13_dest.txt"
+    # .resolve() 规范化：macOS 上 /var、/tmp 是软链（→ /private/var、/private/tmp），
+    # 规则匹配会把 source 规范化、pattern 不规范化 → 失配（CI macOS 红过）。两边都用正名。
+    _out70v = (_p70v.parent / "h13_out.txt").resolve()
+    _dest70v = (_p70v.parent / "h13_dest.txt").resolve()
     _out70v.write_text("exists", encoding="utf-8")
 
     # H-10 ★别名：8.3 短名 / 尾点 / `..` 都必须与正名同判

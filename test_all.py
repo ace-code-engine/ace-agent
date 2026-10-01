@@ -16287,6 +16287,34 @@ if _want("81"):
           _raises81(lambda: _cli81.el.refusal_ledger.accept_proposal(
               _prop81, confirmed_by="", save_path="")), "")
 
+    # ── L4 是**唯一阻塞式**的档：`answer_escalation` 此前没有调用方 ──
+    # 物料攒在 `el.escalations` 里，模型收到"停下来问人"，而**人**从来没有被问到的入口。
+    _esc81 = {"kind": "escalation", "refusal_class": "PERMISSION",
+              "trigger": "cross_goal", "count": 3, "distinct_goals": 3,
+              "observed": "同一类拒绝跨目标反复出现", "block_all": False,
+              "fingerprints": [], "sentence": "3 个目标上各被拒一次"}
+    _cli81.el.pending_escalation = _esc81
+    _buf81e = io.StringIO()
+    with contextlib.redirect_stdout(_buf81e):
+        _cli81._cmd_escalation(["/escalation"])
+    check("[81] ★`/escalation` 把 L4 物料摆出来（此前只有 stderr/日志，人看不到）",
+          "PERMISSION" in _buf81e.getvalue() and "cross_goal" in _buf81e.getvalue()
+          and "escalation" in _buf81e.getvalue(), _buf81e.getvalue()[-300:])
+    check("[81] ★只看不答**不解除**阻塞（看了就当你同意了？不是）",
+          _cli81.el.pending_escalation is _esc81, "")
+    with contextlib.redirect_stdout(io.StringIO()):
+        _cli81._cmd_escalation(["/escalation", "同意这条", "别", "再试"])
+    check("[81] ★`/escalation <回答>` 解除阻塞，回答原样落在物料上（多词也算一句）",
+          _cli81.el.pending_escalation is None
+          and _esc81.get("answered") == "同意这条 别 再试", _esc81.get("answered"))
+    _cli81.el.pending_escalation = None
+    _buf81f = io.StringIO()
+    with contextlib.redirect_stdout(_buf81f):
+        _cli81._cmd_escalation(["/escalation"])
+    check("[81] ★没上报时说清『没有』，不假装（也不抛）",
+          "L4" in _buf81f.getvalue() or "上报" in _buf81f.getvalue(),
+          _buf81f.getvalue()[-200:])
+
 # ============================================================
 if _want("82"):
     # ── [82] WP-2 剩余：aider 式 auto-commit 与 /undo 统一（R-2） ──

@@ -1635,7 +1635,7 @@ class _SlashCommands:
                            "/rename", "/recap", "/export",
                            "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
-                            "/sandbox", "/net"]),
+                            "/sandbox", "/net", "/escalation"]),
         ("group_model", ["/provider", "/model", "/preset", "/config", "/mock", "/thinking",
                          "/style"]),
         ("group_tools", ["/home", "/new", "/open", "/edit", "/review", "/diff", "/search", "/memory",
@@ -1701,6 +1701,7 @@ class _SlashCommands:
         "/workspace": "cmd_workspace",
         "/audit": "cmd_audit",
         "/net": "cmd_net",
+        "/escalation": "cmd_escalation",
         "/sandbox": "cmd_sandbox",
         "/thinking": "cmd_thinking",
         "/effort": "cmd_effort",
@@ -1776,6 +1777,7 @@ class _SlashCommands:
         "/workspace": ("_cmd_workspace", True),
         "/audit": ("_show_audit", True),
         "/net": ("_toggle_net", True),
+        "/escalation": ("_cmd_escalation", True),
         "/sandbox": ("_handle_sandbox", True),
         "/thinking": ("_cmd_thinking", True),
         "/effort": ("_cmd_effort", True),
@@ -1963,6 +1965,46 @@ class _SlashCommands:
         except OSError:
             return out
         return out
+
+    def _cmd_escalation(self, parts: List[str]) -> bool:
+        """`/escalation [回答]`：看 L4 阻塞式上报 / 回答它。
+
+        L4 是五级阶梯里**唯一阻塞式**的档 —— "停下来问人"（`EL.answer_escalation`）。
+        但那个接口此前**没有任何调用方**：物料攒在 `el.escalations` 里，模型收到的只是
+        "停下来问人，不要继续调用工具"，而**人**从来没有被问到的入口。这是"有 API 没人用"
+        里最尴尬的一种 —— 号称阻塞，其实谁也没被阻塞。这条命令就是那个入口。
+        """
+        el = self.el
+        esc = getattr(el, "pending_escalation", None)
+        answer = " ".join(parts[1:]).strip()
+        if esc is None:
+            _past = [m for m in (getattr(el, "escalations", []) or []) if isinstance(m, dict)]
+            if not _past:
+                print(c("dim", t("esc_none")))
+                return True
+            print(c("dim", t("esc_none_pending", n=len(_past))))
+            for _m in _past[-3:]:
+                print(c("dim", f"  · {_m.get('refusal_class') or '-'}"
+                             f"  → {str(_m.get('answered') or '—')[:60]}"))
+            return True
+        print(c("yellow", t("esc_title")))
+        print(f"  {t('esc_class')}: {esc.get('refusal_class') or '-'}"
+              f"    {t('esc_trigger')}: {esc.get('trigger') or '-'}")
+        print(f"  {t('esc_count')}: {esc.get('count')}"
+              f"    {t('esc_goals')}: {esc.get('distinct_goals')}")
+        if esc.get("block_all"):
+            print(c("red", "  " + t("esc_block_all",
+                                    tier=str(esc.get("budget_tier") or "-"))))
+        _obs = str(esc.get("observed") or "").strip()
+        if _obs:
+            print(f"  {t('esc_observed')}: {_obs}")
+        if not answer:
+            print(c("dim", t("esc_hint")))
+            return True
+        # 到这里才真的解除阻塞；`answer_escalation` 会记下回答并把 pending 清空。
+        el.answer_escalation(answer)
+        print(c("green", t("esc_answered", text=answer)))
+        return True
 
     def _cmd_preset(self, parts: List[str]) -> bool:
         """`/preset [名字]`：列出 / 切换 agent 预设（WP-6 的**入口**）。
@@ -6803,6 +6845,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 执行层用它决定"哪些跨轮状态属于这一次请求"——不能靠 user_input 文本比较，
         # 否则同一句话重发会继承上一问的反幻觉计数与畸形输出指纹（H-20/H-21 两个方向都错）。
         task_id = secrets.token_hex(8)
+        # 已经提示过的那份 L4 上报物料（见轮末的 `esc_inline`）：按**对象身份**比较，
+        # 所以同一份不会每轮刷屏，而新的一份一定会被提示。
+        _esc_shown = None
         for _round in range(1, MAX_ROUNDS + 1):
             if self._stop_requested():
                 # 中断请求：在**轮边界**停下来（不在工具跑到一半时扔掉线程，
@@ -6932,6 +6977,16 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
             if result["status"] == "PLAN_ALREADY_APPROVED":
                 next_user = PROMPT_PLAN_APPROVED
                 continue
+
+            # L4 是**唯一阻塞式**的档：它停下来等人回答（`el.answer_escalation`）。
+            # 只在**这一轮新出现**时提一次，不是每轮刷屏；用户答完 `pending_escalation`
+            # 就清了。没有这条提示的话，模型收到的是"停下来问人"，而人根本不知道被问了 ——
+            # 说是阻塞式，其实谁也没被阻塞。
+            _esc_now = getattr(self.el, "pending_escalation", None)
+            if _esc_now is not None and _esc_now is not _esc_shown:
+                _esc_shown = _esc_now
+                print(c("yellow", "\n  " + t("esc_inline",
+                                             cls=(_esc_now.get("refusal_class") or "-"))))
 
             if result["status"] == "PERMISSION_REQUEST":
                 tool_name = result.get("tool")

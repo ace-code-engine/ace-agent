@@ -2,67 +2,114 @@
   <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="发布状态" src="https://img.shields.io/badge/release-v1.0.0%20Public%20Beta-brightgreen">
   <img alt="安全核心依赖" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="模型调用" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.47.0%20(2026--10--01)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v1.0.0%20(2026--10--01)-brightgreen"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/%E6%9B%B4%E6%96%B0%E6%97%A5%E5%BF%97-CHANGELOG-blue"></a>
 </p>
 
 <h1 align="center">ACE · AI Code Engine</h1>
 
-<p align="center"><strong>中文</strong> · <a href="README.md">English</a> · <a href="CHANGELOG.md">更新日志 · Changelog</a></p>
-
 <p align="center">
-  <strong>一个把安全下沉到执行层的 AI 编码 Agent —— 模型只负责理解和输出，<br>
-  权限、沙箱、快照回滚全部由执行层裁决。</strong>
+  简体中文 · <a href="README.md">English</a> · <a href="CHANGELOG.md">更新日志</a> · <a href="docs/README.md">文档索引</a>
 </p>
 
-### TL;DR
+<p align="center">
+  <strong>把安全边界放在模型<b>之下</b>的执行层。<br>
+  模型提出动作，权限、隔离、快照与回滚由它无法辩解的代码裁决。</strong>
+</p>
 
-1. **安全是代码，不是提示词。** 每次工具调用都过一层独立的执行层：它裁决权限、识别危险行为、并在任何写入前建快照 —— 被越狱的模型照样删不掉你的文件。→ **[安全边界 FAQ](docs/security/SECURITY-FAQ.md)**：它挡住了什么、没挡住什么。
-2. **本地跑，模型无关，核心零依赖。** 安全核心纯 stdlib（链路里没有云）；**9 家厂商 · 10 个入口**由一个 `/provider` 切换，同时支持 OpenAI 与 Anthropic 两种报文格式。模型调用需要 `requests`，安全核心不需要。
-3. **所有东西共用一条路径。** 每个工具只在 `tools/registry.py` 声明一次；**MCP server** 与普通 `SKILL.md` 技能都经同一条权限/审批/审计路径 —— MCP server 本身跑在 ACE 沙箱之外。
+---
 
-**快速开始** —— 离线、不需要密钥、不需要网络：
+## 一、概述
+
+ACE（AI Code Engine）是面向编码代理的**执行层**。每一次工具调用 —— 文件访问、命令执行、出网、
+调用 MCP server —— 在执行之前都要经过同一个裁决点：权限闸门、路径与敏感目标边界、写前快照、
+可审计记录。提示词失效时这道边界仍然成立：越狱、注入的网页内容、被篡改的工具输出，都不改变它，
+因为它并不写在提示词里。
+
+安全核心为**纯标准库**实现；整条链路中只有模型调用需要 `requests`。其余性质：本地执行（裁决路径
+不含云）、模型无关（**9 家厂商 · 10 个入口**由一个 `/provider` 切换，兼容 OpenAI 与 Anthropic
+两种报文格式）、所有工具共用一条声明路径（`tools/registry.py`，原生工具 / MCP server / `SKILL.md`
+技能同一口）。
+
+## 二、发布状态
+
+| | |
+|---|---|
+| **版本** | **1.0.0 — 公测（Public Beta）**，2026-10-01 |
+| **成熟度** | 能力路线图范围内功能完备；1.0 正式版之前接口仍可能调整 |
+| **运行环境** | Python 3.10 / 3.11 / 3.12 |
+| **许可** | MIT |
+| **验证平台** | Windows 11 x64（主要）· Linux 与 macOS（CI） |
+
+版本号自 1.0.0 起重新起算。此前的 3.x 为内部能力路线图迭代版本，保留在
+[更新日志](CHANGELOG.md) 中以便追溯。
+
+## 三、交付形态
+
+每个版本发布三种产物；它们是**并列的三条路**，不是要叠加的层。
+
+| 形态 | 产物 | 装了什么 | 什么时候选它 |
+|---|---|---|---|
+| **① 直接用 ACE 当你的 agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | 完整终端 agent：四外壳、51 工具、写前快照、`/undo` | 你需要一个能自己干活的 agent |
+| **② 把 ACE 当*你的* agent 的 MCP 服务** | `ace-mcp-server-1.0.0.zip` | 非侵入式 MCP 服务；你的 host agent 获得唯一的裁决与审计点 | 你已经在用 Cline / Claude Desktop / Cursor 等 MCP host，只想加边界、不改它 |
+| **③ MCP 服务 + 沙箱底座（一体包）** | `ace-sandbox-bundle-1.0.0.zip` | 形态 ② 加**虚拟化底座**的引导，使不可信代码跑在硬件隔离的 microVM 中 | 你既要裁决边界，也要执行边界 |
+
+已安装 ACE 的环境**不需要** ② 或 ③：让 host 指向 `ace.exe --mcp` 即可。② 与 ③ 面向"要边界、
+但不装 agent"的场景。
+
+## 四、架构
+
+```
+  模型 / host agent             提出一个动作
+          |
+          v
+  ACE 执行层                    裁决：权限、路径、敏感目标、
+  （唯一裁决点）                审批、写前快照、审计记录
+          |
+          +--> 宿主工具          文件、命令、网络、MCP server
+          |
+          +--> 虚拟化底座（可选，形态 ③）
+                                 不可信代码跑在 KVM microVM 中
+```
+
+两道边界彼此独立，且**不要求同机**：虚拟化底座可以是一台共享的 Linux 服务，供多台 agent 主机连接。
+
+## 五、快速开始
+
+离线自验 —— 不需要密钥、不需要网络：
 
 ```bash
 python ai_code.py --mock
 ```
 
+接入 host agent（形态 ②）：解压包 → 运行 `install-cline.ps1`（或把 `configs/` 中的配置合进你的
+host MCP 配置）→ 用 `python verify-mcp.py` 验证。
+
 <p align="center">
   <img src="demo/demo.svg" alt="真实录制的一次离线 ACE 会话：提问、工具调用、回答、状态栏" width="820">
 </p>
 
-<p align="center"><sub>真实录制，不是效果图 —— 用 <code>python demo/record_demo.py</code> 重录，或用 <code>--check</code> 验证它没有腐化（CI 每次 push 都跑）。更多画面：<a href="docs/SHOWCASE.md">演示与截图</a>。</sub></p>
+<p align="center"><sub>由真实会话录制，非效果图。可用 <code>python demo/record_demo.py</code> 重录；用 <code>--check</code> 验证已发布的图仍可复现（CI 每次推送都跑）。更多画面：<a href="docs/SHOWCASE.md">演示与截图</a>。</sub></p>
 
----
+## 六、安全边界
 
-## 两种用法，挑一个
+MCP 形态在标准工具集之外额外提供两个安全工具：
 
-|  | **① 直接用 ACE 当你的 agent** | **② 把 ACE 当*你的* agent 的后端**（非侵入式） |
-|---|---|---|
-| 你得到 | 完整的终端 agent：四外壳、51 工具、写前快照、`/undo` | 一层安全服务，你的现有 agent 通过 **MCP** 调用它 |
-| 怎么开始 | 装 MSI 或解压发布包，跑 `ace` | 解压 `ace-mcp-&lt;版本&gt;.zip`，把一段配置粘进你的 host |
-| 你的机器上多什么 | 多装一个程序 | **什么都不多** —— 只加一条 MCP 配置，删掉就恢复原样 |
-| 详细说明 | [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md) · `python ai_code.py --mock` | [packaging/mcp/README-MCP.md](packaging/mcp/README-MCP.md) · `python verify-mcp.py` |
+- **`ace_security_scan`** —— 路径级静态扫描（凭据文件、敏感目录、可执行后缀、网络路径）。
+  `deep: true` 时追加内容级检查，且**只读文件名已命中凭据清单**的那些文件。每份报告的第一行
+  都写着自己的范围声明 —— 因为**扫描完成不等于结论安全**。
+- **`ace_sandbox_exec`** —— 在 CubeSandbox microVM 中执行不可信代码。沙箱不可达时**拒绝**（Tier 0），
+  **绝不**退回本机执行；宿主凭据不注入沙箱。
 
-**②** 能挂到 Cline / Claude Desktop / Cursor / 任何 MCP host，并多出两个安全工具：
+其余工具全部经过同一个权限 / 审批 / 审计点。默认权限档为 `readonly`。
 
-- `ace_security_scan` —— 路径级静态扫描（凭据、敏感目录、可执行后缀、网络路径）；
-  `deep: true` 再加一遍内容级，且**只读文件名已命中凭据**的那批。报告第一行永远写着范围声明 ——
-  因为**"扫过了"不等于"安全了"**。
-- `ace_sandbox_exec` —— 把不可信代码丢进 CubeSandbox（KVM microVM）跑；沙箱不可达时**拒绝**（Tier 0），
-  **绝不**退回你本机执行。凭据不注入沙箱。
-- 另有 31 个 ACE 工具，全部经过同一个权限 / 审批 / 审计点。默认 `readonly`。
+> 形态 ③ 的包内含 `preflight`，**先报告**这台机器能否承载底座，而不是让安装失败来告诉你。
+> Windows 与 macOS 不能承载：KVM 是 Linux 内核机制。
 
-**③ 一体包**(`ace-secbox-&lt;版本&gt;.zip`)—— 同一个挂载层，**再加虚拟化底座**:
-你 agent 生成的代码跑在硬件隔离的 microVM 上，而决定权仍在 ACE。两半**不必同机**：
-一台 Linux 底座可以服务多台机器上的 agent。
-见 [packaging/allinone/README-ALLINONE.md](packaging/allinone/README-ALLINONE.md) —— 它带一个
-`preflight`，**先告诉你这台机器能不能当底座**(Windows 不能)，而不是让你从装坏了的安装里发现。
-
-> 已经装了 ACE 的人**不需要**这两个包 —— 直接让你的 host 指向 `ace.exe --mcp` 就行。
-> 这两个包是给"只想要那层安全(以及可选的底座)、不想装 agent"的人准备的。
+延伸阅读：[安全边界 FAQ](docs/security/SECURITY-FAQ.md) · [MCP server 立项卡](docs/design/MCP-SERVER.md) · [一体包说明](packaging/allinone/README-ALLINONE.md) · [MCP 包说明](packaging/mcp/README-MCP.md)
 
 ---
 

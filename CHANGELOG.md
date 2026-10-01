@@ -5,9 +5,17 @@
 > 条目分类：✨ 新增 · ⚙️ 改进 · 🐛 修复 · 🛡️ 安全。
 > 全量断言随平台浮动（Windows 比 Linux 多十余项），**以 `python test_all.py` 的实际输出为准，本文不写死数字**（历史条目里的数字是当时那次运行的记录）。
 
-## Unreleased · 2026-10-01（v3.47.0 之后的验证）
+## [v1.0.0] · 2026-10-01 —— 公测（Public Beta）：执行层 / MCP 服务 / 沙箱底座三形态发布
 
-### 🧊 一体包：虚拟化底座 + MCP 挂载（`ace-secbox-<ver>.zip`）
+> **版本号说明**：自本条起版本号重新起算为 `1.0.0`。此前的 `3.3`–`3.47` 为内部能力路线图迭代，
+> 条目原样保留在下方以便追溯；两者的**功能范围不重复叙述** —— 3.x 的收尾内容（工作区四层、
+> agent 预设、学习闭环、L4 上报、MCP 安全子层）都包含在 1.0.0 公测版里。
+>
+> **本版三条交付形态**：① 直接用 ACE 当 agent（MSI / zip）；② 把 ACE 当你的 agent 的 MCP 服务
+> （`ace-mcp-server-1.0.0.zip`）；③ MCP 服务 + 虚拟化底座一体包（`ace-sandbox-bundle-1.0.0.zip`）。
+> 三条是并列选项，不是叠加层。承诺的边界见 `docs/security/SECURITY-FAQ.md` 与本文各条。
+
+### 🧊 一体包：虚拟化底座 + MCP 服务（`ace-sandbox-bundle-<ver>.zip`）
 
 - **两件东西一个目的**：用户的 agent 生成的代码跑在**硬件隔离底座**上（CubeSandbox = RustVMM + KVM
   microVM），而**决定权挂在用户自己的 agent 上**（ACE MCP 层）。`packaging/allinone/README-ALLINONE.md`
@@ -30,12 +38,12 @@
 - `release-packs.yml`（替换掉只打一个包的 `release-mcp-pack.yml`）：两个包都构建 → **各自在干净解压里 smoke**
   → 校验一体包**确实比 MCP 包多出底座那一半** → 一起挂到 Release。
 
-### 📦 非侵入式 MCP 接入包（让用户自己选：用 ACE，还是把 ACE 挂到自己的 agent 上）
+### 📦 非侵入式 MCP 服务包（形态 ②：`ace-mcp-server-<版本>.zip`）
 
 - **两种用法摆到 README 首屏**（`README.md` / `README.zh-CN.md`）：① 直接用 ACE 当 agent；
   ② 把 ACE 当你的 agent 的后端（非侵入式，**零改动**）。配套说明 `packaging/mcp/README-MCP.md`
   写清两者的取舍、边界与"该选哪个"。
-- **`packaging/build_mcp_bundle.ps1`** → `dist/ace-mcp-<版本>.zip`（~0.9 MB）：只装跑 `--mcp`
+- **`packaging/build_mcp_bundle.ps1`** → `dist/ace-mcp-server-<版本>.zip`（~0.9 MB）：只装跑 `--mcp`
   需要的运行时（顶层模块**按 glob 取**，排除测试套件；另有 `core/ tools/ cli/ ui/ tui/ locales/
   prompts/ assets/`）+ 该包的说明书 + 四家 host 的现成配置 + 启动器 + 安装脚本 + 自检脚本 + `VERSION`。
   顶层模块不再手写白名单 —— 第一版只列了两个文件，**自检当场抓到漏了 `agent_runner`**
@@ -251,6 +259,7 @@
 
 **版本目录**
 
+- [v1.0.0 · 2026-10-01 · 公测（Public Beta）：执行层 / MCP 服务 / 沙箱底座三形态发布](#v100-2026-10-01)
 - [v3.47.0 · 2026-10-01 · ACE 打包成 MCP 安全子层：主 agent 的子安全层 + 共用 CubeSandbox 底座（WP-11 / SEC-022 · 批次 4 关闭 · 学习与 L4 闭环）](#v3470-2026-10-01)
 - [v3.46.0 · 2026-09-30 · 能力路线图批次 -1~5：工具 42→51、三层脊柱 13 项落地（git 工具族 / 前缀缓存 / 两个账本 / 会话树 / 预设 / Skill / 三级预算）](#v3460-2026-09-30)
 - [v3.45.0 · 2026-09-27 · 安全边界再加固（H-27~H-32）· README 首屏重开 + 安全边界 FAQ · docs 结构整理](#v3450-2026-09-27)

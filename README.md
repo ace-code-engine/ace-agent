@@ -2,67 +2,120 @@
   <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="Release" src="https://img.shields.io/badge/release-v1.0.0%20Public%20Beta-brightgreen">
   <img alt="Safety core dependencies" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="Model API" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
-  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v3.47.0%20(2026--10--01)-brightgreen"></a>
+  <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v1.0.0%20(2026--10--01)-brightgreen"></a>
 </p>
 
 <h1 align="center">ACE · AI Code Engine</h1>
 
-<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">中文</a> · <a href="CHANGELOG.md">更新日志 · Changelog</a></p>
-
 <p align="center">
-  <strong>An AI coding agent that pushes safety <em>below</em> the model — into the execution layer.<br>
-  The model proposes; permissions, isolation, snapshots and rollback are decided by code it cannot talk its way past.</strong>
+  English · <a href="README.zh-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="docs/README.md">Documentation</a>
 </p>
 
-### TL;DR
+<p align="center">
+  <strong>An execution layer that places the safety boundary below the model.<br>
+  The model proposes; permission, isolation, snapshots and rollback are decided by code it cannot argue with.</strong>
+</p>
 
-1. **Safety is code, not prompt.** Every tool call passes a separate execution layer that decides permission, detects dangerous behaviour and snapshots before any write — a jailbroken model still cannot delete your files. → **[Security boundary FAQ](docs/security/SECURITY-FAQ.md)**: what it does and does not stop.
-2. **Local, model-agnostic, zero-dep core.** Pure-stdlib safety core (no cloud in the loop); **9 vendors · 10 endpoints** behind one `/provider` switch, over both the OpenAI and Anthropic wire formats. Model calls need `requests`; the safety core does not.
-3. **One path for everything.** Every tool is declared once in `tools/registry.py`; **MCP servers** and plain `SKILL.md` skills reach it through the same permission, approval and audit path — an MCP server itself runs outside ACE's sandbox.
+## 1. Overview
 
-**Quickstart** — offline, no key, no network:
+ACE (AI Code Engine) is an execution layer for coding agents. Every tool call — file access, command
+execution, network egress, MCP server invocation — passes through a single decision point before it
+runs: a permission gate, a path and sensitive-target boundary, a write-ahead snapshot, and an auditable
+record. The boundary holds when the prompt does not: under jailbreak, injected web content or tampered
+tool output it still applies, because it is not expressed in the prompt.
+
+The safety core is pure standard library. Model calls are the only component requiring `requests`.
+Supporting properties: local execution (no cloud in the decision path), model-agnostic operation
+(**9 vendors · 10 endpoints** behind one `/provider` switch, over both the OpenAI and Anthropic wire
+formats), and one declared path for every tool (`tools/registry.py`), shared by native tools, MCP
+servers and `SKILL.md` skills.
+
+## 2. Release status
+
+| | |
+|---|---|
+| **Version** | **1.0.0 — Public Beta** (2026-10-01) |
+| **Maturity** | Feature-complete against the capability roadmap; interfaces may still change before 1.0 GA |
+| **Runtime** | Python 3.10 / 3.11 / 3.12 |
+| **Licence** | MIT |
+| **Verified on** | Windows 11 x64 (primary), Linux and macOS (CI) |
+
+Version numbering restarted at 1.0.0. Earlier 3.x builds were internal capability-roadmap iterations;
+they remain in the [changelog](CHANGELOG.md) for traceability.
+
+---
+
+## 3. Delivery forms
+
+Three artefacts are published for every release. They are alternatives, not layers to stack.
+
+| Form | Artefact | What it installs | Choose it when |
+|---|---|---|---|
+| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | The full terminal agent: four shells, 51 tools, write-ahead snapshots, `/undo` | You want an agent to work in |
+| **② ACE as an MCP server for your agent** | `ace-mcp-server-1.0.0.zip` | A non-intrusive MCP server; the host agent gains a single decision and audit point | You already use Cline / Claude Desktop / Cursor / any MCP host and want the boundary without changing it |
+| **③ ACE MCP server + sandbox base** | `ace-sandbox-bundle-1.0.0.zip` | Form ② plus a bootstrap for the virtualisation base, so untrusted code runs in a hardware-isolated microVM | You want the execution boundary as well as the decision boundary |
+
+An existing ACE installation does **not** require ② or ③: point the host at `ace.exe --mcp`. Forms ② and ③
+exist for environments that want the boundary without installing the agent.
+
+## 4. Architecture
+
+```
+  Model / host agent            proposes an action
+          |
+          v
+  ACE execution layer           decides: permission, paths, sensitive targets,
+  (single decision point)       approval, write-ahead snapshot, audit record
+          |
+          +--> host tools       files, commands, network, MCP servers
+          |
+          +--> virtualisation base (optional, form ③)
+                                runs untrusted code in a KVM microVM
+```
+
+The two boundaries are independent and may reside on different machines: the virtualisation base can be
+a shared Linux service that several agent hosts connect to.
+
+## 5. Quickstart
+
+Offline verification — no API key, no network:
 
 ```bash
 python ai_code.py --mock
 ```
 
+Connecting a host agent instead (form ②): unzip the pack, run `install-cline.ps1` (or merge a file from
+`configs/` into your host's MCP configuration), then verify with `python verify-mcp.py`.
+
 <p align="center">
-  <img src="demo/demo.svg" alt="A real offline ACE session: ask, tool call, answer, status bar" width="820">
+  <img src="demo/demo.svg" alt="A recorded offline ACE session: request, tool call, answer, status line" width="820">
 </p>
 
-<p align="center"><sub>Really recorded, not a mock-up — re-record with <code>python demo/record_demo.py</code>, or verify it has not rotted with <code>--check</code> (CI runs this on every push). More screens: <a href="docs/SHOWCASE.md">Demo &amp; screenshots</a>.</sub></p>
+<p align="center"><sub>Recorded from a real session, not a mock-up. Re-record with <code>python demo/record_demo.py</code>; verify the published images still reproduce with <code>--check</code> (run on every push). Further screens: <a href="docs/SHOWCASE.md">Demo &amp; screenshots</a>.</sub></p>
 
----
+## 6. Security boundary
 
-## Two ways to use it — pick one
+The MCP forms expose two security tools in addition to the standard tool set:
 
-|  | **① ACE as your agent** | **② ACE as a back-end for *your* agent** (non-intrusive) |
-|---|---|---|
-| What you get | the whole terminal agent: 4 shells, 51 tools, write-ahead snapshots, `/undo` | a safety layer your existing agent calls over **MCP** |
-| How to start | install the MSI or unzip the release, run `ace` | unzip `ace-mcp-&lt;version&gt;.zip`, paste one config into your host |
-| What changes on your machine | you install an app | **nothing** — one MCP entry; delete it and you are back where you started |
-| Details | [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md) · `python ai_code.py --mock` | [packaging/mcp/README-MCP.md](packaging/mcp/README-MCP.md) · `python verify-mcp.py` |
+- **`ace_security_scan`** — static scan at path level (credential files, sensitive directories,
+  executable suffixes, network paths). With `deep: true` it also inspects the *contents* of files whose
+  names already matched the credential list. Every report opens with its own scope statement, because
+  a completed scan is not a statement of safety.
+- **`ace_sandbox_exec`** — executes untrusted code in a CubeSandbox microVM. If no sandbox is reachable
+  the call is **refused** (Tier 0); it never falls back to execution on the local machine, and host
+  credentials are not injected into the sandbox.
 
-**②** plugs into Cline / Claude Desktop / Cursor / any MCP host, and adds two security tools:
+The remainder of the tool set routes through the same permission, approval and audit path. The default
+permission level is `readonly`.
 
-- `ace_security_scan` — path-level static scan (credentials, sensitive dirs, executable suffixes,
-  network paths); `deep: true` adds a content-level pass over the files whose *names* already hit the
-  credential list. Reports open with their own scope statement, because **"scanned" is not "safe"**.
-- `ace_sandbox_exec` — runs untrusted code in a CubeSandbox microVM (KVM). When no sandbox is reachable
-  it **refuses** (Tier 0); it never falls back to running on your machine. Credentials are not injected.
-- plus 31 ACE tools that all route through the same permission / approval / audit point. Default is `readonly`.
+> The pack for form ③ ships a `preflight` that reports up front whether a given machine can host the
+> base, rather than failing during installation. Windows and macOS cannot host it: KVM is a Linux kernel
+> facility.
 
-**③ All-in-one** (`ace-secbox-&lt;version&gt;.zip`) — the same mount **plus the virtualization base**:
-your agent's code runs on a hardware-isolated microVM, while the decision stays in ACE. The two halves
-do **not** have to be on the same machine: one Linux base can serve many agents.
-Read [packaging/allinone/README-ALLINONE.md](packaging/allinone/README-ALLINONE.md); it ships a
-`preflight` that tells you up front whether a given machine can host the base (Windows cannot) instead
-of letting you find out from a broken install.
-
-> Already have ACE installed? You do **not** need either pack — point your host at `ace.exe --mcp`.
-> The packs are for people who want the safety layer (and optionally the base) without installing the agent.
+Further reading: [Security boundary FAQ](docs/security/SECURITY-FAQ.md) · [MCP server card](docs/design/MCP-SERVER.md) · [all-in-one pack](packaging/allinone/README-ALLINONE.md) · [MCP pack](packaging/mcp/README-MCP.md)
 
 ---
 

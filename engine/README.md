@@ -176,7 +176,7 @@ NDJSON over stdio，形体与 `docs/ADR-002-executor-boundary.md` / `core/ace_se
 3. **会话/目标状态**：把 `tools/goal_tools.py`（内存 CAS）与 `core/ace_todos.py`（重放）
    收敛成一份可重放的状态机 —— 评审实测它们今天会互相覆盖（子代理共用同一个文件）。
 4. **运行度量聚合**：`core/nuwa.py` 的 POC 指标 + `core/ace_cost.py` 的成本，跨会话累积。
-5. **仓库扫描**（`grep`/`glob` 的 Python 实现）：与文件索引共用同一份目录状态。
+5. ~~**仓库扫描**（`grep`/`glob` 的 Python 实现）~~ —— **实测否决（2026-10-02）**。grep 冷读 68ms / 热读 65ms（188 文件 / 4MB），CPU 占 65ms —— 看着像 CPU-bound，但：① grep 的 pattern 由**模型给**，Rust `regex` crate 的语义与 Python `re` 不同（无反引用/环视），要字节级对齐否则会有"Rust 命中、Python 不命中"的静默漂移；② 零依赖红线排除了 `regex` crate，手写一个 `re` 兼容引擎不现实；③ 65ms/次是"每次检索"、不是"每次写"（快照那种热路径）。**不搬**。glob 同理（`root.glob` 已走 C 实现，I/O-bound）。
 6. **守门批处理**（`gateway_v2/guard.py` 的 8 条规则）：搬之前先把 warn 遮蔽 block 那个洞
    钉死（本会话已修，测试在 `test_all.py` 的 D5）。
 

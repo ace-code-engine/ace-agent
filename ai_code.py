@@ -1639,7 +1639,7 @@ class _SlashCommands:
         ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking",
                          "/style"]),
         ("group_tools", ["/home", "/new", "/open", "/edit", "/review", "/diff", "/search", "/memory",
-                        "/report", "/goal", "/cd", "/agents"]),
+                        "/report", "/goal", "/cd", "/agents", "/workspace"]),
         ("group_extend", ["/effort", "/lang", "/mcp", "/hooks", "/plugins", "/vim", "/keys", "/term",
                           "/rules", "/skill"]),
     ]
@@ -1697,6 +1697,7 @@ class _SlashCommands:
         "/provider": "cmd_provider",
         "/config": "cmd_config",
         "/goal": "cmd_goal",
+        "/workspace": "cmd_workspace",
         "/audit": "cmd_audit",
         "/net": "cmd_net",
         "/sandbox": "cmd_sandbox",
@@ -1770,6 +1771,7 @@ class _SlashCommands:
         "/provider": ("_handle_provider", True),
         "/config": ("_config_wizard", False),
         "/goal": ("_show_goal", True),
+        "/workspace": ("_cmd_workspace", True),
         "/audit": ("_show_audit", True),
         "/net": ("_toggle_net", True),
         "/sandbox": ("_handle_sandbox", True),
@@ -1959,6 +1961,42 @@ class _SlashCommands:
         except OSError:
             return out
         return out
+
+    def _cmd_workspace(self, parts: List[str]) -> bool:
+        """四层工作区（WP-4）：Task → Workspace → Session + 每行**最新进程**。
+
+        只读展示。建立/切换 worktree 归 `tools/git_ops.worktree_add/remove`（写类，逐次确认），
+        这里先把**已有状态**给人看 —— 一个看不见的四层模型等于不存在。
+        状态存 `.ace/workspaces.json`（有就读；懒加载，不在 `__init__` 里做 IO）。
+        """
+        from core import ace_workspace as _ws  # noqa: PLC0415
+
+        st = getattr(self, "workspace_store", None)
+        if st is None:
+            _p = Path(self.cfg.get("project_root") or ".") / ".ace" / "workspaces.json"
+            st = (_ws.WorkspaceStore.load(_p) if _p.is_file()
+                  else _ws.WorkspaceStore(primary_root=self.cfg.get("project_root")))
+            self.workspace_store = st
+        if not st.tasks and not st.workspaces:
+            print(c("dim", t("workspace_empty")))
+            return True
+        for _t in st.tasks.values():
+            print(c("bold", f"▸ {_t.title or _t.id}"))
+            for _w in st.workspaces.values():
+                if getattr(_w, "task_id", None) != _t.id:
+                    continue
+                _flag = "".join(["A" if _w.archived else "", "P" if _w.pinned else "",
+                                 "D" if _w.worktree_deleted else ""]) or "-"
+                _proc = st.latest_process(_w.id)
+                _rr = getattr(getattr(_proc, "run_reason", None), "value",
+                              getattr(_proc, "run_reason", ""))
+                _tail = ("无" if _proc is None else
+                         f"{_rr}({_proc.status}"
+                         + (f" exit={_proc.exit_code}" if _proc.exit_code is not None else "")
+                         + ")")
+                print(f"    {_w.name or _w.id}  [{_w.branch or '-'}] {_flag}  最新进程: {_tail}")
+        print(c("dim", t("workspace_roots", n=len(st.allowed_roots()))))
+        return True
 
     def _cmd_history(self, parts: List[str]) -> bool:
         """`/history [关键词]`：模糊检索输入历史（英文缩写也能命中）。

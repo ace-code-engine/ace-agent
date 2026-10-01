@@ -16368,6 +16368,15 @@ if _want("85"):
           [c for c in ("POLICY", "BOUNDARY", "AUTH_PENDING", "CAPABILITY", "TRANSIENT",
                        "MALFORMED") if not _pf85(c)])
 
+    # HL-04 边界⑦收口：整份物料落会话账本（此前只有 observed/production_producer 摘要）
+    from cli.ace_sessionlog import SessionLog as _SL85  # noqa: E402
+    _sl85 = _SL85(str(mktemp("hl04_85") / "s.jsonl"))
+    _mat85 = {"observed": "症状", "defect": {"production_producer": "a.py:b"}}
+    _sl85.record_ladder("L4", "file_write", material=_mat85)
+    _ev85 = [e for e in _sl85.events() if e.get("kind") == "ledger/ladder"]
+    check("[85] ★整份物料落会话账本（审计能复核原始契约，不只摘要）",
+          bool(_ev85) and _ev85[-1].get("material") == _mat85, _ev85[-1:] or "无 ledger/ladder 事件")
+
 
 # ============================================================
 if _want("86"):

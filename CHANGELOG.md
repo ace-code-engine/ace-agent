@@ -7,6 +7,15 @@
 
 ## Unreleased · 2026-09-30（**尚未发布**：发布时定版本号、把这段并入版本条目，并重录 demo 图）
 
+### ⚙️ HL-04 物料落账本 + 打包口径写明
+
+- **整份 `L4` 上报物料落会话账本**（HL-04 边界⑦收口）：`record_ladder` 新增 `material=`，
+  `_ladder_note` 把 L4 那份**可判定物料**（五要素 + 六要素 + 五种偷换的回答）整份写进
+  `ledger/ladder` 事件 —— 只留 `observed`/`production_producer` 摘要的话，
+  "缺 `Production producer` 即红"这条契约**事后复核不了**。
+- `packaging/ace.spec` 写明 `skills/` **有意不带**：它是示例内容不是运行时必需
+  （与 `prompts/` `locales/` 的区别正在这里），用户按 `skills/<name>/SKILL.md` 自建。
+
 ### ✨ WP-4 四层持久化（后续切片）
 
 - `core/ace_workspace.WorkspaceStore` 新增 `save()` / `load()`：四层状态写成一份 JSON，读回时

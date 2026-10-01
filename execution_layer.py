@@ -1287,6 +1287,9 @@ class ExecutionLayer:
               "fingerprint": key.fingerprint, "refusal_class": key.refusal_class,
               "count": int(getattr(entry, "count", 0)), "detail": detail}
         self.ladder_events.append(ev)
+        # L4 才有物料；下面 record_ladder 要把**整份**可判定物料落账本（HL-04 边界⑦：
+        # 此前只带 observed/production_producer 摘要 ⇒ 审计复核时够不着原始契约）。
+        mat = None
         if level == LADDER_L2_BREAKER:
             note = (f" ⚠ L2 熔断：{tool_name} 的这条路（fp={key.fingerprint[:6]}）已连续失败 "
                     f"{getattr(entry, 'count', 0)} 次，**这条指纹**已被禁（不是整个工具）。"
@@ -1308,7 +1311,8 @@ class ExecutionLayer:
                 level, tool_name, action=action, goal_id=key.goal_id,
                 fingerprint=key.fingerprint, refusal_class=key.refusal_class,
                 count=int(getattr(entry, "count", 0)),
-                tool_count=self.failure_ledger.tool_count(tool_name), detail=detail)
+                tool_count=self.failure_ledger.tool_count(tool_name), detail=detail,
+                material=mat)
         return note
 
     def _record_refusal(self, tool_name: str, tool_call: Optional[Dict[str, Any]],

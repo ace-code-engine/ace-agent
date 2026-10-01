@@ -52,6 +52,9 @@ if (ROOT / "SECURITY.md").is_file():
     datas.append((str(ROOT / "SECURITY.md"), "."))
 if (ROOT / "LICENSE").is_file():
     datas.append((str(ROOT / "LICENSE"), "."))
+# `skills/` **有意不带**：它是**示例内容**（repo-audit / release-notes），不是运行时必需 ——
+# 冻结版用户按 `skills/<name>/SKILL.md` 自建即可（发现根同时看 `<项目>/skills` 与 `~/.ace/skills`）。
+# 与 `prompts/` `locales/` 的区别正在这里：那两个缺了功能就残，示例缺了只是没有样例。
 # Go 执行器（job 档）：本机 go build 过就有，没有也不影响打包 —— 打包时如实报告带没带。
 if (ROOT / "executor").is_dir():
     datas.append((str(ROOT / "executor"), "executor"))

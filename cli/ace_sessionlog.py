@@ -533,7 +533,7 @@ class SessionLog:
     def record_ladder(self, level: str, tool: str, *, action: str = "",
                       goal_id: str = "", fingerprint: str = "",
                       refusal_class: str = "", count: int = 0,
-                      tool_count: int = 0, detail: str = "") -> int:
+                      tool_count: int = 0, detail: str = "", material=None) -> int:
         """失败账本升了一级（HL-02）：L2 熔断 / L3 降级 / L4 上报 —— 必须留痕。"""
         payload = {"level": str(level or ""), "tool": tool,
                    "action": str(action or ""), "count": int(count)}
@@ -547,6 +547,10 @@ class SessionLog:
             payload["tool_count"] = int(tool_count)
         if detail:
             payload["detail"] = str(detail)[:300]
+        if material:
+            # HL-04 边界⑦：整份**可判定物料**（五要素 metric + 六要素 defect + 五种偷换的回答）
+            # 落账本 —— 只留摘要的话，"缺 Production producer 即红"这条契约事后复核不了。
+            payload["material"] = material
         return self.append(K_LADDER, payload)
 
     def record_ledger_proposal(self, kind: str, *, tool: str = "",

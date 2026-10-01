@@ -50,6 +50,21 @@ func helperMain() {
 	case "token_privs":
 		// 报出自己令牌里的特权条数，供受限令牌测试和父进程对比。
 		fmt.Printf("PRIVS=%d", probeTokenPrivilegeCount())
+	case "landlock":
+		// 真 Linux 内核上验证写隔离：apply landlock 后写 target，成/败反映在退出码与文件上。
+		// 非 Linux 上 applyLandlockWriteIsolation 是 stub（返回错），该 case 不会走到。
+		ws := os.Getenv("ACE_LANDLOCK_WS")
+		target := os.Getenv("ACE_LANDLOCK_TARGET")
+		if err := applyLandlockWriteIsolation(ws); err != nil {
+			fmt.Fprintln(os.Stderr, "landlock:", err)
+			os.Exit(126)
+		}
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = f.Close()
+		os.Exit(0)
 	}
 	os.Exit(0)
 }

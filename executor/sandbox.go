@@ -91,6 +91,8 @@ type processConfinement struct{}
 
 func (processConfinement) prepare(cmd *exec.Cmd) error {
 	setProcessGroup(cmd)
+	// Linux 上叠加 landlock 写隔离：工作区内可写、工作区外只读/不可写。no-op on 其它平台。
+	landlockWrap(cmd)
 	return nil
 }
 func (processConfinement) afterStart(cmd *exec.Cmd) error { return nil }

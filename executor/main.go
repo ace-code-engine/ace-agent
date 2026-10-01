@@ -79,6 +79,10 @@ func (s *session) claimID(id string) bool {
 }
 
 func main() {
+	// landlock re-exec 落点必须在最前：它 apply + exec 后就不再回来（见 landlock.go）。
+	if landlockApplyEntry() {
+		return
+	}
 	// CLI 版本出口：ace --install-executor 用它自校验下载产物；ace_doctor/排查也用它。
 	// 不带参数进入会话循环时 os.Args 长度恒为 1，这条分支不影响协议路径。
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {

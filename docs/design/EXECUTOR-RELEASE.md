@@ -50,6 +50,7 @@
 
 - 新 workflow `.github/workflows/release-executor.yml`：`workflow_dispatch` 触发，输入 `version`（可空）；为空时由 step 读 `core/version.py`（`python -c "from core import version;print(version.__version__)"`）。注意 `core.` 前缀不可省：R-07 之后版本模块在 `core/version.py`，裸 `import version` 会 `ModuleNotFoundError`，而它只在 version 输入留空这条路径上才会被执行。
 - `gh release create v{version} <产物…> --title "ace-executor v{version}" --notes "…"`。发布时自动在远端创建/更新 tag `v{version}`——v3.7.0 是**第一个与 GitHub Release 绑定的 tag**，延续既有 v{version} 里程碑 tag 命名，不引入新的日常提交纪律。
+- ⚠️ **Release 标题只用 ASCII**：`--title` 里出现任何非 ASCII 字符（哪怕只是一个破折号 `—`），从 **Windows PowerShell** 传出去会按 GBK 编码。**v1.0.0 当场踩过**：其 Release 的 `name` 字段里那个破折号在 GitHub 上成了两个乱码字符（U+9225 一档的汉字 + 替换符）；而**同一时刻** tag 注解的原始字节里是 `0x2D` 连字符、全仓 390 个文本文件也都是干净 UTF-8 —— 所以这不是仓库的编码问题，是**命令行参数那一段**的编码问题。（守卫：`test_all [68]` 会抓全仓乱码，本条只描述、不复现样例字符。）修法：`gh release edit v1.0.0 --title "ACE v1.0.0 - Public Beta"`（用 ASCII 连字符最稳），或在网页上直接改标题。
 - 理由：发布是显式人工动作（workflow_dispatch），不是每次提交的默认行为；未来若想 tag 驱动可在此 workflow 加 `push: tags: v*` 扩展点。
 
 ### D2 · 产物矩阵与发布流程（交叉编译 + 原生冒烟 + Release）

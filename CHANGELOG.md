@@ -28,7 +28,7 @@
   真 wire 行为留待**真机冒烟**（卡 A5：部署 CubeSandbox 后主 agent 真调一次），与 MCP-SERVER 的
   M8 同一条口径 —— 只能由真跑过的人说"跑过"。
 - 红先行：`[89]` 在实现前 ImportError 红（模块不存在）；fake SDK 缺 `create` 类方法时 3 条行为红。
-  `test_all` 2710 → **2726**（+16）；`e2e/mcp_probe.py` 39 → **46**（+7：真进程扫描走通 /
+  `test_all` 2710 → **2727**（+17）；`e2e/mcp_probe.py` 39 → **46**（+7：真进程扫描走通 /
   白名单守卫同步 / 沙箱不可达拒绝）。
 - 本机**没有部署** CubeSandbox —— 所以 `ace_sandbox_exec` 在本机的实测常态就是 Tier 0 拒绝，
   而"拒绝得对不对"正是被钉住的那部分。

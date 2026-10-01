@@ -94,3 +94,34 @@ ACE `--mcp`（execution_layer = **唯一裁决点**；已有，M1–M7）
   而"拒绝得对不对"正是验收 1 要钉的。
 - e2b SDK 的真实 wire 行为只在 A5 真机冒烟时才会被真实验证；单测用的是注入的 fake，
   形状照着 E2B Python SDK（`Sandbox.create` / `run_code` / `Execution.stdout·stderr·exit_code`）写。
+
+## 八、主 agent 侧配置片段（打包形态）
+
+通用形状见 `docs/MCP-SERVER.md` §1；**安全子层这个角色**多两个键（Windows 上 `python`
+写全路径或 `py`，各家 host 的键名差异见那节的"未验证"说明）：
+
+```json
+{
+  "mcpServers": {
+    "ace-sec": {
+      "command": "python",
+      "args": [
+        "/abs/path/to/ace/ai_code.py", "--mcp",
+        "--project-root", "/abs/path/to/your/project",
+        "--permission", "write"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8",
+        "ACE_SANDBOX_API": "http://<CubeSandbox 部署地址>:8080"
+      }
+    }
+  }
+}
+```
+
+- `--permission write` 是给"子层也要真跑测试"的场景；只做**扫描**的话保持默认 `readonly` 就够
+  （`ace_security_scan` 是只读观察）。
+- `ACE_SANDBOX_API` 指向 CubeSandbox 部署 —— **主 agent 自己的不可信执行与这个子层指向
+  同一套服务**，这就是"共用一个安全底座"在配置层面的全部含义；出网 allowlist 读
+  ACE 自己的 `egress_allowlist` 配置（同一份清单）。
+- 装 SDK：`pip install e2b`（可选；不装时 `ace_sandbox_exec` 会如实说"没装 SDK"）。

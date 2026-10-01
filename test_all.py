@@ -16794,11 +16794,26 @@ if _want("89"):
     check("[89] ★fake SDK：代码真的递进去、stdout 带回来（形状照 E2B Python SDK 写）",
           _r89b.get("ok") is True and _r89b.get("stdout") == "out89"
           and getattr(_sb89x, "last_code", "") == "import os; print(os.environ)", _r89b)
-    check("[89] ★WP-9 验收 1：凭据与宿主 env **都不注入**沙箱（fake 收到的 env 为空）",
-          _sb89x is not None and not _sb89x.last.get("env"), getattr(_sb89x, "last", {}))
-    check("[89] ★WP-9 验收 3：未配 allowlist 时不传任何出网参数（沙箱侧默认拒）",
-          _sb89x is not None and "EGRESS_ALLOWLIST" not in _sb89x.last.get("env", {}),
+    check("[89] ★WP-9 验收 1：凭据与宿主 env **都不注入**沙箱（fake 收到的 envs 为空字典）",
+          _sb89x is not None and "envs" in _sb89x.last and _sb89x.last["envs"] == {},
           getattr(_sb89x, "last", {}))
+    check("[89] ★WP-9 验收 3：未配 allowlist 时不传任何出网参数（沙箱侧默认拒）",
+          _sb89x is not None and "EGRESS_ALLOWLIST" not in _sb89x.last.get("envs", {}),
+          getattr(_sb89x, "last", {}))
+    # 验收 3 的另一半：**配置了**才传，且与 ACE 的 egress_allowlist 同一份清单、同一个来源
+    sys.modules["e2b"] = _fake_mod89
+    try:
+        _b89c = _cb89.CubeSandboxBackend(
+            _cb89.load_sandbox_config(".", {"sandbox_mcp": {"api": "http://x"},
+                                            "egress_allowlist": ["api.example.com"]}))
+        _r89c0 = _b89c.run("print(1)", language="python")
+    finally:
+        sys.modules.pop("e2b", None)
+    check("[89] ★WP-9 验收 3（另一半）：显式配了 allowlist 才传，且取值同源（cfg.egress_allowlist）",
+          _r89c0.get("ok") is True
+          and _FakeSb89.created[-1].last.get("envs", {}).get("EGRESS_ALLOWLIST")
+          == "api.example.com",
+          getattr(_FakeSb89.created[-1], "last", {}))
 
     # —— MCP 面：两条服务面工具（不进 tools/registry.py —— 那里是模型常驻面）——
     _sec_tools89 = {t["name"]: t for t in ai_code._mcp_security_tools()}

@@ -7,12 +7,12 @@
 | 能力 | 一句话钩子 |
 |---|---|
 | 三级权限 + 按权限裁剪工具表 | `readonly` / `write` / `full`。工具清单随档位裁剪，单点声明在 `tools/registry.py`，模型只在"看得见用得了"的工具里决策。 |
-| 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树、内存上限、受限令牌）/ `docker`（一次性容器：`network none` + `cap-drop ALL`）。**Linux 上 Go 执行器还会自动叠加 Landlock 写隔离**（工作区内可写、区外只读）。拿不到边界就 503，绝不静默回退。 |
+| 三层沙箱 | `off`（策略层）/ `job`（Windows Job Object：进程树、内存上限、受限令牌）/ `docker`（一次性容器：`network none` + `cap-drop ALL`）。**Linux 上 Go 执行器还会自动叠加 Landlock 写隔离 + seccomp 网络默认拒绝**（工作区内可写、区外只读、不能出网）。拿不到边界就 503，绝不静默回退。 |
 | 写入前快照 | 每次写操作自动物理快照，`/undo` 一键回滚。HMAC 签名防伪造，快照目录 Agent 自身不可写。 |
 | 外发闸门 | 数据去往**模型指定的目的地**时，目的地不在白名单内就逐次问人；配置 `egress_allowlist` 即一次性授权。 |
 | 安全事件分级 | 403 里"执行层主动防御"与"模型参数写错"分开计数：前者本会话累计到阈值就明确告警 —— 那通常意味着有东西在借被读取的文件或网页注入指令。 |
 | 行为检测闸门 | 首次 `code_execute` 注入语义诱饵验证模型清醒 + AST 6 规则（无限递归 / 硬编码密钥 / SQL 注入等）。 |
-| Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），整树回收（Windows Job Object / Linux·macOS 进程组 SIGKILL）+ 第二道策略复检；Linux 上还叠加 **Landlock 写隔离**。官方产物 `ace --install-executor` —— 5 平台（win / linux / macos × amd64 / arm64）。 |
+| Go 执行器 | 危险工具委派独立 Go 进程（NDJSON），整树回收（Windows Job Object / Linux·macOS 进程组 SIGKILL）+ 第二道策略复检；Linux 上还叠加 **Landlock 写隔离 + seccomp 网络默认拒绝**。官方产物 `ace --install-executor` —— 5 平台（win / linux / macos × amd64 / arm64）。 |
 
 ## Agent 能力
 

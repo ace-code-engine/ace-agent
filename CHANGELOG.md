@@ -12,6 +12,7 @@
 - **写侧黑名单补全**：文件工具拒绝写 `.git/`（hooks/config）、`.gitmodules`、`.ace/permissions*.json` —— 模型不能自植后门、不能给自己发通行证。
 - **POSIX 进程组整树回收**：Go 执行器 Tier-0 非 Windows 从 `Process.Kill` 改为 `Setpgid` + `kill(-pgid, SIGKILL)`，孙进程不再成孤儿（Linux/macOS）。
 - **Landlock 写隔离（Linux）**：Go 执行器在 Linux 上自动叠加内核写隔离 —— 子进程到处可读/执行，但**只能在工作区内写**。纯 syscall、零外部依赖，WSL2 真内核验证。
+- **seccomp 网络默认拒绝（Linux）**：Go 执行器在 Linux 上再叠一层 seccomp 拦 socket 系 syscall —— `terminal_exec` / `code_execute` 的子进程不再能绕过 URL 出网闸门直接联网（WP-8「非 URL 出网通道」的 Linux 半边，WSL2 真验 `socket(): Operation not permitted`）。
 
 ### ✨ 新增
 - `/audit boundary`（别名 receipt/evidence）：**执行边界证据链** —— 复用 HMAC 链式台账，输出"本会话被哪些机制约束"的可核验自证（权限/安全/守卫/快照命中 + 拦截明细）。
@@ -19,10 +20,18 @@
 - `/replay`：被边界拦下的调用存证到 `.ace/denied_cases.jsonl`，重放 `sensitive_target` 证明边界还在（回归自证）。
 - **执行边界进上下文**：系统提示词新增 `【执行边界】`，正向说清本次会话的权限/沙箱/网络/工作区，让模型不靠猜、不靠绕。
 - `security-review` 技能（SKILL.md 生态）：以执行层裁决面视角审代码（凭据/路径/注入/边界绕过）。
+- **HL-04 收口**：三层脊柱 13 条全部落地 —— 上报物料可判定的机器早已接线（`MaterialIncomplete` + `build_material` + `[73]` 五种偷换），补 §9.14 实施记录。
 
 ### ⚙️ 改进
 - **macOS 进 CI** 测试矩阵（此前 `test_all.py` 从未在 mac 上跑过）。
 - **冻结发行启动明示**：不含 Ink 主外壳时打 stderr 提示（三语），README "四外壳" 口径修正为"Python 外壳"。
+- **冒烟上 CI**：Textual 那几段从"跳过"变"真跑"（CI 装 `textual`）；darwin/amd64 执行器原生冒烟补 `macos-13` Intel runner。
+- **README 瘦身**：409/417 行 → 82/65 行落地页，长篇迁出为 `docs/WHY`·`CAPABILITIES`·`HANDOFF`。
+- **WP-10 决策（实测否决，不是没搬）**：快照哈希下沉、grep/glob 下沉都经实测否决，数据在 `engine/README.md`。
+
+### 🐛 修复
+- **主页长值溢出糊串**：模型名（`deepseek-v4-flash`）、resume 标签（`继续上次：…`）超列宽时与提示词糊成一串（`deepseek-v4-flash换模型` / `0轮回车继续`）；`render_home` 超长保底空格。
+- **思考强度提示漏最高档**：主页提示只列四档，漏了第 5 档 `max` / `最高`（三语补齐）。
 
 ## [v1.0.0] · 2026-10-01 —— 公测（Public Beta）：执行层 / MCP 服务 / 沙箱底座三形态发布
 

@@ -258,6 +258,20 @@ export function applyEvent(state: State, ev: AceEvent): State {
       return push(state, { kind: 'notice', text });
     }
 
+    case 'agent_preset': {
+      // WP-6：预设切换。这个事件类型引擎侧一直**发不出来**（`emit_switch` 没有调用方），
+      // 所以前端也没有消费者；`/preset` 补上入口之后它才真的会到这儿。
+      // 文案**不写句子、只写事实**（`agent: 名字 ▸ 更严的维度`）：store 是纯 reducer、
+      // 拿不到 i18n，而这个仓库的既有口径是"发数据不发译文"。要成句就交给渲染层查字典。
+      const name = str(ev.name);
+      if (!name) return push(state, { kind: 'notice', text: 'agent: (none)' });
+      const changed = Array.isArray(ev.changed) ? ev.changed.map(str).filter(Boolean) : [];
+      return push(state, {
+        kind: 'notice',
+        text: changed.length ? `agent: ${name} ▸ ${changed.join(', ')}` : `agent: ${name}`,
+      });
+    }
+
     case 'status': {
       // 整个 payload 不是数组 = 这一帧坏了：**保持上一份**。把底栏抹成空比留着旧数据更糟
       // （与 `default:` 分支"不认识的事件类型忽略并继续"同一个口径）。

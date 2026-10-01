@@ -16603,6 +16603,14 @@ if _want("86"):
     check("[86] ★拼错的名字不退化成『切回无预设』（`name=''` 在事件契约里是另一个意思）",
           _cli86.el.agent_registry.current.name == "audit"
           and "agent_preset" not in _buf86e3.getvalue(), _buf86e3.getvalue()[-200:])
+    # 底栏段加在**引擎侧**：`status` 事件每次发全量分段，所以四个外壳自动都有，
+    # 不用各画一份 —— 各画一份的结果就是"某个外壳忘了"（那正是这个事件此前没人消费的病根）。
+    _cli86n = ai_code.AgentCLI({"project_root": str(mktemp("wp6_86n")),
+                                "permission": "write"}, mock=True)
+    check("[86] ★有预设 → 底栏多一段 `agent`；无预设 → **不加空装饰**",
+          any(_s.name == "agent" for _s in _cli86._status_segments())
+          and all(_s.name != "agent" for _s in _cli86n._status_segments()),
+          [(_s.name, _s.text) for _s in _cli86._status_segments()])
 
 # ============================================================
 if _want("87"):

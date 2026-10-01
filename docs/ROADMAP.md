@@ -580,11 +580,11 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > **WP-4 ✅**：四层模型 · 回滚纪律 · `allowedRoots`（含接入 `_confined`，带出并修掉 **SEC-021**）· 持久化 ·
 > `/workspace` 命令面 · C5 规则 3 的如实声明）。
 > 三层脊柱 **13/13 落地**（实施记录见 `docs/design/THREE-LAYERS.md` §9）。工具 **42 → 51**；`test_all` **2438 → 2700**。
-> 命令表 **59 → 60**（`/preset`）。
+> 命令表 **59 → 60**（`/preset`）；`agent_preset` 事件**四外壳全都有**（底栏段加在引擎侧，
+> `status` 事件每次发全量分段 —— 不用每个外壳各画一份，各画一份正是"某个外壳忘了"的病根）。
 > **未开始**：**WP-9** 沙箱后端（C6 前置未做，卡与 SEC-020 已立）· 横向 **WP-10**（R1 依据已被复测推翻）。
 > **明确不做**（各有理由，不是没做完）：WP-4 的"进程内切 `project_root`"（半途实现会产生 C5 卡禁止的
-> 两套回滚，理由见 `WP-4-SNAPSHOT-SEMANTICS.md` §6）· WP-8 的非 URL 出网通道（脆弱 shell 解析，H-27 的教训）·
-> WP-6 的**外壳 UI 显示** `agent_preset` 事件（事件现在真的发得出去了，见下）。
+> 两套回滚，理由见 `WP-4-SNAPSHOT-SEMANTICS.md` §6）· WP-8 的非 URL 出网通道（脆弱 shell 解析，H-27 的教训）。
 > **部分**：**WP-8** —— 域名级出网 allowlist（G-12）**早已落地并接线**，只剩"闸门只管 URL、非 URL 通道不在内"这一半；快照 reflink 归 **WP-10 / cubecow 口径**。
 | **横向** | **WP-10** Rust 核心化 | 安全 ← 速度（把安全成本压到接近零） | 前提**只剩 R-9** —— `engine/target/` 那条是 **R-6（虚警）**，且 `ci.yml:66` 的 `engine` job（`dtolnay/rust-toolchain` + offline build + `--selftest` + parity）**已存在** | §2.5 矩阵逐项 + **超范围路径必须被 Rust 自己拦住** |
 | **前置/并行** | **ACC**（A0/A1/A2 已在批次 -1；A3 接 `DEVELOPMENT.md` 的"完成"定义） | — | — | **WP-9 依赖它**（§7 依据一最后一条） |

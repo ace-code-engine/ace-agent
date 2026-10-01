@@ -2861,6 +2861,14 @@ class _SlashCommands:
         net = "开" if getattr(self.el.executor, "network_enabled", True) else "关"
         parts.append(ace_layout.StatusSegment("net", f" 联网:{net} ", "class:footer-dim",
                                               55))
+        # WP-6：预设内建段。放在**引擎侧**而不是每个外壳各画一份 —— 底栏分段是权威快照
+        # （`status` 事件每次发全量），加在这里就等于四个外壳全都有了；
+        # 各画一份的结果是"某个外壳忘了"，而那正是 `agent_preset` 事件此前没人消费的病根。
+        # 无预设时**不加段**（不是加一个"agent: -"）：没配预设的系统不该多一个空装饰。
+        _ap = getattr(self.el, "agent_preset", None)
+        if _ap is not None:
+            parts.append(ace_layout.StatusSegment(
+                "agent", f" agent:{_ap.name} ", "class:footer", 45))
         try:
             g = self.el.goal_store.snapshot()
         except Exception:  # noqa: BLE001 —— 底栏不该因为目标读不出来就崩

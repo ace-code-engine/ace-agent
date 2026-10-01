@@ -13,6 +13,7 @@ import {
   applyEvents,
   applyPermissionAnswer,
   initialState,
+  type Item,
   type State,
 } from '../src/state/store.js';
 
@@ -22,6 +23,13 @@ function ev(type: string, fields: Record<string, unknown> = {}): AceEvent {
 
 function run(...events: AceEvent[]): State {
   return applyEvents(initialState(), events);
+}
+
+/** 最后一条 notice —— 类型收窄而不是 `as`，断言失败时给的是"实际是什么"而不是崩溃。 */
+function lastNotice(s: State): Extract<Item, { kind: 'notice' }> {
+  const last = s.items[s.items.length - 1];
+  if (last.kind !== 'notice') throw new Error(`last item is ${last.kind}, not notice`);
+  return last;
 }
 
 describe('基本流转', () => {
@@ -213,6 +221,32 @@ describe('status 事件（底栏分段）', () => {
     );
     expect(s.meta.statusSegments).toHaveLength(1);
     expect(s.meta.statusSegments[0].name).toBe('model');
+  });
+});
+
+describe('agent_preset 事件（WP-6）', () => {
+  it('切换落到一条 notice：写名字 + 比全局更严的维度', () => {
+    // 为什么这条值得钉：引擎侧的事件类型一直都在，`emit_switch()` 却**没有调用方**，
+    // 所以它从来没到过前端 —— `/preset` 补上入口之后才真的会来。
+    const s = run(ev('agent_preset', {
+      name: 'audit', previous: '', permission: { bash: 'deny' }, changed: ['bash'],
+    }));
+    const last = lastNotice(s);
+    expect(last.text).toContain('audit');
+    expect(last.text).toContain('bash');
+  });
+
+  it('name 为空串 = 切回无预设（事件契约里的另一个意思，不是"没变化"）', () => {
+    const s = run(ev('agent_preset', { name: '', previous: 'audit', changed: [] }));
+    expect(lastNotice(s).text).toBe('agent: (none)');
+  });
+
+  it('changed 缺失/坏形状不崩（老引擎或半截帧）', () => {
+    const s = run(
+      ev('agent_preset', { name: 'x' }),
+      ev('agent_preset', { name: 'y', changed: '不是数组' }),
+    );
+    expect(lastNotice(s).text).toBe('agent: y');
   });
 });
 

@@ -295,6 +295,7 @@
   "banner_kb": "ナレッジベース: {path}{ext}",
   "banner_kb_ext": "（外部）",
   "banner_sesslog": "セッションログ: .ace_sessions/（/audit で閲覧）",
+  "frozen_fallback_shell": "凍結ビルドには Ink メインシェル（Node が必要）が含まれません。こちらは Python シェル（REPL / Textual）で、エンジンと機能は同じ、見た目だけが異なります。",
   "goal_no_goal": "アクティブな目標はありません。goal_create で作成するか、Agent に頼んでください。",
   "goal_no_pauseable": "一時停止できるアクティブな目標はありません。",
   "goal_paused": "目標を一時停止しました。",

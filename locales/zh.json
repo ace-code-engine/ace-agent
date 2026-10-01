@@ -292,6 +292,7 @@
   "banner_kb": "知识库: {path}{ext}",
   "banner_kb_ext": "（外挂）",
   "banner_sesslog": "会话日志: .ace_sessions/（/audit 查看全链路）",
+  "frozen_fallback_shell": "冻结发行包不含 Ink 主外壳（需 Node）——当前为 Python 外壳（REPL / Textual），引擎与能力一致，仅界面不同。",
   "goal_no_goal": "当前没有目标。用 goal_create 创建一个（或直接对话让 Agent 创建）。",
   "goal_no_pauseable": "没有可暂停的活动目标。",
   "goal_paused": "目标已暂停。",

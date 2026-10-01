@@ -79,7 +79,7 @@ Three artefacts are published for every release. They are alternatives, not laye
 
 | Form | Artefact | What it installs | Choose it when |
 |---|---|---|---|
-| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | The full terminal agent: four shells, 51 tools, write-ahead snapshots, `/undo` | You want an agent to work in |
+| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | The full terminal agent: Python shells (REPL + Textual), 51 tools, write-ahead snapshots, `/undo` | You want an agent to work in |
 | **② ACE as an MCP server for your agent** | `ace-mcp-server-1.0.0.zip` | A non-intrusive MCP server; the host agent gains a single decision and audit point | You already use Cline / Claude Desktop / Cursor / any MCP host and want the boundary without changing it |
 | **③ ACE MCP server + sandbox base** | `ace-sandbox-bundle-1.0.0.zip` | Form ② plus a bootstrap for the virtualisation base, so untrusted code runs in a hardware-isolated microVM | You want the execution boundary as well as the decision boundary |
 
@@ -135,6 +135,12 @@ The MCP forms expose two security tools in addition to the standard tool set:
 
 The remainder of the tool set routes through the same permission, approval and audit path. The default
 permission level is `readonly`.
+
+Two hardening properties worth stating outright: a cloned repo's `.ace/permissions.json` cannot
+silently relax approvals — its `allow` rules are dropped unless you trust the workspace
+(`trust_project_hooks` / `trusted_workspaces`), while its `deny` rules still apply. And the file
+tools refuse to write `.git/` (hooks/config), `.gitmodules`, or `.ace/permissions*.json`, so the
+agent cannot plant a hook or hand itself a pass.
 
 > The pack for form ③ ships a `preflight` that reports up front whether a given machine can host the
 > base, rather than failing during installation. Windows and macOS cannot host it: KVM is a Linux kernel

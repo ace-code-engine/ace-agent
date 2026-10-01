@@ -297,6 +297,7 @@
   "banner_kb": "Knowledge base: {path}{ext}",
   "banner_kb_ext": " (external)",
   "banner_sesslog": "Session log: .ace_sessions/ (browse with /audit)",
+  "frozen_fallback_shell": "Frozen build ships without the Ink main shell (needs Node) — this is the Python shell (REPL / Textual); same engine and capabilities, different surface.",
   "goal_no_goal": "No active goal. Create one with goal_create (or just ask the agent).",
   "goal_no_pauseable": "No active goal to pause.",
   "goal_paused": "Goal paused.",

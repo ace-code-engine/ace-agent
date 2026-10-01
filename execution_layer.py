@@ -845,7 +845,8 @@ class ExecutionLayer:
         try:
             from core import ace_rules
             self.rules, self.rule_warnings = ace_rules.load_rules(
-                str(self.project_root))
+                str(self.project_root),
+                project_trusted=self.project_hooks_trusted)
         except Exception as e:  # noqa: BLE001
             self.rules, self.rule_warnings = [], [f"规则加载失败: {type(e).__name__}"]
             # HL-03②：`rule_warnings` 是既有的声明出口（/rules 会展示），这里再进统一

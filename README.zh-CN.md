@@ -73,7 +73,7 @@ ACE（AI Code Engine）是面向编码代理的**执行层**。每一次工具�
 
 | 形态 | 产物 | 装了什么 | 什么时候选它 |
 |---|---|---|---|
-| **① 直接用 ACE 当你的 agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | 完整终端 agent：四外壳、51 工具、写前快照、`/undo` | 你需要一个能自己干活的 agent |
+| **① 直接用 ACE 当你的 agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | 完整终端 agent：Python 外壳（REPL + Textual）、51 工具、写前快照、`/undo` | 你需要一个能自己干活的 agent |
 | **② 把 ACE 当*你的* agent 的 MCP 服务** | `ace-mcp-server-1.0.0.zip` | 非侵入式 MCP 服务；你的 host agent 获得唯一的裁决与审计点 | 你已经在用 Cline / Claude Desktop / Cursor 等 MCP host，只想加边界、不改它 |
 | **③ MCP 服务 + 沙箱底座（一体包）** | `ace-sandbox-bundle-1.0.0.zip` | 形态 ② 加**虚拟化底座**的引导，使不可信代码跑在硬件隔离的 microVM 中 | 你既要裁决边界，也要执行边界 |
 
@@ -125,6 +125,11 @@ MCP 形态在标准工具集之外额外提供两个安全工具：
   **绝不**退回本机执行；宿主凭据不注入沙箱。
 
 其余工具全部经过同一个权限 / 审批 / 审计点。默认权限档为 `readonly`。
+
+两条硬化性质值得写明：克隆来的仓库里的 `.ace/permissions.json` 不能静默放宽审批 ——
+它的 `allow` 规则在**信任工作区之前会被丢弃**（`trust_project_hooks` / `trusted_workspaces`），
+而 `deny` 规则仍然生效；文件工具也拒绝写 `.git/`（hooks/config）、`.gitmodules`、
+`.ace/permissions*.json` —— 模型不能给自己植后门或发通行证。
 
 > 形态 ③ 的包内含 `preflight`，**先报告**这台机器能否承载底座，而不是让安装失败来告诉你。
 > Windows 与 macOS 不能承载：KVM 是 Linux 内核机制。

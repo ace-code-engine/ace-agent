@@ -84,18 +84,22 @@ type confinement interface {
 // processConfinement 是 Tier-0：恒定启用，不依赖任何平台能力。
 //
 // 它提供的边界只有"独立进程 + 显式 cwd + 白名单环境变量 + 超时"，这几项都在 run.go 里。
-// 这里唯一的职责是终止。注意 Kill 只杀直接子进程：Tier-0 下孙进程可能成为孤儿，
-// 这是已知且被接受的局限，也正是 Tier-1 存在的理由。
+// 终止走整树回收：非 Windows 上 prepare 会把子进程放进它自己的进程组（Setpgid），
+// killTree 再对整个进程组发 SIGKILL，孙进程不再成孤儿；Windows 上整树回收由 Tier-1
+// 的 Job Object 提供，Tier-0 维持 Process.Kill 的历史语义。
 type processConfinement struct{}
 
-func (processConfinement) prepare(cmd *exec.Cmd) error    { return nil }
+func (processConfinement) prepare(cmd *exec.Cmd) error {
+	setProcessGroup(cmd)
+	return nil
+}
 func (processConfinement) afterStart(cmd *exec.Cmd) error { return nil }
 
 func (processConfinement) killTree(cmd *exec.Cmd) (string, error) {
 	if cmd.Process == nil {
 		return "none", nil
 	}
-	return "Process.Kill", cmd.Process.Kill()
+	return killProcessTree(cmd)
 }
 
 func (processConfinement) release() {}

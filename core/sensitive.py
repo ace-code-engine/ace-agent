@@ -108,6 +108,16 @@ AGENT_STATE_FILENAMES = {".ace_goals.json", ".agent_memory.json"}
 # 但那一步每次过人、且本身是可被看见的动作。
 AGENT_STATE_PATH_FRAGMENTS = (".ace/workspaces.json",)
 
+# 版本库自身元数据：写 `.git/hooks/*`、`.git/config` 是持久化后门（pre-commit 已经
+# 跑过，/undo 追不回来）；`.gitmodules` 同理（给子模块换仓库）。git 工具走 git 二进制、
+# 从不 file_write 进 `.git/`，所以整目录挡掉不会误伤正常用法。
+VCS_STATE_DIRNAMES = {".git"}
+VCS_STATE_PATH_FRAGMENTS = (".gitmodules",)
+
+# 授权规则文件自己：写 `.ace/permissions*.json` 等于 agent 给自己发通行证。
+# `/rules add` 走 ace_rules.save_rules（直接 Python open），不经过文件工具，不受影响。
+AUTH_STATE_PATH_FRAGMENTS = (".ace/permissions.json", ".ace/permissions.local.json")
+
 
 # ---------------------------------------------------------------- ② 判定
 
@@ -143,6 +153,12 @@ def _match(spelled: str) -> Optional[str]:
         return f"Agent 自身的状态文件（目标/记忆）: {name}"
     if any(fr in low for fr in AGENT_STATE_PATH_FRAGMENTS):
         return "Agent 自身的工作区注册表（allowedRoots 的放行名单，改它等于自己发通行证）"
+    if VCS_STATE_DIRNAMES & set(parts):
+        return "版本库元数据（写钩子/配置等于植入持久化后门）"
+    if any(fr in low for fr in VCS_STATE_PATH_FRAGMENTS):
+        return "版本库元数据（.gitmodules，改它等于给子模块换仓库）"
+    if any(fr in low for fr in AUTH_STATE_PATH_FRAGMENTS):
+        return "Agent 自身的授权规则文件（改它等于给自己发通行证）"
     if name.endswith(CREDENTIAL_SUFFIXES):
         return f"私钥/证书文件: {name}"
     for d in SENSITIVE_DIRNAMES:

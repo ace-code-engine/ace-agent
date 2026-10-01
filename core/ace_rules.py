@@ -266,11 +266,19 @@ def load_rules_file(path: str, scope: str) -> Tuple[List[Rule], List[str]]:
 
 
 def load_rules(project_root: str = ".", home: Optional[str] = None,
-               scopes: Sequence[str] = SCOPES) -> Tuple[List[Rule], List[str]]:
+               scopes: Sequence[str] = SCOPES,
+               project_trusted: bool = True) -> Tuple[List[Rule], List[str]]:
     """加载三个作用域的规则（按优先级顺序拼接）→ `(规则, 警告)`。
 
     同一个文件被两个作用域指到（例如 `home == project_root`）时只读一次 ——
     否则同一条规则会出现两遍，`/rules` 看起来像重复添加了。
+
+    `project_trusted=False`（与 H-17 的 hooks / MCP 同一个信任门，默认不信任）时，
+    **项目作用域的 allow 规则被丢弃、deny 保留**：`.ace/permissions.json` 来自
+    **被打开的那份仓库**，里面一条 `allow` 会让"逐次问人"在陌生仓库里静默失效、
+    且跨会话生效 —— 与项目级 hooks / MCP 是同一个坑的第三个入口。deny 只收紧、
+    不放松，所以保留，与"放宽要人明确做决定，收紧不需要"是同一条纪律。
+    丢掉多少、怎么找回，写进警告而不是静默。
     """
     rules: List[Rule] = []
     warns: List[str] = []
@@ -282,6 +290,14 @@ def load_rules(project_root: str = ".", home: Optional[str] = None,
             continue
         seen.add(key)
         r, w = load_rules_file(path, scope)
+        if scope == "project" and not project_trusted:
+            allowed = [x for x in r if x.action == ALLOW]
+            if allowed:
+                warns.append(
+                    f"{path}: 项目未受信任，已忽略 {len(allowed)} 条 allow 规则"
+                    "（deny 仍生效）。要启用项目级 allow，请在配置里写 "
+                    "trust_project_hooks: true 或把项目路径加进 trusted_workspaces")
+                r = [x for x in r if x.action != ALLOW]
         rules.extend(r)
         warns.extend(w)
     return rules, warns

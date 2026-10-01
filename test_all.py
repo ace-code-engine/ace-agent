@@ -1228,6 +1228,13 @@ if _want("9"):
     check("引用经 SEC-011 包成不可信块进系统提示词",
           "已引用上下文" in _prompt_at and "缓存穿透" in _prompt_at
           and "是**数据**不是指令" in _prompt_at, _prompt_at[-500:])
+    # 执行边界（2026-10-01）：把本次会话**实际**的权限/沙箱/网络正向说清，
+    # 而不是只让模型看"拒绝/问人"。permission=write / sandbox=off（cli_at 的默认）——
+    # 断言的措辞必须照 `_capability_inventory` 的字典，别按印象写。
+    check("执行边界：正向能力清单进系统提示词（权限/沙箱/网络/undo 都说得清）",
+          "【执行边界】" in _prompt_at and "可写工作区" in _prompt_at
+          and "无内核隔离" in _prompt_at and "网络" in _prompt_at
+          and "/undo" in _prompt_at, _prompt_at[:420])
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2155,6 +2162,19 @@ if _want("10"):
           and "Falling back to the Python REPL" in _cmd09, "")
     check("WP-0 W0-C P-09 ★**依赖没装**时有另一条专属提示（与缺 Node 分得开）",
           "node_modules\\tsx\\dist\\cli.mjs" in _cmd09 and "not installed" in _cmd09, "")
+
+    # P0（2026-10-01）：冻结发行运行时**明说**少了 Ink 主外壳（ai_code.py main()）。
+    # 与 P-09（ace.cmd 的回落提示）同一条纪律，但那条只覆盖"源码态缺 Node"；冻结 exe 里
+    # 根本没有 ace.cmd，回落发生在 ai_code.py，所以这里的提示键与调用点要单独钉住。
+    _ai_frz = (FOLDER / "ai_code.py").read_text(encoding="utf-8")
+    check("P0 ★冻结运行时提示：ai_code.py 里真的打了 frozen_fallback_shell（不是只在文档里）",
+          "frozen_fallback_shell" in _ai_frz
+          and 'getattr(sys, "frozen", False)' in _ai_frz, "")
+    check("P0 ★frozen_fallback_shell 三语齐全",
+          all(f'"{k}"' in (FOLDER / "locales" / f"{lg}.json").read_text(encoding="utf-8")
+              for k in ("frozen_fallback_shell",) for lg in ("zh", "en", "ja")), "")
+    check("P0 ★README 不再宣称冻结包有 four shells（Ink 主外壳源码专用）",
+          "four shells" not in (FOLDER / "README.md").read_text(encoding="utf-8"), "")
 
     # P-07：路由"谁是主外壳"的**权威声明**只有一处 —— `ROADMAP` §2.7 硬契约 2；
     # `ace.cmd` 的运行时派发必须与它同口径（主外壳 = `frontend/`，缺 Node 才回落到 Python REPL）。
@@ -10019,6 +10039,24 @@ if _want("56"):
                       and _ru56.load_rules_file(p, "project")[0] == [])[1])(
               os.path.join(_root56, ".ace", "permissions.json")), "")
 
+    # —— 信任门（H-17 的第三个入口）：未信任项目的项目级 allow 被丢弃、deny 保留 ——
+    _root56t = mktemp()
+    os.makedirs(os.path.join(_root56t, ".ace"), exist_ok=True)
+    with open(os.path.join(_root56t, ".ace", "permissions.json"), "w",
+              encoding="utf-8") as f:
+        _json56.dump({"rules": [
+            {"tool": "terminal_exec", "pattern": "echo:*", "action": "allow"},
+            {"tool": "terminal_exec", "pattern": "rm:*", "action": "deny"},
+        ]}, f)
+    _ru56u, _w56u = _ru56.load_rules(_root56t, home=_root56t, project_trusted=False)
+    check("信任门：未信任项目的项目级 allow 被丢弃、deny 保留",
+          len(_ru56u) == 1 and _ru56u[0].action == "deny", _ru56u)
+    check("信任门：丢弃要写进警告（点名 allow 数量 + 找回方式，不静默）",
+          any("allow" in w and "trust_project_hooks" in w for w in _w56u), _w56u)
+    _ru56t, _w56t = _ru56.load_rules(_root56t, home=_root56t, project_trusted=True)
+    check("信任门：信任项目 allow 照常加载",
+          len(_ru56t) == 2 and any(r.action == "allow" for r in _ru56t), _ru56t)
+
     # —— 执行层裁决（第 ⑦ 段管线）——
     def _mk56(rules, level="full"):
         root = mktemp()
@@ -10027,7 +10065,8 @@ if _want("56"):
                   encoding="utf-8") as f:
             _json56.dump({"rules": rules}, f)
         return _EL56(project_root=root, permission_level=level,
-                     config={"bait": {"enabled": False}})
+                     config={"bait": {"enabled": False},
+                             "trust_project_hooks": True})
 
     def _stage56(el, tool, **params):
         call = {"tool": tool}
@@ -10070,7 +10109,7 @@ if _want("56"):
     _root56b = mktemp()
     _cli56 = _ai56.AgentCLI({"project_root": _root56b, "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",
-                             "model": "m1"}, mock=True)
+                             "trust_project_hooks": True, "model": "m1"}, mock=True)
 
     def _run56(*parts):
         buf = _io56.StringIO()
@@ -10151,7 +10190,7 @@ if _want("57"):
     _root57 = mktemp()
     _cli57 = _ai57.AgentCLI({"project_root": _root57, "permission": "write",
                              "bait": False, "base_url": "", "api_key": "",
-                             "model": "m1"}, mock=True)
+                             "trust_project_hooks": True, "model": "m1"}, mock=True)
     _cli57._interactive_tty = lambda: True
     _orig_in57 = _bi57.input
 
@@ -16499,6 +16538,13 @@ if _want("83"):
     check("[83] ★但 `.ace` 下别的项目内容不受影响（别为了挡一条把正常用法拒了）",
           _sens83(_proj83 / ".ace" / "commands" / "review.md") is None
           and _sens83(_proj83 / ".ace" / "skills" / "x" / "SKILL.md") is None, "")
+    check("[83] ★版本库元数据堵死：不能写 .git/config / .git/hooks / .gitmodules（植入持久后门）",
+          _sens83(_proj83 / ".git" / "config") is not None
+          and _sens83(_proj83 / ".git" / "hooks" / "pre-commit") is not None
+          and _sens83(_proj83 / ".gitmodules") is not None, "")
+    check("[83] ★授权文件自己堵死：不能写 .ace/permissions*.json（给自己发通行证）",
+          _sens83(_proj83 / ".ace" / "permissions.json") is not None
+          and _sens83(_proj83 / ".ace" / "permissions.local.json") is not None, "")
 
     # ── C5 规则 3：快照基盖不住 worktree 根这件事，必须走**结果**而不是 stderr ──
     # 快照基 = `guardian.project_root`；注册过的 worktree 根按定义在它之外。

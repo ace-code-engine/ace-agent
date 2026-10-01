@@ -152,6 +152,16 @@ func selfIntegrityLevel() string {
 	return tokenIntegrityLevel(self)
 }
 
+// setProcessGroup 在 Windows Tier-0 上是空操作：进程组是 POSIX 概念，Windows 侧
+// Tier-0 维持 Process.Kill 的历史语义，整树回收由 Tier-1 的 Job Object 提供
+// （KILL_ON_JOB_CLOSE）。不在这里假装有进程组边界。
+func setProcessGroup(cmd *exec.Cmd) {}
+
+// killProcessTree 在 Windows Tier-0 上退回单进程终止，与历史行为一致。
+func killProcessTree(cmd *exec.Cmd) (string, error) {
+	return "Process.Kill", cmd.Process.Kill()
+}
+
 type ioCounters struct {
 	ReadOperationCount  uint64
 	WriteOperationCount uint64

@@ -4665,7 +4665,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """改完规则文件后重新加载（裁决发生在执行器里，所以两处都要更新）。"""
         try:
             rules, warns = ace_rules.load_rules(
-                str(self.cfg.get("project_root", ".")))
+                str(self.cfg.get("project_root", ".")),
+                project_trusted=getattr(self.el, "project_hooks_trusted", True))
             self.el.rules = rules
             self.el.executor.rules = rules
             self._rule_warnings = warns
@@ -6096,6 +6097,11 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 "hooks": self.cfg.get("hooks"),
                 "hooks_project_file": str(Path(self.cfg.get("project_root", "."))
                                           / ".ace" / "hooks.json"),
+                # H-17 信任门（默认不信任）：此处才真正把配置文件接进来。此前这两键
+                # 只在程序化构造 ExecutionLayer 时生效，写进 ~/.ai_code.json 会被静静
+                # 忽略 —— 用户以为已经信任，实际 hooks / MCP / 项目级 allow 规则全被弃。
+                "trust_project_hooks": self.cfg.get("trust_project_hooks"),
+                "trusted_workspaces": self.cfg.get("trusted_workspaces"),
                 # 联网开关（/net 切换；默认开）
                 "network_enabled": bool(self.cfg.get("network_enabled", True)),
                 # 第三方搜索 API（可选；search 先试 API，失败自动回退免 key 爬虫）
@@ -6195,6 +6201,42 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
 
     # ---------- 对话循环 ----------
 
+    def _capability_inventory(self) -> str:
+        """【执行边界】把"现在到底能做什么"**正向**说清 —— 只报允许与边界，不报"不许"。
+
+        为什么需要：模型在提示词与工具错误里看到的几乎全是"拒绝/问人/白名单"，会误判
+        边界、宁可绕也不直接做（它不知道"直接做"本来就是允许的）。把允许的一面说清，
+        它的自我驱动力才不靠猜。这是 `_note_degrade`（只报降级）的反面：这里报**允许**。
+        """
+        perm = str(self.cfg.get("permission", "readonly"))
+        sb = str(self.cfg.get("sandbox", "off") or "off")
+        net = bool(self.cfg.get("network_enabled", True))
+        root = os.path.abspath(self.cfg["project_root"])
+
+        perm_line = {
+            "readonly": "只读 —— 读文件/目录/搜索直接做；写与命令会先问你",
+            "write": "可写工作区 —— 工作区内读写直接做；工作区外的写与危险命令会先问你",
+            "full": "完全 —— 多数动作直接做；危险命令与出网仍走闸门",
+        }.get(perm, perm)
+        sb_line = {
+            "off": "无内核隔离（Python 层策略校验）—— 不是 OS 沙箱，但跑命令/装依赖照常",
+            "job": "Windows Job Object —— 进程树/内存硬上限，超时整树回收",
+            "docker": "一次性容器 —— 网络默认断（除非白名单），退出即销毁",
+        }.get(sb, sb)
+        net_line = "开" if net else "关"
+        if net:
+            net_line += "（模型自选的目的地需确认，除非在 egress_allowlist）"
+
+        return (
+            "【执行边界】本次会话的实际边界（别靠猜、也别绕）：\n"
+            f"· 权限：{perm_line}\n"
+            f"· 沙箱：{sb_line}\n"
+            f"· 网络：{net_line}\n"
+            f"· 工作区：{root}。写工作区外会被挡/问人；/undo 能回滚工作区内的写。\n"
+            "· 缺依赖就直接装（这是正当手段，不是可疑动作）；被拒就换合法等价路径，"
+            "不要绕过边界。"
+        )
+
     def _build_system_prompt(self) -> str:
         """组装系统提示词：基础提示词 + 语言指令 + 技能 + 已引用文件/文件夹"""
         base = load_system_prompt(tools_mode=bool(self.client.tools_ok))
@@ -6227,6 +6269,8 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         # 联网思考：开了联网就要求"先查再答 + 列出来源 + 知道今天是几号"
         if bool(getattr(self.el.executor, "network_enabled", True)):
             parts.append(_net_thinking_hint())
+        # 执行边界：把本次会话**实际**的权限/沙箱/网络正向说清（静态提示词不知道这些运行时值）
+        parts.append(self._capability_inventory())
         parts.append(f"【工作目录】{os.path.abspath(self.cfg['project_root'])}。"
                      f"文件操作请使用该目录下的相对路径或该绝对路径，不要臆造路径。")
         # 用户环境：让模型知道"桌面/主目录"在哪，避免把工作目录当成用户桌面
@@ -8511,6 +8555,11 @@ def main() -> None:
         save_cli_config(cfg)
 
     cli = AgentCLI(cfg, mock=args.mock)
+    # 冻结发行（PyInstaller）不含 Ink 主外壳（见 docs/PACKAGING-EXE.md D3）：运行时明说，
+    # 而不是让用户以为"主外壳坏了"。打 stderr —— 一是不污染 --json/--serve/--mcp 的 stdout
+    # 协议通道，二是 Textual 全屏用 alt-screen 时会盖住 stdout，stderr 才能一直看得见。
+    if getattr(sys, "frozen", False):
+        print(c("yellow", t("frozen_fallback_shell")), file=sys.stderr)
     # MCP 子进程必须在所有退出路径上收掉：Windows 上父进程退出**不会**带走子进程，
     # 留着就是一堆孤儿 npx/python（下次启动再来一批）。
     import atexit

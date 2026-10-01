@@ -16318,6 +16318,19 @@ if _want("83"):
     check("[83] ★向前兼容：读回来多一个不认识的键不炸（老读者不因新字段失效）",
           len(_ws83.WorkspaceStore.load(_p83b).tasks) == 1, "")
 
+    # 命令面闭环：`/workspace new` 建 Task + 落盘 → 重开进程读回（save() 的第一个调用方）
+    _root83c = mktemp("wp4_p83c")
+    _cli83 = ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},
+                              mock=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        _cli83._cmd_workspace(["/workspace", "new", "审计 ACE"])
+    _buf83 = io.StringIO()
+    with contextlib.redirect_stdout(_buf83):
+        ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},
+                         mock=True)._cmd_workspace(["/workspace"])
+    check("[83] ★`/workspace new` 落盘 → 重开进程读回（持久化不是「有 API 没人用」）",
+          "审计 ACE" in _buf83.getvalue(), _buf83.getvalue()[:120])
+
 # ============================================================
 if _want("84"):
     # ── [84] WP-5 会话树：entry 树 + 向后兼容 + 只有 active branch 进上下文 ──

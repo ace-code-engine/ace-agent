@@ -1977,6 +1977,12 @@ class _SlashCommands:
             st = (_ws.WorkspaceStore.load(_p) if _p.is_file()
                   else _ws.WorkspaceStore(primary_root=self.cfg.get("project_root")))
             self.workspace_store = st
+        # `/workspace new <标题>`：建 Task 并落盘 —— 这是 `save()` 的第一个调用方
+        # （没有它，持久化就是"有 API 没人用"）。空标题不建，直接落到下面列表现状。
+        _title = " ".join(parts[2:]).strip() if len(parts) > 2 and parts[1] == "new" else ""
+        if _title:
+            st.new_task(_title)
+            st.save(Path(self.cfg.get("project_root") or ".") / ".ace" / "workspaces.json")
         if not st.tasks and not st.workspaces:
             print(c("dim", t("workspace_empty")))
             return True

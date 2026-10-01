@@ -37,6 +37,29 @@ python ai_code.py --mock
 
 ---
 
+## 两种用法，挑一个
+
+|  | **① 直接用 ACE 当你的 agent** | **② 把 ACE 当*你的* agent 的后端**（非侵入式） |
+|---|---|---|
+| 你得到 | 完整的终端 agent：四外壳、51 工具、写前快照、`/undo` | 一层安全服务，你的现有 agent 通过 **MCP** 调用它 |
+| 怎么开始 | 装 MSI 或解压发布包，跑 `ace` | 解压 `ace-mcp-&lt;版本&gt;.zip`，把一段配置粘进你的 host |
+| 你的机器上多什么 | 多装一个程序 | **什么都不多** —— 只加一条 MCP 配置，删掉就恢复原样 |
+| 详细说明 | [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md) · `python ai_code.py --mock` | [packaging/mcp/README-MCP.md](packaging/mcp/README-MCP.md) · `python verify-mcp.py` |
+
+**②** 能挂到 Cline / Claude Desktop / Cursor / 任何 MCP host，并多出两个安全工具：
+
+- `ace_security_scan` —— 路径级静态扫描（凭据、敏感目录、可执行后缀、网络路径）；
+  `deep: true` 再加一遍内容级，且**只读文件名已命中凭据**的那批。报告第一行永远写着范围声明 ——
+  因为**"扫过了"不等于"安全了"**。
+- `ace_sandbox_exec` —— 把不可信代码丢进 CubeSandbox（KVM microVM）跑；沙箱不可达时**拒绝**（Tier 0），
+  **绝不**退回你本机执行。凭据不注入沙箱。
+- 另有 31 个 ACE 工具，全部经过同一个权限 / 审批 / 审计点。默认 `readonly`。
+
+> 已经装了 ACE 的人**不需要**这个包 —— 直接让你的 host 指向 `ace.exe --mcp` 就行。
+> 这个包是给"只想要那层安全、不想装 agent"的人准备的。
+
+---
+
 ## Why ACE?
 
 ### 安全不该住在提示词里

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ace": {
+      "command": "<ABSOLUTE PATH TO THIS FOLDER>\\ace-mcp.cmd",
+      "args": [],
+      "env": {}
+    }
+  }
+}

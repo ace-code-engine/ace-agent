@@ -1,0 +1,16 @@
+{
+  "_comment": "任何认 {\"mcpServers\": {...}} 的 host 都能用这一份。把 <ABSOLUTE PATH TO THIS FOLDER> 换成解压目录。",
+  "_options": {
+    "只读（默认，推荐先用这个）": "args: []",
+    "允许写（host 想让 ACE 改文件时）": "args: [\"--permission\", \"write\"]",
+    "固定项目根（不跟随 host 的工作区）": "args: [\"--project-root\", \"C:\\\\你的项目\"]",
+    "沙箱后端（需要一台部署了 CubeSandbox 的机器）": "env: {\"ACE_SANDBOX_API\": \"http://<部署地址>:8080\"}"
+  },
+  "mcpServers": {
+    "ace": {
+      "command": "<ABSOLUTE PATH TO THIS FOLDER>\\ace-mcp.cmd",
+      "args": [],
+      "env": {}
+    }
+  }
+}

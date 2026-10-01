@@ -7,6 +7,31 @@
 
 ## Unreleased · 2026-10-01（v3.47.0 之后的验证）
 
+### 📦 非侵入式 MCP 接入包（让用户自己选：用 ACE，还是把 ACE 挂到自己的 agent 上）
+
+- **两种用法摆到 README 首屏**（`README.md` / `README.zh-CN.md`）：① 直接用 ACE 当 agent；
+  ② 把 ACE 当你的 agent 的后端（非侵入式，**零改动**）。配套说明 `packaging/mcp/README-MCP.md`
+  写清两者的取舍、边界与"该选哪个"。
+- **`packaging/build_mcp_bundle.ps1`** → `dist/ace-mcp-<版本>.zip`（~0.9 MB）：只装跑 `--mcp`
+  需要的运行时（顶层模块**按 glob 取**，排除测试套件；另有 `core/ tools/ cli/ ui/ tui/ locales/
+  prompts/ assets/`）+ 该包的说明书 + 四家 host 的现成配置 + 启动器 + 安装脚本 + 自检脚本 + `VERSION`。
+  顶层模块不再手写白名单 —— 第一版只列了两个文件，**自检当场抓到漏了 `agent_runner`**
+  （`ai_code` 顶层就 import 它）。这类白名单只要靠人维护，迟早是错的。
+- **三条接入路线**：A 已装 ACE → 直接指 `ace.exe --mcp`（不需要这个包）；B Windows 便携包 →
+  指 `ace-mcp.cmd`（目录由脚本位置决定，`--project-root` 默认用 host 的工作区）；
+  C POSIX → `ace-mcp.sh`。
+- **`verify-mcp.py`（自检，零依赖）**：用**和 host 一样的方式**拉起包、走真协议
+  （握手 → `tools/list` → 真调一次 `ace_security_scan`，`--write` 另验写路径），输出 `OK`/`FAIL`
+  并说清差在哪。装完不用来问我们。
+- **`install-cline.ps1`（一键写 Cline 配置）**：备份 + **合并**（保留用户已有的别的 MCP server
+  与未知键）+ `-DryRun` + `-StoreRoot`（可测）。
+  **这里抓到一个我自己写的危险 bug**：第一版用了 `ConvertFrom-Json -AsHashtable`（PS 7+ 才有的参数），
+  在 Windows PowerShell 5.1 上抛异常 → 被当成"配置不是 JSON" → **会把用户其它 MCP server 一起抹掉**。
+  现已改成 5.1 兼容的解析，并有一个**真跑一遍的合并测试**（别人 server 还在 / 未知键保留 / 有备份）。
+- **`.github/workflows/release-mcp-pack.yml`**：单独的工作流（**不动**已验证的 release-exe /
+  release-executor），构建 → **在干净解压目录里 smoke** → `gh release upload --clobber` 挂到已有 Release。
+  单独一个是因为这个包的构建与那两个没有依赖，塞进去就得重验它们的顺序与竞态。
+
 ### ✅ M8 真 host 冒烟：读路径闭环（发布后第一次真实使用）
 
 - **真 host = Cline**（VSCode 扩展 `hybridtalentcomputing.cline-chinese` / `saoudrizwan.claude-dev`），

@@ -36,6 +36,29 @@ python ai_code.py --mock
 
 ---
 
+## Two ways to use it — pick one
+
+|  | **① ACE as your agent** | **② ACE as a back-end for *your* agent** (non-intrusive) |
+|---|---|---|
+| What you get | the whole terminal agent: 4 shells, 51 tools, write-ahead snapshots, `/undo` | a safety layer your existing agent calls over **MCP** |
+| How to start | install the MSI or unzip the release, run `ace` | unzip `ace-mcp-&lt;version&gt;.zip`, paste one config into your host |
+| What changes on your machine | you install an app | **nothing** — one MCP entry; delete it and you are back where you started |
+| Details | [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md) · `python ai_code.py --mock` | [packaging/mcp/README-MCP.md](packaging/mcp/README-MCP.md) · `python verify-mcp.py` |
+
+**②** plugs into Cline / Claude Desktop / Cursor / any MCP host, and adds two security tools:
+
+- `ace_security_scan` — path-level static scan (credentials, sensitive dirs, executable suffixes,
+  network paths); `deep: true` adds a content-level pass over the files whose *names* already hit the
+  credential list. Reports open with their own scope statement, because **"scanned" is not "safe"**.
+- `ace_sandbox_exec` — runs untrusted code in a CubeSandbox microVM (KVM). When no sandbox is reachable
+  it **refuses** (Tier 0); it never falls back to running on your machine. Credentials are not injected.
+- plus 31 ACE tools that all route through the same permission / approval / audit point. Default is `readonly`.
+
+> Already have ACE installed? You do **not** need the pack — point your host at `ace.exe --mcp`.
+> The pack is for people who want the safety layer without installing the agent.
+
+---
+
 ## Why ACE?
 
 ### Safety that does not live in the prompt

@@ -6786,6 +6786,48 @@ if _want("38"):
         check("[38] workflows 里的版本读取都用 from core import version（R-07 后不许裸 import）",
               not _wf_bad, _wf_bad[:4])
 
+        # YAML 守卫（2026-10-01 发布时踩到）：`run: |` 是**块标量**，块内每一行都必须比
+        # `run:` 更深 —— 内联 heredoc 的正文写在**第 0 列**时，YAML 结构当场断掉。
+        # 症状很有迷惑性：push 不报错，GitHub 生成一个**以文件路径为名、没有任何 job 的失败 run**，
+        # 而 `gh workflow run` 回 422「Workflow does not have 'workflow_dispatch' trigger」——
+        # 看起来像触发器没写，实际是文件根本没被解析。
+        # 本地没有 PyYAML（依赖纪律也不值得为这个装一个），所以只钉**这一类**错误：
+        # 块内出现第 0 列的非空行 = 缩进断了。
+        _yaml_bad = []
+        for _wf in sorted((FOLDER / ".github" / "workflows").glob("*.yml")):
+            _lines = _wf.read_text(encoding="utf-8").splitlines()
+            _block_indent = None
+
+            def _is_run_block(_raw: str) -> bool:
+                # 两种写法都要认：`        run: |`（与 name 同级）和 `      - run: |`（同行）。
+                # 第一版只认前者，于是红检查里那个 `- run: |` 的坏文件被放过去了。
+                _s = _raw.strip()
+                if _s.startswith("- "):
+                    _s = _s[2:].strip()
+                return _s in ("run: |", "run: >", "run: |-", "run: >-")
+
+            for _i, _ln in enumerate(_lines, 1):
+                if _block_indent is None:
+                    if _is_run_block(_ln):
+                        _block_indent = len(_ln) - len(_ln.lstrip())
+                    continue
+                if not _ln.strip():
+                    continue
+                _ind = len(_ln) - len(_ln.lstrip())
+                # 顺序要紧：**先**判"块内第 0 列"。第一版把块结束判断放在前面，于是
+                # `0 <= _block_indent` 先成立、直接 continue 掉了 —— 坏行永远走不到下面那条判断。
+                if _ind == 0:
+                    _yaml_bad.append(f"{_wf.name}:{_i} 块内第 0 列：{_ln.strip()[:50]}")
+                    _block_indent = None
+                    continue
+                if _ind <= _block_indent:
+                    _block_indent = None      # 块结束（回到同级或更浅）
+                    if _is_run_block(_ln):
+                        _block_indent = _ind
+                    continue
+        check("[38] workflows 的 `run: |` 块里没有第 0 列的内容（heredoc 会把 YAML 缩进打断）",
+              not _yaml_bad, _yaml_bad[:4])
+
         # —— H-32：代码在接线，文档就不许再说"未接入" ——
         # 此前 `core/ace_mandate.py` 的 docstring、`docs/ARCHITECTURE.md` 的权威树、
         # 以及 test_all 自己的 RG-05a 段注释都写着授权令"未接入审批流程"，而

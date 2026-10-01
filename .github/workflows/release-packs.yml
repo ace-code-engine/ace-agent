@@ -50,37 +50,29 @@ jobs:
           ./packaging/build_mcp_bundle.ps1
           ./packaging/build_allinone_bundle.ps1
 
-      - name: Smoke BOTH packs from clean extractions
+      - name: Verify pack contents from clean extractions
         # 只在**解压出来的目录**里跑才算验过：少一个模块只有在那一刻才暴露。
         # 本地第一次构建就是被这条抓到的（ai_code 顶层 import agent_runner）。
+        # 注意：这一段里不要出现顶格的 heredoc —— 它会把 YAML 的块缩进打断（第一版就是这么废的）。
         run: |
           set -e
-          V="${GITHUB_WORKSPACE}/dist/ace-mcp-${{ steps.version.outputs.resolved }}.zip"
-          A="${GITHUB_WORKSPACE}/dist/ace-secbox-${{ steps.version.outputs.resolved }}.zip"
-          test -f "$V" || { echo "mcp pack missing: $V"; exit 1; }
+          V="${{ steps.version.outputs.resolved }}"
+          M="${GITHUB_WORKSPACE}/dist/ace-mcp-${V}.zip"
+          A="${GITHUB_WORKSPACE}/dist/ace-secbox-${V}.zip"
+          test -f "$M" || { echo "mcp pack missing: $M"; exit 1; }
           test -f "$A" || { echo "all-in-one pack missing: $A"; exit 1; }
-
-          for z in "$V" "$A"; do
+          for z in "$M" "$A"; do
             d="/tmp/pk_$(basename "$z" .zip)"
-            mkdir -p "$d" && (cd "$d" && unzip -q "$z")
+            mkdir -p "$d"
+            (cd "$d" && unzip -q "$z")
             echo "--- smoke $(basename "$z") ---"
             python3 "$d/verify-mcp.py"
-            python3 - <<EOF
-import json, pathlib
-root = pathlib.Path("$d")
-ver = (root / "VERSION").read_text(encoding="utf-8").strip()
-assert ver, "VERSION stamp missing"
-cfg = json.loads((root / "configs/cline_mcp_settings.json").read_text(encoding="utf-8"))
-assert "ace" in cfg["mcpServers"], cfg
-print("contents OK, VERSION =", ver)
-EOF
+            extra=""
+            case "$z" in *secbox*) extra="--with-base" ;; esac
+            python3 "$GITHUB_WORKSPACE/packaging/verify_pack_contents.py" "$d" $extra
           done
-
-          # 一体包必须比 MCP 包**多**出底座那一半（少了就退化成同一个包）
-          test -f "/tmp/pk_ace-secbox-${{ steps.version.outputs.resolved }}/sandbox/preflight.sh" \
-            || { echo "all-in-one pack is missing the base half"; exit 1; }
-          test -f "/tmp/pk_ace-secbox-${{ steps.version.outputs.resolved }}/setup-all.sh" \
-            || { echo "all-in-one pack is missing setup-all.sh"; exit 1; }
+          test -f "/tmp/pk_ace-secbox-${V}/sandbox/preflight.sh" || { echo "all-in-one pack is missing the base half"; exit 1; }
+          test -f "/tmp/pk_ace-secbox-${V}/setup-all.sh" || { echo "all-in-one pack is missing setup-all.sh"; exit 1; }
           echo "both packs verify"
 
       - name: Attach to the existing Release (idempotent)

@@ -19,6 +19,10 @@ param(
 $ErrorActionPreference = 'Continue'
 $PackDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Windows PowerShell ships as `powershell`, newer/other platforms as `pwsh` - do not assume
+# either one exists (the pack builder died on exactly that assumption: green locally, red on
+# the Linux runner).
+$psExe = if (Get-Command powershell -ErrorAction SilentlyContinue) { 'powershell' } else { 'pwsh' }
 Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host " ACE all-in-one: base verdict + MCP mount" -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
@@ -27,7 +31,7 @@ Write-Host ""
 # ---- 1. base preflight (tells the truth about THIS machine) ----
 $pre = Join-Path $PackDir 'sandbox\preflight.ps1'
 if (Test-Path $pre) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $pre
+    & $psExe -NoProfile -ExecutionPolicy Bypass -File $pre
 } else {
     Write-Host "sandbox\preflight.ps1 missing from this pack" -ForegroundColor Yellow
 }
@@ -49,7 +53,7 @@ if ($DryRun)     { $psArgs += '-DryRun' }
 if ($Python)     { $psArgs += @('-Python', $Python) }
 if ($SandboxApi) { $psArgs += @('-SandboxApi', $SandboxApi) }
 if ($SandboxKey) { $psArgs += @('-SandboxKey', $SandboxKey) }
-& powershell @psArgs
+& $psExe @psArgs
 
 Write-Host ""
 Write-Host "----------------------------------------------" -ForegroundColor Cyan

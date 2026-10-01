@@ -16395,6 +16395,29 @@ if _want("83"):
           _sens83(_proj83 / ".ace" / "commands" / "review.md") is None
           and _sens83(_proj83 / ".ace" / "skills" / "x" / "SKILL.md") is None, "")
 
+    # ── C5 规则 3：快照基盖不住 worktree 根这件事，必须走**结果**而不是 stderr ──
+    # 快照基 = `guardian.project_root`；注册过的 worktree 根按定义在它之外。
+    # 写进 worktree 的快照**建得出来**，但 `/undo` 撤不到它 —— 此前只有一行 stderr，
+    # 而结果里照样写着 `snapshot_state="created"`，等于对 CI/无头调用方谎报有回滚。
+    (_proj83 / "seed.txt").write_text("seed", encoding="utf-8")
+    _el83s = ExecutionLayer(project_root=str(_proj83), permission_level="write")
+    _r83s = run_agent(_el83s, "file_write", path=str(_outer83 / "sb.txt"), content="x")
+    check("[83] ★C5 规则 3：写到快照基之外 → snapshot_state=partial（不谎报 created）",
+          _r83s.get("snapshot_state") == "partial", _r83s.get("snapshot_state"))
+    _r83s2 = run_agent(_el83s, "file_write", path="inside.txt", content="x")
+    check("[83] ★基内的写仍是 created（别把正常写也标成盖不住）",
+          _r83s2.get("snapshot_state") == "created", _r83s2.get("snapshot_state"))
+
+    # 看不见的差别等于不存在：`/workspace` 要把"这个工作区撤不撤得到"说出来
+    _buf83w = io.StringIO()
+    _cli83w = ai_code.AgentCLI({"project_root": str(_proj83), "permission": "readonly"},
+                               mock=True)
+    with contextlib.redirect_stdout(_buf83w):
+        _cli83w._cmd_workspace(["/workspace"])
+    _out83w = _buf83w.getvalue()
+    check("[83] ★/workspace 说清每个工作区的撤销覆盖（基 ≠ 它 → 明确说撤不到 + 给出路）",
+          "撤销覆盖" in _out83w and "--project-root" in _out83w, _out83w[-400:])
+
     # 命令面闭环：`/workspace new` 建 Task + 落盘 → 重开进程读回（save() 的第一个调用方）
     _root83c = Path(tempfile.mkdtemp())
     _cli83 = ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},

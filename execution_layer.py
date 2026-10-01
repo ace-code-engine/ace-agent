@@ -640,8 +640,15 @@ class RoundCtx:
     # "created" 建好了 / "empty_project" 项目是空的（无可失去的东西）/
     # "unavailable" 建不出来（fail-close 已拒写，或 snapshot_required=false 放行）/
     # "rolled_back" 守门违规后已回滚 / "rollback_failed" 回滚没做成（改动仍在盘上）
+    # "partial" 建好了但**盖不住**本轮要动的全部路径（见 `snapshot_outside`）/
     # "" 本轮不需要快照（非写工具）。
     snapshot_state: str = ""
+    # WP-4（C5 规则 3）：本轮要动的路径里有几条**落在快照基之外**。
+    # 快照基 = `guardian.project_root`，而注册过的 worktree 根按定义在项目根之外 ——
+    # 那种写操作建得出快照，但事后 `/undo` 撤不到它。guardian 早就把这件事打到
+    # stderr，可 `snapshot_state` 仍写 "created"，等于对 CI/无头调用方说"有回滚"。
+    # 非 0 时 `snapshot_state` 记 "partial"，让这件事走结果而不是走 stderr。
+    snapshot_outside: int = 0
     # H-08：本轮快照该按**多大范围**回滚，以及精确回滚要用的路径集合。
     # "" = 本轮没建快照（非写工具）；"paths" = 这轮动了哪些路径**说得清**
     # （`core/targets.WRITE_TOOLS_WITH_PATH` 那 4 个工具）→ 只回滚它们；
@@ -2459,6 +2466,7 @@ class ExecutionLayer:
         """
         ctx.snapshot_id = None
         ctx.snapshot_state = ""
+        ctx.snapshot_outside = 0
         ctx.rollback_scope = ""
         ctx.touched_paths = ()
         if tool_name not in WRITE_TOOLS or not self.guardian:
@@ -2471,6 +2479,14 @@ class ExecutionLayer:
             if _targets:
                 ctx.rollback_scope = "paths"
                 ctx.touched_paths = tuple(_targets)
+        # WP-4（C5 规则 3）：快照基是 `guardian.project_root`。要动的路径若在基之外
+        # （典型：目标是一条注册过的 worktree 根，而本会话根在主工作区），快照**盖不住**它
+        # —— 建得出来、但 `/undo` 撤不到。规矩不是"服务端静默"，而是"如实说"：
+        # 数出来，下面把 `snapshot_state` 记成 `partial`。
+        # 刻意**不**在这里 fail-close：项目外绝对路径写是既有产品意图（SEC-009 之后的口径，
+        # "放到桌面"），此前就是"照写 + stderr 提醒"。这里只把同一件事从 stderr 挪进结果，
+        # 不改放不放行 —— 改放行是另一件事，得单独决策。
+        ctx.snapshot_outside = self._count_outside_snapshot_base(ctx.touched_paths)
         try:
             ctx.snapshot_id = self.guardian.snapshot(
                 f"before_{tool_name}_{int(time.time())}",
@@ -2490,11 +2506,28 @@ class ExecutionLayer:
                     "快照不会包含它们")
             ctx.snapshot_state = "empty_project"
             return None
-        ctx.snapshot_state = "created"
+        if ctx.snapshot_outside:
+            # 快照是好的，只是**盖不到全部**要动的路径 —— 两种事分开说，别混成一个词。
+            ctx.snapshot_state = "partial"
+        else:
+            ctx.snapshot_state = "created"
         if self.session_log:
             self.session_log.record_snapshot(K_SNAPSHOT_CREATE,
                                              ctx.snapshot_id, tool_name)
         return None
+
+    def _count_outside_snapshot_base(self, targets: "tuple") -> int:
+        """`targets` 里有几条落在快照基（`guardian.project_root`）之外（WP-4 C5 规则 3）。
+
+        直接复用 `Guardian._relative_targets` 的**同一个判据**，不另立一套：那里已经处理了
+        H-10 的全部坑（`..`、8.3 短名、大小写、尾点、绝对路径），而且**相对路径的起点是
+        项目根而不是进程 cwd** —— 自己写一遍第一版就踩到了后者（`inside.txt` 被解析到 cwd，
+        项目内的写被误判成"盖不住"）。guardian 在 `snapshot(touched=...)` 里用同一函数数
+        同一个数并打到 stderr；这里只是把它带进结果。
+        """
+        if not targets:
+            return 0
+        return self.guardian._relative_targets(targets)[1]
 
     def _snapshot_unavailable(self, tool_name: str, ctx: RoundCtx,
                               route_meta: Dict[str, Any], reason: str

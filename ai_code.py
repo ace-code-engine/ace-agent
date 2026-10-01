@@ -2018,6 +2018,16 @@ class _SlashCommands:
                          + (f" exit={_proc.exit_code}" if _proc.exit_code is not None else "")
                          + ")")
                 print(f"    {_w.name or _w.id}  [{_w.branch or '-'}] {_flag}  最新进程: {_tail}")
+                # C5 规则 3：这一行的写操作到底有没有回滚。快照基 = 会话根；worktree 根
+                # 在它之外时，写进去的东西 `/undo` 撤不到 —— 一个看不见的差别等于不存在。
+                _sb, _note = st.snapshot_base(_w.id)
+                _cur = Path(str(self.cfg.get("project_root") or ".")).resolve()
+                if _sb is not None and _sb == _cur:
+                    print(c("dim", t("workspace_undo_ok", root=_sb)))
+                else:
+                    print(c("yellow", t("workspace_undo_gap",
+                                        base=_cur, root=(_sb if _sb else "—"))
+                            + (f"（{_note}）" if _note else "")))
         print(c("dim", t("workspace_roots", n=len(st.allowed_roots()))))
         return True
 

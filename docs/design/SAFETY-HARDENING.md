@@ -284,7 +284,11 @@ W0 ──▶ W1 ∥ W3 ──▶ W2 ──▶ W4 ──▶ W5 ──▶ W6 ─�
 
 - **`ExecutionLayer._rollback_current_snapshot()` 返回值**：`bool` → `Tuple[bool, str]`。唯一调用点（`_stage_output_guard`）已同步；`test_all` 里两条既有断言已按新契约改写（其中一条**加强**为"失败必须带出原因"）。
 - **新配置键**：`snapshot_required`（默认 `true`）。为 `false` 时快照不可用不再拒写，但**仍记事件日志 + 结果带 `snapshot_state="unavailable"`**。
-- **`process_agent_output()` 返回 dict 新增字段**：`snapshot_state` ∈ {`created`, `empty_project`, `unavailable`, `rolled_back`, `rollback_failed`, `""`}。
+- **`process_agent_output()` 返回 dict 新增字段**：`snapshot_state` ∈ {`created`, `empty_project`, `unavailable`, `rolled_back`, `rollback_failed`, `partial`, `""`}。
+  `partial`（WP-4 C5 规则 3 追加）= 快照建好了但**盖不住**本轮要动的全部路径 —— 典型是一条
+  注册过的 worktree 根，而本会话快照基在主工作区。此前这件事只有一行 stderr，结果里照样写
+  `created`，等于对 CI/无头调用方谎报"有回滚"。放行与否**未改**（项目外绝对路径写是既有产品
+  意图，SEC-009 之后的口径），只是把同一个数从 stderr 挪进结果；`RoundCtx` 同时加 `snapshot_outside`。
 - **新会话事件种类**：`snapshot/unavailable`。
 
 ### 9.7 遗留

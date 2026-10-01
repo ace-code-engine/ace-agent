@@ -172,6 +172,8 @@
   "cmd_workspace": "查看四层工作区（Task → Workspace → Session + 最新进程）",
   "workspace_empty": "还没有工作区（四层模型尚未注册任何 Task/Workspace）",
   "workspace_roots": "allowedRoots: {n} 个",
+  "workspace_undo_ok": "      撤销覆盖：是（快照基 = {root}）",
+  "workspace_undo_gap": "      撤销覆盖：**否** —— 本会话快照基是 {base}，这个工作区在 {root}；写进去的东西 /undo 撤不到。要在它里面带回滚地工作，用 `--project-root {root}` 重开会话",
   "cmd_open": "用系统默认程序打开文件（用法: /open <路径>）",
   "cmd_edit": "用 VS Code（或默认编辑器）打开文件（用法: /edit <路径>）",
   "cmd_search": "联网搜索（DuckDuckGo/Bing，用法: /search <关键词>）",

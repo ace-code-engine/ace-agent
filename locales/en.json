@@ -256,6 +256,8 @@
   "cmd_workspace": "Show the four-layer workspace (Task → Workspace → Session + latest process)",
   "workspace_empty": "No workspaces yet (nothing registered in the four-layer model)",
   "workspace_roots": "allowedRoots: {n}",
+  "workspace_undo_ok": "      undo coverage: yes (snapshot base = {root})",
+  "workspace_undo_gap": "      undo coverage: **no** — this session's snapshot base is {base}, this workspace is at {root}; writes there cannot be undone by /undo. To work in it with rollback, restart with `--project-root {root}`",
   "cmd_audit": "View session event log (full-chain audit; usage: /audit [count] [kind] | /audit stats for meta)",
   "model_err_401": "API Key invalid or expired. Reconfigure it via /config (GLM keys start with 'id.'; no spaces/newlines), or regenerate one in the provider console.",
   "model_err_403": "Key lacks permission for this model: check account/quota, or switch model.",

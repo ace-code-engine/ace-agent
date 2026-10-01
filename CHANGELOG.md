@@ -32,6 +32,29 @@
   不是"被收紧到 worktree"。想让绝对路径写也受 allowedRoots 管，是**收紧既有已测行为**的独立决策。
 - `test_all [83]` 新增 **10 条**断言（红先行：接线前 3 条红，其中 2 条是行为红）。`test_all` 2680 → **2690**。
 
+### 📸 WP-4 C5 规则 3（快照基）：如实声明，不假装切换（2026-10-01）
+
+- **结论先说**：规则 3 的两条要求（基正确、跨根不串）**由构造方式直接满足** ——
+  按 `--project-root <worktree>` 重开会话时 `Guardian` 自然就以该 worktree 为基，
+  且 `anchor_dir_for(root)` 给每个根派生**各自独立的签名锚**。**没有需要"运行时切换"的东西。**
+- **明确不做进程内切 `project_root`**：它是构造期不变量，被 `executor` / `guardian` / `archive` /
+  `sessionlog` / MCP 根 / 技能根 / 权限规则根同时持有；更硬的是**半途实现恰好产生 C5 卡禁止的
+  "两套回滚"** —— 各建 `Guardian` 而共用 store 时，`rollback(snap_id)` 会用**当前实例**的
+  `project_root` 解析快照里的相对路径，那正是"把 A 工作区的文件还原到 B 工作区的树上"。
+  理由全文见 `docs/design/WP-4-SNAPSHOT-SEMANTICS.md` §6（含规则 3 标题与正文自相矛盾的更正）。
+- **做的是缺了就让这句话没法验的那一半 —— 如实声明**：
+  - `snapshot_state` 新增 **`partial`** + `RoundCtx.snapshot_outside`：快照基盖不住本轮要动的
+    路径时（典型是一条注册过的 worktree 根），此前只有一行 **stderr**，结果里照样写
+    `created` —— 等于对 CI/无头调用方谎报"有回滚"。现在**走结果**。
+  - `/workspace` 逐行报「撤销覆盖：是/否（快照基 = …）」，"否"时给出路：`--project-root <该根>` 重开会话。
+    看不见的差别等于不存在。
+  - **放行与否一字未改**：项目外绝对路径写是既有产品意图（SEC-009 之后的口径），此前就是
+    "照写 + stderr 提醒"。想让绝对路径写也受快照基约束是**收紧既有已测行为**的独立决策。
+- 判据**不分叉**：`snapshot_outside` 直接复用 `Guardian._relative_targets()`（H-10 已处理 `..`、
+  8.3 短名、大小写、尾点，且相对路径起点是项目根而非 cwd）。第一版自己写了一遍，当场把项目内的
+  写误判成"盖不住" —— 被 `[83]` 的"基内的写仍是 created"抓住后改成复用。
+- `test_all [83]` 再新增 **3 条**断言。`test_all` 2690 → **2693**。
+
 ### ✨ WP-4 四层持久化（后续切片）
 
 - `core/ace_workspace.WorkspaceStore` 新增 `save()` / `load()`：四层状态写成一份 JSON，读回时

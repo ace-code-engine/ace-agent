@@ -16552,6 +16552,58 @@ if _want("86"):
           _p86(_e86b, "file_write", path="x.txt", content="hi").get("status")
           == "PERMISSION_REQUEST", "")
 
+    # ── WP-6 的**入口**：`/preset` ──
+    # 这一段测的是"能力在、入口不在"：`AgentPresetRegistry.switch()` 与 `emit_switch()`
+    # 此前**没有任何调用方** —— 预设只能写死在启动配置里，运行中换不了，
+    # `agent_preset` 事件也就永远发不出去（事件类型却早已在 EVENT_TYPES 里）。
+    from core import ace_events as _ev86  # noqa: E402
+
+    (_root86 / "agents" / "audit.md").write_text(
+        "---\nname: audit\ndescription: 更严\npermission: {bash: deny}\n---\n审计\n",
+        encoding="utf-8")
+    (_root86 / "agents" / "loose.md").write_text(
+        "---\nname: loose\ndescription: 比全局松\npermission: {bash: allow}\n---\n松\n",
+        encoding="utf-8")
+    _cli86 = ai_code.AgentCLI({"project_root": str(_root86), "permission": "write"},
+                              mock=True)
+    _buf86l = io.StringIO()
+    with contextlib.redirect_stdout(_buf86l):
+        _cli86._cmd_preset(["/preset"])
+    _out86l = _buf86l.getvalue()
+    check("[86] ★`/preset` 列出全部预设并标出当前（此前根本没有这个入口）",
+          all(_n in _out86l for _n in ("reviewer", "audit", "loose")), _out86l[-300:])
+    # 事件出口换成可捕获的：切换必须**广播**（HL-03②：切换要有可观测声明）
+    _buf86e = io.StringIO()
+    _cli86.events = _ev86.EventEmitter(_buf86e, enabled=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        _cli86._cmd_preset(["/preset", "audit"])
+    check("[86] ★`/preset audit` 真的切了（注册表 current 与 el.agent_preset 同步）",
+          _cli86.el.agent_registry.current is not None
+          and _cli86.el.agent_registry.current.name == "audit"
+          and _cli86.el.agent_preset is _cli86.el.agent_registry.current, "")
+    check("[86] ★切换**广播** `agent_preset` 事件（emit_switch 此前无调用方）",
+          '"agent_preset"' in _buf86e.getvalue()
+          and '"audit"' in _buf86e.getvalue(), _buf86e.getvalue()[-300:])
+    check("[86] ★切完**立即生效**、不用重启：预设 bash:deny → terminal_exec 403",
+          _p86(_cli86.el, "terminal_exec", command="echo hi").get("status") == "403", "")
+    _buf86e2 = io.StringIO()
+    _cli86.events = _ev86.EventEmitter(_buf86e2, enabled=True)
+    _buf86r = io.StringIO()
+    with contextlib.redirect_stdout(_buf86r):
+        _cli86._cmd_preset(["/preset", "loose"])
+    check("[86] ★S-1 在**入口**上也拦：`/preset loose`（bash:allow）被拒且状态不变",
+          _cli86.el.agent_registry.current.name == "audit"
+          and bool(_buf86r.getvalue().strip()), _buf86r.getvalue()[-200:])
+    check("[86] ★被拒的切换**不广播**事件（拒了却发『已切换』就是谎报）",
+          "agent_preset" not in _buf86e2.getvalue(), _buf86e2.getvalue()[-200:])
+    _buf86e3 = io.StringIO()
+    _cli86.events = _ev86.EventEmitter(_buf86e3, enabled=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        _cli86._cmd_preset(["/preset", "nosuch"])
+    check("[86] ★拼错的名字不退化成『切回无预设』（`name=''` 在事件契约里是另一个意思）",
+          _cli86.el.agent_registry.current.name == "audit"
+          and "agent_preset" not in _buf86e3.getvalue(), _buf86e3.getvalue()[-200:])
+
 # ============================================================
 if _want("87"):
     # ── [87] WP-7 Skill：只广告 name+description + 无效字段只 warning ──

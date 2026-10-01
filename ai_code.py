@@ -1636,7 +1636,7 @@ class _SlashCommands:
                            "/todo", "/audit", "/exit"]),
         ("group_security", ["/permission", "/snapshots", "/undo", "/rollback",
                             "/sandbox", "/net"]),
-        ("group_model", ["/provider", "/model", "/config", "/mock", "/thinking",
+        ("group_model", ["/provider", "/model", "/preset", "/config", "/mock", "/thinking",
                          "/style"]),
         ("group_tools", ["/home", "/new", "/open", "/edit", "/review", "/diff", "/search", "/memory",
                         "/report", "/goal", "/cd", "/agents", "/workspace"]),
@@ -1694,6 +1694,7 @@ class _SlashCommands:
         "/permission": "cmd_permission",
         "/mock": "cmd_mock",
         "/model": "cmd_model",
+        "/preset": "cmd_preset",
         "/provider": "cmd_provider",
         "/config": "cmd_config",
         "/goal": "cmd_goal",
@@ -1768,6 +1769,7 @@ class _SlashCommands:
         "/permission": ("_handle_permission", True),
         "/mock": ("_toggle_mock", False),
         "/model": ("_handle_model", True),
+        "/preset": ("_cmd_preset", True),
         "/provider": ("_handle_provider", True),
         "/config": ("_config_wizard", False),
         "/goal": ("_show_goal", True),
@@ -1961,6 +1963,57 @@ class _SlashCommands:
         except OSError:
             return out
         return out
+
+    def _cmd_preset(self, parts: List[str]) -> bool:
+        """`/preset [名字]`：列出 / 切换 agent 预设（WP-6 的**入口**）。
+
+        为什么必须有它：`AgentPresetRegistry.switch()` 与 `emit_switch()` 都落了地，却
+        **没有任何调用方** —— 预设只能在启动配置里写死，运行中换不了，四外壳也就永远收不到
+        `agent_preset` 事件（那条事件在 `core/ace_events.EVENT_TYPES` 里，是 WP-0 的既有
+        通道）。能力在、入口不在，就是"有 API 没人用"：一个配了 `bash: deny` 的预设，
+        用户能在启动时选中，却没法在会话中途切进切出。
+
+        切换一律走 `registry.switch()` 而不是自己改 `current`：S-1 的"比全局更松当场拒"
+        就在 `activate()` 里，绕过它等于把唯一的放松闸门拆了。
+        """
+        from core import ace_agents as _ag  # noqa: PLC0415
+
+        reg = getattr(self.el, "agent_registry", None)
+        if reg is None:
+            print(c("dim", t("preset_unavailable")))
+            return True
+        # 每次重扫：刚丢进 `.ace/agents/` 的预设立刻可见，不用重启（reload 幂等）。
+        reg.reload()
+        _cur = reg.current.name if reg.current else ""
+        name = " ".join(parts[1:]).strip()
+        if not name:
+            if not reg.presets:
+                print(c("dim", t("preset_none")))
+                return True
+            print(c("bold", t("preset_title", n=len(reg.presets))))
+            print(c("dim", t("preset_active", name=(_cur or "-"))))
+            for _p in reg.presets:
+                _w = f"  [{len(_p.warnings)} warning]" if _p.warnings else ""
+                print(f"  {'*' if _p.name == _cur else ' '} {_p.name}{_w}")
+            return True
+        # 先认名字再切：`switch()` 对认不出的名字会退化成"name=''"，而 `name=''` 在
+        # 事件契约里是"切回无预设"—— 一个拼错的名字会被广播成一次真实的切走。
+        if reg.get(name) is None:
+            print(c("yellow", t("preset_unknown", name=name,
+                                names=(", ".join(sorted(reg.by_name)) or "-"))))
+            return True
+        try:
+            _sw = reg.switch(name, emitter=self.events)
+        except _ag.RelaxationForbidden as _e:
+            # S-1：预设不得比全局松。这里不是"警告后照做"，是不做。
+            print(c("red", t("preset_relax", name=name, why=_e)))
+            return True
+        self.el.agent_preset = reg.current
+        print(c("bold", t("preset_switched", name=_sw.name,
+                          changed=(", ".join(_sw.changed) or "-"))))
+        for _wn in _sw.warnings:
+            print(c("yellow", f"  ⚠ {_wn}"))
+        return True
 
     def _cmd_workspace(self, parts: List[str]) -> bool:
         """四层工作区（WP-4）：Task → Workspace → Session + 每行**最新进程**。

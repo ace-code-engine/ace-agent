@@ -3,7 +3,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Release" src="https://img.shields.io/badge/release-v1.0.0%20Public%20Beta-brightgreen">
-  <img alt="Safety core dependencies" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
+  <img alt="Safety core" src="https://img.shields.io/badge/safety%20core-zero--dep-orange">
   <img alt="Model API" src="https://img.shields.io/badge/model%20API-requires%20requests-blue">
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v1.0.0%20(2026--10--01)-brightgreen"></a>
 </p>
@@ -11,7 +11,7 @@
 <h1 align="center">ACE · AI Code Engine</h1>
 
 <p align="center">
-  English · <a href="README.zh-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="docs/README.md">Documentation</a>
+  English · <a href="README.zh-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="docs/README.md">Docs</a>
 </p>
 
 <p align="center">
@@ -21,389 +21,64 @@
 
 ---
 
-## Name notice — which "ACE" this is
+ACE is an **execution layer for coding agents**. Every tool call — files, commands, network, MCP —
+passes through a single decision point: a permission gate, a path & sensitive-target boundary, a
+write-ahead snapshot, and an HMAC-chained audit record. The safety core is **pure standard library**;
+the boundary holds when the prompt does not (jailbreak, injected content, tampered tool output).
 
-Several unrelated projects, frameworks and certifications are called **ACE**. This repository is
-**ACE · AI Code Engine** (`ace-code-engine/ace-agent`): an **execution layer for coding agents** —
-it decides, before a tool call runs, whether it may run, and records what happened.
+> **Not** the ACE editor / ACE framework / ACE-Step / Adobe-ACE — [which "ACE" this is](docs/WHY.md).
 
-It is **not** any of the following, and is not affiliated with them:
+## What makes it different
 
-- the **ACE editor** (Ajax.org Cloud9 Editor, distributed as `ace-builds`) — a browser-based source
-  code editor;
-- the **ACE framework** (Adaptive Communication Environment) — a C++ network programming toolkit,
-  packaged as `libace`;
-- **ACE-Step** — an open-source music generation model;
-- **ACE: Agentic Context Engineering** — a research method for evolving model context;
-- the **Adobe Certified Expert** or **American Council on Exercise** certifications.
+- **Safety below the model, not in the prompt.** Permissions, paths, sandbox and rollback are harness code.
+- **Read-only by default.** Elevation is a human action (`/permission write`).
+- **Snapshot + `/undo`** on every write, HMAC-signed, not writable by the agent.
+- **Self-driven.** Persistent goals, subagents, and one command to switch among **9 vendors · 10 endpoints**.
 
-If you arrived here looking for a code editor, a music model, a C++ framework or a
-context-engineering method, this is a different project. The distinguishing facts about this one:
-the entry point is `ai_code.py`, the installed command is `ace`, the decision logic lives in
-`execution_layer.py`, and the safety core has no third-party dependencies.
+## Get it
 
----
+Three artefacts per release — alternatives, not layers:
 
-## 1. Overview
+| Form | Artefact | Choose it when |
+|---|---|---|
+| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `.zip` | You want a terminal agent to work in |
+| **② ACE as an MCP server** | `ace-mcp-server-1.0.0.zip` | You already use Cline / Claude Desktop / Cursor and want the boundary without changing it |
+| **③ MCP + sandbox base** | `ace-sandbox-bundle-1.0.0.zip` | You want the execution boundary too (KVM microVM) |
 
-ACE (AI Code Engine) is an execution layer for coding agents. Every tool call — file access, command
-execution, network egress, MCP server invocation — passes through a single decision point before it
-runs: a permission gate, a path and sensitive-target boundary, a write-ahead snapshot, and an auditable
-record. The boundary holds when the prompt does not: under jailbreak, injected web content or tampered
-tool output it still applies, because it is not expressed in the prompt.
-
-The safety core is pure standard library. Model calls are the only component requiring `requests`.
-Supporting properties: local execution (no cloud in the decision path), model-agnostic operation
-(**9 vendors · 10 endpoints** behind one `/provider` switch, over both the OpenAI and Anthropic wire
-formats), and one declared path for every tool (`tools/registry.py`), shared by native tools, MCP
-servers and `SKILL.md` skills.
-
-## 2. Release status
-
-| | |
-|---|---|
-| **Version** | **1.0.0 — Public Beta** (2026-10-01) |
-| **Maturity** | Feature-complete against the capability roadmap; interfaces may still change before 1.0 GA |
-| **Runtime** | Python 3.10 / 3.11 / 3.12 |
-| **Licence** | MIT |
-| **Verified on** | Windows 11 x64 (primary), Linux and macOS (CI) |
-
-Version numbering restarted at 1.0.0. Earlier 3.x builds were internal capability-roadmap iterations;
-they remain in the [changelog](CHANGELOG.md) for traceability.
-
----
-
-## 3. Delivery forms
-
-Three artefacts are published for every release. They are alternatives, not layers to stack.
-
-| Form | Artefact | What it installs | Choose it when |
-|---|---|---|---|
-| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `ace-1.0.0-windows-amd64.zip` | The full terminal agent: Python shells (REPL + Textual), 51 tools, write-ahead snapshots, `/undo` | You want an agent to work in |
-| **② ACE as an MCP server for your agent** | `ace-mcp-server-1.0.0.zip` | A non-intrusive MCP server; the host agent gains a single decision and audit point | You already use Cline / Claude Desktop / Cursor / any MCP host and want the boundary without changing it |
-| **③ ACE MCP server + sandbox base** | `ace-sandbox-bundle-1.0.0.zip` | Form ② plus a bootstrap for the virtualisation base, so untrusted code runs in a hardware-isolated microVM | You want the execution boundary as well as the decision boundary |
-
-An existing ACE installation does **not** require ② or ③: point the host at `ace.exe --mcp`. Forms ② and ③
-exist for environments that want the boundary without installing the agent.
-
-## 4. Architecture
-
-```
-  Model / host agent            proposes an action
-          |
-          v
-  ACE execution layer           decides: permission, paths, sensitive targets,
-  (single decision point)       approval, write-ahead snapshot, audit record
-          |
-          +--> host tools       files, commands, network, MCP servers
-          |
-          +--> virtualisation base (optional, form ③)
-                                runs untrusted code in a KVM microVM
-```
-
-The two boundaries are independent and may reside on different machines: the virtualisation base can be
-a shared Linux service that several agent hosts connect to.
-
-## 5. Quickstart
-
-Offline verification — no API key, no network:
+## Quickstart
 
 ```bash
-python ai_code.py --mock
+python ai_code.py --mock    # offline demo — no key, no network
+python ai_code.py           # real model (setup wizard)
 ```
 
-Connecting a host agent instead (form ②): unzip the pack, run `install-cline.ps1` (or merge a file from
-`configs/` into your host's MCP configuration), then verify with `python verify-mcp.py`.
+Windows without Python: grab the zip from [Releases](https://github.com/ace-code-engine/ace-agent/releases)
+and run `ace\ace.exe --mock`. Install & build: [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md).
 
 <p align="center">
-  <img src="demo/demo.svg" alt="A recorded offline ACE session: request, tool call, answer, status line" width="820">
+  <img src="demo/demo.svg" alt="A recorded offline ACE session" width="820">
 </p>
-
-<p align="center"><sub>Recorded from a real session, not a mock-up. Re-record with <code>python demo/record_demo.py</code>; verify the published images still reproduce with <code>--check</code> (run on every push). Further screens: <a href="docs/SHOWCASE.md">Demo &amp; screenshots</a>.</sub></p>
-
-## 6. Security boundary
-
-The MCP forms expose two security tools in addition to the standard tool set:
-
-- **`ace_security_scan`** — static scan at path level (credential files, sensitive directories,
-  executable suffixes, network paths). With `deep: true` it also inspects the *contents* of files whose
-  names already matched the credential list. Every report opens with its own scope statement, because
-  a completed scan is not a statement of safety.
-- **`ace_sandbox_exec`** — executes untrusted code in a CubeSandbox microVM. If no sandbox is reachable
-  the call is **refused** (Tier 0); it never falls back to execution on the local machine, and host
-  credentials are not injected into the sandbox.
-
-The remainder of the tool set routes through the same permission, approval and audit path. The default
-permission level is `readonly`.
-
-Two hardening properties worth stating outright: a cloned repo's `.ace/permissions.json` cannot
-silently relax approvals — its `allow` rules are dropped unless you trust the workspace
-(`trust_project_hooks` / `trusted_workspaces`), while its `deny` rules still apply. And the file
-tools refuse to write `.git/` (hooks/config), `.gitmodules`, or `.ace/permissions*.json`, so the
-agent cannot plant a hook or hand itself a pass.
-
-> The pack for form ③ ships a `preflight` that reports up front whether a given machine can host the
-> base, rather than failing during installation. Windows and macOS cannot host it: KVM is a Linux kernel
-> facility.
-
-Further reading: [Security boundary FAQ](docs/security/SECURITY-FAQ.md) · [MCP server card](docs/design/MCP-SERVER.md) · [all-in-one pack](packaging/allinone/README-ALLINONE.md) · [MCP pack](packaging/mcp/README-MCP.md)
-
----
-
-## Why ACE?
-
-### Safety that does not live in the prompt
-
-Most agents put safety in the prompt: *"please don't delete files"*. ACE does not.
-
-Every tool call passes through a **separate execution layer** that makes the permission decision, detects dangerous behaviour, and takes a physical snapshot before any write. When the prompt fails — jailbreak, injected web page, tampered tool output — that layer is still there.
-
-> If you only want chat-style code help, you probably do not need ACE. If your agent really edits files, runs commands and reaches the network, and you do not want that to depend on the model's self-restraint, this is the target case.
-
-### ACE vs. the usual prompt-guard agent
-
-| | Typical prompt-guard agent | ACE |
-|---|---|---|
-| Where "am I allowed?" is decided | in the prompt | in the execution layer, per call (`execution_layer.py`) |
-| After a prompt injection or jailbreak | whatever the model decides | permission gate, path boundary and sensitive-target blocks still apply |
-| Running a shell command | the model just runs it | `terminal_exec` asks a human **every time** — its blacklist is bypassable, so the human *is* the boundary |
-| Undoing a bad edit | hope for git | physical snapshot before every write, `/undo` to roll back |
-| Data leaving the machine | whenever the model calls an API | egress gate: unknown destination ⇒ confirm; `egress_allowlist` ⇒ one-time authorization |
-| Offline, no API key | usually needs a key | `python ai_code.py --mock` runs the whole loop offline |
-| Isolation | prompt-level | three tiers: `off` / `job` / `docker` — if the boundary is unavailable it returns **503, never a silent fallback** |
-
-### Design stance
-
-- **Safety is an execution-layer property, not a prompt property.** The model never decides its own permissions.
-- **Read-only by default.** Elevation is a human action (`/permission write`), not something the model can grant itself.
-- **Say what the boundary can and cannot stop.** No "fully secure" claims anywhere in this repo — see [Security boundary](#security-boundary).
-
----
-
-## Run it in 30 seconds
-
-### From source, no API key
-
-```bash
-git clone https://github.com/ace-code-engine/ace-agent.git && cd ace-agent
-python test_all.py         # end-to-end test suite, pure stdlib — should be all green
-python ai_code.py --mock   # offline demo: the full model ↔ execution-layer loop
-```
-
-### Point it at a real model
-
-```bash
-python ai_code.py          # menu 2 runs the setup wizard, then 1 enters chat
-```
-
-- Or switch in one line inside chat: `/provider deepseek <key>`.
-- On Windows the repo ships `ace.cmd` — add it to `PATH` and type `ace`.
-
-### Prebuilt Windows build, no Python needed
-
-Download `ace-<version>-windows-amd64.zip` from the [Releases page](https://github.com/ace-code-engine/ace-agent/releases), unzip it anywhere, and run `ace\ace.exe` — a self-contained bundle, so `python` is **not** required on the machine.
-
-```powershell
-.\ace\ace.exe --mock     # prove the bundle is intact: offline, no account, no key
-.\ace\ace.exe            # or point it at a real model from the landing screen
-```
-
-Two things that surprise people: **SmartScreen will warn you** (the build is not code-signed — *More info* → *Run anyway*),
-and **it is a folder, not a file** (keep `ace.exe` next to its `_internal\`).
-
-**What the frozen build cannot do, and the smoke gate that refuses to publish an unverified bundle** — [`docs/PACKAGING-EXE.md`](docs/PACKAGING-EXE.md).
-
-### See it run
-
-[Demo & screenshots](docs/SHOWCASE.md) — the landing screen, a real recorded session, the diff card, and the execution layer refusing an SSH key.
-
-**Further reading** — 5-minute path plus the three-axis matrix (`permission` / `sandbox` / `approval_policy`) and the ten classic traps: `docs/GETTING-STARTED.md`. Hands-on scenarios: `examples/`.
-
----
-
-## Core capabilities
-
-### Execution safety
-
-| Capability | One-line hook |
-|---|---|
-| Three permission levels | `readonly` / `write` / `full`. The tool list is trimmed per level, declared once in `tools/registry.py`, so the model only chooses among tools it can actually see. |
-| Sandbox tiers | `off` (in-process policy) / `job` (Windows Job Object: process tree, memory cap, restricted token) / `docker` (one-shot container, `network none`, `cap-drop ALL`). **On Linux the Go executor also applies Landlock write-isolation** (workspace writable, everything else read-only to the child). Unreachable boundary → 503, never a silent fallback. |
-| Pre-write snapshots | every write takes a physical snapshot first, and `/undo` rolls back. HMAC-signed, and the snapshot directory is not writable by the agent itself. |
-| Egress gate | data headed for a **model-chosen** destination is confirmed per call unless the destination is allowlisted; `egress_allowlist` means one-time authorization. |
-| Security triage | security blocks (path escape, allowlist, sandbox) are counted apart from ordinary argument errors, and a run of them raises a user-facing alert — that usually means something is injecting instructions through a file or a page. |
-| Go executor | dangerous tools are delegated to a separate Go process over NDJSON, with whole-tree reaping via Job Object (Windows) / process-group `SIGKILL` (Linux/macOS) plus a second policy check; on Linux it also applies **Landlock write-isolation**. Official prebuilt binary via `ace --install-executor` — 5 platforms (win / linux / macos × amd64 / arm64). |
-
-### Agent
-
-| Capability | One-line hook |
-|---|---|
-| Persistent goals | `goal_create`, then it re-drives round after round until done, paused, blocked or out of budget. `blocked` needs a machine code, and `/goal resume` continues after a restart. |
-| Subagents | `subagent` spawn (fresh context) or fork (inherit the parent session), each with its own tool loop; the result is handed back to the parent. |
-| Key-free web search | `search` with a two-engine fallback (Bing RSS → DuckDuckGo) plus `search_read` to fetch top result bodies in one step. All egress goes through SSRF checks and the allowlist. |
-
-### Optional and experimental
-
-- **Optional** — custom knowledge base (`kb_search` / `kb_add` / `kb_list`), session event log and restart recovery (`/audit`), Plan Mode, approval-fatigue relief, browser automation, document parsing (Word / Excel / PPT / PDF / OCR), SimHash memory, `AGENTS.md` project instructions, context compaction, network backoff, i18n (zh / en / ja).
-- **Experimental** — the built-in chat scroll engine. Implemented, real-terminal wiring pending; see `docs/history/UI-CHAT-SCROLL.md`.
-
----
-
-## Architecture
-
-One line per layer: `ai_code.py` (terminal: landing, REPL, slash commands) → `agent_runner.py` (the model ↔ execution-layer loop, up to 20 rounds) → **`execution_layer.py`** (parse → permission ruling → safety gates → pre-write snapshot → execute; a 14-stage state machine and **the only place safety is actually enforced**) → `tools/registry.py` (single-point tool declaration) → `core/` (snapshots, memory, meta-processing).
-
-Gateway (L1 / L2 / L4 / L5) is a policy layer **called inside each round** by the execution layer — not a second, independent security pipeline.
-
-**Diagram (Mermaid, rendered by GitHub), the per-layer table and the authoritative directory tree** → **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
-
----
-
-## Common commands
-
-Landing page: **↑/↓** to move, digits to jump, **Enter** to confirm, **Esc/q** to quit. Inside chat, `exit` returns to the landing page.
-
-```bash
-/provider                    # list 9 vendors · 10 endpoints (the current one ticked)
-/provider zhipu              # switch to Zhipu in one command
-/permission write            # elevate (read-only by default)
-/undo                        # roll back to the pre-write snapshot
-/audit boundary              # the HMAC-chained boundary receipt: what actually constrained this session
-/rules check                 # rule health: what your rules blocked vs. what still needed a human
-/replay                      # re-run recorded denied calls to prove the boundary still holds
-```
-
-Input and output: `Alt+Enter` / `Ctrl+J` newline · `Ctrl+R` walk history backwards (`/history dsk` fuzzy-finds it) ·
-long tool output is folded into the card, `/expand` reprints it · write cards carry a colourised diff and an `exit N` code.
-
-**Full command table** (every slash command, all `@` shortcuts, every startup flag) — **[`docs/COMMANDS.md`](docs/COMMANDS.md)**.
-
----
-
-## Security boundary
-
-> **Start here:** **[Security boundary FAQ](docs/security/SECURITY-FAQ.md)** — 11 questions on what ACE stops and what it does not, including the two that usually surprise people: *which actions fail closed in unattended runs*, and *what snapshots do not cover*.
-
-### Four layers, enabled to different degrees
-
-| Layer | What ACE does |
-|---|---|
-| Prompt | guides the model only — **promises nothing** |
-| Application (default) | execution-layer policy: three permission levels, AST behaviour checks, pre-write snapshot and rollback, path boundaries, SSRF and allowlist egress checks, and egress-destination confirmation (including "overwrite or delete something outside the project" ⇒ ask) |
-| OS (optional, Windows) | `--sandbox job`: Job Object process and memory caps plus a restricted token |
-| OS (optional, Linux) | **Landlock write-isolation** (automatic in the Go executor): the child can read/execute anywhere but write only inside the workspace |
-| Container (optional) | `--sandbox docker`: one-shot container, `network none`, `cap-drop ALL`, `read-only` root, `--init`, only the workspace mounted |
-
-The sandbox image is built once locally from `docker/Dockerfile.sandbox`; a registry-hosted image can be pulled with `ACE_SANDBOX_PULL=1`.
-
-### Honest limits
-
-**Without the OS or container tier**, everything above is in-process policy — the AST blacklist and AST evaluation cannot be closed, and `terminal_exec`'s verdict layer is only a tourniquet. That is **not OS-level isolation**.
-
-The `job` tier is a Windows-only primitive. Docker containers share the kernel, so an escape is still an escape. When a boundary is unavailable, `job` and `docker` return 503 and **never silently fall back to the host**.
-
-### Scope of the egress gate
-
-The gate governs **model-chosen destinations**. Built-in endpoints — search engines, the image service — are not confirmed per call, and `image_generate` sends its prompt to a third-party service in clear text.
-
-`terminal_exec` can still delete the audit log inside the project, but that step is confirmed by a human every time. Both facts are written down rather than hidden.
-
-**Further reading** — full security model and production notes: [`docs/security/SECURITY-MODEL.md`](docs/security/SECURITY-MODEL.md). Vulnerability reports: [`SECURITY.md`](SECURITY.md).
-
----
-
-## Configuration
-
-### The config file
-
-```python
-# ~/.ai_code.json  (CLI flags > this file > ~/.claude/settings.json > environment)
-config = {
-    "permission": "readonly",   # readonly / write / full
-    "sandbox": "off",           # off / job / docker
-    "max_snapshots": 20,        # hard cap, oldest pruned automatically
-}
-```
-
-**Further reading** — every key, plus the mechanisms behind egress allowlists, search boundaries, `str_replace` encoding and read-only `db_query`: `docs/CONFIGURATION.md`.
-
----
-
-## Testing
-
-### Run the suite
-
-```bash
-python test_all.py                      # full suite (pure stdlib, non-zero exit = failure)
-python test_all.py --only 40            # run one section (declared dependencies are pulled in)
-python test_all.py --list               # list sections and their dependencies
-ruff check . --select E9,F63,F7,F82     # the hard-error subset CI uses
-```
-
-### Promise guards
-
-Three sections exist purely to keep **promises** honest: `[38]` the authoritative directory tree ↔ real files, `[39]` documented numbers ↔ `PROVIDERS` / `TOOL_SPECS`, and `[40]` the raw payloads from the security audit.
-
-They exist because "the docs say it asks the human" once turned out to mean "the code never asked".
-
-### Done and still unverified
-
-Both halves are here on purpose: the README used to say "not done" about things that are now finished, and a stale admission is its own kind of lie. **Read the second half as the actual warning** — do not read it as "probably fine".
-
-**Recently closed** — R-03 engine merge, REL-03 native Windows smoke, and the `--tools` fallback bug that smoke found — recorded in [`CHANGELOG.md`](CHANGELOG.md).
-
-**Still unverified:**
-
-- The **Textual full-screen UI under a real TTY** (those sections skip without `textual` installed), and any **non-Windows console**.
-- The **darwin/amd64 executor artifact has no native smoke test** — it cross-compiles, but no Intel Mac has ever run it.
-
-**Further reading** — framework, CI matrix, benchmarks and e2e details: [`docs/TESTING.md`](docs/TESTING.md).
-
----
-
-## Engineering debt (what is still not done, with links)
-
-This is a **hand-off list**, not a second copy of the backlog. Each row states what is owed in one line;
-the evidence, the boundaries and the decisions live in the linked **design card** —
-**do not read this table as the whole story, open the card**.
-
-| Owed | In one line | Authoritative record |
-|---|---|---|
-| **The acceptance gates need only the tail** | The machine half, A0b (`measured_*` aggregated), and **the threshold rule** (`token_verdict`, provisional 50%) have landed — **only** wiring `benchmarks/results/` to the checker remains (needs WP-10's "before/after" data) | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
-| **Only HL-04 of the spine remains** | `RL-01~04` and `DL-01~04` are all landed; `HL-01/02/03/05` landed — only `HL-04` (reporting material must be decidable, feeds the ACC gates) is unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
-| **Batch 6 and WP-10 remain** | batches −1…5 are closed; **batch 6** = egress beyond URL channels (WP-8 second half) + CubeSandbox sandbox backend (WP-9); **WP-10** = Rust core-isation (snapshot hashing, streaming client, grep, LSP, path checks) | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
-
-**Why it stops here: the author is heading back to school.** This list is the hand-off —
-every row points at a card carrying the evidence, the boundaries, and what to do next.
-
----
 
 ## Documentation
 
-**Everything is indexed in [`docs/README.md`](docs/README.md)** — a "what do you want to do?" table plus the full
-grouping. The few you are most likely to want first:
-
-| What you want | Where to go |
+| What you want | Go here |
 |---|---|
-| **Start here** — 5-minute path, three-axis matrix, ten traps | [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) |
-| **What ACE stops and what it does not** | [`docs/security/SECURITY-FAQ.md`](docs/security/SECURITY-FAQ.md) |
-| Demo and screenshots | [`docs/SHOWCASE.md`](docs/SHOWCASE.md) · hands-on scenarios in [`examples/`](examples/) |
-| Layers, full directory tree, ADR index | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Security model / audit / reporting | [`docs/security/`](docs/security/) · [`SECURITY.md`](SECURITY.md) |
-| Version history | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/releases/`](docs/releases/) |
+| 5-minute start · the ten traps | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) |
+| What ACE stops / does not | [docs/security/SECURITY-FAQ.md](docs/security/SECURITY-FAQ.md) |
+| Layers · directory tree · ADR | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Every command & flag | [docs/COMMANDS.md](docs/COMMANDS.md) |
+| Every config key | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
+| Why ACE · vs prompt-guard agents | [docs/WHY.md](docs/WHY.md) |
+| Capability checklist | [docs/CAPABILITIES.md](docs/CAPABILITIES.md) |
+| Testing · CI · promise guards | [docs/TESTING.md](docs/TESTING.md) |
+| Engineering debt · hand-off | [docs/HANDOFF.md](docs/HANDOFF.md) |
+| Everything, indexed | [docs/README.md](docs/README.md) |
 
-### Contributing
+## Contributing
 
-Read `CONTRIBUTING.md` first. The standard workflow lives in `docs/DEVELOPMENT.md`, interface contracts in `docs/INTERFACES.md`, and the backlog in `docs/BACKLOG.md`.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) → [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (standard flow,
+add-a-tool, add-a-feature) → [docs/BACKLOG.md](docs/BACKLOG.md).
 
-### License
+## License
 
 [MIT](LICENSE) © 2026 jincheng3870682453-hash
-
-### Design references
-
-Architecture decisions align with the following work — **let the model only "understand, choose, output", and push permissions, safety, rollback and memory down into the execution layer**:
-
-- [Agent Harness engineering best practices](https://github.com/Delphoa/study-awesome-harness-engineering) — tools / permissions / memory / sandbox / observability
-- [DeepSeek Harness design analysis](https://developer.aliyun.com/article/1756780) — internal research in `docs/history/dsh_research.md`
-- [20-chapter Chinese AI agent architecture course](https://github.com/ryzqi/learn-agent)

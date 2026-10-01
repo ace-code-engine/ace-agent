@@ -4680,6 +4680,51 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         warns = list(getattr(self, "_rule_warnings", []) or
                      getattr(self.el, "rule_warnings", []) or [])
         act = (parts[1].lower() if len(parts) > 1 else "")
+        _props = list(getattr(getattr(self.el, "refusal_ledger", None),
+                              "proposals", []) or [])
+        if act == "accept":
+            # DL-04 / TH-R3 闭环的**最后一环**：学习只能"提议"，把提议变成规则是人的动作。
+            # `RefusalLedger.accept_proposal()` 早就落了地（`confirmed_by` 为空还会抛），
+            # 但此前**没有任何入口**能让那个人签这个字 —— 提议只能躺在账本里，
+            # 也就是"有 API 没人用"：学习闭环差的那一段正是这里。
+            if len(parts) < 3 or not parts[2].lstrip("#").isdigit():
+                print(c("yellow", t("prules_usage")))
+                return True
+            idx = int(parts[2].lstrip("#")) - 1
+            if not (0 <= idx < len(_props)):
+                print(c("yellow", t("prules_no_such_prop", n=len(_props))))
+                return True
+            from core import ace_ledgers as _al  # noqa: PLC0415
+            import getpass  # noqa: PLC0415
+
+            try:
+                _who = getpass.getuser()
+            except Exception:  # noqa: BLE001 —— 拿不到是谁在签，就不签（fail-close）
+                _who = ""
+            if not _who:
+                print(c("red", t("prules_need_user")))
+                return True
+            prop = _props[idx]
+            path = ace_rules.rules_path(prop.scope,
+                                        str(self.cfg.get("project_root", ".")))
+            try:
+                # 这里唯一的"人签字"就是用户**手动敲了这条命令**；`confirmed_by`
+                # 记的是 OS 用户名。账本自己永远不会走到这一行。
+                rule = self.el.refusal_ledger.accept_proposal(
+                    prop, confirmed_by=_who, save_path=path)
+            except _al.RelaxationForbidden as e:
+                print(c("red", t("prules_prop_rejected", why=e)))
+                return True
+            self._reload_rules()
+            # 签完就从待办里摘掉：留着的话下次 `/rules` 还会让你签同一条，
+            # 而"规则是规则、提议是提议"正是 DL-04 要分清的两个状态。
+            try:
+                self.el.refusal_ledger.proposals.remove(prop)
+            except ValueError:  # pragma: no cover —— 只在并发改账本时发生
+                pass
+            print(c("green", t("prules_prop_accepted",
+                               desc=ace_rules.describe_rule(rule), path=path)))
+            return True
         if act in ("add", "remove", "rm", "del"):
             if act == "add":
                 if len(parts) < 4:
@@ -4747,6 +4792,14 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 print(f"  [{i}] {c('magenta', r.action):<16} {ace_rules.describe_rule(r)}"
                       f"  {c('dim', r.scope)}")
                 print(c("dim", f"       {r.source}"))
+        # 待确认的规则提议（DL-04：学习只提议，固化是人的动作）。
+        # 不列出来的话 `/rules accept <n>` 的 n 只能靠猜 —— 而看不见的提议等于没有提议。
+        if _props:
+            print(c("cyan", t("prules_props_title", n=len(_props))))
+            for i, p in enumerate(_props, 1):
+                print(f"  [{i}] {c('magenta', p.action)} {p.tool} {p.pattern or '*'}"
+                      f"  被拒 {p.count} 次  {c('dim', p.scope)}")
+            print(c("dim", t("prules_props_hint")))
         for w in warns:
             print(c("yellow", "  ⚠ " + w))
         print(c("dim", t("prules_hint", scopes="/".join(ace_rules.SCOPES))))

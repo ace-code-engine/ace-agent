@@ -16252,6 +16252,41 @@ if _want("81"):
           and not _st81.learning_action_ok("auto_approve")
           and _st81.learning_action_ok("no_resend"), "")
 
+    # ── DL-04 / TH-R3 闭环的最后一环：`/rules accept` ──
+    # `RefusalLedger.accept_proposal()` 早就落了地（`confirmed_by` 为空还会抛），但
+    # **没有任何入口**能让那个人签这个字 —— 提议只能躺在账本里。学习闭环差的就是这段。
+    from core.ace_ledgers import RuleProposal as _RP81  # noqa: E402
+    from core import ace_rules as _AR81  # noqa: E402
+
+    _root81 = Path(tempfile.mkdtemp())
+    _cli81 = ai_code.AgentCLI({"project_root": str(_root81), "permission": "write"},
+                              mock=True)
+    _prop81 = _RP81(tool="file_write", pattern="docs/", action="deny",
+                    scope="local", count=3)
+    _cli81.el.refusal_ledger.proposals.append(_prop81)
+    _buf81 = io.StringIO()
+    with contextlib.redirect_stdout(_buf81):
+        _cli81._cmd_rules(["/rules"])
+    check("[81] ★`/rules` 列出待确认的提议（不列出来，`accept <n>` 的 n 只能靠猜）",
+          "file_write" in _buf81.getvalue() and "accept" in _buf81.getvalue(),
+          _buf81.getvalue()[-200:])
+    with contextlib.redirect_stdout(io.StringIO()):
+        _cli81._cmd_rules(["/rules", "accept", "1"])
+    _p81 = Path(_AR81.rules_path("local", str(_root81)))
+    _saved81 = _p81.read_text(encoding="utf-8") if _p81.is_file() else ""
+    check("[81] ★`/rules accept 1` 把提议**固化**进规则文件（学习只提议，固化是人签字）",
+          "file_write" in _saved81 and "docs/" in _saved81, _saved81[:200])
+    check("[81] ★签完从待办摘掉（再列一次不该还让人签同一条）",
+          not _cli81.el.refusal_ledger.proposals, _cli81.el.refusal_ledger.proposals)
+    _buf81b = io.StringIO()
+    with contextlib.redirect_stdout(_buf81b):
+        _cli81._cmd_rules(["/rules", "accept", "1"])
+    check("[81] ★签完再签同一个序号 → 明说没有这个提议（不是静默成功）",
+          "没有这个提议序号" in _buf81b.getvalue(), _buf81b.getvalue()[-200:])
+    check("[81] ★`accept_proposal` 本身仍然守住 DL-04：`confirmed_by` 为空当场抛",
+          _raises81(lambda: _cli81.el.refusal_ledger.accept_proposal(
+              _prop81, confirmed_by="", save_path="")), "")
+
 # ============================================================
 if _want("82"):
     # ── [82] WP-2 剩余：aider 式 auto-commit 与 /undo 统一（R-2） ──

@@ -177,6 +177,9 @@ ace-agent/
 ├── docs/                       # 文档（README 是入口，索引见 docs/README.md）
 │   ├── README.md               #   文档索引：按"想干什么"分流全部文档
 │   ├── BOOTSTRAP.md            #   一条命令跑起来（三条路：Docker / 源码 setup_env / 预编译 exe；三个经典环境坑及其真因）
+│   ├── CAPABILITIES.md         #   核心能力概览（执行安全 / Agent 能力 / 可选与实验性）
+│   ├── WHY.md                  #   为什么是 ACE（名称说明 / 对比提示词护栏 / 设计取向 / 设计参考）
+│   ├── HANDOFF.md              #   工程债与交接（还没做完的 + 仍未验证 + 为什么停在这里）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
 │   ├── releases/               #   逐版本更新介绍（RELEASE-NOTES-vX.md，可直接贴进 GitHub Release）

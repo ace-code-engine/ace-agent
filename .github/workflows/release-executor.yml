@@ -79,15 +79,15 @@ jobs:
           if-no-files-found: error
 
   native-smoke:
-    # 原生验证 --version 在三个 OS 家族都能编译并运行；macos-14 为 arm64 runner，顺带覆盖 darwin/arm64。
-    # 残留盲区仅 darwin/amd64(Intel mac 交叉产物)，首版发布后人工冒烟一次(见立项卡)。
+    # 原生验证 --version 在三个 OS 家族都能编译并运行；macos-14 为 arm64 runner，覆盖 darwin/arm64，
+    # macos-13 为 Intel runner，补上此前唯一盲区 darwin/amd64（交叉产物从没被原生跑过）。
     name: Native smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
+        os: [windows-latest, ubuntu-latest, macos-14, macos-13]
     defaults:
       run:
         working-directory: executor

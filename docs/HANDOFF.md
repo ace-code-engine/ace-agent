@@ -13,8 +13,8 @@
 
 ## 仍未验证
 
-- **真 TTY 下的 Textual 全屏界面**（没装 `textual` 时那几段会跳过）、以及任何**非 Windows 控制台**。
-- **darwin/amd64 执行器产物没有原生冒烟** —— 交叉编译出来了，但没有 Intel Mac 实机跑过。
+- **真 TTY 下的 Textual 全屏界面**、以及任何**非 Windows 控制台**。（CI 已装 `textual` 跑通 headless `run_test` 那几段；但"人在真终端里打字"这件事，无头 runner 验不了，仍需一台真机。）
+- ~~darwin/amd64 执行器原生冒烟~~ —— 已补：`release-executor.yml` 的 `native-smoke` 加 `macos-13`（Intel runner）。
 
 ## 为什么停在这里
 

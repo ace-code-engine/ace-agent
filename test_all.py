@@ -10162,6 +10162,24 @@ if _want("56"):
           and len(_cli56.el.rules) == len(_cli56.el.executor.rules), "")
     check("/rules remove：序号越界如实报错",
           "没有这个序号" in _run56("/rules", "remove", "99"), "")
+    # —— /rules check：规则体检（本会话的 deny/allow/未覆盖 + deny 明细） ——
+    _rc_root = Path(mktemp("ruleschk"))
+    _rc_path = str(_rc_root / "s.jsonl")
+    _cli_chk = _ai56.AgentCLI({"project_root": str(_rc_root), "permission": "write",
+                               "bait": False, "base_url": "", "api_key": "",
+                               "model": "m1", "session_log": _rc_path}, mock=True)
+    _chk = _cli_chk.session_log
+    _chk.record_permission("terminal_exec", "denied_by_rule", "write", "rules.json: rm:*")
+    _chk.record_permission("file_write", "allowed_by_rule", "write", "rules.json: docs/")
+    _chk.record_permission("terminal_exec", "confirm", "write", "git push")
+    _bufc = _io56.StringIO()
+    with _cl56.redirect_stdout(_bufc):
+        _cli_chk._rules_check()
+    _outc = _bufc.getvalue()
+    check("/rules check 规则体检（deny/allow/未覆盖 + deny 明细）",
+          "deny 命中 1 次" in _outc and "allow 命中 1 次" in _outc
+          and "仍需人确认：1 次" in _outc and "rm:*" in _outc, _outc[:300])
+    _cli_chk.close()
     check("会话级规则对话框的文案没被新命令顶掉（键名冲突过一次）",
           _t54 is not None and "会话级规则" in
           (FOLDER / "locales" / "zh.json").read_text(encoding="utf-8").split(

@@ -4750,6 +4750,37 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         else:
             print(c("red", t("prules_save_failed", path=path)))
 
+    def _rules_check(self) -> None:
+        """`/rules check`：规则体检 —— 你这套持久规则在本会话里**真的拦了什么、漏了什么**。
+
+        数据源是同一份会话日志（`permission/decision` 的 `denied_by_rule` / `allowed_by_rule`
+        两种裁决）：deny 命中 = 规则真的挡下了；allow 命中 = 规则免了问；而"仍需人确认"
+        的次数 = 还没被规则覆盖的风险面（可考虑用 `/rules add` 或 `suggest_rule` 收口）。
+        """
+        events = list(self.session_log.events())
+        deny: List[tuple] = []
+        allow = 0
+        confirm = 0
+        for ev in events:
+            if ev.get("kind") != "permission/decision":
+                continue
+            d = ev.get("decision", "")
+            if d == "denied_by_rule":
+                deny.append((ev.get("tool", "?"), ev.get("detail", "")))
+            elif d == "allowed_by_rule":
+                allow += 1
+            elif d == "confirm":
+                confirm += 1
+        print(c("bold", t("rules_check_title")))
+        print("  " + t("rules_check_deny", n=len(deny)))
+        print("  " + t("rules_check_allow", n=allow))
+        print("  " + t("rules_check_gap", n=confirm))
+        if deny:
+            for tool, detail in deny:
+                print(f"    ✗ {tool}: {str(detail)[:72]}")
+        if not deny and not allow and not confirm:
+            print("  " + t("rules_check_none"))
+
     def _cmd_rules(self, parts: List[str]) -> bool:
         """`/rules [add <工具> <模式> [作用域] | remove <序号>]`：持久授权规则的查/增/删。
 
@@ -4765,6 +4796,9 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         act = (parts[1].lower() if len(parts) > 1 else "")
         _props = list(getattr(getattr(self.el, "refusal_ledger", None),
                               "proposals", []) or [])
+        if act in ("check", "health", "体检"):
+            self._rules_check()
+            return True
         if act == "accept":
             # DL-04 / TH-R3 闭环的**最后一环**：学习只能"提议"，把提议变成规则是人的动作。
             # `RefusalLedger.accept_proposal()` 早就落了地（`confirmed_by` 为空还会抛），

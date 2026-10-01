@@ -3135,6 +3135,9 @@ class _SlashCommands:
         if len(parts) > 1 and parts[1].lower() in ("stats", "meta"):
             self._show_audit_stats()
             return
+        if len(parts) > 1 and parts[1].lower() in ("boundary", "receipt", "evidence"):
+            self._show_audit_boundary()
+            return
         n = 20
         kind_filter = ""
         for p in parts[1:]:
@@ -3239,6 +3242,43 @@ class _SlashCommands:
                        tin=_usage.get("in_tokens", 0),
                        tout=_usage.get("out_tokens", 0)))
         print(c("dim", t("audit_file", path=str(p))))
+
+    def _show_audit_boundary(self) -> None:
+        """`/audit boundary`：本会话的**执行边界证据链** —— 一张可核验的"我被什么约束了"自证。
+
+        与 `/audit`（逐事件回放）和 `/audit stats`（日志元信息）的分工：这个回答的是
+        **边界证据**。它不是新数据，是同一份 HMAC 链式台账（`cli/ace_sessionlog.py`）的
+        聚合视图：权限裁决 / 安全拦截 / 守卫 / 快照各命中几次，整链是否可核验 ——
+        这就是"执行边界证据链"（复用现成 HMAC + 台账，往上长一层）。
+        """
+        from collections import Counter
+        from cli.ace_sessionlog import chain_notice
+
+        events = list(self.session_log.events())
+        hits: Counter = Counter()
+        denies: List[tuple] = []
+        for ev in events:
+            kind = ev.get("kind", "")
+            if kind == "permission/decision":
+                hits[f"perm:{ev.get('decision', '?')}"] += 1
+            elif kind == "security/denied":
+                hits["security:denied"] += 1
+                denies.append((ev.get("seq"), ev.get("tool", "?"), ev.get("reason", "")))
+            elif kind == "guard/verdict":
+                hits[f"guard:{ev.get('action', '?')}"] += 1
+            elif kind in ("snapshot/create", "snapshot/rollback", "snapshot/unavailable"):
+                hits[kind] += 1
+        n_calls = sum(1 for e in events if e.get("kind") == "tool/call")
+
+        print(c("bold", t("audit_boundary_title", file=self.session_log.path.name)))
+        print("  " + chain_notice(self.session_log))
+        print("  " + t("audit_boundary_calls", n=n_calls))
+        tally = "  ".join(f"{k}={v}" for k, v in sorted(hits.items())) or "—"
+        print("  " + t("audit_boundary_tally") + " " + tally)
+        if denies:
+            print(c("yellow", t("audit_boundary_denies", n=len(denies))))
+            for seq, tool, reason in denies:
+                print(f"    #{seq} {tool}: {str(reason)[:72]}")
 
     @staticmethod
     def _audit_summary(kind: str, ev: Dict) -> str:

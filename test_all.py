@@ -5387,6 +5387,30 @@ if _want("26"):
     check("/audit 类型过滤", "tool/call" in _bufa3.getvalue()
           or "tool/result" in _bufa3.getvalue(), _bufa3.getvalue()[:200])
 
+    # —— /audit boundary：执行边界证据链（同一份 HMAC 台账的聚合视图） ——
+    from cli.ace_sessionlog import K_SECURITY as _K_SEC  # noqa: E402
+    _slb_root = Path(mktemp("slogbnd"))
+    _slb_path = str(_slb_root / "bnd.jsonl")
+    _cli_bnd = ai_code.AgentCLI({"project_root": str(_slb_root), "permission": "write",
+                                 "bait": False, "base_url": "", "api_key": "",
+                                 "model": "m1", "tools": False,
+                                 "session_log": _slb_path}, mock=True)
+    _b = _cli_bnd.session_log
+    _b.record_permission("file_write", "allowed", "write")
+    _b.record_snapshot(_K_SNAP, "s1")
+    _b.record_tool_call("file_write", {"path": "a.txt"})
+    _b.record_tool_result("file_write", "SUCCESS")
+    _b.record_permission("api_post", "denied", "readonly")
+    _b.record_security("api_post", "出网白名单", 1)
+    _bufb = io.StringIO()
+    with contextlib.redirect_stdout(_bufb):
+        _cli_bnd._show_audit_boundary()
+    _outb = _bufb.getvalue()
+    check("/audit boundary 出执行边界证据（标题 + 命中统计 + 拦截明细）",
+          "会话执行边界" in _outb and "perm:allowed=1" in _outb
+          and "perm:denied=1" in _outb and "security:denied=1" in _outb
+          and "api_post" in _outb, _outb[:400])
+
     # ============================================================
 
 # ============================================================

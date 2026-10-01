@@ -366,8 +366,8 @@ the evidence, the boundaries and the decisions live in the linked **design card*
 | Owed | In one line | Authoritative record |
 |---|---|---|
 | **The acceptance gates need only the tail** | The machine half, A0b (`measured_*` aggregated), and **the threshold rule** (`token_verdict`, provisional 50%) have landed — **only** wiring `benchmarks/results/` to the checker remains (needs WP-10's "before/after" data) | [`docs/design/ACC-GATES.md`](docs/design/ACC-GATES.md) §7.5 / §8.6 / §10.4 |
-| **Only one of the three spine layers has landed** | `RL-01` (the result envelope) is implemented and verified; `RL-02~04`, `HL-01~05` and `DL-01~04` are all unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
-| **Batches 1–6 and WP-10 are unstarted** | cheap faces · git · prefix cache · workspace layers · session tree · presets · skills · egress & snapshots · sandbox backend · Rust core-ization | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
+| **Only HL-04 of the spine remains** | `RL-01~04` and `DL-01~04` are all landed; `HL-01/02/03/05` landed — only `HL-04` (reporting material must be decidable, feeds the ACC gates) is unstarted | [`docs/design/THREE-LAYERS.md`](docs/design/THREE-LAYERS.md) §9 |
+| **Batch 6 and WP-10 remain** | batches −1…5 are closed; **batch 6** = egress beyond URL channels (WP-8 second half) + CubeSandbox sandbox backend (WP-9); **WP-10** = Rust core-isation (snapshot hashing, streaming client, grep, LSP, path checks) | [`docs/ROADMAP.md`](docs/ROADMAP.md) §7.2 |
 
 **Why it stops here: the author is heading back to school.** This list is the hand-off —
 every row points at a card carrying the evidence, the boundaries, and what to do next.

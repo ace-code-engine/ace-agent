@@ -16319,7 +16319,7 @@ if _want("83"):
           len(_ws83.WorkspaceStore.load(_p83b).tasks) == 1, "")
 
     # 命令面闭环：`/workspace new` 建 Task + 落盘 → 重开进程读回（save() 的第一个调用方）
-    _root83c = mktemp("wp4_p83c")
+    _root83c = Path(tempfile.mkdtemp())
     _cli83 = ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},
                               mock=True)
     with contextlib.redirect_stdout(io.StringIO()):
@@ -16330,6 +16330,13 @@ if _want("83"):
                          mock=True)._cmd_workspace(["/workspace"])
     check("[83] ★`/workspace new` 落盘 → 重开进程读回（持久化不是「有 API 没人用」）",
           "审计 ACE" in _buf83.getvalue(), _buf83.getvalue()[:120])
+    _buf83b = io.StringIO()
+    with contextlib.redirect_stdout(_buf83b):
+        ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},
+                         mock=True)._cmd_workspace(
+                             ["/workspace", "new", "T2", "--worktree", "wt"])
+    check("[83] ★非 git 仓库建 worktree → 如实声明（不静默回落成「没建」）",
+          "git 仓库" in _buf83b.getvalue(), _buf83b.getvalue()[:100])
 
 # ============================================================
 if _want("84"):

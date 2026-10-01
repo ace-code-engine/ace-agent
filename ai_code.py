@@ -1977,11 +1977,28 @@ class _SlashCommands:
             st = (_ws.WorkspaceStore.load(_p) if _p.is_file()
                   else _ws.WorkspaceStore(primary_root=self.cfg.get("project_root")))
             self.workspace_store = st
-        # `/workspace new <标题>`：建 Task 并落盘 —— 这是 `save()` 的第一个调用方
-        # （没有它，持久化就是"有 API 没人用"）。空标题不建，直接落到下面列表现状。
-        _title = " ".join(parts[2:]).strip() if len(parts) > 2 and parts[1] == "new" else ""
+        # `/workspace new <标题> [--worktree <路径>]`：建 Task（可选建 worktree）并落盘 ——
+        # 这是 `save()` 的第一个调用方（没有它，持久化就是"有 API 没人用"）。
+        # 空标题不建，直接落到下面列表现状。
+        _argv = list(parts[2:])
+        _wt = ""
+        if "--worktree" in _argv:
+            _j = _argv.index("--worktree")
+            _wt = " ".join(_argv[_j + 1:]).strip()
+            _argv = _argv[:_j]
+        _title = " ".join(_argv).strip() if len(parts) > 1 and parts[1] == "new" else ""
         if _title:
-            st.new_task(_title)
+            _task = st.new_task(_title)
+            if _wt:
+                # worktree 是**写类 git 动作**：失败/不支持时如实声明，不静默回落成"没建"。
+                from tools import git_ops as _go  # noqa: PLC0415
+
+                _branch = f"ace/{_task.id}"
+                _st, _detail = _go.worktree_add(self.cfg.get("project_root") or ".", _wt,
+                                                _branch)
+                print(c("dim" if _st == _go.WORKTREE_OK else "yellow", _detail))
+                if _st == _go.WORKTREE_OK:
+                    st.add_workspace(_task.id, branch=_branch, worktree_path=_detail)
             st.save(Path(self.cfg.get("project_root") or ".") / ".ace" / "workspaces.json")
         if not st.tasks and not st.workspaces:
             print(c("dim", t("workspace_empty")))

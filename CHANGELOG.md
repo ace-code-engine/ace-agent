@@ -7,6 +7,14 @@
 
 ## Unreleased · 2026-09-30（**尚未发布**：发布时定版本号、把这段并入版本条目，并重录 demo 图）
 
+### ✨ WP-4 四层持久化（后续切片）
+
+- `core/ace_workspace.WorkspaceStore` 新增 `save()` / `load()`：四层状态写成一份 JSON，读回时
+  **认不出的键忽略、缺字段用默认值**（向前兼容），枚举字段从 `.value` 还原。
+  模块其余部分仍是**纯逻辑零 IO**（`json`/`mkdir` 只在真调用 `save`/`load` 时发生）。
+- `docs/ROADMAP.md` 复测修正：Q-16 的「快照 1929 ms」**已过时 15~35×**（本机复测 347 文件 /
+  16.2 MB → create 冷 132 ms、热 55 ms、verify 5 ms），**WP-10 R1 的快照哈希一项失去依据**。
+
 ### ⚙️ WP-6 预设接线（批次 5 收尾）
 
 - **`execution_layer` 三段接入 agent 预设**：import + `__init__` 注册表/预设 + `_stage_permission` 的预设闸门。

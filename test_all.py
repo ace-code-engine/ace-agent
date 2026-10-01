@@ -16299,6 +16299,25 @@ if _want("83"):
     check("[83] ★无注册根（四层未启用）→ fallback 单工作区语义 + 如实声明（不静默）",
           _r_fb83.get("decision") == "fallback" and bool(_r_fb83.get("reason")), _r_fb83)
 
+    # 四层持久化（WP-4 后续切片）：save → load 往返 + 向前兼容
+    _p83 = mktemp("wp4_p83") / ".ace" / "workspaces.json"
+    _t83 = _store83.new_task("审计")
+    _w83 = _store83.add_workspace(_t83.id, branch="feat")
+    _q83 = _store83.record_process(_w83.id, _ws83.RunReason("CodingAgent"))
+    _store83.finish_process(_q83.id, 0)
+    _store83.save(_p83)
+    _st83 = _ws83.WorkspaceStore.load(_p83)
+    check("[83] ★四层持久化：save → load 往返（allowedRoots / 任务 / 最新进程三样都对）",
+          _st83.allowed_roots() == _store83.allowed_roots()
+          and _st83.tasks[_t83.id].title == "审计"
+          and _st83.latest_process(_w83.id).exit_code == 0
+          and _st83.latest_process(_w83.id).run_reason is _ws83.RunReason("CodingAgent"), "")
+    _p83b = mktemp("wp4_p83b") / "extra.json"
+    _p83b.write_text(_p83.read_text(encoding="utf-8").replace(
+        '"version": 1', '"version": 1, "brand_new": 42'), encoding="utf-8")
+    check("[83] ★向前兼容：读回来多一个不认识的键不炸（老读者不因新字段失效）",
+          len(_ws83.WorkspaceStore.load(_p83b).tasks) == 1, "")
+
 # ============================================================
 if _want("84"):
     # ── [84] WP-5 会话树：entry 树 + 向后兼容 + 只有 active branch 进上下文 ──

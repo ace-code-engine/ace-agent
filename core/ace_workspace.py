@@ -308,3 +308,49 @@ class WorkspaceStore:
             return fallback, ("该工作区的 worktree 已删/未注册，快照基回落主根"
                               "（guardian 快照仍只对当前根生效，不跨 worktree 串）")
         return None, "没有可用的快照基：无主根、worktree 已删/未注册"
+
+    # ---------- 持久化（WP-4 后续切片） ----------
+    # 写读都走本模块既有的 as_dict 口径，不另立一套；**代码本身仍零 IO** ——
+    # json/mkdir 只在真调用 save/load 时才发生（本模块其余部分保持纯逻辑）。
+
+    def save(self, path: "str | Path") -> Path:
+        """把四层状态写成一份 JSON。"""
+        import json  # noqa: PLC0415
+
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "version": 1,
+            "primary_root": str(self.primary_root) if self.primary_root else None,
+            "tasks": [t.as_dict() for t in self.tasks.values()],
+            "workspaces": [w.as_dict() for w in self.workspaces.values()],
+            "sessions": [s.as_dict() for s in self.sessions.values()],
+            "processes": [q.as_dict() for q in self.processes],
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        return p
+
+    @classmethod
+    def load(cls, path: "str | Path") -> "WorkspaceStore":
+        """读回 `save()` 写出的 JSON。
+
+        认不出的字段**忽略**（向前兼容：新版本写的多出来的键，老读者不炸），
+        缺字段用 dataclass 默认值 —— 所以它不要求写入方与读取方字段完全一致。
+        """
+        import json  # noqa: PLC0415
+        from dataclasses import fields as _fields  # noqa: PLC0415
+
+        def _mk(_cls, _d):
+            _names = {f.name for f in _fields(_cls)}
+            _kw = {k: v for k, v in (_d or {}).items() if k in _names}
+            # 枚举字段：as_dict 写的是 .value（字符串），读回来要还原成枚举
+            if "run_reason" in _kw and not isinstance(_kw["run_reason"], RunReason):
+                _kw["run_reason"] = RunReason(_kw["run_reason"])
+            return _cls(**_kw)
+
+        _data = json.loads(Path(path).read_text(encoding="utf-8"))
+        store = cls(_data.get("primary_root"))
+        store.tasks = {d["id"]: _mk(Task, d) for d in _data.get("tasks", [])}
+        store.workspaces = {d["id"]: _mk(Workspace, d) for d in _data.get("workspaces", [])}
+        store.sessions = {d["id"]: _mk(Session, d) for d in _data.get("sessions", [])}
+        store.processes = [_mk(ExecutionProcess, d) for d in _data.get("processes", [])]
+        return store

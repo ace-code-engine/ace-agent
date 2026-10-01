@@ -166,8 +166,9 @@ def case_readonly() -> None:
            init["result"]["serverInfo"]["name"] == "ace" and init["result"].get("instructions"))
         listed = h.send("tools/list")
         names = [t["name"] for t in listed["result"]["tools"]]
-        ck("tools/list == 白名单（一个不多一个不少）",
-           names == list(M.MCP_TOOL_NAMES), f"{len(names)} vs {len(M.MCP_TOOL_NAMES)}")
+        _expected = list(M.MCP_TOOL_NAMES) + ["ace_security_scan", "ace_sandbox_exec"]
+        ck("tools/list == 白名单 + WP-11 两条安全工具（一个不多一个不少）",
+           names == _expected, f"{len(names)} vs {len(_expected)}")
         ck("控制面工具没暴露", "subagent" not in names and "request_permission" not in names)
 
         r = h.call("file_read", {"path": "notes.txt"})
@@ -332,12 +333,43 @@ def case_big_write() -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_security_tools() -> None:
+    print("[5] WP-11 安全子层：扫描真进程走通；沙箱不可达 → Tier 0 拒绝（不是假装跑完）")
+    tmp = _fresh()
+    proj, home = tmp / "project", tmp / "home"
+    (proj / ".env").write_text("SECRET_KEY=planted", encoding="utf-8")
+    (proj / "ok.md").write_text("正常", encoding="utf-8")
+    h = Host(project=proj, home=home)
+    try:
+        h.initialize()
+        r = h.call("ace_security_scan", {"path": "."})
+        body = _text(r)
+        ck("扫描在**真进程**里走通：planted 的 .env 进了发现",
+           ".env" in body and "credential" in body, body[:300])
+        ck("报告自带范围声明（SEC-022：扫过 ≠ 安全）",
+           "不读文件内容" in body, body[:300])
+        ck("正常文件不误报", "ok.md" not in body, body[:300])
+        r = h.call("ace_sandbox_exec", {"code": "print(1)", "language": "python"})
+        body = _text(r)
+        ck("本机未部署沙箱 → isError 拒绝（不是 JSON-RPC error）",
+           "error" not in r and r["result"].get("isError") is True,
+           json.dumps(r, ensure_ascii=False)[:200])
+        ck("拒绝文案点名 Tier 0 与缺什么（可执行的部署指引）",
+           "Tier 0" in body and "ACE_SANDBOX_API" in body, body[:300])
+    finally:
+        code = h.close()
+    ck("安全工具用例之后进程仍然干净收工", code == 0, f"exit={code}")
+    ck("stdout 纯净", h.stray == [], str(h.stray[:3]))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("MCP server 探针 —— 真进程 + 真执行层")
     case_readonly()
     case_write_and_ledger()
     case_mandate_config()
     case_big_write()
+    case_security_tools()
     print(f"\n{CHECKS - len(FAILS)} / {CHECKS} 通过")
     if FAILS:
         print("失败项：")

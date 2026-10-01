@@ -7,6 +7,32 @@
 
 ## Unreleased · 2026-09-30（**尚未发布**：发布时定版本号、把这段并入版本条目，并重录 demo 图）
 
+### 🛡️ WP-11 MCP 安全子层（ACE-as-a-service，2026-10-01）
+
+- **把 ACE 打包成一个完整的 MCP 服务**：主 agent（任意 MCP host）挂上 ACE `--mcp` 当**子安全层**
+  做安全测试，两者**共用 CubeSandbox 虚拟化安全底座**。协议层**复用**既有 `--mcp`
+  （`docs/design/MCP-SERVER.md` M1–M7，不重写），新增的是**服务面**：
+  - **`ace_security_scan`**：路径级静态扫描（只判文件名/路径，**不读内容**）。判据**全部复用**
+    既有名单不另立 —— `core/sensitive.py`（凭据/敏感目标/敏感目录）+ 可执行后缀
+    （ShellExecute 会运行它）+ 网络路径（UNC 是出站连接）。与工具闸门的差别：`.env` 对工具是
+    "正常开发对象"（SEC-014 取舍），对扫描是**发现** —— 观察不拦截，所以可以更全。
+  - **`ace_sandbox_exec`**：不可信代码丢进 CubeSandbox（KVM MicroVM）。**Tier-0 铁律**：
+    沙箱不可达 → `isError` 拒绝（文案点名缺什么：`ACE_SANDBOX_API` + `pip install e2b`），
+    **绝不**退回本地执行 —— WP-9 验收 4"故障降级朝更严"在 MCP 面上的落点。
+    凭据不注入沙箱（fake SDK 断言 env 为空）；出网默认拒（未配 allowlist 不传任何出网参数）。
+  - 两条工具**不进 `tools/registry.py`**（那是模型常驻面）：理由同 `tool_search` 不进注册表。
+- **SEC-022 首次登记**：这个子层最危险的失败方向不是"被绕过"，是**"扫过了"被当成"安全了"**。
+  防御不靠自觉 —— 报告第一行自带范围声明、工具 description 就写着"路径级"、扫描连文件
+  内容都没读（正文里 planted 的 KEY 不会出现在任何发现里），三条都有断言。
+- **`core/ace_cubesandbox.py`** 零依赖：不 import e2b（可选装），"没装 SDK"与"没配 API"分两条文案；
+  真 wire 行为留待**真机冒烟**（卡 A5：部署 CubeSandbox 后主 agent 真调一次），与 MCP-SERVER 的
+  M8 同一条口径 —— 只能由真跑过的人说"跑过"。
+- 红先行：`[89]` 在实现前 ImportError 红（模块不存在）；fake SDK 缺 `create` 类方法时 3 条行为红。
+  `test_all` 2710 → **2726**（+16）；`e2e/mcp_probe.py` 39 → **46**（+7：真进程扫描走通 /
+  白名单守卫同步 / 沙箱不可达拒绝）。
+- 本机**没有部署** CubeSandbox —— 所以 `ace_sandbox_exec` 在本机的实测常态就是 Tier 0 拒绝，
+  而"拒绝得对不对"正是被钉住的那部分。
+
 ### ⚙️ HL-04 物料落账本 + 打包口径写明
 
 - **整份 `L4` 上报物料落会话账本**（HL-04 边界⑦收口）：`record_ladder` 新增 `material=`，

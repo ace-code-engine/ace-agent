@@ -240,7 +240,7 @@ _SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "16", "17"
              "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54",
              "55", "56", "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68",
              "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
-             "80", "81", "82", "83", "84", "85", "86", "87", "88"]
+             "80", "81", "82", "83", "84", "85", "86", "87", "88", "89"]
 _SEEN_SECTIONS: list = []
 
 
@@ -16716,7 +16716,114 @@ if _want("88"):
         check("[88] ★三级预算判定 API 可用", False, repr(_e88))
 
 
-# 段注册表自检：只在整个跑的时候判（分段跑本来就会看不到别的段）
+# ============================================================
+if _want("89"):
+    # ── [89] WP-11 MCP 安全子层：路径级扫描 + CubeSandbox Tier-0 铁律 ──
+    print("[89] WP-11 MCP 安全子层 —— 路径级扫描 / CubeSandbox fail-close")
+    import types  # noqa: E402
+    from core import ace_cubesandbox as _cb89  # noqa: E402
+    from core import ace_secscan as _ss89  # noqa: E402
+
+    # —— 扫描：判据复用（不另立名单），只判文件名/路径、不读内容 ——
+    _root89 = Path(tempfile.mkdtemp())
+    (_root89 / ".env").write_text("KEY=abc", encoding="utf-8")
+    (_root89 / "id_rsa").write_text("-----BEGIN RSA PRIVATE KEY-----", encoding="utf-8")
+    (_root89 / "backup.bat").write_text("@echo off", encoding="utf-8")
+    (_root89 / "notes.md").write_text("正常文件", encoding="utf-8")
+    (_root89 / "docs").mkdir()
+    (_root89 / "docs" / "readme.md").write_text("x", encoding="utf-8")
+    _r89 = _ss89.scan_dir(str(_root89))
+    _paths89 = [f["path"] for f in _r89["findings"]]
+    check("[89] ★扫描抓到 planted 的凭据（.env / id_rsa）—— 判据复用 sensitive.py 同一份名单",
+          any(p.endswith(".env") for p in _paths89)
+          and any(p.endswith("id_rsa") for p in _paths89), str(_paths89)[:200])
+    check("[89] ★扫描抓到可执行后缀（.bat —— ShellExecute 会运行它）",
+          any(p.endswith(".bat") for p in _paths89), str(_paths89)[:200])
+    check("[89] ★正常文件不误报（notes.md / docs/readme.md 不在发现里）",
+          not any(p.endswith("notes.md") for p in _paths89)
+          and not any(p.endswith("readme.md") for p in _paths89), str(_paths89)[:200])
+    check("[89] ★SEC-022：报告**自带范围声明**（『扫过了』≠『安全了』，靠断言不靠自觉）",
+          "不读文件内容" in str(_r89.get("scope") or ""), str(_r89)[:300])
+    check("[89] ★扫描**没有读文件内容**（正文里的 KEY=abc 不会出现在任何发现里）",
+          not any("KEY=abc" in str(f) for f in _r89["findings"]), str(_r89["findings"])[:200])
+
+    # —— CubeSandbox：Tier-0 铁律（WP-9 验收 4 在 MCP 面上的落点）——
+    _b89 = _cb89.CubeSandboxBackend(_cb89.SandboxConfig(api_base="", template=""))
+    _run89 = _b89.run("print(1)", language="python")
+    check("[89] ★沙箱未配 → run() 拒绝（Tier 0），不是假装跑完",
+          _run89.get("ok") is False and "Tier 0" in str(_run89.get("detail") or ""), _run89)
+    _av89 = _b89.available()
+    check("[89] ★available() 把『没装 SDK』与『没配 API』分得清（文案可执行，不是一句『不可用』）",
+          _av89[0] is False and ("ACE_SANDBOX_API" in _av89[1]), _av89)
+
+    # fake SDK 注入：happy path 的形状（真 wire 行为留待真机冒烟 A5，卡里写明）
+    class _FakeExec89:
+        def __init__(self):
+            self.stdout, self.stderr, self.exit_code, self.error = "out89", "", 0, None
+
+    class _FakeSb89:
+        created: "list" = []
+
+        def __init__(self, **kw):
+            self.last = kw
+            self.last_code = ""
+            type(self).created.append(self)
+
+        @classmethod
+        def create(cls, **kw):
+            return cls(**kw)      # E2B 的 Sandbox.create 是类方法，形状照它
+
+        def run_code(self, code, language="python", timeout=None):
+            self.last_code = code
+            self.last_lang = language
+            return _FakeExec89()
+
+        def kill(self):
+            pass
+
+    _fake_mod89 = types.ModuleType("e2b")
+    _fake_mod89.Sandbox = _FakeSb89
+    sys.modules["e2b"] = _fake_mod89
+    try:
+        _b89b = _cb89.CubeSandboxBackend(
+            _cb89.SandboxConfig(api_base="http://x", template="tpl"))
+        _r89b = _b89b.run("import os; print(os.environ)", language="python", timeout_s=5)
+    finally:
+        sys.modules.pop("e2b", None)
+    _sb89x = _FakeSb89.created[-1] if _FakeSb89.created else None
+    check("[89] ★fake SDK：代码真的递进去、stdout 带回来（形状照 E2B Python SDK 写）",
+          _r89b.get("ok") is True and _r89b.get("stdout") == "out89"
+          and getattr(_sb89x, "last_code", "") == "import os; print(os.environ)", _r89b)
+    check("[89] ★WP-9 验收 1：凭据与宿主 env **都不注入**沙箱（fake 收到的 env 为空）",
+          _sb89x is not None and not _sb89x.last.get("env"), getattr(_sb89x, "last", {}))
+    check("[89] ★WP-9 验收 3：未配 allowlist 时不传任何出网参数（沙箱侧默认拒）",
+          _sb89x is not None and "EGRESS_ALLOWLIST" not in _sb89x.last.get("env", {}),
+          getattr(_sb89x, "last", {}))
+
+    # —— MCP 面：两条服务面工具（不进 tools/registry.py —— 那里是模型常驻面）——
+    _sec_tools89 = {t["name"]: t for t in ai_code._mcp_security_tools()}
+    check("[89] ★MCP 工具面多出两条安全工具（ace_security_scan / ace_sandbox_exec）",
+          set(_sec_tools89) == {"ace_security_scan", "ace_sandbox_exec"}, sorted(_sec_tools89))
+    check("[89] ★每条都带合法 JSON Schema 的 inputSchema（host 靠它校验参数）",
+          all(isinstance(t.get("inputSchema"), dict)
+              and t["inputSchema"].get("type") == "object"
+              for t in _sec_tools89.values()), "")
+    check("[89] ★SEC-022：description 就写着『路径级』（不把扫过与安全混成同一个词）",
+          "路径级" in _sec_tools89["ace_security_scan"]["description"],
+          _sec_tools89["ace_security_scan"]["description"][:200])
+    _cli89 = ai_code.AgentCLI({"project_root": str(mktemp("wp11_89")),
+                               "permission": "readonly"}, mock=True)
+    _r89c = ai_code._mcp_security_call("ace_security_scan", {"path": str(_root89)}, _cli89)
+    check("[89] ★tools/call 路由到扫描：结果里有 planted 的 .env（真执行层进程里走通）",
+          "content" in _r89c and ".env" in _r89c["content"][0]["text"], str(_r89c)[:300])
+    _r89d = ai_code._mcp_security_call("ace_sandbox_exec",
+                                       {"code": "print(1)", "language": "python"}, _cli89)
+    check("[89] ★tools/call 路由到沙箱：本机未部署 → isError + Tier 0 拒绝",
+          _r89d.get("isError") is True and "Tier 0" in _r89d["content"][0]["text"],
+          str(_r89d)[:300])
+    check("[89] ★不是安全工具的名字 → 返回 None（交给注册表白名单路由，不抢注册表的活）",
+          ai_code._mcp_security_call("file_read", {}, _cli89) is None, "")
+
 if not (_ONLY or _SKIP or _UPTO or _LIST):
     check("段注册表覆盖全部段（新增段要同步 _SECTIONS）",
           sorted(_SEEN_SECTIONS, key=int) == sorted(_SECTIONS, key=int),

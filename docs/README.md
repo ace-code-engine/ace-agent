@@ -95,6 +95,7 @@
 | [`design/STRUCT-REFACTOR.md`](design/STRUCT-REFACTOR.md) | P2 结构重构（R-01~R-05 实测规模 / 顺序 / 验收） |
 | [`design/ARCH-TREE-CHECK.md`](design/ARCH-TREE-CHECK.md) | 权威树一致性校验（Q-06：R1–R4 规则 / 实测缺口） |
 | [`design/MCP-SERVER.md`](design/MCP-SERVER.md) | MCP server 立项卡（暴露面 / 审批矩阵 / 非目标 / 验收） |
+| [`design/ACE-MCP-SEC-SUBAGENT.md`](design/ACE-MCP-SEC-SUBAGENT.md) | **WP-11 立项卡**：ACE 作为 MCP 安全子层 + 共用 CubeSandbox 底座；**SEC-022**（扫过 ≠ 安全） |
 | [`design/EXECUTOR-RELEASE.md`](design/EXECUTOR-RELEASE.md) | 执行器发布通道（预编译二进制 + `ace --install-executor`） |
 | [`design/README-RESTRUCTURE.md`](design/README-RESTRUCTURE.md) | README 瘦身两轮立项（本结构由此演进） |
 

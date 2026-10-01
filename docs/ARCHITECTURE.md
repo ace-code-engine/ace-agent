@@ -110,6 +110,8 @@ ace-agent/
 │   ├── universal_document_parser.py # N 合一文档解析 + 懒加载 + 50MB 防线
 │   ├── ace_mcp.py              #   MCP 客户端：stdio JSON-RPC 2.0（握手 / tools-list / tools-call + 子进程生命周期）
 │   ├── ace_mcp_server.py       #   MCP **服务端**（ace --mcp）：把执行层借给外部 host；白名单暴露面 + JSON-RPC 错误语义（isError 与协议错误分开）
+│   ├── ace_secscan.py          #   WP-11 路径级静态安全扫描（判据复用 sensitive.py 同一份名单；SEC-022 范围声明）
+│   ├── ace_cubesandbox.py      #   WP-11 CubeSandbox 薄客户端（Tier-0 铁律：不可达即拒；e2b SDK 可选装）
 │   ├── ace_hooks.py            #   事件钩子：session_start / user_prompt / pre_tool / post_tool / session_end（JSON 进出）
 │   ├── ace_commands.py         #   自定义斜杠命令（.ace/commands/*.md）与插件目录（.ace/plugins/*）
 │   ├── ace_events.py           #   headless 事件流（ace --json）：事件契约 + schema 校验 + notice 代理
@@ -218,7 +220,8 @@ ace-agent/
 │   │   ├── WP-0-TAIL-TECH.md        #   WP-0/ACC 尾活技术难点与解法（切片 C 终端权限提示统一 + benchmarks 校验器接法）
 │   │   ├── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
 │   │   ├── WP-6-AGENT-PRESETS.md    #   WP-6 立项卡（C4 要求单独立卡）：per-agent 权限预设 + **S-1 只许更严**
-│   │   └── WP-9-SANDBOX-BACKEND.md  #   WP-9 立项卡（C6：**SEC-020**）：三层沙箱 + S-1 边界（可外包执行边界，不可外包决定权）
+│   │   ├── WP-9-SANDBOX-BACKEND.md  #   WP-9 立项卡（C6：**SEC-020**）：三层沙箱 + S-1 边界（可外包执行边界，不可外包决定权）
+│   │   └── ACE-MCP-SEC-SUBAGENT.md  #   WP-11 立项卡（**SEC-022**）：ACE 作为 MCP 安全子层 + 共用 CubeSandbox 底座
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

@@ -98,6 +98,15 @@ STARTUP_FRAGMENTS = ("start menu/programs/startup", "currentversion/run")
 AGENT_STATE_DIRNAMES = {".guardian", ".ace_sessions", ".agent_flywheel", ".poc_reports"}
 # 同上，但是文件形态（目标状态 / 记忆）：改它等于伪造"用户偏好"或"任务已完成"
 AGENT_STATE_FILENAMES = {".ace_goals.json", ".agent_memory.json"}
+# WP-4：工作区注册表 —— 它**就是放行名单本身**（`tools/base._confined` 的 allowedRoots
+# 来源）。不挡的话，被管的模型只要写一份 `{"workspaces":[{"worktree_path":"C:/"}]}`
+# 就给自己发了通行证，`file_read` / git / terminal_view 的项目边界当场失效。
+# 挡**精确这一条路径**而不是整个 `.ace/`：`.ace/commands/*.md`、`.ace/skills/` 是给人
+# 用的项目内容（用户自己编辑、[44] 有断言），一律挡会把正常用法拒掉 —— 与 SEC-006
+# "别因为工具选择而失败"同一个取舍。
+# 与 `.guardian` 同为"安全状态自持"：挡住文件工具这一层，`terminal_exec` 仍能碰它，
+# 但那一步每次过人、且本身是可被看见的动作。
+AGENT_STATE_PATH_FRAGMENTS = (".ace/workspaces.json",)
 
 
 # ---------------------------------------------------------------- ② 判定
@@ -132,6 +141,8 @@ def _match(spelled: str) -> Optional[str]:
         return "Agent 自身的运行/审计状态目录（改它等于改自己的记录或拆掉回滚安全网）"
     if name in AGENT_STATE_FILENAMES:
         return f"Agent 自身的状态文件（目标/记忆）: {name}"
+    if any(fr in low for fr in AGENT_STATE_PATH_FRAGMENTS):
+        return "Agent 自身的工作区注册表（allowedRoots 的放行名单，改它等于自己发通行证）"
     if name.endswith(CREDENTIAL_SUFFIXES):
         return f"私钥/证书文件: {name}"
     for d in SENSITIVE_DIRNAMES:

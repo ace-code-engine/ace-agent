@@ -16318,6 +16318,83 @@ if _want("83"):
     check("[83] ★向前兼容：读回来多一个不认识的键不炸（老读者不因新字段失效）",
           len(_ws83.WorkspaceStore.load(_p83b).tasks) == 1, "")
 
+    # ── WP-4 接线：`authorize()` 的上位约束要真的管住文件工具 ──
+    # 唯一不走漏的落点是 `_confined`（file_ops / parse_tools / terminal_view / git_ops
+    # 全从那儿过）。接线前 worktree 根在项目根之外 → `_confined` 一律 None，
+    # 于是 `/workspace new --worktree` 建出来的工作区**任何文件工具都碰不到**。
+    from tools.base import ToolExecutorBase as _TEB83  # noqa: E402
+    from tools.base import sensitive_target as _sens83  # noqa: E402
+
+    def _outside83(_p, _root):   # 局部判据，好让"红"落在**行为**上而不是缺个方法上
+        try:
+            Path(_p).relative_to(Path(_root))
+            return False
+        except ValueError:
+            return True
+
+    _proj83 = Path(tempfile.mkdtemp())
+    _outer83 = Path(tempfile.mkdtemp())          # 假装一条 worktree 根（在项目根**之外**）
+    _t83a = _TEB83(project_root=str(_proj83))
+    check("[83] ★前提：worktree 根确实在项目根之外（不是同一个目录，也不在其下）",
+          _outside83(_outer83, _proj83) and _outside83(_proj83, _outer83), "")
+    check("[83] ★未注册 → 项目根之外仍然拒绝（接线不得放松既有边界）",
+          _t83a._confined(_outer83 / "a.txt") is None
+          and _t83a._confined(Path(tempfile.mkdtemp()) / "b.txt") is None, "")
+    _ace83 = _proj83 / ".ace"
+    _ace83.mkdir(parents=True, exist_ok=True)
+    _st83x = _ws83.WorkspaceStore(primary_root=_proj83)
+    _st83x.add_workspace(_st83x.new_task("接线").id, worktree_path=_outer83)
+    _st83x.save(_ace83 / "workspaces.json")
+    _t83b = _TEB83(project_root=str(_proj83))    # 新实例 = 新缓存，走真 load
+    check("[83] ★注册过的 worktree 根 → `_confined` 放行（接线前这里是 None）",
+          _t83b._confined(_outer83 / "a.txt") == (_outer83 / "a.txt").resolve(), "")
+    check("[83] ★在册也不放宽到第三方目录（denied 仍 denied）",
+          _t83b._confined(Path(tempfile.mkdtemp()) / "c.txt") is None, "")
+    check("[83] ★坏 JSON 不当放行：读不动 → 退回单工作区语义（更窄，不是更宽）",
+          (_ace83 / "workspaces.json").write_text("{不是 JSON", encoding="utf-8") is not None
+          and _TEB83(project_root=str(_proj83))._confined(_outer83 / "a.txt") is None, "")
+    _st83x.save(_ace83 / "workspaces.json")      # 恢复，供下面 e2e 用
+
+    # ── 端到端：真工具真读盘 ──
+    # 为什么用 `file_read` 而不是 `file_write`：写工具**故意**放行任意绝对路径
+    # （"放到桌面"是产品意图，见 `_ABS_PATH_WRITE_TOOLS`），所以它本来就不经过
+    # `_confined` 的收紧分支 —— 拿它做断言既测不到接线，也会把既有意图当成 bug。
+    # 读工具才是严格限项目内的那一类，接线前后的差别在它身上是可观测的。
+    (_outer83 / "hello.txt").write_text("来自 worktree", encoding="utf-8")
+    _el83r = ExecutionLayer(project_root=str(_proj83), permission_level="readonly")
+    _r83r = run_agent(_el83r, "file_read", path=str(_outer83 / "hello.txt"))
+    check("[83] ★e2e：file_read 读注册 worktree 根里的文件（接线前 403 路径越界）",
+          _r83r["status"] == "SUCCESS" and "来自 worktree" in str(_r83r.get("data")), _r83r)
+    _r83d = run_agent(ExecutionLayer(project_root=str(_proj83), permission_level="readonly"),
+                      "file_read", path=str(_outer83))
+    check("[83] ★e2e：worktree 根**内**的目录列表也可读（新根是完整工作区，不是单个文件白名单）",
+          _r83d["status"] == "SUCCESS" and "hello.txt" in str(_r83d.get("data")), _r83d)
+    _base83 = Path(tempfile.mkdtemp())
+    (_base83 / "f.txt").write_text("x", encoding="utf-8")
+    _r83o = run_agent(ExecutionLayer(project_root=str(_base83), permission_level="readonly"),
+                      "file_read", path=str(_base83 / "f.txt"))
+    _r83x = run_agent(ExecutionLayer(project_root=str(_base83), permission_level="readonly"),
+                      "file_read", path=str(_outer83 / "hello.txt"))
+    check("[83] ★e2e：没注册那条根的项目 → 自己人读得到、worktree 那份读不到（边界仍成立）",
+          _r83o["status"] == "SUCCESS" and _r83x["status"] == "403",
+          f"{_r83o['status']} / {_r83x['status']} {_r83x.get('message')}")
+
+    # ── 放行名单不能自己写 ──
+    # allowedRoots 的来源是 `.ace/workspaces.json`，而它在项目目录内 = 模型可写范围。
+    # 不挡这一条，模型写一份 worktree_path=C:/ 就给自己发了通行证（上面那组 e2e 的
+    # 边界会当场失效）。与 `.guardian` 同类：安全状态不能由被它管的一方自持。
+    _esc83 = ExecutionLayer(project_root=str(_proj83), permission_level="write")
+    _r83e = run_agent(_esc83, "file_write", path=str(_ace83 / "workspaces.json"),
+                      content='{"version":1,"primary_root":null,"workspaces":'
+                              '[{"id":"ws_x","task_id":"task_x","worktree_path":"'
+                              + str(Path(tempfile.mkdtemp())).replace("\\", "\\\\")
+                              + '"}]}')
+    check("[83] ★提权路径堵死：模型不能写 allowedRoots 的来源（.ace/workspaces.json → 403）",
+          _r83e["status"] == "403", _r83e)
+    check("[83] ★但 `.ace` 下别的项目内容不受影响（别为了挡一条把正常用法拒了）",
+          _sens83(_proj83 / ".ace" / "commands" / "review.md") is None
+          and _sens83(_proj83 / ".ace" / "skills" / "x" / "SKILL.md") is None, "")
+
     # 命令面闭环：`/workspace new` 建 Task + 落盘 → 重开进程读回（save() 的第一个调用方）
     _root83c = Path(tempfile.mkdtemp())
     _cli83 = ai_code.AgentCLI({"project_root": str(_root83c), "permission": "readonly"},

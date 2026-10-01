@@ -16,6 +16,22 @@
 - `packaging/ace.spec` 写明 `skills/` **有意不带**：它是示例内容不是运行时必需
   （与 `prompts/` `locales/` 的区别正在这里），用户按 `skills/<name>/SKILL.md` 自建。
 
+### 🔒 WP-4 `authorize` 接线 + SEC-021（2026-10-01）
+
+- **`allowedRoots` 真的管住文件工具了**：`tools/base._confined` 的放行集合改为
+  项目根 ∪ `.ace/workspaces.json` 里注册过的 worktree 根。选 `_confined` 是因为它是
+  `file_ops` / `parse_tools` / `terminal_view` / `git_ops` **共用的咽喉点**，一处接线全覆盖。
+  接线前：`/workspace new --worktree` 建出来的工作区**任何文件工具都碰不到**（API 建出来了没人能用）。
+- **接线带出一个新洞（SEC-021，已修）**：注册表在**项目目录内 = 模型可写范围**，
+  写一份 `worktree_path` 指向 `C:/` 就给自己发了通行证。已把该路径纳入
+  `core/sensitive.py` 的 `AGENT_STATE_PATH_FRAGMENTS`（与 `.guardian` 同类：安全状态不能自持）；
+  只挡**精确这一条**，`.ace/commands/*.md` 与 `.ace/skills/` 不受影响。
+  记一笔的理由不是洞大，而是**成因**：给闸门**新增一个数据源**时，必须同时问"这个数据源谁能改"。
+- **边界（如实记）**：`file_write` / `file_delete` / `str_replace` **故意**放行任意绝对路径
+  （"放到桌面"是产品意图，SEC-009 之后的口径），所以接线给它们带来的是"能写进 worktree"，
+  不是"被收紧到 worktree"。想让绝对路径写也受 allowedRoots 管，是**收紧既有已测行为**的独立决策。
+- `test_all [83]` 新增 **10 条**断言（红先行：接线前 3 条红，其中 2 条是行为红）。`test_all` 2680 → **2690**。
+
 ### ✨ WP-4 四层持久化（后续切片）
 
 - `core/ace_workspace.WorkspaceStore` 新增 `save()` / `load()`：四层状态写成一份 JSON，读回时

@@ -171,9 +171,43 @@ class ToolExecutorBase:
         # 哪个公网站点去"。后者只有宿主知道哪些站点是正当的，猜一个默认值的结果
         # 是 api_get 在升级后突然大面积失灵，而用户的第一反应是这功能坏了。
         self.egress_allowlist = egress_allowlist
+        # WP-4：allowedRoots 的宿主侧缓存（见 `_allowed_roots`）。None = 还没问过。
+        self._roots_cache: Optional[frozenset] = None
 
+    def _allowed_roots(self) -> frozenset:
+        """注册过的 worktree 根（`.ace/workspaces.json` 里的 allowedRoots）——惰性读一次。
 
+        WP-4 接线：`authorize()` 的上位约束要真的管住文件工具，唯一不走漏的落点就是
+        `_confined`（file_ops / parse_tools / terminal_view / git_ops 全从这儿过）。
+        接线**不新增权限**：注册表为空（非 git / 四层没开过 / worktree 全删）时返回空集，
+        行为与接线前逐字一致；注册表非空时放行的也只有"主根 + 那几条注册过的 worktree 根"。
 
+        读不动 JSON 一律当空集 —— 方向是保守的（退回单工作区语义 = 更窄），不是放行。
+        """
+        if self._roots_cache is None:
+            roots: frozenset = frozenset()
+            try:
+                from core.ace_workspace import WorkspaceStore  # noqa: PLC0415
+
+                _p = self.project_root / ".ace" / "workspaces.json"
+                if _p.is_file():
+                    roots = WorkspaceStore.load(_p).allowed_roots()
+            except Exception:  # noqa: BLE001 —— 状态读不动不该让文件工具整体失灵
+                roots = frozenset()
+            self._roots_cache = roots
+        return self._roots_cache
+
+    @staticmethod
+    def _under(path: Path, root: Path) -> bool:
+        """path 落在 root 之内？Windows 上还要求同盘符（防 .. 把路径解析到别的盘后混过校验）。"""
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return False
+        try:
+            return path.drive.lower() == root.drive.lower()
+        except AttributeError:  # POSIX：Path 没有 drive
+            return True
 
     def _confined(self, path: Path) -> Optional[Path]:
         """把路径解析并约束到项目目录内；越界（..、绝对路径逃逸、符号链接、跨盘符）返回 None
@@ -184,21 +218,22 @@ class ToolExecutorBase:
         修在这里而不是在 `terminal_view._escapes_project`：那里只是"像不像路径"的
         预筛，真正决定放不放行的是这个函数，两个调用分支（选项 token 与裸路径）都经过它。
         方向是保守的 —— 宁可拒，不可放。
+
+        WP-4：放行集合 = 项目根 ∪ 注册过的 worktree 根（`_allowed_roots`）。
+        worktree 按定义在项目根之外，只认项目根的话 `/workspace new --worktree` 建出来的
+        工作区**任何文件工具都碰不到** —— 那才是"有 API 没人用"。
         """
         if not path.is_absolute() and _FOREIGN_ABS_RE.match(str(path)):
             return None
         resolved = (path if path.is_absolute() else self.project_root / path).resolve()
-        # 盘符一致性检查（Windows）：防止 .. 把路径解析到其他盘符后混过校验
-        try:
-            if resolved.drive.lower() != self.project_root.drive.lower():
-                return None
-        except AttributeError:
-            pass
-        try:
-            resolved.relative_to(self.project_root)
+        # 顺序与含义都和接线前一致：项目根优先（绝大多数调用走这条），
+        # 再依次问注册根 —— 嵌套 worktree 命中更深的那条也在里面。
+        if self._under(resolved, self.project_root):
             return resolved
-        except ValueError:
-            return None
+        for _root in self._allowed_roots():
+            if self._under(resolved, _root):
+                return resolved
+        return None
 
     # 交给操作系统"打开/执行"时**硬拒**的后缀（H-14）。
     # 模型能控制 `open_file` 的 path，而 `os.startfile` 走的是 ShellExecute 的默认动作

@@ -7,9 +7,9 @@
 > 脊柱：编号 `DL-`(驱动) / `RL-`(响应) / `HL-`(自愈) —— 见 **§0.5** 与 `docs/design/THREE-LAYERS.md`。
 > 关系：`BACKLOG.md` 管**战术**待办（SEC-/Q-/R-/REL-，多为已知缺陷与重构）；
 > 本文管**能力面**的战略补齐（多为"参照系有、我们完全没有"）。两者不重叠。
-> 状态：**已开工** —— 截至 2026-09-30，批次 **-1 / 0 / 1 / 2 / 3 / 5 已关闭**，批次 4 部分（WP-4 只第一切片）；
+> 状态：**已开工** —— 截至 2026-10-01，批次 **-1 / 0 / 1 / 2 / 3 / 5 已关闭**，批次 4 大半（WP-4 只剩快照基运行时切换）；
 > 三层脊柱 `DL-01~04` / `RL-01~04` / `HL-01~05` **13 项全部落地**。每个 WP 开工时另立卡进 `docs/design/`
-> （已立：`WP-0-TAIL-TECH.md` · `WP-4-SNAPSHOT-SEMANTICS.md`（C5）· `WP-6-AGENT-PRESETS.md`（C4））。
+> （已立：`WP-0-TAIL-TECH.md` · `WP-4-SNAPSHOT-SEMANTICS.md`（C5）· `WP-6-AGENT-PRESETS.md`（C4）· `WP-9-SANDBOX-BACKEND.md`（C6））。
 
 ---
 
@@ -418,6 +418,11 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
   每行状态取**最新进程**（`LatestProcessInfo`）；
   `Workspace` 四字段 `archived` / `pinned` / `name`(首条 prompt 自动命名) / `worktree_deleted`。
 - **更硬的一层**（照 orca）：`allowedRoots + registered worktrees` 文件系统授权 —— agent 读写被限制在**注册过的 worktree 根内**。
+  **已接线（2026-10-01）**：`tools/base._confined` 的放行集合 = 项目根 ∪ `.ace/workspaces.json` 里注册过的 worktree 根。
+  选 `_confined` 而不是逐个工具：它是 `file_ops` / `parse_tools` / `terminal_view` / `git_ops` **共用的咽喉点**，一处接线全覆盖。
+  **边界（如实记）**：`file_write` / `file_delete` / `str_replace` **故意**放行任意绝对路径（"放到桌面"是产品意图），
+  所以接线给它们带来的是"能写进 worktree"而不是"被收紧到 worktree"——`_confined` 管的是**被项目边界约束的那一类路径**。
+  想让绝对路径写也受 allowedRoots 管，是一次**收紧既有已测行为**的独立决策，不塞进这次接线。
 - **开工前必须先做的统一**：**worktree 与现有快照回滚语义必须统一**，否则会存在两套回滚（灾难）。
 - **风险**：**高**。这是本路线图里最重的一项，且与 `core/guardian.py` 的快照体系强耦合。
 
@@ -565,10 +570,11 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | **5** | **WP-6** 预设（**单独立卡 + 单独评审；消费 `DL-03`，C4**）· **WP-7** skill · **`DL-04`** 学习只变严 · **`HL-05`** 三级预算 | 安全 ← 自我驱动 | 批次 4 | "预设不得放宽到比全局更松"的断言；三级预算替换全局 `MAX_ROUNDS` |
 | **6** | **WP-8** 出网与快照 · **WP-9** 沙箱后端（**C6：先过 ACC + 领 SEC 编号 + 立卡**） | 安全 ← 速度 | 两者强咬合：CubeEgress→WP-8 出网、cubecow→WP-8 快照 | 凭据不进沙箱 / 模板无凭据 / 出网默认拒绝 / **降级朝"更严"** |
 
-> **进度（2026-09-30）**：批次 **-1 / 0 / 1 / 2 / 3 / 5 已关闭**；批次 **4 部分**（WP-5 ✅ · `HL-04` ✅ ·
-> **WP-4 只第一切片**：四层模型 + 回滚纪律 + `allowedRoots`；持久化 / `/workspace` / `authorize` 接入 / 快照基运行时切换未做）。
-> 三层脊柱 **13/13 落地**（实施记录见 `docs/design/THREE-LAYERS.md` §9）。工具 **42 → 51**；`test_all` **2438 → 2672**。
-> **未开始**：**WP-9** 沙箱后端（C6 前置未做）· 横向 **WP-10** · WP-4 后续切片 · WP-6 的 `execution_layer` 接线。
+> **进度（2026-10-01）**：批次 **-1 / 0 / 1 / 2 / 3 / 5 已关闭**；批次 **4 部分**（WP-5 ✅ · `HL-04` ✅ ·
+> **WP-4 大半**：四层模型 ✅ · 回滚纪律 ✅ · `allowedRoots` ✅ · 持久化 ✅ · `/workspace` 命令面 ✅ ·
+> `authorize` 接入文件工具 ✅（→ 带出 **SEC-021**，已修）；**只剩** guardian 快照基运行时切换）。
+> 三层脊柱 **13/13 落地**（实施记录见 `docs/design/THREE-LAYERS.md` §9）。工具 **42 → 51**；`test_all` **2438 → 2690**。
+> **未开始**：**WP-9** 沙箱后端（C6 前置未做，卡与 SEC-020 已立）· 横向 **WP-10**（R1 依据已被复测推翻）· WP-4 快照基切换 · WP-6 的 `execution_layer` 接线。
 > **部分**：**WP-8** —— 域名级出网 allowlist（G-12）**早已落地并接线**，只剩"闸门只管 URL、非 URL 通道不在内"这一半；快照 reflink 归 **WP-10 / cubecow 口径**。
 | **横向** | **WP-10** Rust 核心化 | 安全 ← 速度（把安全成本压到接近零） | 前提**只剩 R-9** —— `engine/target/` 那条是 **R-6（虚警）**，且 `ci.yml:66` 的 `engine` job（`dtolnay/rust-toolchain` + offline build + `--selftest` + parity）**已存在** | §2.5 矩阵逐项 + **超范围路径必须被 Rust 自己拦住** |
 | **前置/并行** | **ACC**（A0/A1/A2 已在批次 -1；A3 接 `DEVELOPMENT.md` 的"完成"定义） | — | — | **WP-9 依赖它**（§7 依据一最后一条） |

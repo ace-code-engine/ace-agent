@@ -6,9 +6,32 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"unsafe"
 )
+
+// landlockAvailable 探测一次：内核是否支持我们用到的 landlock 写权限位。
+// ubuntu CI runner 上 landlock 可能被禁 / ABI 不同，此时 landlockWrap 应 no-op、
+// 测试应跳过，而不是让每个命令都 re-exec 失败（那会连 TestProcessGroupKill 一起拖垮）。
+var _landlockOnce sync.Once
+var _landlockOK bool
+
+func landlockAvailable() bool {
+	_landlockOnce.Do(func() {
+		var attr landlockRulesetAttr
+		attr.handledAccessFS = landlockWriteRights
+		fd, _, errno := syscall.Syscall(landlockCreateRuleset,
+			uintptr(unsafe.Pointer(&attr)), uintptr(unsafe.Sizeof(attr)), 0)
+		if errno != 0 {
+			_landlockOK = false
+			return
+		}
+		syscall.Close(int(fd))
+		_landlockOK = true
+	})
+	return _landlockOK
+}
 
 // applyLandlockWriteIsolation 让**调用进程自己**从此只能在工作区内写。必须在子进程里调
 // （restrict_self 只作用于调用者），所以它只能由 re-exec 那条路进来。

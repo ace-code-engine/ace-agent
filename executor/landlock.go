@@ -72,6 +72,11 @@ func landlockWrap(cmd *exec.Cmd) {
 	if runtime.GOOS != "linux" {
 		return
 	}
+	// 内核不支持 landlock（如 ubuntu CI runner）时不 re-exec —— 否则每个命令都因
+	// re-exec 里的 landlock 失败而 exit 126，把整个执行器拖垮。这里如实 no-op。
+	if !landlockAvailable() {
+		return
+	}
 	ws := cmd.Dir
 	if ws == "" {
 		if wd, err := os.Getwd(); err == nil {

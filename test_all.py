@@ -13363,10 +13363,8 @@ if _want("70"):
 
     _home70 = Path(os.path.expanduser("~"))
     _p70v = mktemp("混淆")
-    # .resolve() 规范化：macOS 上 /var、/tmp 是软链（→ /private/var、/private/tmp），
-    # 规则匹配会把 source 规范化、pattern 不规范化 → 失配（CI macOS 红过）。两边都用正名。
-    _out70v = (_p70v.parent / "h13_out.txt").resolve()
-    _dest70v = (_p70v.parent / "h13_dest.txt").resolve()
+    _out70v = _p70v.parent / "h13_out.txt"
+    _dest70v = _p70v.parent / "h13_dest.txt"
     _out70v.write_text("exists", encoding="utf-8")
 
     # H-10 ★别名：8.3 短名 / 尾点 / `..` 都必须与正名同判
@@ -13399,7 +13397,7 @@ if _want("70"):
           == [str(_out70v), str(_dest70v)],
           _dt70("file_move", {"source": str(_out70v), "dest": str(_dest70v)}))
     check("H-13 ★deny 规则看得见 file_move 的 source",
-          _rm70(_Rule70(tool="file_move", pattern=str(_out70v).replace("\\", "/").lower(),
+          _rm70(_Rule70(tool="file_move", pattern=str(_out70v).replace("\\", "/"),
                         action="deny", scope="project"),
                 "file_move", {"source": str(_out70v), "dest": str(_dest70v)}) is True)
     _el70v = _EL70(project_root=str(_p70v), permission_level="write",

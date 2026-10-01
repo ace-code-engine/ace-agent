@@ -13,3 +13,6 @@ func landlockApplyEntry() bool { return false }
 func applyLandlockWriteIsolation(workspace string) error {
 	return fmt.Errorf("landlock is Linux-only")
 }
+
+// landlockAvailable 的 non-Linux stub：永远不可用（landlock 是 Linux 原语）。
+func landlockAvailable() bool { return false }

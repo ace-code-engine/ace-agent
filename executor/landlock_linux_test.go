@@ -18,6 +18,9 @@ func TestLandlockWriteIsolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short 模式跳过")
 	}
+	if !landlockAvailable() {
+		t.Skip("landlock 不可用（内核不支持/被禁）—— 环境限制，不是回归")
+	}
 	ws, err := os.MkdirTemp("", "ace-landlock-")
 	if err != nil {
 		t.Fatal(err)

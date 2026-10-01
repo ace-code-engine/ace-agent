@@ -17,7 +17,9 @@ param(
     [switch]$DryRun,
     [ValidateSet('readonly', 'write', 'full')][string]$Permission = 'readonly',
     [string]$Python = '',
-    [string]$StoreRoot = ''
+    [string]$StoreRoot = '',
+    [string]$SandboxApi = '',
+    [string]$SandboxKey = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -31,10 +33,15 @@ if (-not $Python) {
     $Python = $cmd.Source
 }
 
+# Sandbox base is OPTIONAL: without it ace_sandbox_exec refuses (Tier 0) by design.
+$envMap = [ordered]@{ PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8' }
+if ($SandboxApi) { $envMap['ACE_SANDBOX_API'] = $SandboxApi }
+if ($SandboxKey) { $envMap['ACE_SANDBOX_KEY'] = $SandboxKey }
+
 $server = [pscustomobject][ordered]@{
     command = $Python
     args    = @($Entry, '--mcp', '--permission', $Permission)
-    env     = [ordered]@{ PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8' }
+    env     = $envMap
 }
 
 if ($StoreRoot) {

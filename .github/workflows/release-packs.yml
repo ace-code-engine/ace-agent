@@ -1,0 +1,99 @@
+name: release-packs
+
+# 两个"直接给用户"的包，挂到已有的 Release 上：
+#   ace-mcp-<ver>.zip      —— 非侵入式 MCP 接入包（挂到用户自己的 agent 上）
+#   ace-secbox-<ver>.zip   —— 一体包（虚拟化底座 + 同一个 MCP 挂载层）
+#
+# 为什么单独一个工作流（而不是塞进 release-exe / release-executor）：
+# 那两个是**已验证过**的链路（MSI/zip + 五平台执行器），往里加步骤就得重新验一遍它们的
+# 顺序与竞态；而这两个包都是**纯源码打包**，与它们没有依赖。`gh release upload --clobber`
+# 幂等，所以"Release 已存在就补资产"可以独立做、失败也不影响主发布。
+#
+# 手动派发（Release 必须先存在；本仓库由 release-executor 建）：
+#   gh workflow run release-packs.yml -f version=3.47.0
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本(如 3.47.0；留空自动读 core/version.py)"
+        required: false
+        type: string
+
+permissions:
+  contents: write        # gh release upload 需要它
+
+concurrency:
+  group: release-packs
+  cancel-in-progress: false
+
+jobs:
+  packs:
+    name: Build + attach the two user-facing packs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python3 -c 'from core import version; print(version.__version__)')"
+          fi
+          echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build both packs (same scripts developers run locally)
+        shell: pwsh
+        run: |
+          ./packaging/build_mcp_bundle.ps1
+          ./packaging/build_allinone_bundle.ps1
+
+      - name: Smoke BOTH packs from clean extractions
+        # 只在**解压出来的目录**里跑才算验过：少一个模块只有在那一刻才暴露。
+        # 本地第一次构建就是被这条抓到的（ai_code 顶层 import agent_runner）。
+        run: |
+          set -e
+          V="${GITHUB_WORKSPACE}/dist/ace-mcp-${{ steps.version.outputs.resolved }}.zip"
+          A="${GITHUB_WORKSPACE}/dist/ace-secbox-${{ steps.version.outputs.resolved }}.zip"
+          test -f "$V" || { echo "mcp pack missing: $V"; exit 1; }
+          test -f "$A" || { echo "all-in-one pack missing: $A"; exit 1; }
+
+          for z in "$V" "$A"; do
+            d="/tmp/pk_$(basename "$z" .zip)"
+            mkdir -p "$d" && (cd "$d" && unzip -q "$z")
+            echo "--- smoke $(basename "$z") ---"
+            python3 "$d/verify-mcp.py"
+            python3 - <<EOF
+import json, pathlib
+root = pathlib.Path("$d")
+ver = (root / "VERSION").read_text(encoding="utf-8").strip()
+assert ver, "VERSION stamp missing"
+cfg = json.loads((root / "configs/cline_mcp_settings.json").read_text(encoding="utf-8"))
+assert "ace" in cfg["mcpServers"], cfg
+print("contents OK, VERSION =", ver)
+EOF
+          done
+
+          # 一体包必须比 MCP 包**多**出底座那一半（少了就退化成同一个包）
+          test -f "/tmp/pk_ace-secbox-${{ steps.version.outputs.resolved }}/sandbox/preflight.sh" \
+            || { echo "all-in-one pack is missing the base half"; exit 1; }
+          test -f "/tmp/pk_ace-secbox-${{ steps.version.outputs.resolved }}/setup-all.sh" \
+            || { echo "all-in-one pack is missing setup-all.sh"; exit 1; }
+          echo "both packs verify"
+
+      - name: Attach to the existing Release (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.resolved }}"
+          TAG="v${VERSION}"
+          if ! gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${TAG} 还不存在 —— 先跑 release-executor，再回来派发这个。"
+            exit 1
+          fi
+          gh release upload "${TAG}" \
+            "dist/ace-mcp-${VERSION}.zip" "dist/ace-secbox-${VERSION}.zip" \
+            --clobber --repo "${{ github.repository }}"
+          echo "已把两个包挂到 ${TAG}"

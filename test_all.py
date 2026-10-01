@@ -16791,6 +16791,8 @@ if _want("89"):
     finally:
         sys.modules.pop("e2b", None)
     _sb89x = _FakeSb89.created[-1] if _FakeSb89.created else None
+    check("[89] ★地址按 CubeSandbox 官方方式注入：`E2B_API_URL` 环境变量（不是只设类属性）",
+          os.environ.get("E2B_API_URL") == "http://x", os.environ.get("E2B_API_URL"))
     check("[89] ★fake SDK：代码真的递进去、stdout 带回来（形状照 E2B Python SDK 写）",
           _r89b.get("ok") is True and _r89b.get("stdout") == "out89"
           and getattr(_sb89x, "last_code", "") == "import os; print(os.environ)", _r89b)

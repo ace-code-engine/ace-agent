@@ -55,8 +55,14 @@ python ai_code.py --mock
   **绝不**退回你本机执行。凭据不注入沙箱。
 - 另有 31 个 ACE 工具，全部经过同一个权限 / 审批 / 审计点。默认 `readonly`。
 
-> 已经装了 ACE 的人**不需要**这个包 —— 直接让你的 host 指向 `ace.exe --mcp` 就行。
-> 这个包是给"只想要那层安全、不想装 agent"的人准备的。
+**③ 一体包**(`ace-secbox-&lt;版本&gt;.zip`)—— 同一个挂载层，**再加虚拟化底座**:
+你 agent 生成的代码跑在硬件隔离的 microVM 上，而决定权仍在 ACE。两半**不必同机**：
+一台 Linux 底座可以服务多台机器上的 agent。
+见 [packaging/allinone/README-ALLINONE.md](packaging/allinone/README-ALLINONE.md) —— 它带一个
+`preflight`，**先告诉你这台机器能不能当底座**(Windows 不能)，而不是让你从装坏了的安装里发现。
+
+> 已经装了 ACE 的人**不需要**这两个包 —— 直接让你的 host 指向 `ace.exe --mcp` 就行。
+> 这两个包是给"只想要那层安全(以及可选的底座)、不想装 agent"的人准备的。
 
 ---
 

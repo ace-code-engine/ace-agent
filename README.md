@@ -54,8 +54,15 @@ python ai_code.py --mock
   it **refuses** (Tier 0); it never falls back to running on your machine. Credentials are not injected.
 - plus 31 ACE tools that all route through the same permission / approval / audit point. Default is `readonly`.
 
-> Already have ACE installed? You do **not** need the pack — point your host at `ace.exe --mcp`.
-> The pack is for people who want the safety layer without installing the agent.
+**③ All-in-one** (`ace-secbox-&lt;version&gt;.zip`) — the same mount **plus the virtualization base**:
+your agent's code runs on a hardware-isolated microVM, while the decision stays in ACE. The two halves
+do **not** have to be on the same machine: one Linux base can serve many agents.
+Read [packaging/allinone/README-ALLINONE.md](packaging/allinone/README-ALLINONE.md); it ships a
+`preflight` that tells you up front whether a given machine can host the base (Windows cannot) instead
+of letting you find out from a broken install.
+
+> Already have ACE installed? You do **not** need either pack — point your host at `ace.exe --mcp`.
+> The packs are for people who want the safety layer (and optionally the base) without installing the agent.
 
 ---
 

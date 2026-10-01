@@ -41,7 +41,8 @@ MAX_TIMEOUT_S = 120.0
 class SandboxConfig:
     """沙箱连接的装配。全空 = 未配置（`available()` 会如实拒绝）。"""
 
-    api_base: str = ""            # CubeSandbox 的 E2B 兼容 API 地址（http://127.0.0.1:8080 …）
+    api_base: str = ""            # CubeSandbox 的 E2B 兼容地址（http://<host>:3000）
+    api_key: str = ""             # 单机 one-click 的演示 key 是 e2b_000000；留空则不设
     template: str = ""            # 沙箱模板名（空 = "ace-sandbox" 默认）
     egress_allowlist: List[str] = field(default_factory=list)  # 显式配置才非空（默认拒绝）
     timeout_s: float = 30.0
@@ -50,19 +51,20 @@ class SandboxConfig:
 def load_sandbox_config(project_root: str = ".",
                         cfg: Optional[Dict[str, Any]] = None) -> SandboxConfig:
     """从配置 / 环境装配。取值顺序：`cfg["sandbox_mcp"]` > `ACE_SANDBOX_API` /
-    `ACE_SANDBOX_TEMPLATE` 环境变量。egress allowlist 与 ACE 的 `egress_allowlist`
-    **同一份清单、同一个来源**（读 `cfg["egress_allowlist"]`，可被 `sandbox_mcp`
-    子表覆盖 —— 覆盖的是值，不是口径）。"""
+    `ACE_SANDBOX_KEY` / `ACE_SANDBOX_TEMPLATE` 环境变量。egress allowlist 与 ACE 的
+    `egress_allowlist` **同一份清单、同一个来源**（读 `cfg["egress_allowlist"]`，
+    可被 `sandbox_mcp` 子表覆盖 —— 覆盖的是值，不是口径）。"""
     cfg = dict(cfg or {})
     sub = dict(cfg.get("sandbox_mcp") or {})
     api = str(sub.get("api") or os.environ.get("ACE_SANDBOX_API", "")).strip()
+    key = str(sub.get("api_key") or os.environ.get("ACE_SANDBOX_KEY", "")).strip()
     tpl = str(sub.get("template") or os.environ.get("ACE_SANDBOX_TEMPLATE", "")).strip()
     allow = list(sub.get("egress_allowlist") or cfg.get("egress_allowlist") or [])
     try:
         timeout = float(sub.get("timeout_s") or cfg.get("sandbox_timeout_s") or 30.0)
     except (TypeError, ValueError):
         timeout = 30.0
-    return SandboxConfig(api_base=api, template=tpl,
+    return SandboxConfig(api_base=api, api_key=key, template=tpl,
                          egress_allowlist=[str(a).strip() for a in allow if str(a).strip()],
                          timeout_s=timeout)
 
@@ -108,8 +110,13 @@ class CubeSandboxBackend:
         try:
             from e2b import Sandbox  # noqa: PLC0415
 
-            # API 地址：老 SDK 用类属性 / 新 SDK 用 create 参数，两代都试一下；
-            # 失败就落进下面的 except（如实报错，而不是猜一个能跑的）。
+            # 地址/key 的注入方式以 **CubeSandbox 自己的文档**为准（deploy/one-click/README：
+            # `export E2B_API_URL=http://<host>:3000` + `E2B_API_KEY=e2b_000000`），
+            # 所以这里设的是环境变量；`Sandbox.api_url` 只是老 SDK 的兜底写法。
+            # 第一版只设了属性、没设环境变量 —— 真机冒烟前看不出来，装机后就是"连不上"。
+            os.environ["E2B_API_URL"] = self.config.api_base
+            if self.config.api_key:
+                os.environ["E2B_API_KEY"] = self.config.api_key
             try:
                 Sandbox.api_url = self.config.api_base     # type: ignore[attr-defined]
             except (AttributeError, TypeError):

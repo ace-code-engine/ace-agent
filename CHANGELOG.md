@@ -7,6 +7,29 @@
 
 ## Unreleased · 2026-10-01（v3.47.0 之后的验证）
 
+### 🧊 一体包：虚拟化底座 + MCP 挂载（`ace-secbox-<ver>.zip`）
+
+- **两件东西一个目的**：用户的 agent 生成的代码跑在**硬件隔离底座**上（CubeSandbox = RustVMM + KVM
+  microVM），而**决定权挂在用户自己的 agent 上**（ACE MCP 层）。`packaging/allinone/README-ALLINONE.md`
+  把"为什么是两件而不是一件"写在最前面：底座解决*代码跑在哪*，挂载解决*谁决定它能不能跑*；
+  两者**不要求同机** —— 这是"共用底座"的通常形态，也是本包默认推荐的形态。
+- **三种形态 + 判定先行**：A 同机 Linux / B 远程共用（推荐）/ C 只挂载。`sandbox/preflight.sh`（Linux）
+  与 `sandbox/preflight.ps1`（Windows）**先给判定再让你动手**：查 `/dev/kvm`、CPU 的 vmx/svm 标志、
+  Windows 的虚拟化暴露情况，并直接说清修法（BIOS / 嵌套虚拟化 / 换形态）。
+  **本机实测判定 = 不能当底座**（Windows VM，`VirtualizationFirmwareEnabled=False`）—— 这正是不猜、不试错的理由。
+- **`sandbox/setup-sandbox.sh`** 是**薄包装**，不重写上游安装器：钉住上游 commit `c33a8a5e`（2026-09-23）
+  取它自己的 one-click 安装器来跑，装完立刻验，并打印挂载侧要填的
+  `ACE_SANDBOX_API=http://<host>:3000` / `ACE_SANDBOX_KEY`。
+- **`sandbox/verify-sandbox.py` 两层自检**：① TCP 可达性（stdlib，不需要 SDK）；② 装了 `e2b` 才建一个
+  真沙箱跑 `print(1+1)` 并断言看到 `2` —— 没装 SDK 就**如实说只验到可达**，不假装通过。
+- **`setup-all.ps1` / `setup-all.sh`** 单一入口：判定 → 写 host 配置（或打印要粘的段）→ 给出自检命令。
+  Windows 侧显式说明底座**不在这台机器上**，`ace_sandbox_exec` 在底座可达前一律拒绝（Tier 0，设计行为）。
+- **底座接口按厂方文档接对**：CubeSandbox 的 E2B 兼容入口靠 **`E2B_API_URL` / `E2B_API_KEY` 环境变量**
+  （上游 `deploy/one-click/README.md`）。我第一版只设了 `Sandbox.api_url` 属性 —— 装机后就会表现为
+  "连不上"，而真机冒烟前看不出来。现已按文档设环境变量，并加断言钉住。
+- `release-packs.yml`（替换掉只打一个包的 `release-mcp-pack.yml`）：两个包都构建 → **各自在干净解压里 smoke**
+  → 校验一体包**确实比 MCP 包多出底座那一半** → 一起挂到 Release。
+
 ### 📦 非侵入式 MCP 接入包（让用户自己选：用 ACE，还是把 ACE 挂到自己的 agent 上）
 
 - **两种用法摆到 README 首屏**（`README.md` / `README.zh-CN.md`）：① 直接用 ACE 当 agent；

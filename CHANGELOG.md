@@ -7,6 +7,14 @@
 
 ## Unreleased · 2026-09-30（**尚未发布**：发布时定版本号、把这段并入版本条目，并重录 demo 图）
 
+### ⚙️ WP-6 预设接线（批次 5 收尾）
+
+- **`execution_layer` 三段接入 agent 预设**：import + `__init__` 注册表/预设 + `_stage_permission` 的预设闸门。
+  此前只落地了映射（`core/ace_agents.py` + S-1 判定），**没接线** ⇒ 预设写了不生效。现在：
+  `bash: deny` → `terminal_exec` **403**；`edit: ask` → `file_write` **PERMISSION_REQUEST**；
+  **无预设时行为逐字不变**（`file_write` 仍 SUCCESS）。三条都钉进 `test_all [86]`。
+- `docs/ROADMAP.md` G-12 的**假陈述**修正（域名级 allowlist 早已落地并接线），并立 `WP-9` 卡（C6 · **SEC-020**）。
+
 ## [v3.46.0] · 2026-09-30 —— 能力路线图批次 -1~5：工具 42 → 51、三层脊柱 13 项落地
 
 ### 🚀 能力路线图批次 -1 ~ 5（2026-09-30）

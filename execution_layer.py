@@ -79,6 +79,7 @@ from core.ace_ledgers import (BannedToolsView, Budget, BudgetPanel,  # noqa: E40
                               build_escalation_material, defect_producer,
                               fingerprint_call, hint_for)
 from core.ace_isolation import wrap_untrusted
+from core import ace_agents  # WP-6：agent 预设（per-agent 权限规则，只加严）
 from core import ace_rules  # noqa: E402  （持久授权规则：匹配与作用域优先级）
 from core.ace_claims import claims_completed_action, PROMPT_UNVERIFIED_CLAIM  # noqa: E402
 from cli.ace_sessionlog import (K_SNAPSHOT_CREATE, K_SNAPSHOT_FAIL,
@@ -699,6 +700,12 @@ class ExecutionLayer:
         # 能力可以降，话必须说。**必须在最早的降级点（网关/清单/规则）之前初始化**。
         self.degradations: List[Dict[str, str]] = []
         self._degrade_noted: Set[str] = set()
+        # WP-6 agent 预设：per-agent 权限规则（**只加严**，S-1）。没配 `agent` 时 preset=None
+        # ⇒ `effective_confirm_tools(None) == CONFIRM_TOOLS`，行为与接线前逐字一致。
+        self.agent_registry = ace_agents.AgentPresetRegistry(str(self.project_root))
+        self.agent_preset = None
+        if (config or {}).get("agent"):
+            self.agent_preset = self.agent_registry.activate(str(config["agent"]))
         # 同前缀免确认白名单（会话级）：用户确认过的命令前缀，同前缀 prompt 档自动放行
         self._approved_prefixes: List[str] = []
         # 目标状态机（持久化长任务）：CLI 轮次驱动与工具共用同一个 store
@@ -2179,6 +2186,30 @@ class ExecutionLayer:
         # 的一次调用，参数可以完全不同。绑工具名的话"批准 A"就等于"批准这个工具随便用"。
         # 只在**闸门确实问过人并记下了对象**时校验（`_grant_identity`）；来自持久规则、
         # 前缀白名单、或测试直接 `grant_temp` 的授权没有条目 ⇒ 沿用旧的按工具行为。
+        # WP-6：agent 预设的权限规则（**只加严**）。放在持久规则之前 —— 预设是"当前身份"，
+        # 且它只能比全局更严，不可能放宽任何人写下的 deny（S-1 在 ace_agents 激活时断言）。
+        _preset_verdict = ace_agents.preset_gate(self.agent_preset, tool_name)
+        if _preset_verdict:
+            _agent = self.agent_preset.name if self.agent_preset else ""
+            if self.session_log:
+                self.session_log.record_permission(
+                    tool_name, ("denied_by_agent_preset" if _preset_verdict == "deny"
+                                else "confirm_agent_preset"), self.permission.level, _agent)
+            if _preset_verdict == "deny":
+                return {
+                    "status": "403",
+                    "tool": tool_name,
+                    "message": f"当前 agent 预设（{_agent}）已关闭这一类操作: {tool_name}",
+                    "instruction": ("这是预设的权限规则，不是权限档不够。请换用预设允许的工具；"
+                                    "要放宽请让用户改预设或全局配置（放宽只能是人的动作）。"),
+                }
+            return {
+                "status": "PERMISSION_REQUEST",
+                "tool": tool_name,
+                "reason": f"agent 预设（{_agent}）要求逐次确认",
+                "message": f"'{tool_name}' 被 agent 预设要求逐次确认",
+                "instruction": "等待用户确认结果，不要重复调用，也不要改用其他工具绕过确认",
+            }
         _identity = self._gated_identity(tool_name, tool_call)
         if _identity and tool_name in self.permission.temp_grants:
             _approved = self._grant_identity.get(tool_name)

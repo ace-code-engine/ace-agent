@@ -16378,6 +16378,32 @@ if _want("86"):
           _ag86.effective_confirm_tools(None) == set(_CT86),
           _ag86.effective_confirm_tools(None) ^ set(_CT86))
 
+    # 接线（execution_layer）：预设的 deny/ask 真生效 —— 引擎侧映射接上了才算数。
+    from execution_layer import ExecutionLayer as _EL86  # noqa: E402
+    _root86 = mktemp("wp6_86")
+    (_root86 / "agents").mkdir(exist_ok=True)
+    (_root86 / "agents" / "reviewer.md").write_text(
+        "---\nname: reviewer\ndescription: 只读审查\n"
+        "permission: {bash: deny, edit: ask}\n---\n你是审查者\n", encoding="utf-8")
+
+    def _p86(_el, _tool, **_kw):
+        _body = json.dumps({"tool": _tool, **_kw}, ensure_ascii=False)
+        return _el.process_agent_output(
+            "<INTERNAL>\n[INTERNAL_THINKING]\n[ACT] x\n[/INTERNAL_THINKING]\n</INTERNAL>\n"
+            f"<EXTERNAL>\nanswer.\n{_body}\n</EXTERNAL>", "wp6_86")
+
+    _e86a = _EL86(project_root=str(mktemp("wp6_86a")), permission_level="write",
+                  config={"bait": {"enabled": False}})
+    check("[86] ★接线不改变默认：无预设时 file_write 仍 SUCCESS",
+          _p86(_e86a, "file_write", path="x.txt", content="hi").get("status") == "SUCCESS", "")
+    _e86b = _EL86(project_root=str(_root86), permission_level="write",
+                  config={"agent": "reviewer", "bait": {"enabled": False}})
+    check("[86] ★接线：预设 `bash: deny` → terminal_exec 403（deny 赢过全局 CONFIRM）",
+          _p86(_e86b, "terminal_exec", command="echo hi").get("status") == "403", "")
+    check("[86] ★接线：预设 `edit: ask` → file_write PERMISSION_REQUEST",
+          _p86(_e86b, "file_write", path="x.txt", content="hi").get("status")
+          == "PERMISSION_REQUEST", "")
+
 # ============================================================
 if _want("87"):
     # ── [87] WP-7 Skill：只广告 name+description + 无效字段只 warning ──

@@ -8265,12 +8265,17 @@ def _mcp_security_tools() -> List[Dict]:
          "description": ("对一个目录做**路径级**静态安全扫描（只判文件名/路径，"
                          "**不读文件内容**）：凭据文件（.env / 私钥 / 密钥后缀）、"
                          "敏感目录、可执行后缀（交给系统打开会被运行）、网络路径。"
-                         "报告自带范围声明 —— 报告干净不等于安全。"),
+                         "`deep: true` 升级为内容级：只读**文件名已命中凭据**的那批文件，"
+                         "高精度规则（真私钥头 / AKIA / 非占位符的密钥赋值），"
+                         "宁可漏不可误报。报告自带范围声明 —— 报告干净不等于安全。"),
          "inputSchema": {"type": "object",
                          "properties": {
                              "path": {"type": "string",
                                       "description": "要扫描的目录（绝对路径，"
-                                                     "或相对项目根的相对路径）"}},
+                                                     "或相对项目根的相对路径）"},
+                             "deep": {"type": "boolean",
+                                      "description": "true = 对名字已命中凭据的文件加做"
+                                                     "内容级检查（默认 false）"}},
                          "required": ["path"]}},
         {"name": "ace_sandbox_exec",
          "description": ("把一段代码丢进 CubeSandbox（KVM MicroVM —— 与主 agent 共用的"
@@ -8303,7 +8308,9 @@ def _mcp_security_call(name: str, args: Dict, cli: "AgentCLI") -> Optional[Dict]
         p = Path(os.path.expanduser(raw))
         if not p.is_absolute():
             p = Path(str(cli.cfg.get("project_root") or ".")) / p
-        return ace_mcp_server.tool_text(ace_secscan.render_report(ace_secscan.scan_dir(p)))
+        deep = bool((args or {}).get("deep"))
+        report = ace_secscan.scan_dir(p, read_content=deep)
+        return ace_mcp_server.tool_text(ace_secscan.render_report(report))
     if name == "ace_sandbox_exec":
         from core import ace_cubesandbox  # noqa: PLC0415
 

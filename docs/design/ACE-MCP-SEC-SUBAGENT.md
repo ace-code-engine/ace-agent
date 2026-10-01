@@ -37,7 +37,7 @@ ACE `--mcp`（execution_layer = **唯一裁决点**；已有，M1–M7）
 
 | 工具 | 干什么 | 关键边界 |
 |---|---|---|
-| `ace_security_scan {path}` | 对一个目录做**静态**安全扫描，返回结构化发现 | **第一版只判文件名/路径，不读文件内容**（读内容需要边界/许可/大文件 IO 的整套论证，留给第二版） |
+| `ace_security_scan {path, deep?}` | 对一个目录做**静态**安全扫描，返回结构化发现 | **默认路径级**（只判文件名/路径，不读内容）；`deep: true` = 内容级，**只读名字已命中凭据的文件**（≤64 KB/文件、≤200 个），高精度规则、宁可漏不可误报，超限如实说 skipped |
 | `ace_sandbox_exec {code, language, timeout_s}` | 把一段代码丢进 CubeSandbox 跑，带回 stdout/stderr/exit | **Tier-0 铁律**：沙箱不可达 → 拒绝（`isError` + 部署指引），**绝不**退回本地执行 |
 
 扫描判据**全部复用既有名单，不另立**：`core/sensitive.py`（`sensitive_target` /
@@ -69,7 +69,9 @@ ACE `--mcp`（execution_layer = **唯一裁决点**；已有，M1–M7）
 
 - **不自研** microVM / 容器（`ROADMAP` NG-01）：接 CubeSandbox，不是重写它。
 - **不新增裁决路径**（S-1）；`ace_sandbox_exec` 不 fallback 到本地（Tier 0 铁律）。
-- **不读文件内容**（第一版扫描是路径级）；不做 HTTP transport（`MCP-SERVER.md` §2 已定）。
+- **默认不读文件内容**；`deep` 只读"名字已命中凭据"的那批（v2 已落地），
+  **不做全树内容级正则扫描**（读一切 + 大文件 IO + 正则噪音的整套论证不在本卡）。
+- 不做 HTTP transport（`MCP-SERVER.md` §2 已定）。
 - **不强制依赖 e2b SDK**：可选装（`pip install e2b`），装了 + 配了 API 才真的连通；
   没装就如实拒绝 —— "没装 SDK"不是"沙箱坏了"，文案分得清。
 - 不动 CubeTemplateCenter 的模板市场（那是 CubeSandbox 的产品面）。

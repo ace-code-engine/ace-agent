@@ -16815,7 +16815,26 @@ if _want("89"):
           == "api.example.com",
           getattr(_FakeSb89.created[-1], "last", {}))
 
-    # —— MCP 面：两条服务面工具（不进 tools/registry.py —— 那里是模型常驻面）——
+    # —— v2：内容级（`deep`）—— 只读"名字已命中凭据"的文件，高精度规则，宁可漏不可误报 ——
+    (_root89 / ".env").write_text("SECRET_KEY=sk-1a2b3c4d5e6f7a8b9c0d\n", encoding="utf-8")
+    (_root89 / "example.env").write_text("SECRET_KEY=your_secret_here\n", encoding="utf-8")
+    (_root89 / ".env.big").write_text("x" * 100_000, encoding="utf-8")
+    _r89d = _ss89.scan_dir(str(_root89), read_content=True)
+    _deep89 = [f for f in _r89d["findings"] if f["category"] == "content_secret"]
+    check("[89] ★deep：真值被内容级抓到（.env 里的 sk-…，带行号）",
+          any(f["path"].endswith(".env") and f.get("line") == 1 for f in _deep89),
+          str(_deep89)[:300])
+    check("[89] ★deep：占位符不误报（your_secret_here —— 样例不是泄露）",
+          not any("example.env" in f["path"] for f in _deep89), str(_deep89)[:300])
+    check("[89] ★deep：大文件跳过且**如实说**（skipped，不是假装查过）",
+          any(f["category"] == "content_skipped" and f["path"].endswith(".env.big")
+              for f in _r89d["findings"]), str(_r89d["findings"])[:300])
+    check("[89] ★deep 报告自带**内容级**范围声明（只读名字已命中的文件 + 上限）",
+          "内容级" in str(_r89d.get("scope") or ""), str(_r89d)[:300])
+    _r89e = _ss89.scan_dir(str(_root89))
+    check("[89] ★默认仍是路径级（deep 不默认开 —— 读内容是显式升级，content_checked=0）",
+          _r89e.get("content_checked") == 0, str(_r89e)[:200])
+
     _sec_tools89 = {t["name"]: t for t in ai_code._mcp_security_tools()}
     check("[89] ★MCP 工具面多出两条安全工具（ace_security_scan / ace_sandbox_exec）",
           set(_sec_tools89) == {"ace_security_scan", "ace_sandbox_exec"}, sorted(_sec_tools89))
@@ -16836,6 +16855,10 @@ if _want("89"):
     check("[89] ★tools/call 路由到沙箱：本机未部署 → isError + Tier 0 拒绝",
           _r89d.get("isError") is True and "Tier 0" in _r89d["content"][0]["text"],
           str(_r89d)[:300])
+    _r89f = ai_code._mcp_security_call("ace_security_scan",
+                                       {"path": str(_root89), "deep": True}, _cli89)
+    check("[89] ★MCP 路由带 deep=True：结果里有 content_secret 那一档",
+          "content_secret" in _r89f["content"][0]["text"], str(_r89f)[:300])
     check("[89] ★不是安全工具的名字 → 返回 None（交给注册表白名单路由，不抢注册表的活）",
           ai_code._mcp_security_call("file_read", {}, _cli89) is None, "")
 

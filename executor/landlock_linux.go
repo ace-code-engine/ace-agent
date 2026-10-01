@@ -27,8 +27,21 @@ func landlockAvailable() bool {
 			_landlockOK = false
 			return
 		}
-		syscall.Close(int(fd))
-		_landlockOK = true
+		defer syscall.Close(int(fd))
+		// 也试 add_rule（用 /tmp 当 parent）：create_ruleset 成功不代表 add_rule 也成功。
+		// restrict_self 不可逆，这里不做，靠真实应用路径去验证。
+		wd, err := os.Open(os.TempDir())
+		if err != nil {
+			_landlockOK = false
+			return
+		}
+		defer wd.Close()
+		var rule landlockPathBeneathAttr
+		rule.allowedAccess = landlockWriteRights
+		rule.parentFd = int32(wd.Fd())
+		_, _, errno = syscall.Syscall6(landlockAddRule,
+			fd, landlockRulePathBeneath, uintptr(unsafe.Pointer(&rule)), 0, 0, 0)
+		_landlockOK = errno == 0
 	})
 	return _landlockOK
 }
@@ -36,6 +49,11 @@ func landlockAvailable() bool {
 // applyLandlockWriteIsolation 让**调用进程自己**从此只能在工作区内写。必须在子进程里调
 // （restrict_self 只作用于调用者），所以它只能由 re-exec 那条路进来。
 func applyLandlockWriteIsolation(workspace string) error {
+	// landlock_restrict_self 要求 NO_NEW_PRIVS（否则 EPERM）。WSL2 内核宽松放过了，
+	// ubuntu runner 严格 → 这里显式设上（幂等，re-exec 路径里 seccomp 已设过也没关系）。
+	if _, _, errno := syscall.Syscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
+		return fmt.Errorf("prctl(NO_NEW_PRIVS): %v", errno)
+	}
 	var attr landlockRulesetAttr
 	attr.handledAccessFS = landlockWriteRights
 	fd, _, errno := syscall.Syscall(landlockCreateRuleset,

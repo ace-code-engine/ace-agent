@@ -33,10 +33,11 @@ func TestProcessGroupKill(t *testing.T) {
 	cmd := exec.Command("sh", "-c",
 		"echo $$ > '"+cpidPath+"'; sleep 60 & echo $! > '"+gpidPath+"'; wait")
 	cmd.Dir = dir
-	conf := processConfinement{}
-	if err := conf.prepare(cmd); err != nil {
-		t.Fatal(err)
-	}
+	// 只测进程组整树回收：直接 setProcessGroup，不走 processConfinement.prepare 里的
+	// landlock/seccomp re-exec（那条 re-exec 与 sh -c 内联命令的 pid 文件写入有交互，
+	// 会让本测试的前提——孙进程 pid 文件落盘——在 5s 内不成立）。re-exec 本身另有
+	// TestLandlockWriteIsolation / TestSeccompNetworkDenial 覆盖。
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestProcessGroupKill(t *testing.T) {
 		t.Fatalf("测试前提不成立：孙进程没活着（%v）", err)
 	}
 
-	method, err := conf.killTree(cmd)
+	method, err := killProcessTree(cmd)
 	if err != nil {
 		t.Fatalf("killTree 失败：%v", err)
 	}

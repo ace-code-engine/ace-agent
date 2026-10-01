@@ -83,14 +83,15 @@ git stash pop
 
 ### 3.0 引擎侧同时做的事（与前端配套，别漏看）
 
-- **命令表 50 → 59**：新增 `/compact` `/context` `/plan` `/btw` `/rename`
+- **命令表 59 → 61**：新增 `/compact` `/context` `/plan` `/btw` `/rename`
   `/recap` `/export` `/cd` `/agents`。三张表（`COMMANDS` / `COMMAND_HANDLERS` /
   `COMMAND_GROUPS`）必须同步 —— 有自检会报"只在 COMMANDS 不在 HANDLERS"和"未分组"。
-- **命令表 59 → 60**（WP-6）：新增 `/preset`（`group_model`）。它是 agent 预设的**入口** ——
-  此前 `AgentPresetRegistry.switch()` / `emit_switch()` 落了地却没有调用方，预设只能写死在
-  启动配置里、运行中换不了，`agent_preset` 事件也就永远发不出去。
-  命令走 `AgentCLI` 的共用分发表，所以**四个外壳都能用**；前端侧要把事件显示出来
-  （"现在是谁在跑、比全局严在哪"）仍是未做的一段，见 `docs/ROADMAP.md`。
+- 命令表 **59 → 61**（WP-6 + L4）：新增 `/preset`（`group_model`）与 `/escalation`（`group_security`）。
+  `/preset` 是 agent 预设的**入口** —— 此前 `AgentPresetRegistry.switch()` / `emit_switch()`
+  落了地却没有调用方，预设只能写死在启动配置里；`/escalation` 是 L4"阻塞式问人"的**入口** ——
+  此前 `answer_escalation()` 全树无调用方，"号称阻塞，其实谁也没被阻塞"。
+  两条命令都走 `AgentCLI` 的共用分发表，所以**四个外壳都能用**；
+  前端侧要做的只剩把 `agent_preset` 事件显示出来（底栏段已加在**引擎侧**，自动可见）。
 - **协议新增方法**：`home.request` `tasks.request` `config.request` `sessions.request`
   `choice.answer`（见 `core/ace_serve.py` 与 `ai_code._run_serve` 的注册处）。
 - **配色口径改了**：`frontend/src/theme/tokens.ts` 现在返回 **chalk 色名**（`yellow` /

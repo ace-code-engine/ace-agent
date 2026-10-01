@@ -88,6 +88,7 @@
 | [`design/WP-0-TAIL-TECH.md`](design/WP-0-TAIL-TECH.md) | **WP-0/ACC 尾活技术难点与解法**：切片 C 终端权限提示统一 + benchmarks 校验器接法 |
 | [`design/WP-4-SNAPSHOT-SEMANTICS.md`](design/WP-4-SNAPSHOT-SEMANTICS.md) | **WP-4 前置（C5）**：快照语义统一 —— worktree 与既有回滚不能是两套 |
 | [`design/WP-6-AGENT-PRESETS.md`](design/WP-6-AGENT-PRESETS.md) | **WP-6 立项卡（C4）**：per-agent 权限预设 + **S-1 只许更严**（改权限层，高风险） |
+| [`design/WP-9-SANDBOX-BACKEND.md`](design/WP-9-SANDBOX-BACKEND.md) | **WP-9 立项卡（C6）**：三层沙箱 + **SEC-020**；S-1 边界（外包执行边界可以，外包决定权不行） |
 | [`design/CONFIRM-BOUNDARY.md`](design/CONFIRM-BOUNDARY.md) | 确认与只读边界加固（H-27~H-31） |
 | [`design/SAFETY-HARDENING.md`](design/SAFETY-HARDENING.md) | 安全边界加固（H-01~H-22 审计证据 / 工作包 / 验收） |
 | [`design/RGTC-LANDING.md`](design/RGTC-LANDING.md) | 信任锚外移 / 链式台账 / 来源归属 / 可逆性分类器 / 授权令 |

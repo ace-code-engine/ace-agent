@@ -209,7 +209,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | | **平面 1 · 安全与权限**（S-1 的落点） | | | |
 | M-01 | 权限裁定 | `execution_layer.py` `_stage_permission` · `core/ace_execpolicy.py` 439 · `core/ace_mandate.py` 152 | Py | 已有（**护城河**） |
 | M-02 | 路径 / 敏感判定 | `core/sensitive.py` 135 · `canonical.py` 41 · `targets.py` 40 · `ace_isolation.py` 96 | Py → **Py + Rust(R3)** | 已有 → **WP-10** |
-| M-03 | 出网闸门 | `core/ace_net.py` 493 · `tools/web_tools.py` 582 的 egress 分支 | Py | 已有 → **WP-8** 域名级放行 |
+| M-03 | 出网闸门 | `core/ace_net.py` 493 · `tools/web_tools.py` 582 的 egress 分支 | Py | ✅ 已有（**域名级** allowlist 已落地）→ **WP-8** 只剩"非 URL 通道" |
 | M-04 | 审计台账 | HMAC 链式 + `core/ace_claims.py` 41 · `ace_taint.py` 109 | Py | 已有（强于参照系） |
 | M-05 | 沙箱边界 | `tools/docker_sandbox.py` 380 · `core/ace_executor.py` 540 · `executor/`(Go) | Py + **Go** → **+ CubeSandbox** | 已有 → **WP-9** |
 | | **平面 2 · 执行与工具**（51 个 `ToolSpec`） | | | |
@@ -285,7 +285,7 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 | **G-09** | **工作区/进程模型** | 单根；无 worktree；无进程级状态 | vibe-kanban 四层 `Task → Workspace → Session → ExecutionProcess`（`models/execution_process.rs:53-78`）；orca `ipc/filesystem-auth.ts:73-94` 的 `allowedRoots + registered worktrees` | **高** |
 | **G-10** | **会话树 / 分支** | 有 resume，**无树/分支** | pi `/tree`(同文件内移动) `/fork`(从早期消息建新会话) `/clone`(复制当前分支) 三态 + **离开分支时摘要化并附着到进入的分支** | **高** |
 | **G-11** | **agent 预设 / 自定义模式** | **0**（`CONFIRM_TOOLS` 是全局常量） | kilocode `.kilo/agent/*.md` frontmatter + per-agent `permission:{read\|edit\|webfetch\|bash:ask}`；opencode `Agent.Info`；cline `mode.ts` | 中 |
-| **G-12** | **出网按域名显式放行** | 有 egress gate + 白名单，无**域名级** allowlist | CubeSandbox CubeVS 的 eBPF map `dns_allow` / `dns_query_track`（全部出网强制经 L7 MITM） | 中 |
+| **G-12** | **出网按域名显式放行** | ✅ **已有** —— `egress_allowlist` + `DEFAULT_EGRESS_ALLOWLIST`（`core/ace_net.py` 的 `host_in_allowlist` / `egress_reject_reason`），配置→执行层→执行器**全链路接通**（`test_all` 6 处断言）。**残余缺口**：闸门**只管 URL** —— UNC/SMB 走 H-29 的路径层判据，`terminal_exec` 等非 URL 通道**不在闸门内** | CubeSandbox CubeVS 的 eBPF map `dns_allow` / `dns_query_track`（**连 DNS 都强制过** L7 MITM） | 中 |
 
 ### 3.3 三个已定位的**根因**（不是缺功能，是现有实现挡路）
 
@@ -565,7 +565,8 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 > **进度（2026-09-30）**：批次 **-1 / 0 / 1 / 2 / 3 / 5 已关闭**；批次 **4 部分**（WP-5 ✅ · `HL-04` ✅ ·
 > **WP-4 只第一切片**：四层模型 + 回滚纪律 + `allowedRoots`；持久化 / `/workspace` / `authorize` 接入 / 快照基运行时切换未做）。
 > 三层脊柱 **13/13 落地**（实施记录见 `docs/design/THREE-LAYERS.md` §9）。工具 **42 → 51**；`test_all` **2438 → 2672**。
-> **未开始**：批次 6（WP-8 / WP-9）· 横向 **WP-10**（前提只剩 R-9）· WP-4 后续切片 · WP-6 的 `execution_layer` 接线。
+> **未开始**：**WP-9** 沙箱后端（C6 前置未做）· 横向 **WP-10** · WP-4 后续切片 · WP-6 的 `execution_layer` 接线。
+> **部分**：**WP-8** —— 域名级出网 allowlist（G-12）**早已落地并接线**，只剩"闸门只管 URL、非 URL 通道不在内"这一半；快照 reflink 归 **WP-10 / cubecow 口径**。
 | **横向** | **WP-10** Rust 核心化 | 安全 ← 速度（把安全成本压到接近零） | 前提**只剩 R-9** —— `engine/target/` 那条是 **R-6（虚警）**，且 `ci.yml:66` 的 `engine` job（`dtolnay/rust-toolchain` + offline build + `--selftest` + parity）**已存在** | §2.5 矩阵逐项 + **超范围路径必须被 Rust 自己拦住** |
 | **前置/并行** | **ACC**（A0/A1/A2 已在批次 -1；A3 接 `DEVELOPMENT.md` 的"完成"定义） | — | — | **WP-9 依赖它**（§7 依据一最后一条） |
 

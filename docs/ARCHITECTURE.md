@@ -217,7 +217,8 @@ ace-agent/
 │   │   ├── THREE-LAYERS.md         #   三层脊柱设计卡（DL 驱动 / RL 响应 / HL 自愈；两个共用账本 / 五级升级阶梯 / 拒绝六分类 / 验收 A1-A8）
 │   │   ├── WP-0-TAIL-TECH.md        #   WP-0/ACC 尾活技术难点与解法（切片 C 终端权限提示统一 + benchmarks 校验器接法）
 │   │   ├── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
-│   │   └── WP-6-AGENT-PRESETS.md    #   WP-6 立项卡（C4 要求单独立卡）：per-agent 权限预设 + **S-1 只许更严**
+│   │   ├── WP-6-AGENT-PRESETS.md    #   WP-6 立项卡（C4 要求单独立卡）：per-agent 权限预设 + **S-1 只许更严**
+│   │   └── WP-9-SANDBOX-BACKEND.md  #   WP-9 立项卡（C6：**SEC-020**）：三层沙箱 + S-1 边界（可外包执行边界，不可外包决定权）
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)

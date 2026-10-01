@@ -758,7 +758,7 @@
   "home_help": "コマンドとキー",
   "home_help_hint": "/help または F1",
   "home_effort": "思考の強度",
-  "home_effort_hint": "auto → 低 → 中 → 高（Alt+T で循環）",
+  "home_effort_hint": "auto → 低 → 中 → 高 → 最高（Alt+T で循環）",
   "home_net": "ネット検索して回答",
   "home_net_hint": "先に検索し、出典を並べる（Alt+W 切替）",
   "home_lang": "回答の言語",

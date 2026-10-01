@@ -242,8 +242,16 @@ def render_home(sections: Sequence[HomeSection],
             else:
                 mark = st("dim", _io.glyph("·"))
             text = f"  {mark} {pad_width(label, pad)}"
+            # 标签超长（如 resume 的「继续上次：ace · 今天 00:24 · 0 轮」> 20 列封顶）时
+            # pad_width 原样返回、不留空，后面的值/提示会顶上来糊成一串。保底一个空格。
+            if display_width(label) >= pad and (item.value or item.hint_key):
+                text += " "
             if item.value:
                 text += st("cyan", pad_width(item.value, vpad))
+                # 值比列宽还长（如模型名 deepseek-v4-flash 18 列 > 12 列封顶）时
+                # pad_width 原样返回、不留空，提示会直接顶上来糊成一串。保底一个空格。
+                if item.hint_key and display_width(item.value) >= vpad:
+                    text += " "
             if item.hint_key:
                 text += st("dim", translate(item.hint_key))
             rows.append(text.rstrip())

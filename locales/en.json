@@ -758,7 +758,7 @@
   "home_help": "Commands and keys",
   "home_help_hint": "/help or F1",
   "home_effort": "Thinking effort",
-  "home_effort_hint": "auto → low → medium → high (Alt+T cycles)",
+  "home_effort_hint": "auto → low → medium → high → max (Alt+T cycles)",
   "home_net": "Web-aware answers",
   "home_net_hint": "search first, list sources (Alt+W toggles)",
   "home_lang": "Reply language",

@@ -753,7 +753,7 @@
   "home_help": "命令与键位",
   "home_help_hint": "/help 或 F1",
   "home_effort": "思考强度",
-  "home_effort_hint": "auto → 低 → 中 → 高（Alt+T 循环）",
+  "home_effort_hint": "auto → 低 → 中 → 高 → 最高（Alt+T 循环）",
   "home_net": "联网思考",
   "home_net_hint": "回答前先搜网、列来源（Alt+W 切换）",
   "home_lang": "回答语言",

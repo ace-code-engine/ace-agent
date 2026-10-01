@@ -1028,6 +1028,12 @@ class ModelClient:
         它**不参与**上下文预算 —— 那件事仍由 `estimate_tokens` 的估算做（它宁可高估）。
         """
         self._last_provider_usage = dict(usage)
+        # HL-05：模型层是 token 用量的**唯一**来源，喂给执行层的三级预算账本。
+        # 拿不到就不喂（缺 key 记 0），不拿估算冒充实测 —— 同 ACC-01 的口径。
+        _el = getattr(self, "el", None)
+        if _el is not None and hasattr(_el, "note_tokens"):
+            _el.note_tokens(int(usage.get("prompt_tokens") or 0),
+                            int(usage.get("completion_tokens") or 0))
 
     def _stream_openai(self, system: str, messages: List[Dict],
                        on_delta: Optional[Callable] = None,
@@ -6618,6 +6624,13 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
                 # 否则快照与会话日志会停在不一致的位置）
                 print(c("yellow", "\n" + t("interrupted")))
                 return
+            # HL-05：会话级预算耗尽 ⇒ 执行层已判定"这个会话该停"，在**轮边界**跳出
+            # （执行层此时已把 end_reason 与 L4 物料写好；这里只负责不再开新一轮）。
+            if getattr(self.el, "session_ended", False):
+                print(c("yellow", "\n" + (getattr(self.el, "end_reason", "")
+                                          or t("interrupted"))))
+                return
+            self.el.note_round()
             _blocks = [im["block"] for im in self._pending_images]
             _user_msg = ace_model.compose_user_message(
                 next_user, _blocks, self.client.api_format) if _blocks else \

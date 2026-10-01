@@ -290,7 +290,7 @@ ACE 的工具执行统一经 `tools/base.py:134` 的 `execute()` 分发，权限
 - **防住**：与 (c) 类似。
 - **防不住**：宿主 Windows 文件系统默认通过 `/mnt/c` 可见（除非 bwrap 不绑定，那就等于 (c) 但更麻烦）；drvfs 跨界 I/O 性能极差；宿主 Windows 命令仍无法执行。
 - **不采纳的理由**：在 Windows 宿主上这是两层间接（WSL2 + bwrap），得到的隔离不比 (c) 强，而依赖更多（WSL2 + 发行版 + bubblewrap + unprivileged userns 可用性需逐机验证），且 macOS 完全没有对应物。
-- **换成 (d) 的代价**：多一层运行时与一套路径映射逻辑，跨平台一致性反而比 (c) 差。若未来要做 Linux 原生强隔离，正确的方向是 seccomp + landlock（参照 `_reference/codex/codex-rs/linux-sandbox/`），而不是 bwrap 套在 WSL2 里。
+- **换成 (d) 的代价**：多一层运行时与一套路径映射逻辑，跨平台一致性反而比 (c) 差。若未来要做 Linux 原生强隔离，正确的方向是 seccomp + landlock（参照 `_reference/codex/codex-rs/linux-sandbox/`），而不是 bwrap 套在 WSL2 里。（2026-10-01 更新：**landlock 写隔离已落地**，见 `executor/landlock*.go`——工作区内可写、区外只读；seccomp 仍未做。）
 
 #### (e) 纯进程级限制 — 采纳为 Tier-0 基线，但必须诚实标注它不是隔离
 

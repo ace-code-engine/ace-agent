@@ -12,7 +12,7 @@ flowchart LR
     GW["gateway_v2/<br/>L1 意图 · L2 技能 · L4 守门 · L5 飞轮"]
     EL["execution_layer.py<br/>解析 → 权限 → 闸门 → 快照 → 执行"]
     T["tools/ 工具集<br/>file / code / network / db / parse / browser"]
-    EX["executor/ (Go)<br/>Job Object 边界"]
+    EX["executor/ (Go)<br/>Job Object (Win) · Landlock 写隔离 (Linux) · 进程组整树回收"]
     ENG["core/ace_engine.py → engine/ (Rust)<br/>只读元处理（可选 · 不进发布包）"]
     U --> CLI --> LOOP --> EL --> T
     LOOP -.-> GW
@@ -133,7 +133,7 @@ ace-agent/
 │   ├── ace_prefix.py           #   前缀稳定性与工具面伸缩（WP-3）：SHA-256 前缀指纹 / 变化强制归因 / 恒等快路径 / ToolSurfaceBudget
 │   ├── ace_ledgers.py          #   两个账本（DL-03 拒绝账本 / HL-01 失败账本）：同键 (goal_id,fingerprint,class) 不同命 + 五级阶梯（HL-02）
 │   └── version.py              #   版本单源 __version__（徽章 / 横幅 / doctor / CHANGELOG 对齐）
-├── executor/                   # Go 执行器：Job Object 沙箱（官方产物 ace --install-executor；或自编译）
+├── executor/                   # Go 执行器：Windows Job Object / Linux Landlock 写隔离 / 三平台进程组整树回收（官方产物 ace --install-executor；或自编译）
 ├── engine/                     # Rust 内置计算引擎：分词/指纹/召回等**无裁决权**的纯计算 sidecar（NDJSON，同 ADR-002；不碰文件系统、不判权限）
 
 ├── tools/                      # 工具执行器包（清单与权限以 tools/registry.py 为准）

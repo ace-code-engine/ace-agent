@@ -25,7 +25,7 @@
 
 ## 3. 非目标
 
-- ❌ 给 Linux/macOS 增加新的原生隔离档（Landlock/seccomp/bwrap 等）——那是另一张卡。
+- ⚠️ 本条已部分过时（2026-10-01 更新）：**Landlock 写隔离已落地**（Linux 执行器 Tier-0 自动叠加，见 `executor/landlock*.go`，WSL2 真验）。**仍属非目标**：seccomp / bwrap / macOS Seatbelt —— 那才是另一张卡。
 - ❌ 改 NDJSON 协议、执行器运行逻辑、docker 档。
 - ❌ 引入第三方 CI action（沿用仓库只用官方 action 的习惯；发布用 runner 自带的 `gh` CLI）。
 
@@ -137,6 +137,6 @@
 
 ## 9. 不在本卡范围
 
-- Linux/macOS 原生隔离档（Landlock 等）——需另立卡评估。
+- seccomp / bwrap / macOS Seatbelt —— 仍另立卡评估（Landlock 写隔离已在 2026-10-01 落地，不在此列）。
 - 执行器/协议任何行为改动。
 - PyPI/wheel 打包（见 `docs/PACKAGING.md`，与本卡独立）。

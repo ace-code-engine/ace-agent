@@ -9,7 +9,7 @@
 > 本文管**能力面**的战略补齐（多为"参照系有、我们完全没有"）。两者不重叠。
 > 状态：**已开工** —— 截至 2026-10-01，批次 **-1 / 0 / 1 / 2 / 3 / 4 / 5 已关闭**，只剩批次 6（WP-8 后半 · WP-9）；
 > 三层脊柱 `DL-01~04` / `RL-01~04` / `HL-01~05` **13 项全部落地**。每个 WP 开工时另立卡进 `docs/design/`
-> （已立：`WP-0-TAIL-TECH.md` · `WP-4-SNAPSHOT-SEMANTICS.md`（C5）· `WP-6-AGENT-PRESETS.md`（C4）· `WP-9-SANDBOX-BACKEND.md`（C6））。
+> （已立：`WP-0-TAIL-TECH.md` · `WP-4-SNAPSHOT-SEMANTICS.md`（C5）· `WP-6-AGENT-PRESETS.md`（C4）· `WP-9-SANDBOX-BACKEND.md`（C6）· `ACE-MCP-SEC-SUBAGENT.md`（WP-11 · SEC-022））。
 
 ---
 
@@ -508,6 +508,17 @@ Rust 可以承担核心计算，但**不得绕过权限层**：
 - **风险**：**高**。这是把 Rust 从"可选"变成"必需"的一步，会同时改动**构建 / CI / 发布**三条链路。
 - **前提**：**只剩 R-9**（工具链与 CI）—— `engine/target/` 那条已核实为 **R-6 = 虚警**（`.gitignore:43`，0 个跟踪文件），
   且 `ci.yml:66` 的 `engine` job（`dtolnay/rust-toolchain` + offline build + `--selftest` + parity）**已存在**。
+
+### WP-11 · MCP 安全子层（ACE-as-a-service）
+
+- **定位**：安全纵深的新一档 —— 把 ACE 的**裁决点 + 安全体检**打包成一个完整 MCP 服务，
+  主 agent（任意 MCP host）挂上它当**子安全层**做安全测试；两者**共用 CubeSandbox 虚拟化底座**。
+- **范围**：`ace_security_scan`（路径级静态扫描，判据全部复用 `core/sensitive.py` 等既有名单）+
+  `ace_sandbox_exec`（不可信代码进 CubeSandbox；**Tier-0 铁律**：不可达 → 拒绝，绝不退回本地）。
+- **落点**：`core/ace_secscan.py` · `core/ace_cubesandbox.py` · `ai_code.py::_run_mcp` 的工具面拼接 ·
+  `e2e/mcp_probe.py` 新用例。协议层**复用**既有 `--mcp`（`MCP-SERVER.md` M1–M7），不重写。
+- **卡**：`docs/design/ACE-MCP-SEC-SUBAGENT.md`（**SEC-022** 首次登记：防止"扫过了"被当成"安全了"）。
+- **真机冒烟（人做）**：部署 CubeSandbox → `ACE_SANDBOX_API` → 主 agent 调 `ace_sandbox_exec`。
 
 ---
 

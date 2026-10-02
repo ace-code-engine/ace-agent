@@ -37,9 +37,10 @@ venv/
 executor/ace-executor
 executor/ace-executor.exe
 executor/executor.exe
-# 交叉编译出来的带后缀版本（release-executor.yml 的产物名就是 ace-executor-<target>）：
-# 3.75 MB 的 Linux 二进制躺在这里，漏一条规则就会被 `git add -A` 带进仓库
+# 交叉编译出来的带后缀版本（release-executor.yml 的产物名就是 hooh-executor-<target>；
+# 旧名 ace-executor-* 保留 —— 改名前构建出来的本地文件还在盘上）
 executor/ace-executor-*
+executor/hooh-executor-*
 
 # Rust 内置引擎（engine/）构建产物。注意**必须与 core/guardian.py 的
 # EXCLUDE_DIRS 成对**：漏了这边只是脏树，漏了那边是每次写快照都多拷 30MB。

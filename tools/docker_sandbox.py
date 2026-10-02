@@ -66,7 +66,9 @@ DEFAULT_IMAGE = "ace-sandbox:latest"
 
 # 官方预编译沙箱镜像。本地那份（DEFAULT_IMAGE）缺失时拉它、再打上本地名 ——
 # 这样老用户的本地 build 仍然优先，新用户不必自己构建。
-OFFICIAL_IMAGE = "ghcr.io/ace-code-engine/ace-sandbox:latest"
+# 2026-10-03 随品牌改名：ace-sandbox -> hooh-sandbox（镜像**不能改名**，只能推新的）。
+# 旧包 ghcr.io/ace-code-engine/ace-sandbox 仍在，但只有历史 tag —— 不要回指它。
+OFFICIAL_IMAGE = "ghcr.io/ace-code-engine/hooh-sandbox:latest"
 
 DEFAULT_TIMEOUT = 30
 DEFAULT_MEMORY = "512m"
@@ -284,9 +286,11 @@ class DockerSandbox:
             打名字而不是改 self.image，是为了让状态在 `docker images` 里看得见、
             且后续运行不再需要网络。
 
-        注意 OFFICIAL_IMAGE 目前是**拉不到的**（组织包策略不允许它公开，见模块
-        docstring）—— 所以默认关着；这个分支主要服务于"镜像放在自己的 registry 里"
-        的部署。
+        注意 OFFICIAL_IMAGE 目前**匿名拉不到**（2026-10-03 实测：镜像已发布到
+        ghcr.io/ace-code-engine/hooh-sandbox，但包是 private，`docker pull` 返回
+        unauthorized —— 组织侧还没能把容器包设为公开）—— 所以默认关着；
+        这个分支主要服务于"镜像放在自己的 registry 里"的部署，或已 `docker login`
+        的机器。
         """
         target = self.image
         ref = target if self.is_registry_ref(target) else OFFICIAL_IMAGE

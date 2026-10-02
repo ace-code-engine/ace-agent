@@ -207,6 +207,20 @@ MCP 身份中断、发布物改名兼容 —— 属于「带迁移文档的破�
   所以 `_EXECUTOR_ASSETS` 每个平台存两个名字、逐个试；**二进制本身仍叫 `ace-executor`**
   （自校验与 `executor/go.mod` 的 module 名依赖它）——换的只是下载地址里的文件名。
   **历史 Release 的标题与发布说明**按纪律不动：那是当时的事实。
+- ✅ **发行物改名落地后的实测**（2026-10-03）：`release-packs` 矩阵三平台全部构建成功，
+  且都**通过了冻结版门禁**（initialize / `tools/list` 全量返回 / `tools/call` 真读文件 /
+  stdout 纯净性）。产物挂在 v1.0.0：`hooh-mcp-1.0.0-{windows-amd64,linux-amd64,macos-arm64}.zip`，
+  另有两个改名后的源码包 `hooh-mcp-server-1.0.0.zip` / `hooh-sandbox-bundle-1.0.0.zip`。
+  **已知缺口**：macOS 只有 arm64（macos-14 runner 是 Apple Silicon，PyInstaller 不跨编译，
+  没有 Intel runner 可用）；`executor` 侧仍有 darwin/amd64。
+- ⚠️ **容器镜像 `hooh-sandbox` 已发布但匿名拉不到**：镜像推上去了
+  （`ghcr.io/ace-code-engine/hooh-sandbox`，3 个 tag），包状态是 **private**，
+  实测**登出后 `docker pull` 返回 `unauthorized`**。组织设置里那个 Packages 开关
+  **不控制这件事** —— 连全新包用 REST API 改 `visibility=public` 也是 404。
+  代码侧的 `OFFICIAL_IMAGE` 已指向新名，但 `ACE_SANDBOX_PULL` 默认仍是关的，
+  所以不会有人撞上"默认去拉但拉不到"。本地镜像名 `ace-sandbox:latest` 按纪律不动
+  （那是用户盘上的名字）。**要真正提供公开镜像，需要 GitHub 侧把包设为 public**；
+  在那之前，容器镜像这条路只对已 `docker login` 的机器或自建 registry 有效。
 
 
 ### 不动的

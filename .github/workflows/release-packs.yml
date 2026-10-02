@@ -114,6 +114,12 @@ jobs:
           - os: macos-14
             asset: macos-arm64
             exe: dist/hooh-mcp/hooh-mcp
+          # Intel Mac. NOT macos-13: that image was retired by GitHub
+          # (changelog 2025-09-19). PyInstaller cannot cross-compile, so the x64
+          # artifact has to be produced on an x64 runner.
+          - os: macos-15-intel
+            asset: macos-amd64
+            exe: dist/hooh-mcp/hooh-mcp
     steps:
       - uses: actions/checkout@v4
 

@@ -80,14 +80,15 @@ jobs:
 
   native-smoke:
     # 原生验证 --version 在三个 OS 家族都能编译并运行；macos-14 为 arm64 runner，覆盖 darwin/arm64，
-    # macos-13 为 Intel runner，补上此前唯一盲区 darwin/amd64（交叉产物从没被原生跑过）。
+    # macos-15-intel 为 Intel runner，补上此前唯一盲区 darwin/amd64（交叉产物从没被原生跑过）。
+    # 原先是 macos-13 —— 那个镜像已被 GitHub 弃用（changelog 2025-09-19），换新标签。
     name: Native smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14, macos-13]
+        os: [windows-latest, ubuntu-latest, macos-14, macos-15-intel]
     defaults:
       run:
         working-directory: executor

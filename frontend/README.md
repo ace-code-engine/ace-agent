@@ -1,6 +1,6 @@
-# ACE 前端（TypeScript + Ink）
+# HooH 前端（TypeScript + Ink）
 
-ACE 的主前端。**独立进程**，通过 `ace --serve` 的双向 NDJSON 协议跟 Python 引擎对话。
+HooH 的主前端。**独立进程**，通过 `ace --serve` 的双向 NDJSON 协议跟 Python 引擎对话。
 
 与 `ui/`（Python 手写 ANSI 那套）**并存**：那边保留为回退路径（没装 Node / 无头 / 终端太小），
 这边是主路径。两者共用同一份 i18n 字典与同一套语义 token，不各写一份。

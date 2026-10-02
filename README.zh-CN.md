@@ -21,11 +21,12 @@
 
 ---
 
-ACE 是面向编码代理的**执行层**。每一次工具调用 —— 文件、命令、出网、MCP —— 都要经过同一个裁决点：
+HooH 是面向编码代理的**执行层**。每一次工具调用 —— 文件、命令、出网、MCP —— 都要经过同一个裁决点：
 权限闸门、路径与敏感目标边界、写前快照、HMAC 链式审计。安全核心为**纯标准库**；提示词失效时这道
 边界仍然成立（越狱、注入内容、被篡改的工具输出都改变不了它）。
 
-> **不是** ACE 编辑器 / ACE 框架 / ACE-Step / Adobe-ACE —— [这个 "ACE" 是哪一个](docs/WHY.md)。
+> **互（HooH）** —— 模型提出、代码裁决；先写快照，`/undo` 才谈得上意义。
+> 名字是致意，不是素材占用，见下方「名称与致意」。
 
 ## 和别的 Agent 差在哪
 
@@ -67,11 +68,11 @@ Windows 没装 Python：去 [Releases](https://github.com/ace-code-engine/hooh-a
 | 想找什么 | 去这里 |
 |---|---|
 | 5 分钟上手 · 十个经典陷阱 | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) |
-| ACE 能挡什么 / 挡不住什么 | [docs/security/SECURITY-FAQ.md](docs/security/SECURITY-FAQ.md) |
+| HooH 能挡什么 / 挡不住什么 | [docs/security/SECURITY-FAQ.md](docs/security/SECURITY-FAQ.md) |
 | 分层架构 · 完整目录树 · ADR | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 全部命令与参数 | [docs/COMMANDS.md](docs/COMMANDS.md) |
 | 全部配置项 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
-| 为什么是 ACE · 对比提示词护栏 | [docs/WHY.md](docs/WHY.md) |
+| 为什么是 HooH · 对比提示词护栏 | [docs/WHY.md](docs/WHY.md) |
 | 能力清单 | [docs/CAPABILITIES.md](docs/CAPABILITIES.md) |
 | 测试 · CI · 承诺守卫 | [docs/TESTING.md](docs/TESTING.md) |
 | 工程债 · 交接 | [docs/HANDOFF.md](docs/HANDOFF.md) |

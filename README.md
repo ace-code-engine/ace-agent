@@ -21,12 +21,14 @@
 
 ---
 
-ACE is an **execution layer for coding agents**. Every tool call — files, commands, network, MCP —
+HooH is an **execution layer for coding agents**. Every tool call — files, commands, network, MCP —
 passes through a single decision point: a permission gate, a path & sensitive-target boundary, a
 write-ahead snapshot, and an HMAC-chained audit record. The safety core is **pure standard library**;
 the boundary holds when the prompt does not (jailbreak, injected content, tampered tool output).
 
-> **Not** the ACE editor / ACE framework / ACE-Step / Adobe-ACE — [which "ACE" this is](docs/WHY.md).
+> **互 (HooH)** — *mutual*: the model proposes, code decides. A snapshot is written before every
+> write, so `/undo` always has something to undo. The name is a tribute; the full rationale and the
+> naming history are in [docs/WHY.md](docs/WHY.md) and [docs/NAMING.md](docs/NAMING.md).
 
 ## What makes it different
 
@@ -68,11 +70,11 @@ and run `ace\ace.exe --mock`. Install & build: [docs/PACKAGING-EXE.md](docs/PACK
 | What you want | Go here |
 |---|---|
 | 5-minute start · the ten traps | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) |
-| What ACE stops / does not | [docs/security/SECURITY-FAQ.md](docs/security/SECURITY-FAQ.md) |
+| What HooH stops / does not | [docs/security/SECURITY-FAQ.md](docs/security/SECURITY-FAQ.md) |
 | Layers · directory tree · ADR | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Every command & flag | [docs/COMMANDS.md](docs/COMMANDS.md) |
 | Every config key | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
-| Why ACE · vs prompt-guard agents | [docs/WHY.md](docs/WHY.md) |
+| Why HooH · vs prompt-guard agents | [docs/WHY.md](docs/WHY.md) |
 | Capability checklist | [docs/CAPABILITIES.md](docs/CAPABILITIES.md) |
 | Testing · CI · promise guards | [docs/TESTING.md](docs/TESTING.md) |
 | Engineering debt · hand-off | [docs/HANDOFF.md](docs/HANDOFF.md) |

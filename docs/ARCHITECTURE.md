@@ -188,7 +188,7 @@ ace-agent/
 │   ├── HANDOFF-R-03.md         #  R-03（双前端客户端合并）的交接提示词：自包含、可直接粘给另一个会话
 │   ├── HANDOFF-FRONTEND.md     #  Ink 前端（frontend/ + ace --serve）的交接提示词：自包含、含「未完成/未验证」清单
 │   ├── HOME-DESIGN.md          #  主页设计：分区顺序为什么是这样、每条信息为什么在这个位置
-│   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由）
+│   ├── KEYMAP-CLAUDE-PARITY.md #  键位对照表（Claude Code ↔ HooH，逐条核实 + 不做的理由）
 │   ├── ARCHITECTURE.md         #   本文档：分层职责 + 权威目录树 + ADR 索引
 │   ├── security/               #   安全文档（模型 / FAQ / 审计）
 │   │   ├── SECURITY-MODEL.md       #   安全模型：权限/隔离/路径/网络/沙箱 + 生产部署必读
@@ -226,7 +226,7 @@ ace-agent/
 │   │   ├── WP-4-SNAPSHOT-SEMANTICS.md #  WP-4 前置：快照语义统一（C5：worktree 与既有回滚不能是两套）
 │   │   ├── WP-6-AGENT-PRESETS.md    #   WP-6 立项卡（C4 要求单独立卡）：per-agent 权限预设 + **S-1 只许更严**
 │   │   ├── WP-9-SANDBOX-BACKEND.md  #   WP-9 立项卡（C6：**SEC-020**）：三层沙箱 + S-1 边界（可外包执行边界，不可外包决定权）
-│   │   └── ACE-MCP-SEC-SUBAGENT.md  #   WP-11 立项卡（**SEC-022**）：ACE 作为 MCP 安全子层 + 共用 CubeSandbox 底座
+│   │   └── ACE-MCP-SEC-SUBAGENT.md  #   WP-11 立项卡（**SEC-022**）：HooH 作为 MCP 安全子层 + 共用 CubeSandbox 底座
 │   └── history/                #   会话纪要 / 调研 / 规范历史
 │       ├── SESSION-2026-09-06.md   #   评审会话纪要（风险清单→决策→提交→OPEN）
 │       ├── UI-CHAT-SCROLL.md       #   聊天内置滚动立项卡(引擎已实现,接线待真机)
@@ -253,7 +253,7 @@ ace-agent/
 ├── .gitattributes              # 行尾策略：*.cmd / *.bat 固定 CRLF（-text，防 cmd.exe 错位重读）
 ├── .dockerignore               # 构建上下文忽略
 ├── docker/                     # lite / standard / full 三档整体镜像 + sandbox 执行镜像 + 模型下载脚本
-├── evidence-pack/              # 公开时间线证据包：ACE 公开 commit/tag/release 的可复核时间线调研（用法与不确定项见其 README.md）
+├── evidence-pack/              # 公开时间线证据包：HooH 公开 commit/tag/release 的可复核时间线调研（用法与不确定项见其 README.md）
 └── .github/                    # 仓库协作配置
     ├── workflows/              #   ci.yml（测试/ruff/Go/bench/e2e/容器 smoke）+ release-executor.yml（预编译执行器产物）+ release-exe.yml（Windows 单目录发行包）
     ├── ISSUE_TEMPLATE/         #   bug / feature 议题模板

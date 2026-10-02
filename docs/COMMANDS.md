@@ -198,7 +198,7 @@
 - 清单非空时**底栏显示 `待办 1/3`**；全部完成时变绿
 - 清单存进会话事件日志（`todo/*`），`/resume` 或重启后按日志重放 —— 不会因为换会话丢
 
-**MCP（外部进程工具）**：在 `~/.ai_code.json` 写 `mcp_servers`（或项目内 `.ace/mcp.json`），启动时按 stdio JSON-RPC 2.0 握手并把对面的工具注册成 `mcp__<server>__<工具名>`——模型可以直接调用它们，权限/审批/审计照旧。`/mcp` 看 server 状态与工具清单（`/mcp notools` 只看状态）。**MCP server 不在 ACE 的沙箱里**：它是你配置的子进程，只写你信得过的。
+**MCP（外部进程工具）**：在 `~/.ai_code.json` 写 `mcp_servers`（或项目内 `.ace/mcp.json`），启动时按 stdio JSON-RPC 2.0 握手并把对面的工具注册成 `mcp__<server>__<工具名>`——模型可以直接调用它们，权限/审批/审计照旧。`/mcp` 看 server 状态与工具清单（`/mcp notools` 只看状态）。**MCP server 不在 HooH 的沙箱里**：它是你配置的子进程，只写你信得过的。
 
 **在对话里打开文件**——默认只给可点击链接，不抢焦点、不弹窗：
 
@@ -218,7 +218,7 @@
 
 - `--tools` — 原生工具调用（OpenAI 兼容 function calling，不支持时自动降级到文本协议）
 - `--max-history N` — 只保留最近 N 轮，防本地小模型上下文溢出
-- `--context-window N` — 告诉 ACE 模型窗口有多大（默认 32768），压缩阈值按它算
+- `--context-window N` — 告诉 HooH 模型窗口有多大（默认 32768），压缩阈值按它算
 - `--no-compact` — 关掉上下文压缩，退回纯硬截断（会丢早期对话）
 - `--install-ui` / `--setup` — 准备运行环境：装 `requests`（模型调用必需）+ `prompt_toolkit` / `textual` / `rich`（界面增强），多镜像自动回退
 - `--install-executor` — 下载官方预编译执行器（无需本机 Go；`--sandbox job` 前置）
@@ -235,5 +235,5 @@ python agent_runner.py --base-url http://localhost:11434/v1 --api-key ollama \
        --model qwen2.5-coder:7b --tools
 ```
 
-容器编排：根目录 `docker compose up`（ACE + Ollama）；`docker/` 下另有 lite / standard / full 三档镜像与模型下载脚本，见 [../docker/README-Docker.md](../docker/README-Docker.md)。
+容器编排：根目录 `docker compose up`（HooH + Ollama）；`docker/` 下另有 lite / standard / full 三档镜像与模型下载脚本，见 [../docker/README-Docker.md](../docker/README-Docker.md)。
 

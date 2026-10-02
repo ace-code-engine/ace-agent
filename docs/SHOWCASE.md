@@ -1,10 +1,10 @@
 # Demo & screenshots
 
 <p align="center">
-  <img src="../assets/logo.svg" alt="ACE logo" width="88" height="88">
+  <img src="../assets/logo.svg" alt="HooH logo" width="88" height="88">
 </p>
 
-Every image on this page was rendered from a **real** ACE session, not a mock-up. All of them come from offline `--mock` runs, so you can reproduce each one without an account or an API key.
+Every image on this page was rendered from a **real** HooH session, not a mock-up. All of them come from offline `--mock` runs, so you can reproduce each one without an account or an API key.
 
 - **Re-record everything:** `python demo/record_demo.py`
 - **Verify without re-recording:** `python demo/record_demo.py --check` (CI runs this, so an image cannot silently rot)
@@ -16,7 +16,7 @@ Every image on this page was rendered from a **real** ACE session, not a mock-up
 The screen you actually start on.
 
 <p align="center">
-  <img src="../demo/demo_landing.svg" alt="ACE landing screen: session panel (model / permission / sandbox / network / approval / directory / history), recent sessions, grouped menu, and the status bar" width="820">
+  <img src="../demo/demo_landing.svg" alt="HooH landing screen: session panel (model / permission / sandbox / network / approval / directory / history), recent sessions, grouped menu, and the status bar" width="820">
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@ The screen you actually start on.
 ## A full turn: ask → tool call → answer
 
 <p align="center">
-  <img src="../demo/demo.svg" alt="ACE terminal session: ask → tool call → answer → status → drop permission" width="820">
+  <img src="../demo/demo.svg" alt="HooH terminal session: ask → tool call → answer → status → drop permission" width="820">
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ The screen you actually start on.
 ## What changed, not just what ran
 
 <p align="center">
-  <img src="../demo/demo_diff.svg" alt="ACE terminal session: the agent creates a note file, then edits one line — the card shows a colourised diff (+1 -0) and a one-line tool timeline" width="820">
+  <img src="../demo/demo_diff.svg" alt="HooH terminal session: the agent creates a note file, then edits one line — the card shows a colourised diff (+1 -0) and a one-line tool timeline" width="820">
 </p>
 
 <p align="center">
@@ -55,7 +55,7 @@ The screen you actually start on.
 ## The execution layer saying no
 
 <p align="center">
-  <img src="../demo/demo_blocked.svg" alt="ACE terminal session: the agent asks to read an SSH private key and is refused with 403 by the execution layer" width="820">
+  <img src="../demo/demo_blocked.svg" alt="HooH terminal session: the agent asks to read an SSH private key and is refused with 403 by the execution layer" width="820">
 </p>
 
 <p align="center">

@@ -30,7 +30,7 @@
 | **Ink 主外壳（`frontend/`）** | ❌ **不进包**（exe 只有 Python UI） | 三条实测理由见下节：`datas` 里没有 `frontend/`；它跑起来要 **Node ≥18** + `frontend/node_modules`（`tsx` 直跑 TS 源码）；而且**没有构建产物可带** |
 
 **不悄悄退回"找系统 Python"是有意的**：那会把"宿主机装没装 Python"变成行为差异，同一份
-发行包在两台机器上能力不同——比明确禁用更难排查。这与 ACE 其余"不静默降级"的取态一致。
+发行包在两台机器上能力不同——比明确禁用更难排查。这与 HooH 其余"不静默降级"的取态一致。
 
 ## Ink 主外壳不进包（打包口径 **D3**，2026-09-27 定）
 
@@ -177,7 +177,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps
 
 **每个文件必须落在它自己那一层的 `<DirectoryRef>` 下**（v3.42.0 修，打 tag 时 CI 就红在这里）：
 PyInstaller 单目录包的模块与资源都在 `_internal/` 下，而生成器原先把所有组件都挂在
-`<DirectoryRef Id="INSTALLFOLDER">` 这一个下面，等于**全部平铺进 `ACE\` 根目录**。后果有两层，
+`<DirectoryRef Id="INSTALLFOLDER">` 这一个下面，等于**全部平铺进 `HooH\` 根目录**。后果有两层，
 第二层更致命：
 
 - **ICE30 / 编译直接失败**：根目录里出现两个同名文件就报"同一个文件被两个组件安装"。载荷里
@@ -207,7 +207,7 @@ PyInstaller 单目录包的模块与资源都在 `_internal/` 下，而生成器
 
 | 能力 | Inno 版（未采用） | WiX 版（当前） |
 |---|---|---|
-| 装到 `Program Files\ACE` | ✅ | ✅（`InstallScope="perMachine"`） |
+| 装到 `Program Files\HooH` | ✅ | ✅（`InstallScope="perMachine"`） |
 | 开始菜单两项（正常 / 离线演示，`cmd /k` 起终端） | ✅ | ✅ |
 | 卸载干净 | ✅ | ✅（组件 GUID 稳定，MSI 自己记账） |
 | 只装给当前用户 | ✅ | ❌ 暂只支持全机安装 |

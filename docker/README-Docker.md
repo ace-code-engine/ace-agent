@@ -1,9 +1,9 @@
-# ACE Agent Docker 打包方案
+# HooH Agent Docker 打包方案
 
 这里有**两类**完全不同的用法，别搞混：
 
-- **整体镜像**（lite / standard / full）：把 ACE 自己装进容器跑。隔离最彻底，代价是容器外的东西一概碰不到——"在桌面建个文件"这类请求做不了，只能操作挂载进去的目录。
-- **沙箱镜像**（`ace-sandbox`）：ACE 跑在宿主，只把 `terminal_exec` / `code_execute` 丢进一次性容器。日常用法不变，危险面被隔离。见下方「沙箱镜像」一节。
+- **整体镜像**（lite / standard / full）：把 HooH 自己装进容器跑。隔离最彻底，代价是容器外的东西一概碰不到——"在桌面建个文件"这类请求做不了，只能操作挂载进去的目录。
+- **沙箱镜像**（`ace-sandbox`）：HooH 跑在宿主，只把 `terminal_exec` / `code_execute` 丢进一次性容器。日常用法不变，危险面被隔离。见下方「沙箱镜像」一节。
 
 ## 三种整体镜像策略
 
@@ -69,7 +69,7 @@ docker compose -f docker/docker-compose.yml up vlm-server ace-lite
 
 ## 沙箱镜像（`ace-sandbox`）
 
-和上面三档镜像是两回事：这个镜像里**没有 ACE 的代码**，它只是一个干净的执行环境。ACE 跑在宿主，每次 `terminal_exec` / `code_execute` 都 `docker run` 一个它的容器、跑完即销毁。实现见 [`tools/docker_sandbox.py`](../tools/docker_sandbox.py)。
+和上面三档镜像是两回事：这个镜像里**没有 HooH 的代码**，它只是一个干净的执行环境。HooH 跑在宿主，每次 `terminal_exec` / `code_execute` 都 `docker run` 一个它的容器、跑完即销毁。实现见 [`tools/docker_sandbox.py`](../tools/docker_sandbox.py)。
 
 ### 用法：先 build 一次（一条命令）
 
@@ -158,4 +158,4 @@ CI 里也有这个 job（`ci.yml` 的 `sandbox-smoke`：先 build 再跑这个�
 |------|----------|------|
 | CPU 推理 VLM | 4GB | 8GB |
 | GPU 推理 VLM | 4GB 显存 | 6GB+ |
-| 纯 ACE (无 VLM) | 512MB | 1GB |
+| 纯 HooH (无 VLM) | 512MB | 1GB |

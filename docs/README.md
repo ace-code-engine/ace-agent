@@ -14,7 +14,7 @@
 | 查某条命令 / 启动参数 | [`COMMANDS.md`](COMMANDS.md) |
 | 改配置项 | [`CONFIGURATION.md`](CONFIGURATION.md) |
 | 写自己的工具 / 命令 / 插件 | [`EXTENDING.md`](EXTENDING.md) · [`INTERFACES.md`](INTERFACES.md) |
-| 让别人、或别的 agent 用 ACE | [`MCP-SERVER.md`](MCP-SERVER.md) |
+| 让别人、或别的 agent 用 HooH | [`MCP-SERVER.md`](MCP-SERVER.md) |
 | 知道代码怎么分层 | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | 参与开发、提交代码 | [`DEVELOPMENT.md`](DEVELOPMENT.md) · [`TESTING.md`](TESTING.md) |
 | 打包发布 | [`PACKAGING.md`](PACKAGING.md) · [`PACKAGING-EXE.md`](PACKAGING-EXE.md) |
@@ -95,7 +95,7 @@
 | [`design/STRUCT-REFACTOR.md`](design/STRUCT-REFACTOR.md) | P2 结构重构（R-01~R-05 实测规模 / 顺序 / 验收） |
 | [`design/ARCH-TREE-CHECK.md`](design/ARCH-TREE-CHECK.md) | 权威树一致性校验（Q-06：R1–R4 规则 / 实测缺口） |
 | [`design/MCP-SERVER.md`](design/MCP-SERVER.md) | MCP server 立项卡（暴露面 / 审批矩阵 / 非目标 / 验收） |
-| [`design/ACE-MCP-SEC-SUBAGENT.md`](design/ACE-MCP-SEC-SUBAGENT.md) | **WP-11 立项卡**：ACE 作为 MCP 安全子层 + 共用 CubeSandbox 底座；**SEC-022**（扫过 ≠ 安全） |
+| [`design/ACE-MCP-SEC-SUBAGENT.md`](design/ACE-MCP-SEC-SUBAGENT.md) | **WP-11 立项卡**：HooH 作为 MCP 安全子层 + 共用 CubeSandbox 底座；**SEC-022**（扫过 ≠ 安全）（文件名保留旧前缀，历史文档不改名） |
 | [`design/EXECUTOR-RELEASE.md`](design/EXECUTOR-RELEASE.md) | 执行器发布通道（预编译二进制 + `ace --install-executor`） |
 | [`design/README-RESTRUCTURE.md`](design/README-RESTRUCTURE.md) | README 瘦身两轮立项（本结构由此演进） |
 
@@ -121,7 +121,7 @@
 | 文件 | 是什么 |
 |---|---|
 | [`HOME-DESIGN.md`](HOME-DESIGN.md) | 主页设计：分区顺序为什么是这样、每条信息为什么在这个位置 |
-| [`KEYMAP-CLAUDE-PARITY.md`](KEYMAP-CLAUDE-PARITY.md) | 键位对照表（Claude Code ↔ ACE，逐条核实 + 不做的理由） |
+| [`KEYMAP-CLAUDE-PARITY.md`](KEYMAP-CLAUDE-PARITY.md) | 键位对照表（Claude Code ↔ HooH，逐条核实 + 不做的理由） |
 
 ---
 

@@ -8,7 +8,7 @@
 
 ## 一、背景（给接手的人）
 
-项目 ACE 原本只有一套表现层：`ui/`（Python 手写 ANSI）+ `tui/`（可选 Textual）。
+项目 HooH 原本只有一套表现层：`ui/`（Python 手写 ANSI）+ `tui/`（可选 Textual）。
 新增了第三套：**`frontend/`（TypeScript + Ink）**，作为**主路径**，与 Python 那套**并存**
 （Python 侧退居回退）。
 
@@ -206,7 +206,7 @@ CLI 里十几处调用点因此一行未改。把协议前端实现成 host 的�
 
 ## 六、可直接粘贴的提示词
 
-> 接手 ACE 项目的 TypeScript + Ink 前端（`frontend/`）。先读 `docs/HANDOFF-FRONTEND.md`，
+> 接手 HooH 项目的 TypeScript + Ink 前端（`frontend/`）。先读 `docs/HANDOFF-FRONTEND.md`，
 > 它自包含，不需要额外的上下文。
 >
 > 从「四、未完成 / 未验证」开始：第一件事是**在真终端里跑 `ace` 看一眼实际渲染**

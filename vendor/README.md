@@ -1,6 +1,6 @@
 # vendor/ —— 离线依赖的落点
 
-ACE 的**安全核心是零依赖**的（执行层 / 网关 / 记忆 / CLI，只用标准库）。依赖分两类：
+HooH 的**安全核心是零依赖**的（执行层 / 网关 / 记忆 / CLI，只用标准库）。依赖分两类：
 
 - **必需**：`requests` —— 模型调用（`core/ace_client.py`）与联网工具（`tools/web_tools.py`）
   的唯一出网点直接 `import requests`，没有回退；没有它连不上模型。见 `docs/ADR.md` ADR-004。

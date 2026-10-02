@@ -1,24 +1,24 @@
-# ACE · MCP 非侵入式接入包
+# HooH · MCP 非侵入式接入包
 
 > 这个包**不改你的 agent**。它只做一件事：让你的主 agent（Cline / Claude Desktop / Cursor / 任何
-> MCP host）多出一个工具后端 —— 由 ACE 负责"这一下到底能不能动"，以及安全体检。
+> MCP host）多出一个工具后端 —— 由 HooH 负责"这一下到底能不能动"，以及安全体检。
 
 ## 两种用法，选一个（不用都选）
 
-| | ① 直接用 ACE 自带 agent | ② 把 ACE 当 MCP 子安全层（**本包**） |
+| | ① 直接用 HooH 自带 agent | ② 把 HooH 当 MCP 子安全层（**本包**） |
 |---|---|---|
 | 你是谁 | 想要一个自己的编码 agent | 已经有主 agent（Cline/Claude/Cursor），只想多一层安全 |
-| 怎么用 | 装 MSI 或解压 zip，跑 `ace` | 解压本包 → 把配置粘进 host → 重启 host |
+| 怎么用 | 装 MSI 或解压 zip，跑 `hooh` | 解压本包 → 把配置粘进 host → 重启 host |
 | 改动 | 装一个程序 | **零改动**（只加一段 MCP 配置，随时删掉就恢复原样） |
-| 得到什么 | 四外壳 + 51 工具 + 快照回滚 + `/undo` | `ace_security_scan`（路径级+内容级）· `ace_sandbox_exec`（CubeSandbox）· 以及 31 个可被 host 调用的工具，全部经 ACE 的裁决点 |
+| 得到什么 | 四外壳 + 51 工具 + 快照回滚 + `/undo` | `ace_security_scan`（路径级+内容级）· `ace_sandbox_exec`（CubeSandbox）· 以及 31 个可被 host 调用的工具，全部经 HooH 的裁决点 |
 
-**② 的边界（先看清楚再决定）**：裁决权在 ACE 手里 —— 你的主 agent 想让 ACE 动什么，
+**② 的边界（先看清楚再决定）**：裁决权在 HooH 手里 —— 你的主 agent 想让 HooH 动什么，
 都要过权限档 / 敏感目标 / 授权令三道。**默认 `readonly`**：能读、能扫，写会收到一条
 "缺什么"的诚实拒绝（提权或签令），而不是静默失败。
 
 ## 四条接入路线，按你的现状选
 
-### 路线 A（最省事，推荐）：**自包含可执行版** —— 不需要 Python、不需要装 ACE
+### 路线 A（最省事，推荐）：**自包含可执行版** —— 不需要 Python、不需要装 HooH
 
 下载 `hooh-mcp-<版本>-windows-amd64.zip`（Linux/macOS 有对应产物），解压到任意固定目录，
 配置直接指向那个可执行文件：
@@ -33,18 +33,21 @@
 **这个 exe 自带解释器**，目标机器上**不需要 Python / pip / venv**。`--project-root` 不写就用
 cwd（= host 的工作区）。这是给"不想装任何环境"的人准备的路线。
 
-### 路线 B：你**已经装了** ACE（MSI / 发布 zip / 冻结版）
+### 路线 B：你**已经装了** HooH（MSI / 发布 zip / 冻结版）
 
 不需要本包。在你的 host 配置里直接指向 `ace.exe`：
 
 ```json
 { "mcpServers": { "ace": {
-    "command": "C:\\Program Files\\ACE\\ace.exe",
+    "command": "C:\\Program Files\\HooH\\ace.exe",
     "args": ["--mcp", "--project-root", "C:\\你的项目"]
 } } }
 ```
 
-### 路线 C（本包）：便携源码包，不需要安装 ACE
+> 安装目录名与可执行文件名仍是 `ACE` / `ace.exe` —— 那是发行物契约，改名会打断已装用户。
+> 产品名、界面与包名是 HooH。
+
+### 路线 C（本包）：便携源码包，不需要安装 HooH
 
 ```json
 { "mcpServers": { "ace": {
@@ -114,5 +117,5 @@ python verify-mcp.py --write    # 额外验证写路径（会真实写一个临�
   永远写着范围声明 —— 报告干净**不等于**安全。
 - `ace_sandbox_exec` 只在 **CubeSandbox 可达**时才跑；不可达一律**拒绝**（Tier 0），
   **绝不**退回你本机执行。凭据不注入沙箱；出网默认拒绝。
-- 每次 host 调用都进 ACE 的会话台账（`<项目>/.ace_sessions/*.jsonl`，链式 MAC），
+- 每次 host 调用都进 HooH 的会话台账（`<项目>/.ace_sessions/*.jsonl`，链式 MAC），
   并带 `mcp:external agent` 归属标记 —— 你能事后查清"哪一步是谁要求的"。

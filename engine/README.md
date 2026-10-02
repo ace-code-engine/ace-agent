@@ -1,11 +1,11 @@
-# ACE 内置计算引擎（Rust）
+# HooH 内置计算引擎（Rust）
 
 > 参考件：`aitoolkit-main/`（Word 体系原版：`gateway.py` / `guardian.py` / `work.py` / `Archive.py` / `Nuwa.py` / `shiyun.py`）。
 > 本目录是**上游那套 Python 实现的一个常驻、零依赖的算力内核** —— 不是重写整个 Word 体系。
 
 ## 它是什么：元处理内核
 
-ACE 已经被 Go 执行器（`../executor/`）拿走了一件事：**边界**（Job Object、进程树回收、整树 kill）。
+HooH 已经把一件事交给了 Go 执行器（`../executor/`）拿走了一件事：**边界**（Job Object、进程树回收、整树 kill）。
 `engine/` 拿的是另一件正交的事：**元处理** —— 处理"关于这次运行自身"的东西：
 
 | 元处理对象 | 今天散在哪 | 引擎提供 |
@@ -46,16 +46,16 @@ ACE 已经被 Go 执行器（`../executor/`）拿走了一件事：**边界**（
 - ❌ 不读不写任何文件（缓冲区全在内存），持久化格式的唯一真源仍是 Python 侧；
 - ❌ 不联网。
 
-所以它才能待在 ACE 的安全模型里：一个**可以被杀死、可以被替换、坏掉只会变慢而不会放宽任何闸门**
+所以它才能待在 HooH 的安全模型里：一个**可以被杀死、可以被替换、坏掉只会变慢而不会放宽任何闸门**
 的纯计算旁路。这与 MCP / Go 执行器是同一条思路 —— 但方向相反：那两个把东西挪出去是为了**孤立**，
 这个挪出去只是为了**快**。
 
 ## 兼容契约（改之前先读这段）
 
-**对齐的是 ACE 当前实现（`../core/archive.py`），不是上游 `aitoolkit-main/Toolkit/核心代码/Archive.py`。**
+**对齐的是 HooH 当前实现（`../core/archive.py`），不是上游 `aitoolkit-main/Toolkit/核心代码/Archive.py`。**
 两者已经分叉：
 
-| | 上游原版 | ACE 现行（本引擎对齐） |
+| | 上游原版 | HooH 现行（本引擎对齐） |
 |---|---|---|
 | 分词 | `jieba.cut` 或逐字符 | `w:` 拉丁词 · `c:` 中文整段 · `b:` 中文二元组 |
 | 取哈希 | `int(md5hex, 16)`（128 位取低位） | `int.from_bytes(md5(tok)[:8], "big")`（前 8 字节大端） |
@@ -70,7 +70,7 @@ ACE 已经被 Go 执行器（`../executor/`）拿走了一件事：**边界**（
 
 ## 构建与验证
 
-零依赖是有意的：与 ACE「安全核心零依赖」同一立场，也让离线构建成立
+零依赖是有意的：与 HooH「安全核心零依赖」同一立场，也让离线构建成立
 （`cargo build --offline` 不需要 crates.io，也不需要 C 工具链）。
 
 ```bash
@@ -81,7 +81,7 @@ cargo build --release --offline      # 产出 target/release/ace-engine[.exe]
 ./target/release/ace-engine --version
 ```
 
-Python 侧对拍 + 基准（需要 ACE 的解释器环境）：
+Python 侧对拍 + 基准（需要 HooH 的解释器环境）：
 
 ```bash
 python engine/tools/xcheck.py                    # 全量对拍 + 基准

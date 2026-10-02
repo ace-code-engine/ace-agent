@@ -1,29 +1,26 @@
-<!-- ACE 标识：原创几何构图，无任何第三方素材 / 字体轮廓，可自由商用。
-     构图含义：盾 = 执行层（安全在这一层裁决），盾内的 ❯ 与光标 = 终端会话。
-     "模型的每一次调用都要穿过这道盾" 就是这个项目的全部主张。 -->
+<!-- HooH 标识：原创几何构图，无任何第三方素材 / 字体轮廓，可自由商用。
+     构图含义：「互」—— 上横骨向左折下、下横骨向右折上，两骨交错，
+     被中间一竖贯穿扣住。这就是这个项目的形状：模型提出 ⇄ 代码裁决，
+     写了快照 ⇄ 才谈得上 undo，每一次动作都有对等回应、而且可逆。
+     交错的两骨对应 HMAC 链式审计（链节互相咬住）。
+     配色：白底 + 纯黑 #000000（实心单色，无渐变）。
+     （与《崩坏：星穹铁道》的"均衡"星神 HooH 只是同名致敬，本图不含任何米哈游素材。） -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"
-     role="img" aria-label="ACE · AI Code Engine">
-  <title>ACE · AI Code Engine</title>
-  <defs>
-    <linearGradient id="ace-shield" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#66cccc"/>
-      <stop offset="0.55" stop-color="#7aa6f0"/>
-      <stop offset="1" stop-color="#c39ac9"/>
-    </linearGradient>
-  </defs>
+     role="img" aria-label="HooH · 互">
+  <title>HooH · 互</title>
 
-  <!-- 底板：跟终端演示同一套暗色，缩到 16px 当 favicon 也不糊 -->
-  <rect width="128" height="128" rx="28" fill="#11141b"/>
-  <rect x="1" y="1" width="126" height="126" rx="27" fill="none"
-        stroke="#2a3040" stroke-width="2"/>
+  <!-- 底板：白，无描边（纯色，无渐变） -->
+  <rect width="128" height="128" rx="28" fill="#ffffff"/>
 
-  <!-- 盾：执行层 -->
-  <path d="M64 18 L106 31 V67 C106 90 87 105 64 113 C41 105 22 90 22 67 V31 Z"
-        fill="none" stroke="url(#ace-shield)" stroke-width="6"
-        stroke-linejoin="round"/>
-
-  <!-- 盾内：提示符 ❯ 与光标 -->
-  <path d="M50 51 L68 65 L50 79" fill="none" stroke="#66cccc" stroke-width="8"
+  <!-- 上横骨：右上往左折下，喂进中间那一竖 -->
+  <path d="M100 28 H40 V54" fill="none" stroke="#000000" stroke-width="13"
         stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="74" y="72" width="16" height="7" rx="3.5" fill="#c39ac9"/>
+
+  <!-- 下横骨：右下往左折上，与上骨互扣 -->
+  <path d="M28 100 H88 V74" fill="none" stroke="#000000" stroke-width="13"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 贯穿的一竖：把两骨扣在一起的那一下 -->
+  <path d="M64 40 V88" fill="none" stroke="#000000" stroke-width="13"
+        stroke-linecap="round"/>
 </svg>

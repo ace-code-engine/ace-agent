@@ -8,7 +8,7 @@
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v1.0.0%20(2026--10--01)-brightgreen"></a>
 </p>
 
-<h1 align="center">ACE · AI Code Engine</h1>
+<h1 align="center">HooH · 互</h1>
 
 <p align="center">
   简体中文 · <a href="README.md">English</a> · <a href="CHANGELOG.md">更新日志</a> · <a href="docs/README.md">文档索引</a>
@@ -51,11 +51,14 @@ python ai_code.py --mock    # 离线演示 —— 不需要密钥、不需要网
 python ai_code.py           # 接入真实模型（向导引导）
 ```
 
+在仓库里也可以直接用启动器，它会自己找一个能用的 Python：
+`hooh.cmd --mock`（Windows）—— `ace.cmd` 作为同一个入口的别名保留。
+
 Windows 没装 Python：去 [Releases](https://github.com/ace-code-engine/ace-agent/releases) 拿 zip，
 跑 `ace\ace.exe --mock`。安装与构建：[docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md)。
 
 <p align="center">
-  <img src="demo/demo.svg" alt="一次录下来的离线 ACE 会话" width="820">
+  <img src="demo/demo.svg" alt="一次录下来的离线 HooH 会话" width="820">
 </p>
 
 ## 文档
@@ -76,6 +79,17 @@ Windows 没装 Python：去 [Releases](https://github.com/ace-code-engine/ace-ag
 ## 开发与贡献
 
 读 [CONTRIBUTING.md](CONTRIBUTING.md) → [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)（标准流程 / 加工具 / 加功能）→ [docs/BACKLOG.md](docs/BACKLOG.md)。
+
+## 名称与致意
+
+**HooH（互）** 是**致意，不是素材占用**。`互` 就是这套系统的形状：模型提出、代码裁决；
+先写快照，`/undo` 才谈得上意义。每一次动作都有对等回应，而且可逆。
+
+仓库内**不含任何米哈游素材**。图标 [`assets/logo.svg`](assets/logo.svg) 是按本项目自身的
+视觉语言从零画出来的「互」字几何构图（三横一竖），没有描摹、没有提取、没有二次分发。
+
+> 作者本人是米哈游长期玩家，这个名字是向《崩坏：星穹铁道》"均衡"星神致意。
+> 如果米哈游（或任何权利人）认为这个命名不妥，**提一个 issue 就会改**——不争辩、不拖延。
 
 ## 许可
 

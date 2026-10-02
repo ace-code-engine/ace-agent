@@ -70,7 +70,7 @@ def guid_for(rel: str) -> str:
     return "{" + str(uuid.uuid5(NS, rel.replace("\\", "/"))).upper() + "}"
 
 
-def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> tuple:
+def build_wxs(payload: Path, version: str, out: Path, app_name: str = "HooH") -> tuple:
     files = sorted(p for p in payload.rglob("*") if p.is_file())
     if not files:
         raise SystemExit(f"FAIL: 载荷目录是空的: {payload}")
@@ -88,10 +88,10 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> 
         f'Version="{ver}" Manufacturer="ace-code-engine" '
         f'UpgradeCode="{str(UPGRADE_CODE).upper()}">')
     add('    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" '
-        'Description="ACE - local-first AI coding agent. Ships its own runtime; no Python needed." '
+        'Description="HooH - local-first AI coding agent. Ships its own runtime; no Python needed." '
         'Comments="https://github.com/ace-code-engine/ace-agent" />')
     add('    <MajorUpgrade AllowSameVersionUpgrades="yes" '
-        'DowngradeErrorMessage="A newer version of ACE is already installed." />')
+        'DowngradeErrorMessage="A newer version of HooH is already installed." />')
     add('    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />')
     add(f'    <Property Id="ARPNOMODIFY" Value="1" />')
     add(f'    <Property Id="ARPCOMMENTS" Value="Local-first AI coding agent. No Python needed." />')
@@ -179,11 +179,11 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> 
     add('    <DirectoryRef Id="AceProgramMenuDir">')
     # 控制台程序必须借 cmd 起一个窗口，否则点开一闪而过
     add('      <Component Id="C_StartMenu" Guid="' + guid_for("__startmenu__") + '" DiskId="1">')
-    add('        <Shortcut Id="S_ACE" Name="ACE" Description="Local-first AI coding agent" '
+    add('        <Shortcut Id="S_ACE" Name="HooH" Description="Local-first AI coding agent" '
         'Target="[System64Folder]cmd.exe" Arguments="/k &quot;[INSTALLFOLDER]ace.exe&quot;" '
         'WorkingDirectory="INSTALLFOLDER" />')
-    add('        <Shortcut Id="S_ACEDemo" Name="ACE (offline demo)" '
-        'Description="Run ACE with the scripted offline model" '
+    add('        <Shortcut Id="S_ACEDemo" Name="HooH (offline demo)" '
+        'Description="Run HooH with the scripted offline model" '
         'Target="[System64Folder]cmd.exe" Arguments="/k &quot;[INSTALLFOLDER]ace.exe&quot; --mock" '
         'WorkingDirectory="INSTALLFOLDER" />')
     add('        <RemoveFolder Id="RF_AceProgramMenuDir" Directory="AceProgramMenuDir" On="uninstall" />')
@@ -192,8 +192,8 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "ACE") -> 
     add('      </Component>')
     add('    </DirectoryRef>')
 
-    add('    <Feature Id="Main" Title="ACE" Level="1" Display="expand" '
-        'Description="ACE itself and everything it needs to run.">')
+    add('    <Feature Id="Main" Title="HooH" Level="1" Display="expand" '
+        'Description="HooH itself and everything it needs to run.">')
     add('      <ComponentGroupRef Id="PayloadFiles" />')
     add('      <ComponentRef Id="C_StartMenu" />')
     add('    </Feature>')

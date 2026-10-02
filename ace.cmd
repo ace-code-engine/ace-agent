@@ -67,12 +67,12 @@ rem ---------------------------------------------------------------------------
 if defined ACE_LEGACY_UI goto :ace_python
 where node >nul 2>nul
 if errorlevel 1 (
-    echo [ACE] Node was not found on PATH -- the Ink frontend needs Node 18+.
+    echo [HooH] Node was not found on PATH -- the Ink frontend needs Node 18+.
     echo       Falling back to the Python REPL.
     goto :ace_python
 )
 if not exist "frontend\node_modules\tsx\dist\cli.mjs" (
-    echo [ACE] Ink frontend dependencies are not installed yet.
+    echo [HooH] Ink frontend dependencies are not installed yet.
     echo       Install them once with:
     echo           cd frontend
     echo           npm install

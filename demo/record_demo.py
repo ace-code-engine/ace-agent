@@ -400,13 +400,13 @@ def _mismatch_report(names: str, fresh: str, old: str) -> str:
 def svg_version(svg_text: str) -> str | None:
     """图里印的版本号；取不到返回 None。
 
-    三种横幅形态都要认：聊天图是 `X.Y.Z · AI Code Engine`，会话面板与首屏是 `vX.Y.Z`，
-    主页顶行是 `ACE X.Y.Z · 模型 · 权限`。**抽成函数**是因为 test_all.py 的 [68] 段要用
+    三种横幅形态都要认：聊天图是 `X.Y.Z · 互`，会话面板与首屏是 `vX.Y.Z`，
+    主页顶行是 `HooH X.Y.Z · 模型 · 权限`。**抽成函数**是因为 test_all.py 的 [68] 段要用
     同一口径在本地也钉一遍 —— 正则抄第二份，就是给自己埋"改了一处漏另一处"。
     """
-    m = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · AI Code Engine<", svg_text)
+    m = (re.search(r">\s*([0-9]+\.[0-9]+\.[0-9]+) · 互<", svg_text)
          or re.search(r"v([0-9]+\.[0-9]+\.[0-9]+)", svg_text)
-         or re.search(r"ACE\s+v?([0-9]+\.[0-9]+\.[0-9]+)", svg_text))
+         or re.search(r"HooH\s+v?([0-9]+\.[0-9]+\.[0-9]+)", svg_text))
     return m.group(1) if m else None
 
 

@@ -2,7 +2,7 @@
   "name": "ace-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "ACE 的主前端（TypeScript + Ink）。与 Python 引擎通过 `ace --serve` 的 NDJSON 协议对话。",
+  "description": "HooH 的主前端（TypeScript + Ink）。与 Python 引擎通过 `ace --serve` 的 NDJSON 协议对话。",
   "type": "module",
   "engines": {
     "node": ">=18"

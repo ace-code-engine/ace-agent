@@ -107,7 +107,7 @@ class Boundary extends React.Component<
   }
 }
 
-const HELP = `ACE 前端（TypeScript + Ink）
+const HELP = `HooH 前端（TypeScript + Ink）
 
 用法：
   npm start -- [选项]

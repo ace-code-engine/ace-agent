@@ -299,7 +299,6 @@ export function App({ client, t, colorOf, initialMessage, menuOptions }: AppProp
           model={config.model}
           permission={config.permission}
           folder={config.folder}
-          t={t}
           color={colorOf}
           width={cols}
         />

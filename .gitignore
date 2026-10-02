@@ -37,6 +37,9 @@ venv/
 executor/ace-executor
 executor/ace-executor.exe
 executor/executor.exe
+# 交叉编译出来的带后缀版本（release-executor.yml 的产物名就是 ace-executor-<target>）：
+# 3.75 MB 的 Linux 二进制躺在这里，漏一条规则就会被 `git add -A` 带进仓库
+executor/ace-executor-*
 
 # Rust 内置引擎（engine/）构建产物。注意**必须与 core/guardian.py 的
 # EXCLUDE_DIRS 成对**：漏了这边只是脏树，漏了那边是每次写快照都多拷 30MB。
@@ -67,6 +70,11 @@ examples/02_document_parsing/drop_docs_here/*
 
 # 本地虚拟环境（setup_env.py 建的，不入库）
 .ace_env/
+# 密钥类：本项目今天没有 .env，但测试套件自己会写 .env 夹具，且"以后不会有人放"
+# 这种假设在密钥这件事上从来不成立 —— 规则先立着，比事后 filter-repo 便宜太多
+.env
+.env.*
+!.env.example
 # 注意：vendor/*.whl 是**故意入库**的——离线环境靠它 `setup_env.py --ensure` 一把装好，
 # 所以这里没有 vendor 的忽略规则。详见 vendor/README.md。
 

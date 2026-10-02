@@ -171,7 +171,7 @@ ace-agent/
 │   ├── 01_security_lab/        #   权限裁决 + 写前快照 + /undo 回滚 + terminal_exec 逐次确认
 │   ├── 02_document_parsing/    #   文档解析与读取边界（drop_docs_here/ 放文件，内容不入库）
 │   └── 03_multi_turn_agent/    #   持久目标 + 子代理 + 知识库（附 config.example.json）
-├── assets/logo.svg             # 标识（原创几何构图，无第三方素材）
+├── assets/logo.svg             # 标识「互」几何构图（原创，无第三方素材，非游戏素材描摹）
 ├── assets/ace.ico              # 由 logo.svg 生成的多尺寸图标（packaging/make_icon.py，7 个尺寸）
 
 ├── docs/                       # 文档（README 是入口，索引见 docs/README.md）

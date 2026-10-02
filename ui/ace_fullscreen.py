@@ -94,7 +94,7 @@ class TranscriptSink:
 class FullScreenSession:
     """全屏会话的状态与渲染（不依赖 prompt_toolkit 即可构造与断言）。"""
 
-    def __init__(self, title: str = "ACE", status_fn: Optional[Callable[[], List]] = None,
+    def __init__(self, title: str = "HooH", status_fn: Optional[Callable[[], List]] = None,
                  header_fn: Optional[Callable[[], str]] = None,
                  view_height: int = 12) -> None:
         self.title = str(title)

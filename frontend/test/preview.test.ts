@@ -31,7 +31,7 @@ describe('npm run preview', () => {
     expect(all).toContain('我先读一下 README');
     // 工具卡片带 diff
     expect(all).toContain('README.md');
-    expect(all).toContain('ACE · AI Code Engine');
+    expect(all).toContain('HooH · 互');
     // 审批框三态
     expect(all).toContain('rm -rf build/');
     // 任务树（Ctrl+T 之后的帧）

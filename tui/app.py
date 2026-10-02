@@ -5,7 +5,7 @@ r"""tui.app —— ACE 的全屏组件化界面（Textual）
 布局（对应交互规格"四区骨架"）：
 
 ```
-┌ ACE · 模型 · 权限 ────────────────────────────────── Header（常驻，不随内容滚动）
+┌ HooH · 模型 · 权限 ───────────────────────────────── Header（常驻，不随内容滚动）
 │  ❯ 你的输入                                          ← 转写区（可滚动）
 │  ◈ 回答（增量上屏；尾行是"还在长"的那一行）
 │  ⚙ file_read ✓   ▅ terminal_exec · 1.2s              ← 工具看板（在跑的一行）
@@ -690,7 +690,7 @@ class AceTuiApp(App):
                 Binding("down", "nav(1)", "", show=False)]
     ENABLE_COMMAND_PALETTE = False
 
-    def __init__(self, engine=None, status_provider=None, title: str = "ACE",
+    def __init__(self, engine=None, status_provider=None, title: str = "HooH",
                  translate: Optional[Callable[[str], str]] = None,
                  command_table: Optional[dict] = None,
                  on_stop: Optional[Callable[[], None]] = None,
@@ -1952,7 +1952,7 @@ class AceTuiApp(App):
         return time.monotonic()
 
 
-def run_tui(engine=None, status_provider=None, title: str = "ACE",
+def run_tui(engine=None, status_provider=None, title: str = "HooH",
             translate: Optional[Callable[[str], str]] = None,
             command_table: Optional[dict] = None,
             on_stop: Optional[Callable[[], None]] = None,

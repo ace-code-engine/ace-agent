@@ -113,7 +113,7 @@ const SCRIPT: Step[] = [
         elapsed: 0.42,
         message: '已写入',
         data: {
-          diff: '--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,3 @@\n-# AI Agent System\n+# ACE · AI Code Engine\n',
+          diff: '--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,3 @@\n-# AI Agent System\n+# HooH · 互\n',
         },
       },
     ],
@@ -125,7 +125,7 @@ const SCRIPT: Step[] = [
         type: 'final',
         ts: ts(11),
         round: 1,
-        text: '改好了。\n\n## 改了什么\n\n- 标题换成 `ACE · AI Code Engine`\n- 保留原有的能力清单\n\n> 下一句想动 `assets/logo.svg` 吗？',
+        text: '改好了。\n\n## 改了什么\n\n- 标题换成 `HooH · 互`\n- 保留原有的能力清单\n\n> 下一句想动 `assets/logo.svg` 吗？',
       },
     ],
   },

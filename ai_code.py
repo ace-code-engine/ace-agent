@@ -150,14 +150,14 @@ class CommandCancelled(Exception):
     """交互子流程被用户取消（如 Ctrl+C），区别于致命异常：只中止当前命令，不退出整个 CLI"""
 
 
-# ACE ASCII 品牌 logo（ANSI Shadow 字体）
+# HooH ASCII 品牌 logo（ANSI Shadow 字体，宽度与旧 "ACE" 相当：30 列 6 行）
 ACE_LOGO = r"""
- █████╗  ██████╗ ███████╗
-██╔══██╗██╔════╝ ██╔════╝
-███████║██║      █████╗
-██╔══██║██║      ██╔══╝
-██║  ██║╚██████╗ ███████╗
-╚═╝  ╚═╝ ╚═════╝ ╚══════╝""".strip("\n")
+██╗  ██╗  ██████╗   ██████╗  ██╗  ██╗
+██║  ██║ ██╔═══██╗ ██╔═══██╗ ██║  ██║
+███████║ ██║   ██║ ██║   ██║ ███████║
+██╔══██║ ██║   ██║ ██║   ██║ ██╔══██║
+██║  ██║ ╚██████╔╝ ╚██████╔╝ ██║  ██║
+╚═╝  ╚═╝  ╚═════╝   ╚═════╝  ╚═╝  ╚═╝""".strip("\n")
 
 
 # AI 提供商注册表（参考本机 cli/AI-CLI-安装平台/lib/api.js，模型名 2026-08 调研整理）
@@ -578,9 +578,12 @@ class CLIConfig:
 
 # ---- ANSI 颜色（非 tty 或 NO_COLOR 时自动关闭，遵循 NO_COLOR 约定）----
 ANSI = {
-    "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
+    "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "italic": "\033[3m",
     "red": "\033[31m", "green": "\033[32m", "yellow": "\033[33m",
     "blue": "\033[34m", "magenta": "\033[35m", "cyan": "\033[36m",
+    # `warn` 是语义别名：ui/ace_home.py 的 title_line 用 `warn` 标沙箱档位。
+    # 别名放在这里而不是让调用方改 `yellow`，是为了让"语义名 → ANSI"只在这一处决定。
+    "warn": "\033[33m",
 }
 # FORCE_COLOR：管道/重定向下强制保留颜色。NO_COLOR 优先级更高（用户明确要求关色）。
 # demo/record_demo.py 靠它抓到带色的真实会话，否则录出来的演示是灰的。
@@ -594,7 +597,16 @@ if os.name == "nt":
 
 
 def c(color: str, text: str) -> str:
-    return f"{ANSI[color]}{text}{ANSI['reset']}" if USE_COLOR else text
+    """给文本上色。**未知色名降级为不上色，绝不抛异常。**
+
+    这里曾经是 `ANSI[color]`：色板少一个键就让整轮对话炸掉。
+    实际踩过两次 —— `_MD_STYLES` 里的 `italic`（模型回一句 `*斜体*` 即触发）和
+    `ui/ace_home.py` 的 `warn`（`--sandbox job` 时首屏直接 traceback）。
+    渲染层不该有"少一个键就崩"的路径，所以取值改为 `get`，色板补齐见 ANSI。
+    """
+    if not USE_COLOR:
+        return text
+    return f"{ANSI.get(color, '')}{text}{ANSI['reset']}"
 
 
 # Markdown 渲染的色板：语义 kind → ANSI 名（`ui/ace_markdown` 只用 kind，不认颜色，
@@ -3816,8 +3828,7 @@ class _LandingUI:
         out: List[str] = []
         if with_logo:
             logo = [c("cyan", " " + ln) for ln in ACE_LOGO.split("\n")]
-            right = [c("bold", f"ACE · AI Code Engine  v{version.__version__}"),
-                     c("dim", t("banner_tagline")), ""]
+            right = [c("bold", f"HooH · 互  v{version.__version__}"), ""]
             out += ace_panel.side_by_side(logo, right, width=w)
             out.append("")
         out += [self._paint_box(ln) for ln in self._session_panel(w)]
@@ -4444,7 +4455,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
     def _set_title(self, suffix: str = "") -> None:
         """设置窗口标题（`ACE · 模型 · 状态`）—— 切到别的窗口也能看出要不要回来。"""
         model = "mock" if self.client.mock else (self.client.model or "?")
-        title = f"ACE · {model}"
+        title = f"HooH · {model}"
         if suffix:
             title += f" · {suffix}"
         self.term.set_title(title)
@@ -7601,7 +7612,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         if self._reduce_motion():
             return                       # 减少动效：首屏也不播
         frames = ace_layout.banner_frames(
-            "ACE", t("banner_sub", ver=version.__version__), steps=4)
+            "HooH", t("banner_sub", ver=version.__version__), steps=4)
         for _f in frames[:-1]:
             sys.stdout.write(f"\r{_f[0]}")
             sys.stdout.flush()
@@ -7615,7 +7626,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         self._clear_screen()
         self._play_banner_animation()
         # 头部用与首屏同一套面板：模型/边界/目录/历史四行，字段一多也不会错位
-        print(c("bold", "ACE") + c("dim", t("banner_sub", ver=version.__version__)))
+        print(c("bold", "HooH") + c("dim", t("banner_sub", ver=version.__version__)))
         _hw = self._panel_width()
         for _ln in [self._paint_box(x) for x in self._session_panel(_hw)]:
             print(_ln)
@@ -8002,7 +8013,7 @@ class AgentCLI(_AtCommands, _SlashCommands, _LandingUI):
         """
         def _header() -> str:
             model = "mock" if self.client.mock else (self.client.model or "?")
-            return (f"ACE · {model} · {self.cfg.get('permission', 'readonly')}"
+            return (f"HooH · {model} · {self.cfg.get('permission', 'readonly')}"
                     f" · {self.cfg.get('project_root', '.')}")
 
         session = ace_fullscreen.FullScreenSession(
@@ -8611,7 +8622,7 @@ def main() -> None:
                         help="一键下载官方预编译执行器到 executor/（替代手工 go build；"
                              "下载后跑 --version 自校验）")
     parser.add_argument("--version", action="version",
-                        version=f"ACE {version.__version__}",
+                        version=f"HooH {version.__version__}",
                         help="显示版本号并退出（core/version.py 单源）")
     args = parser.parse_args()
 
@@ -8717,7 +8728,7 @@ def main() -> None:
         if run_tui is not None:
             _code = run_tui(engine=lambda line: cli._process_line(line),
                             status_provider=cli._footer,
-                            title=f"ACE {version.__version__}",
+                            title=f"HooH {version.__version__}",
                             translate=t,
                             command_table=AgentCLI.COMMANDS,
                             on_stop=cli.request_stop,

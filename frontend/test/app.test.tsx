@@ -216,7 +216,7 @@ describe('首屏横幅', () => {
     const frame = lastFrame() ?? '';
     // logo 是块状字符（█ ╔ ═ 这些），画出来才有"品牌感"
     expect(frame).toContain('█');
-    expect(frame).toContain('ACE · AI Code Engine');
+    expect(frame).toContain('HooH · 互');
     expect(frame).toContain('v3.41.0');
     unmount();
   });
@@ -232,11 +232,11 @@ describe('首屏横幅', () => {
 
   it('**发了第一条消息之后横幅就不在了**（它是开场，不是常驻头部）', async () => {
     const { client, lastFrame, unmount } = await setup({ config: CFG });
-    expect(lastFrame() ?? '').toContain('ACE · AI Code Engine');
+    expect(lastFrame() ?? '').toContain('HooH · 互');
 
     client.push({ type: 'user_message', ts: 1, text: '你好' });
     await tick();
-    expect(lastFrame() ?? '').not.toContain('ACE · AI Code Engine');
+    expect(lastFrame() ?? '').not.toContain('HooH · 互');
     unmount();
   });
 
@@ -244,7 +244,7 @@ describe('首屏横幅', () => {
     const { lastFrame, unmount } = await setup({ config: {} });
     const frame = lastFrame() ?? '';
     expect(frame).toContain('█'); // logo 还在
-    expect(frame).toContain('ACE · AI Code Engine');
+    expect(frame).toContain('HooH · 互');
     unmount();
   });
 
@@ -263,8 +263,10 @@ describe('主页', () => {
     expect(client.calls.some((c) => c.method === 'requestHome')).toBe(true);
     expect(frame).toContain(i18n.t('home_sec_resume')); // 分区标题
     expect(frame).toContain(i18n.t('home_resume_last')); // 条目
-    // 身份与环境归横幅，主页不该再打一遍（见 Home.tsx 顶部说明）
-    expect(frame).not.toContain('ACE 3.41.0');
+    // 身份与环境归横幅，主页不该再打一遍（见 Home.tsx 顶部说明）。
+    // 钉版本号而不是品牌串：品牌串里含 "HooH"，而块状 logo 画的就是这两个词，
+    // 拿它做断言会永远命中 logo 本身 —— 旧写法（'ACE 3.41.0'）同理，只是当时运气好。
+    expect(frame).not.toContain('v3.41.0');
     unmount();
   });
 

@@ -8,7 +8,7 @@
   <a href="CHANGELOG.md"><img alt="Latest" src="https://img.shields.io/badge/latest-v1.0.0%20(2026--10--01)-brightgreen"></a>
 </p>
 
-<h1 align="center">ACE · AI Code Engine</h1>
+<h1 align="center">HooH · 互</h1>
 
 <p align="center">
   English · <a href="README.zh-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="docs/README.md">Docs</a>
@@ -52,11 +52,14 @@ python ai_code.py --mock    # offline demo — no key, no network
 python ai_code.py           # real model (setup wizard)
 ```
 
+From a checkout you can also use the launcher, which finds a usable Python for you:
+`hooh.cmd --mock` (Windows) — `ace.cmd` is kept as an alias for the same entry point.
+
 Windows without Python: grab the zip from [Releases](https://github.com/ace-code-engine/ace-agent/releases)
 and run `ace\ace.exe --mock`. Install & build: [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md).
 
 <p align="center">
-  <img src="demo/demo.svg" alt="A recorded offline ACE session" width="820">
+  <img src="demo/demo.svg" alt="A recorded offline HooH session" width="820">
 </p>
 
 ## Documentation
@@ -78,6 +81,20 @@ and run `ace\ace.exe --mock`. Install & build: [docs/PACKAGING-EXE.md](docs/PACK
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) → [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (standard flow,
 add-a-tool, add-a-feature) → [docs/BACKLOG.md](docs/BACKLOG.md).
+
+## Name & attribution
+
+The name **HooH (互)** is a **tribute**, not an asset claim. 互 — *mutual* — is what this
+project is shaped like: the model proposes, code decides; a snapshot is written, only then
+can `/undo` mean anything. Every action gets a reciprocal, reversible answer.
+
+The project **contains no miHoYo material**. The icon ([`assets/logo.svg`](assets/logo.svg))
+is original geometry in this repo's own visual language — two interlocking strokes crossed by
+one spine, the 互 glyph, drawn from scratch. Nothing is traced, copied, or extracted from any game.
+
+> The author is a long-time miHoYo player, and the name is a nod to the Aeon of
+> Equilibrium in *Honkai: Star Rail*. If miHoYo (or anyone else) considers this naming
+> inappropriate, **open an issue and it will be changed** — no argument, no delay.
 
 ## License
 

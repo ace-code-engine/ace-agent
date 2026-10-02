@@ -200,6 +200,13 @@ MCP 身份中断、发布物改名兼容 —— 属于「带迁移文档的破�
   与 Apache-2.0 的 requests 的义务说明）；每个 wheel 自带完整许可证文本
 - ✅ **`.gitignore`** —— 补 `executor/ace-executor-*`（3.75 MB 交叉编译产物没被忽略）与
   `.env` / `.env.*` 规则
+- ✅ **发行物改名（`ace-*` → `hooh-*`）** —— 打包脚本与四个 workflow 一起改：
+  `hooh-<ver>-windows-amd64.msi|.zip`、`hooh-mcp-server-<ver>.zip`、
+  `hooh-sandbox-bundle-<ver>.zip`、`hooh-executor-<target>`、`hooh-mcp-<ver>-<平台>.zip`。
+  **executor 那条留了旧名兜底**：已发布 Release 上只有 `ace-executor-*`，
+  所以 `_EXECUTOR_ASSETS` 每个平台存两个名字、逐个试；**二进制本身仍叫 `ace-executor`**
+  （自校验与 `executor/go.mod` 的 module 名依赖它）——换的只是下载地址里的文件名。
+  **历史 Release 的标题与发布说明**按纪律不动：那是当时的事实。
 
 
 ### 不动的

@@ -1,4 +1,4 @@
-# build_mcp_bundle.ps1 - produce the non-intrusive MCP server pack (dist/ace-mcp-server-<ver>.zip)
+# build_mcp_bundle.ps1 - produce the non-intrusive MCP server pack (dist/hooh-mcp-server-<ver>.zip)
 #
 # ASCII only (PS 5.1 reads .ps1 as the system codepage without a BOM).
 #
@@ -13,7 +13,7 @@ $Root = Split-Path -Parent $PSScriptRoot          # repo root (this file lives i
 . (Join-Path $PSScriptRoot '_pack_common.ps1')
 
 $Version = Resolve-AceVersion -Root $Root
-$Name = "ace-mcp-server-$Version"
+$Name = "hooh-mcp-server-$Version"
 $Dist = Join-Path $Root 'dist'
 $Stage = Join-Path $Dist $Name
 $Zip = Join-Path $Dist "$Name.zip"

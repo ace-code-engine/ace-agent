@@ -280,7 +280,7 @@ def main() -> int:
     print(f"candle: {candle}")
 
     wixobj = outdir / "ace.wixobj"
-    msi = outdir / f"ace-{version}-windows-amd64.msi"
+    msi = outdir / f"hooh-{version}-windows-amd64.msi"
     # -arch x64：载荷是 64 位（PyInstaller 在 windows-latest 上产出的就是 x64）。
     rc, _ = run([candle, "-nologo", "-arch", "x64", "-out", str(wixobj), str(wxs)],
                 f"candle -arch x64 -out {wixobj.name} {wxs.name}")

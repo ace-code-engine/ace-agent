@@ -240,13 +240,20 @@ def _pip_install_with_fallbacks(target: str) -> bool:
 
 # —— 官方预编译执行器下载通道（docs/EXECUTOR-RELEASE.md，D3） ——
 # owner/repo 与 README 徽章一致；产物名与 .github/workflows/release-executor.yml 的矩阵一一对应。
+#
 _EXECUTOR_REPO = "ace-code-engine/hooh-agent"
+# 每个平台给**两个**资产名：新名在前、旧名在后。
+# 为什么要留旧名：改名只改了**发行物文件名**，而已发布的 Release（截至 v3.47.0）里
+# 躺着的仍是 `ace-executor-*`。只认新名的话，`ace --install-executor` 在下一个
+# Release 出来之前会全线 404 —— 改名的代价不该由用户来付。
+# 注意**二进制自己的名字没变**（仍打印 `ace-executor`，下方自校验与
+# executor/go.mod 的 module 名都依赖它）：这里换的是下载地址里的文件名，不是产物身份。
 _EXECUTOR_ASSETS = {
-    ("win32", "amd64"): "ace-executor-windows-amd64.exe",
-    ("linux", "amd64"): "ace-executor-linux-amd64",
-    ("linux", "arm64"): "ace-executor-linux-arm64",
-    ("darwin", "amd64"): "ace-executor-darwin-amd64",
-    ("darwin", "arm64"): "ace-executor-darwin-arm64",
+    ("win32", "amd64"): ("hooh-executor-windows-amd64.exe", "ace-executor-windows-amd64.exe"),
+    ("linux", "amd64"): ("hooh-executor-linux-amd64", "ace-executor-linux-amd64"),
+    ("linux", "arm64"): ("hooh-executor-linux-arm64", "ace-executor-linux-arm64"),
+    ("darwin", "amd64"): ("hooh-executor-darwin-amd64", "ace-executor-darwin-amd64"),
+    ("darwin", "arm64"): ("hooh-executor-darwin-arm64", "ace-executor-darwin-arm64"),
 }
 
 
@@ -274,17 +281,26 @@ def _install_executor() -> bool:
     dest = Path(__file__).resolve().parent / "executor" / exe
     base = os.environ.get("ACE_EXECUTOR_BASE_URL",
                           f"https://github.com/{_EXECUTOR_REPO}")
-    url = f"{base.rstrip('/')}/releases/latest/download/{asset}"
     tmp = dest.with_name(dest.name + ".tmp")
-    print(f"下载官方预编译执行器: {asset}")
-    print(c("dim", f"  <- {url}"))
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ace-install-executor"})
-        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
-            shutil.copyfileobj(r, f)
-    except Exception as e:
-        print(c("red", f"下载失败: {e}"))
-        tmp.unlink(missing_ok=True)
+    # 新名优先、旧名兜底：老 Release 上只有旧名，新 Release 上只有新名，
+    # 两个都试才谈得上"改名不停服"。第一个成功就收工。
+    candidates = asset if isinstance(asset, tuple) else (asset,)
+    last_err = None
+    for asset_name in candidates:
+        url = f"{base.rstrip('/')}/releases/latest/download/{asset_name}"
+        print(f"下载官方预编译执行器: {asset_name}")
+        print(c("dim", f"  <- {url}"))
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ace-install-executor"})
+            with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f)
+            last_err = None
+            break
+        except Exception as e:            # noqa: BLE001 —— 这个名字没有就换下一个
+            last_err = e
+            tmp.unlink(missing_ok=True)
+    if last_err is not None:
+        print(c("red", f"下载失败: {last_err}"))
         print(c("dim", "  可设 ACE_EXECUTOR_BASE_URL 指向镜像后重试；或手工 go build。"))
         return False
     if os.name != "nt":

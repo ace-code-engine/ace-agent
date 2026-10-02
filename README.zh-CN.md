@@ -36,13 +36,14 @@ ACE 是面向编码代理的**执行层**。每一次工具调用 —— 文件�
 
 ## 拿到手
 
-每个版本发布三种产物，是**并列的三条路**，不是要叠加的层：
+每个版本发布四种产物，是**并列的四条路**，不是要叠加的层：
 
 | 形态 | 产物 | 什么时候选它 |
 |---|---|---|
-| **① 直接用 ACE 当你的 agent** | `ace-1.0.0-windows-amd64.msi` · `.zip` | 你需要一个能自己干活的终端 agent |
-| **② 把 ACE 当 MCP 服务** | `ace-mcp-server-1.0.0.zip` | 你已经在用 Cline / Claude Desktop / Cursor，只想加边界、不改它 |
-| **③ MCP + 沙箱底座（一体包）** | `ace-sandbox-bundle-1.0.0.zip` | 你既要裁决边界，也要执行边界（KVM microVM） |
+| **① 直接用 HooH 当你的 agent** | `hooh-<版本>-windows-amd64.msi` · `.zip` | 你需要一个能自己干活的终端 agent |
+| **② 把 HooH 当 MCP 服务（自带环境）** | `hooh-mcp-<版本>-<平台>.zip` | 你已经在用 Cline / Claude Desktop / Cursor，只想加边界、不改它。**自包含，不需要 Python** |
+| **③ MCP 包（源码版）** | `hooh-mcp-server-<版本>.zip` | 同 ②，但你想读/改源码；需要 Python 3.10+ |
+| **④ MCP + 沙箱底座（一体包）** | `hooh-sandbox-bundle-<版本>.zip` | 你既要裁决边界，也要执行边界（KVM microVM） |
 
 ## 快速开始
 

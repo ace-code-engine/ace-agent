@@ -37,13 +37,14 @@ the boundary holds when the prompt does not (jailbreak, injected content, tamper
 
 ## Get it
 
-Three artefacts per release — alternatives, not layers:
+Four artefacts per release — alternatives, not layers:
 
 | Form | Artefact | Choose it when |
 |---|---|---|
-| **① ACE as your agent** | `ace-1.0.0-windows-amd64.msi` · `.zip` | You want a terminal agent to work in |
-| **② ACE as an MCP server** | `ace-mcp-server-1.0.0.zip` | You already use Cline / Claude Desktop / Cursor and want the boundary without changing it |
-| **③ MCP + sandbox base** | `ace-sandbox-bundle-1.0.0.zip` | You want the execution boundary too (KVM microVM) |
+| **① HooH as your agent** | `hooh-<ver>-windows-amd64.msi` · `.zip` | You want a terminal agent to work in |
+| **② HooH as an MCP server** | `hooh-mcp-<ver>-<platform>.zip` | You already use Cline / Claude Desktop / Cursor and want the boundary without changing it. **Self-contained: no Python needed** |
+| **③ MCP pack (source)** | `hooh-mcp-server-<ver>.zip` | Same as ② but you want to read/patch the source; needs Python 3.10+ |
+| **④ MCP + sandbox base** | `hooh-sandbox-bundle-<ver>.zip` | You want the execution boundary too (KVM microVM) |
 
 ## Quickstart
 

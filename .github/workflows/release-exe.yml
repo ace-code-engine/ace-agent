@@ -107,14 +107,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          Copy-Item "dist/ace-${{ steps.v.outputs.version }}-windows-amd64.msi" release-assets/ -Force
-          Copy-Item "dist/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" release-assets/ -Force
+          Copy-Item "dist/hooh-${{ steps.v.outputs.version }}-windows-amd64.msi" release-assets/ -Force
+          Copy-Item "dist/hooh-${{ steps.v.outputs.version }}-windows-amd64.zip" release-assets/ -Force
           Get-ChildItem release-assets | Format-Table Name, Length -AutoSize
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ace-windows-amd64
-          path: release-assets/ace-*
+          name: hooh-windows-amd64
+          path: release-assets/hooh-*
           if-no-files-found: error
 
       - name: Attach to release
@@ -131,8 +131,8 @@ jobs:
             gh release create $tag --title $tag --notes "见 CHANGELOG.md 的 $tag 条目。"
           }
           # 两个都传：MSI 是主推渠道，便携 zip 给不想装的人。--clobber 让重跑可覆盖。
-          gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.msi" --clobber
-          gh release upload $tag "release-assets/ace-${{ steps.v.outputs.version }}-windows-amd64.zip" --clobber
+          gh release upload $tag "release-assets/hooh-${{ steps.v.outputs.version }}-windows-amd64.msi" --clobber
+          gh release upload $tag "release-assets/hooh-${{ steps.v.outputs.version }}-windows-amd64.zip" --clobber
 
   # tag 推送触发时，Release 由 release-executor 建、exe 附件由上面的 job 负责。
   # 这个 job 只做一件轻量的事：确认"版本单源 / CHANGELOG 条目 / tag"三者对得上。

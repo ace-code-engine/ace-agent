@@ -59,11 +59,19 @@
 
 | GOOS/GOARCH | 产物名 | 说明 |
 |---|---|---|
-| windows/amd64 | `ace-executor-windows-amd64.exe` | 主目标（job 档唯一入口） |
-| linux/amd64 | `ace-executor-linux-amd64` | 常见服务器 |
-| linux/arm64 | `ace-executor-linux-arm64` | |
-| darwin/amd64 | `ace-executor-darwin-amd64` | Intel Mac |
-| darwin/arm64 | `ace-executor-darwin-arm64` | Apple Silicon |
+| windows/amd64 | `hooh-executor-windows-amd64.exe` | 主目标（job 档唯一入口） |
+| linux/amd64 | `hooh-executor-linux-amd64` | 常见服务器 |
+| linux/arm64 | `hooh-executor-linux-arm64` | |
+| darwin/amd64 | `hooh-executor-darwin-amd64` | Intel Mac |
+| darwin/arm64 | `hooh-executor-darwin-arm64` | Apple Silicon |
+
+> **改名兼容（2026-10-03）**：上面是改名后的**发行物文件名**。截至 v3.47.0 的旧 Release 里
+> 躺着的仍是 `ace-executor-*`，所以 `ai_code._EXECUTOR_ASSETS` 每个平台存**两个名字**
+> （新名在前、旧名兜底），`--install-executor` 逐个试到成功为止 —— 只认新名的话，
+> 在下一个 Release 出来之前会全线 404。
+> **二进制自己的名字没变**：它仍打印 `ace-executor`（`release-executor.yml` 的
+> `native-smoke` 与下载后的自校验都按这个前缀判），`executor/go.mod` 的 module 也仍是
+> `ace/executor`。换的只是下载地址里的文件名，不是产物身份。
 
 - 编译参数：`CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.serverVersion={version}" ./`。
 - workflow 分三步 job，产物经 `upload-artifact`/`download-artifact` 交接（两者均为 actions 官方 action，与仓库只用官方 action 的习惯一致；发布本身用 runner 自带的 `gh` CLI，不引入第三方 action）：

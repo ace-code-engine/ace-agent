@@ -1,8 +1,8 @@
 name: release-packs
 
 # 两个"直接给用户"的包，挂到已有的 Release 上：
-#   ace-mcp-server-<ver>.zip       —— 非侵入式 MCP 服务包（挂到用户自己的 agent 上）
-#   ace-sandbox-bundle-<ver>.zip   —— 一体包（虚拟化底座 + 同一个 MCP 服务层）
+#   hooh-mcp-server-<ver>.zip      —— 非侵入式 MCP 服务包（挂到用户自己的 agent 上）
+#   hooh-sandbox-bundle-<ver>.zip  —— 一体包（虚拟化底座 + 同一个 MCP 服务层）
 #
 # 为什么单独一个工作流（而不是塞进 release-exe / release-executor）：
 # 那两个是**已验证过**的链路（MSI/zip + 五平台执行器），往里加步骤就得重新验一遍它们的
@@ -57,8 +57,8 @@ jobs:
         run: |
           set -e
           V="${{ steps.version.outputs.resolved }}"
-          M="${GITHUB_WORKSPACE}/dist/ace-mcp-server-${V}.zip"
-          A="${GITHUB_WORKSPACE}/dist/ace-sandbox-bundle-${V}.zip"
+          M="${GITHUB_WORKSPACE}/dist/hooh-mcp-server-${V}.zip"
+          A="${GITHUB_WORKSPACE}/dist/hooh-sandbox-bundle-${V}.zip"
           test -f "$M" || { echo "mcp pack missing: $M"; exit 1; }
           test -f "$A" || { echo "all-in-one pack missing: $A"; exit 1; }
           for z in "$M" "$A"; do
@@ -71,8 +71,8 @@ jobs:
             case "$z" in *secbox*) extra="--with-base" ;; esac
             python3 "$GITHUB_WORKSPACE/packaging/verify_pack_contents.py" "$d" $extra
           done
-          test -f "/tmp/pk_ace-sandbox-bundle-${V}/sandbox/preflight.sh" || { echo "all-in-one pack is missing the base half"; exit 1; }
-          test -f "/tmp/pk_ace-sandbox-bundle-${V}/setup-all.sh" || { echo "all-in-one pack is missing setup-all.sh"; exit 1; }
+          test -f "/tmp/pk_hooh-sandbox-bundle-${V}/sandbox/preflight.sh" || { echo "all-in-one pack is missing the base half"; exit 1; }
+          test -f "/tmp/pk_hooh-sandbox-bundle-${V}/setup-all.sh" || { echo "all-in-one pack is missing setup-all.sh"; exit 1; }
           echo "both packs verify"
 
       - name: Attach to the existing Release (idempotent)
@@ -86,7 +86,7 @@ jobs:
             exit 1
           fi
           gh release upload "${TAG}" \
-            "dist/ace-mcp-server-${VERSION}.zip" "dist/ace-sandbox-bundle-${VERSION}.zip" \
+            "dist/hooh-mcp-server-${VERSION}.zip" "dist/hooh-sandbox-bundle-${VERSION}.zip" \
             --clobber --repo "${{ github.repository }}"
           echo "已把两个包挂到 ${TAG}"
 

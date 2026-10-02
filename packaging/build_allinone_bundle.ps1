@@ -1,6 +1,6 @@
 # build_allinone_bundle.ps1 - the all-in-one pack: virtualization base + MCP server.
 #
-#   dist/ace-sandbox-bundle-<ver>.zip = ace-mcp-server-<ver> contents + sandbox/ (base bootstrap)
+#   dist/hooh-sandbox-bundle-<ver>.zip = hooh-mcp-server-<ver> contents + sandbox/ (base bootstrap)
 #                                     + setup-all.ps1 / setup-all.sh + README-ALLINONE.md
 #
 # Why one zip instead of two downloads: the two halves are useless apart (a base with no
@@ -16,7 +16,7 @@ $Root = Split-Path -Parent $PSScriptRoot          # repo root (this file lives i
 . (Join-Path $PSScriptRoot '_pack_common.ps1')
 
 $Version = Resolve-AceVersion -Root $Root
-$Name = "ace-sandbox-bundle-$Version"
+$Name = "hooh-sandbox-bundle-$Version"
 $Dist = Join-Path $Root 'dist'
 $Stage = Join-Path $Dist $Name
 $Zip = Join-Path $Dist "$Name.zip"

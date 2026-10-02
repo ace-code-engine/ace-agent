@@ -71,11 +71,11 @@ jobs:
         run: |
           mkdir -p ../release-assets
           go build -trimpath -ldflags "-s -w -X main.serverVersion=${{ steps.version.outputs.resolved }}" \
-            -o ../release-assets/ace-executor-${{ matrix.target }}${{ matrix.ext }} .
+            -o ../release-assets/hooh-executor-${{ matrix.target }}${{ matrix.ext }} .
       - uses: actions/upload-artifact@v4
         with:
           name: asset-${{ matrix.target }}
-          path: release-assets/ace-executor-${{ matrix.target }}${{ matrix.ext }}
+          path: release-assets/hooh-executor-${{ matrix.target }}${{ matrix.ext }}
           if-no-files-found: error
 
   native-smoke:

@@ -139,12 +139,12 @@ if (-not $ver) {
     $ver = ([regex]::Match([System.IO.File]::ReadAllText((Join-Path $Repo 'core\version.py'),
                              [System.Text.Encoding]::UTF8), '__version__ = "([^"]+)"')).Groups[1].Value
 }
-$msi = Join-Path $Dist ("ace-{0}-windows-amd64.msi" -f $ver)
+$msi = Join-Path $Dist ("hooh-{0}-windows-amd64.msi" -f $ver)
 if (-not (Test-Path $msi)) { Write-Host "FAIL: expected artifact not found: $msi"; exit 1 }
 Write-Host ("installer: {0}  ({1} MB)" -f $msi, [math]::Round((Get-Item $msi).Length / 1MB, 1))
 
 if (-not $NoZip) {
-    $zip = Join-Path $Dist ("ace-{0}-windows-amd64.zip" -f $ver)
+    $zip = Join-Path $Dist ("hooh-{0}-windows-amd64.zip" -f $ver)
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $Payload '*') -DestinationPath $zip -Force
     Write-Host ("zip      : {0}  ({1} MB)" -f $zip, [math]::Round((Get-Item $zip).Length / 1MB, 1))

@@ -173,12 +173,14 @@ ace-agent/
 │   └── 03_multi_turn_agent/    #   持久目标 + 子代理 + 知识库（附 config.example.json）
 ├── assets/logo.svg             # 标识「互」几何构图（原创，无第三方素材，非游戏素材描摹）
 ├── assets/ace.ico              # 由 logo.svg 生成的多尺寸图标（packaging/make_icon.py，7 个尺寸）
+├── assets/repo-social-preview.png  # GitHub 仓库卡片图（1280×640，Settings → Social preview 上传用）
 
 ├── docs/                       # 文档（README 是入口，索引见 docs/README.md）
 │   ├── README.md               #   文档索引：按"想干什么"分流全部文档
 │   ├── BOOTSTRAP.md            #   一条命令跑起来（三条路：Docker / 源码 setup_env / 预编译 exe；三个经典环境坑及其真因）
 │   ├── CAPABILITIES.md         #   核心能力概览（执行安全 / Agent 能力 / 可选与实验性）
-│   ├── WHY.md                  #   为什么是 ACE（名称说明 / 对比提示词护栏 / 设计取向 / 设计参考）
+│   ├── WHY.md                  #   为什么是 HooH（名称说明 / 对比提示词护栏 / 设计取向 / 设计参考）
+│   ├── NAMING.md               #   改名决策：候选与被否掉的（order/希腊/门神）、落地清单、HooH 的知识产权口径
 │   ├── HANDOFF.md              #   工程债与交接（还没做完的 + 仍未验证 + 为什么停在这里）
 │   ├── GETTING-STARTED.md      #   上手路径：5 分钟跑起来 + 三维度矩阵 + 十个坑 + 去哪深入
 │   ├── SHOWCASE.md             #   演示与截图：landing / 完整一轮 / diff 卡片 / 执行层拒绝（全部来自真实 --mock 会话）
@@ -238,11 +240,13 @@ ace-agent/
 ├── LICENSE                     # MIT
 ├── CHANGELOG.md                # 逐版本更新日志（Keep a Changelog 风格）
 ├── SECURITY.md                 # 安全策略：漏洞报告流程 / 承诺 / 已知边界
+├── THIRD-PARTY-NOTICES.md      # 第三方许可证索引：vendor/ 里 16 个 wheel 的署名与义务（MPL-2.0 / Apache-2.0 等）
 ├── requirements.txt            # 依赖清单（安全核心零依赖，模型调用需 requests）
 ├── setup_env.py                # 运行环境一键准备：多环境发现 + 真的 import 一次 + 离线 wheel
 ├── vendor/                     # 离线依赖落点（放 wheel 即可离线安装；README 说明口径）
 ├── packaging/                  # 发行打包：ace.spec + build_exe.ps1（PyInstaller 单目录 + 冒烟门禁）/ make_wix.py + build_installer.ps1（WiX MSI 安装包 + 便携 zip）/ make_icon.py（logo.svg → ace.ico，纯标准库光栅化）/ check_packaging.ps1（提交前脚本自检）
 ├── ace.cmd                     # Windows 启动器（向 setup_env 问路挑解释器，防商店占位）
+├── hooh.cmd                    # 同一入口的新名字转发器（cmd /c 起子进程；call 会让 Ink 前端 0xC0000409 退出）
 ├── Dockerfile                  # 整体镜像入口（三档细目在 docker/）
 ├── docker-compose.yml          # 整体镜像一键起停编排
 ├── .gitignore                  # 忽略规则：生成物 / 缓存 / 密钥

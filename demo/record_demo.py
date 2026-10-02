@@ -373,7 +373,7 @@ text{{white-space:pre;dominant-baseline:middle}}
 <rect y="40" width="{width}" height="{height - 40}" fill="{THEME['bg']}"/>
 {dots}
 <text x="{width / 2}" y="21" text-anchor="middle" font-size="12.5" \
-fill="{THEME['dim']}">ace-agent — python ai_code.py --mock</text>
+fill="{THEME['dim']}">hooh-agent — python ai_code.py --mock</text>
 {chr(10).join(body)}
 </svg>
 """
@@ -426,7 +426,7 @@ def project_version() -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="录制 ace-agent 演示动画（SVG）")
+    ap = argparse.ArgumentParser(description="录制 hooh-agent 演示动画（SVG）")
     ap.add_argument("--check", action="store_true",
                     help="校验现有 SVG 能否原样重现（不带 --session 时逐个校验全部）")
     ap.add_argument("--session", choices=sorted(set(SESSIONS) | set(PREVIEW_ARGV)),

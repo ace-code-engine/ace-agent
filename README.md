@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ace-code-engine/hooh-agent/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/ace-code-engine/hooh-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Release" src="https://img.shields.io/badge/release-v1.0.0%20Public%20Beta-brightgreen">
@@ -55,7 +55,7 @@ python ai_code.py           # real model (setup wizard)
 From a checkout you can also use the launcher, which finds a usable Python for you:
 `hooh.cmd --mock` (Windows) — `ace.cmd` is kept as an alias for the same entry point.
 
-Windows without Python: grab the zip from [Releases](https://github.com/ace-code-engine/ace-agent/releases)
+Windows without Python: grab the zip from [Releases](https://github.com/ace-code-engine/hooh-agent/releases)
 and run `ace\ace.exe --mock`. Install & build: [docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md).
 
 <p align="center">

@@ -66,6 +66,8 @@
 
 - ✅ REL-08 **发布要两次手动派发 → 已收成一次**（2026-09-27 实施）：`release-executor` 用 `gh release create` **经 API 建 tag**（不是 push 一个 ref），因此**不会**触发 `release-exe` 的 `push.tags`；而 `release-exe` 由 tag 触发时又**有意跳过** `Attach to release`（防两个工作流同时 create 撞 422）。于是"跑一次就两样产物齐全"不成立：Release 上的 5 平台执行器归 `release-executor`，MSI/zip 归**手动**再跑一次 `release-exe`（version 填同一个号）。**修法**：`release-executor` 的 `release` job 末尾新增一步 `gh workflow run release-exe.yml -f version=$VERSION` 主动接手（该工作流的 `permissions` 相应加了 `actions: write`），正常情况下仍只手动派发一次。两条路都幂等、先后随意，自动派发失败时仍可手工再来一次（`release-exe.yml` 顶部注释与 `push.tags` 那行错注释一并对齐了现码）
 
+- ✅ REL-10 **改名 HooH（互）+ 仓库改名 `hooh-agent`**（2026-10-03）：产品改名见 `docs/NAMING.md`（含商标/版权口径与"不含任何游戏素材"的说明）。仓库 `github.com/ace-code-engine/ace-agent` → `github.com/ace-code-engine/hooh-agent`，GitHub 对旧地址 302，Issues/PR/Releases/tag/Actions 全部跟随（与 REL-05 过继时同样的性质）。仓库内**URL 意义上的硬编码**已一并换：`README.md`×2（徽章 + Releases）、`README.zh-CN.md`×2、`docs/BOOTSTRAP.md`×3、`docs/GETTING-STARTED.md`、`docs/design/EXECUTOR-RELEASE.md`、`packaging/make_wix.py`×2（WiX Comments / ARPURLINFOABOUT）、`ai_code.py` 的 `_EXECUTOR_REPO`（**不是装饰**，`ace --install-executor` 照它下载）、`demo/record_demo.py` 的图注。**按纪律刻意不换**：`core/guardian.py` 的 `%LOCALAPPDATA%\ace-agent\state`（那是**签名密钥锚目录**，属于磁盘兼容面，改了已装用户的快照链全部校验失败）、`docker/README-Docker.md` 的 `ace-agent:lite|standard|full`（**镜像名**，不是仓库名）、`docs/ARCHITECTURE.md` 目录树里的 `ace-agent/`（本地目录名）、`evidence-pack/**` 与 `docs/history/**`（历史留痕，改了等于篡改记录；里面的旧 URL 是**当时的事实**，不是待更新的引用）。仓库 description 与 social preview 卡图（`assets/repo-social-preview.png`，1280×640）同批换新
+
 ## 建议顺序
 
 1. ✅ **P0 全批**（SEC-01→SEC-06）已完成 + 各自回归测试

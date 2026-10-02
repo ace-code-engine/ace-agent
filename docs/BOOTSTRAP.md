@@ -29,7 +29,7 @@ docker compose run --rm ace
 ## 路线 2 · 源码（推荐）
 
 ```bash
-git clone https://github.com/ace-code-engine/ace-agent.git && cd ace-agent
+git clone https://github.com/ace-code-engine/hooh-agent.git && cd hooh-agent
 PY=$(python3 setup_env.py --ensure --print-python) && "$PY" ai_code.py --mock
 ```
 
@@ -45,7 +45,7 @@ PY=$(python3 setup_env.py --ensure --print-python) && "$PY" ai_code.py --mock
 **Windows（PowerShell）**：
 
 ```powershell
-git clone https://github.com/ace-code-engine/ace-agent.git; cd ace-agent
+git clone https://github.com/ace-code-engine/hooh-agent.git; cd hooh-agent
 .\ace.cmd --mock
 ```
 
@@ -56,7 +56,7 @@ git clone https://github.com/ace-code-engine/ace-agent.git; cd ace-agent
 
 ## 路线 3 · 预编译 exe（Windows，不用装 Python）
 
-到 [Releases 页面](https://github.com/ace-code-engine/ace-agent/releases) 下载
+到 [Releases 页面](https://github.com/ace-code-engine/hooh-agent/releases) 下载
 `ace-<版本>-windows-amd64.zip`，解压到任意目录：
 
 ```powershell

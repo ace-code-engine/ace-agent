@@ -89,13 +89,13 @@ def build_wxs(payload: Path, version: str, out: Path, app_name: str = "HooH") ->
         f'UpgradeCode="{str(UPGRADE_CODE).upper()}">')
     add('    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" '
         'Description="HooH - local-first AI coding agent. Ships its own runtime; no Python needed." '
-        'Comments="https://github.com/ace-code-engine/ace-agent" />')
+        'Comments="https://github.com/ace-code-engine/hooh-agent" />')
     add('    <MajorUpgrade AllowSameVersionUpgrades="yes" '
         'DowngradeErrorMessage="A newer version of HooH is already installed." />')
     add('    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />')
     add(f'    <Property Id="ARPNOMODIFY" Value="1" />')
     add(f'    <Property Id="ARPCOMMENTS" Value="Local-first AI coding agent. No Python needed." />')
-    add('    <Property Id="ARPURLINFOABOUT" Value="https://github.com/ace-code-engine/ace-agent" />')
+    add('    <Property Id="ARPURLINFOABOUT" Value="https://github.com/ace-code-engine/hooh-agent" />')
 
     # 目录骨架：Program Files\ACE\{,_internal\...}
     # 用真正的递归目录树来生成，而不是"按深度补 </Directory>"——第一版就是那么写的，

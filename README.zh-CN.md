@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ace-code-engine/ace-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ace-code-engine/hooh-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ace-code-engine/hooh-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="发布状态" src="https://img.shields.io/badge/release-v1.0.0%20Public%20Beta-brightgreen">
@@ -54,7 +54,7 @@ python ai_code.py           # 接入真实模型（向导引导）
 在仓库里也可以直接用启动器，它会自己找一个能用的 Python：
 `hooh.cmd --mock`（Windows）—— `ace.cmd` 作为同一个入口的别名保留。
 
-Windows 没装 Python：去 [Releases](https://github.com/ace-code-engine/ace-agent/releases) 拿 zip，
+Windows 没装 Python：去 [Releases](https://github.com/ace-code-engine/hooh-agent/releases) 拿 zip，
 跑 `ace\ace.exe --mock`。安装与构建：[docs/PACKAGING-EXE.md](docs/PACKAGING-EXE.md)。
 
 <p align="center">

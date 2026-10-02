@@ -1015,6 +1015,23 @@ if _want("9"):
     check("CLI 密钥打码",
           ai_code.mask_secret("sk-1234567890abcdef") == "sk-123***cdef")
 
+    # —— ANSI 色板完备性（曾经两个真崩溃的根因）——
+    # `c()` 原来是 `ANSI[color]`：色板少一个键，整轮对话就炸。
+    # 实测踩到两次：`_MD_STYLES["italic"]`（模型回一句 `*斜体*` 即触发，
+    # converse() 把它吞成"模型调用失败: 'italic'"，整段回答一起丢）；
+    # `ui/ace_home.py` 的 `st("warn", …)`（`--sandbox job` 时首屏直接 traceback）。
+    # 这条同时钉两件事：色板补全，以及 `c()` 对未知键**降级不上色而不是抛异常**。
+    check("ANSI 色板覆盖 _MD_STYLES 的每一个取值（少一个键 = 一轮对话炸掉）",
+          all(_v in ai_code.ANSI for _v in ai_code._MD_STYLES.values()),
+          sorted({_v for _v in ai_code._MD_STYLES.values() if _v not in ai_code.ANSI}))
+    check("c() 遇到未知色名降级不上色，不抛异常",
+          isinstance(ai_code.c("no-such-color-name", "x"), str)
+          and isinstance(ai_code.c("warn", "x"), str)
+          and isinstance(ai_code.c("italic", "x"), str))
+    check("markdown 斜体 + 首屏 warn 都能渲染（回归：两处 KeyError）",
+          bool(__import__("ui.ace_markdown", fromlist=["x"]).render(
+              "这是 *斜体* 一段", 40, styler=ai_code._md_styler)))
+
     cfg_cli = {"project_root": str(mktemp()), "permission": "write", "bait": True,
                "base_url": "", "api_key": "", "model": "mock"}
     cli = ai_code.AgentCLI(cfg_cli, mock=True)
@@ -11969,7 +11986,7 @@ if _want("65"):
           and _home65.action_for_key("escape escape") == "rewind"
           and _home65.action_for_key("alt+z") == "", "")
     check("[65] 主页：顶行只放「一眼要确认的三件事」（版本/模型/权限），沙箱非 off 才露面",
-          "ACE 9.9.9" in _home65.title_line("9.9.9", "m1", "readonly", "off")
+          "HooH 9.9.9" in _home65.title_line("9.9.9", "m1", "readonly", "off")
           and "沙箱" not in _home65.title_line("9.9.9", "m1", "readonly", "off")
           and "沙箱" in _home65.title_line("9.9.9", "m1", "readonly", "job"), "")
 
@@ -12326,7 +12343,7 @@ if _want("67"):
           all(code == 0 and not ue for _n, code, _tb, ue, _t in _runs67),
           [(n, c, ue, t) for n, c, _tb, ue, t in _runs67 if c != 0 or ue])
     check("[67] GBK 环境真跑：--preview 的顶行是文字标签（不是 emoji 乱码）",
-          (lambda out: ("ACE " in out and "目录" in out or "dir " in out)
+          (lambda out: ("HooH " in out and "目录" in out or "dir " in out)
            if out else False)(
               _sp67.run([_sys67.executable, "ai_code.py", "--mock", "--preview",
                          "--preview-width", "80", "--project-root", _pr67],
@@ -14512,7 +14529,7 @@ if _want("70"):
     _j_lines = _j_cli.home_lines(width=92)
     check("J1 主页标题下带跨会话累计行（标题仍在第一行，且没有不可用告警）",
           any("跨会话累计" in x for x in _j_lines)
-          and _j_lines[0].startswith("ACE ")
+          and _j_lines[0].startswith("HooH ")
           and not any("跨会话统计不可用" in x for x in _j_lines),
           str(_j_lines[:3]))
     # J2：meta 是可选的 —— 不传与传空串逐行一致（既有调用/测试不受影响）

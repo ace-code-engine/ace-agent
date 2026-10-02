@@ -174,12 +174,12 @@ def action_for_key(key: str) -> str:
 def title_line(version: str, model: str, permission: str, sandbox: str = "",
                styler: Optional[Callable[[str, str], str]] = None,
                folder: str = "", folder_label: str = "") -> str:
-    """主页顶行：`ACE 3.39.0 · 模型 · 权限 · 沙箱`。
+    """主页顶行：`HooH 3.39.0 · 模型 · 权限 · 沙箱`。
 
     顶行只放"一眼要确认的三件事"，其余状态归底栏 —— 主页不该是仪表盘。
     """
     st = styler or (lambda _k, x: x)
-    bits = [st("bold", f"ACE {version}")]
+    bits = [st("bold", f"HooH {version}")]
     if folder:
         # **不用 emoji**：中文 Windows 控制台是 cp936，📁 印不出来会变成乱码
         # （这正是本项目早期就写下的纪律："刻意不用 emoji"）。用文字标签代替。

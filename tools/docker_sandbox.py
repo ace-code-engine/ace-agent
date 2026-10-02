@@ -33,15 +33,22 @@ cwd 固定在项目根 —— 但 `shell=True` 下 `cd /` 或写绝对路径随�
 docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
 ```
 
-**可选**：如果你把镜像放到了某个 registry（自己的私有 GHCR、内网 registry 都算），
-可以打开自动拉取：`ACE_SANDBOX_PULL=1`（需要先 `docker login`）。
-本地已经有的镜像**永远优先**，只有缺失才会去拉。
+**默认走官方预编译镜像**：本机没有沙箱镜像时会自动从
+`ghcr.io/ace-code-engine/hooh-sandbox:latest` 拉一份，再打上本地名
+（`ace-sandbox:latest`）—— 新用户**不需要 `docker login`、不需要自己 build**。
+本地已有的镜像**永远优先**，只有缺失才会去拉；拉下来的摘要记进工具结果，
+供应链可追溯。
 
-为什么默认关掉：这个项目一度打算发布官方预编译镜像，写好了工作流、也把镜像推上了 GHCR，
-但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization
-administrators），匿名拉不动 —— 一个"自动拉但拉不到"的默认行为，只会让新用户多等一次
-网络超时、再看到一个权限错误。所以官方镜像这条路暂时搁置，默认回到本地构建；
-机制保留，将来包能公开、或者你用自己的 registry 时，一个环境变量就能启用。
+不想要自动拉就 `ACE_SANDBOX_PULL=0`（离线部署、或只想用自己 build 的镜像）。
+
+```bash
+docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
+```
+
+历史：这个开关曾经**默认关**。当时官方镜像推上去了但组织包策略不允许公开容器包，
+匿名拉不动，而"自动拉但拉不到"只会让新用户先等一次网络超时再看到权限错误。
+2026-10-03 该限制解除（包已设为 public，实测登出状态 `docker pull` 成功），
+默认值随之翻转。
 
 ## 一个刻意的设计：不做静默回退
 
@@ -186,8 +193,9 @@ class DockerSandbox:
         听起来像是仓库配错了或者要登录，而真正要做的只是本地 build 一次。
         **默认路径就是这条**：把 build 命令直接给出来。
 
-        镜像放在 registry 里的部署可以开 `ACE_SANDBOX_PULL=1` 让它自动拉
-        （见 auto_pull_enabled）。本地已经有的镜像永远优先，只有缺失才会走到拉取。
+        镜像放在 registry 里的部署**默认就会自动拉**（见 auto_pull_enabled；
+        官方镜像 2026-10-03 起是公开的，匿名可拉）。本地已经有的镜像永远优先，
+        只有缺失才会走到拉取；要关掉自动拉设 `ACE_SANDBOX_PULL=0`。
         """
         if not self.probe():
             raise DockerUnavailable(self._detail)
@@ -203,7 +211,7 @@ class DockerSandbox:
         raise DockerUnavailable(
             f"本地没有沙箱镜像 {self.image}。{_why}\n"
             f"    构建它: docker build -t {self.image} -f docker/Dockerfile.sandbox .\n"
-            "    镜像放在 registry 里？先 docker login，再设 ACE_SANDBOX_PULL=1 让它自动拉\n"
+            "    官方镜像缺失时会自动拉（已默认开启）；关掉它用 ACE_SANDBOX_PULL=0\n"
             "    已有别处的镜像可以 --sandbox-image 指定（含 <ref>@sha256:<digest> 固定）；"
             "不想要容器边界就用 --sandbox off。")
 
@@ -278,7 +286,7 @@ class DockerSandbox:
         return (r.stdout or "").strip() if r.returncode == 0 else ""
 
     def _try_acquire(self) -> bool:
-        """镜像不在本地时把它弄到手（仅在 ACE_SANDBOX_PULL=1 时才会被调用）。
+        """镜像不在本地时把它弄到手（默认会被调用，`ACE_SANDBOX_PULL=0` 时不调）。
 
         两种情形：
           - 配置的是 registry 引用（`ghcr.io/...`、`myreg:5000/...`）→ 直接拉它；
@@ -286,11 +294,9 @@ class DockerSandbox:
             打名字而不是改 self.image，是为了让状态在 `docker images` 里看得见、
             且后续运行不再需要网络。
 
-        注意 OFFICIAL_IMAGE 目前**匿名拉不到**（2026-10-03 实测：镜像已发布到
-        ghcr.io/ace-code-engine/hooh-sandbox，但包是 private，`docker pull` 返回
-        unauthorized —— 组织侧还没能把容器包设为公开）—— 所以默认关着；
-        这个分支主要服务于"镜像放在自己的 registry 里"的部署，或已 `docker login`
-        的机器。
+        OFFICIAL_IMAGE 是**公开可匿名拉取**的（2026-10-03 实测：登出状态
+        `docker pull ghcr.io/ace-code-engine/hooh-sandbox:latest` 成功），
+        所以新用户不需要先 `docker login`。
         """
         target = self.image
         ref = target if self.is_registry_ref(target) else OFFICIAL_IMAGE
@@ -408,16 +414,25 @@ class DockerSandbox:
 
 
 def auto_pull_enabled() -> bool:
-    """镜像缺失时是否自动去 registry 拉。**默认关**。
+    """镜像缺失时是否自动去 registry 拉。**默认开**。
 
-    `ACE_SANDBOX_PULL=1` 打开 —— 适用于"镜像放在 registry 里"的部署
-    （自己的私有 GHCR、内网 registry）。打开前先 `docker login`。
+    默认开的依据是实测，不是乐观：官方预编译镜像
+    `ghcr.io/ace-code-engine/hooh-sandbox` 已于 2026-10-03 设为 **public**，
+    在**登出状态**下 `docker pull` 成功（`Status: Downloaded`）—— 也就说新用户
+    不需要 `docker login`、不需要自己 `docker build`，一条命令就能拿到沙箱。
 
-    默认关的理由见模块 docstring「镜像从哪来」：官方预编译镜像因为组织包策略
-    无法设为公开，匿名拉不到；默认去拉只会让新用户多等一次超时再看到权限错误。
+    关掉：`ACE_SANDBOX_PULL=0`（或 false/no/off）。适用于完全离线、
+    或只想用本机自己 build 的镜像的部署 —— 本地已有的镜像**永远优先**，
+    只有缺失才会走到拉取，所以默认开对这类部署也没有副作用。
+
+    历史：这个开关曾经**默认关**，因为当时组织包策略不允许把容器包设为公开，
+    匿名拉不到，默认去拉只会让新用户先等一次超时再看到权限错误。
+    那条限制已经解除，默认值随之翻转。
     """
-    return os.environ.get("ACE_SANDBOX_PULL", "").strip().lower() in (
-        "1", "true", "yes", "on")
+    raw = os.environ.get("ACE_SANDBOX_PULL", "").strip().lower()
+    if not raw:
+        return True
+    return raw not in ("0", "false", "no", "off")
 
 
 def build_sandbox(config: Optional[Dict], workspace: str) -> Optional[DockerSandbox]:
@@ -426,9 +441,9 @@ def build_sandbox(config: Optional[Dict], workspace: str) -> Optional[DockerSand
     config 形如 {"mode": "docker", "image": ..., "timeout": ..., "auto_pull": ..., "seccomp": ...}。
     mode 不是 "docker" 就当没启用——保持默认关闭，不给现有用户变行为。
 
-    未显式给出的两项看环境变量：`ACE_SANDBOX_PULL=1` 打开自动拉取（默认关，
-    见 auto_pull_enabled），`ACE_SANDBOX_IMAGE` / `ACE_SANDBOX_SECCOMP`
-    指定镜像与 seccomp profile。
+    未显式给出的两项看环境变量：自动拉取**默认开**（`ACE_SANDBOX_PULL=0` 关，
+    见 auto_pull_enabled —— 官方镜像公开可匿名拉），`ACE_SANDBOX_IMAGE` /
+    `ACE_SANDBOX_SECCOMP` 指定镜像与 seccomp profile。
     """
     cfg = config or {}
     if str(cfg.get("mode", "off")).lower() != "docker":

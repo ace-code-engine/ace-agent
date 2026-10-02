@@ -223,7 +223,7 @@
 - `--install-ui` / `--setup` — 准备运行环境：装 `requests`（模型调用必需）+ `prompt_toolkit` / `textual` / `rich`（界面增强），多镜像自动回退
 - `--install-executor` — 下载官方预编译执行器（无需本机 Go；`--sandbox job` 前置）
 - `--sandbox job` — Windows Job Object：进程树/内存上限 + 受限令牌（拿不到边界一律 503，不静默回退）
-- `--sandbox docker` — 一次性容器：--network none + --read-only + cap-drop ALL + --init + 只挂工作目录。镜像需先构建一次（`docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`）；镜像放在 registry 里的话 `ACE_SANDBOX_PULL=1` 可自动拉（先 `docker login`），`--sandbox-image <ref>@sha256:<digest>` 可固定摘要
+- `--sandbox docker` — 一次性容器：--network none + --read-only + cap-drop ALL + --init + 只挂工作目录。镜像**缺失时自动拉官方预编译镜像**（`ghcr.io/ace-code-engine/hooh-sandbox`，公开可匿名拉，无需 `docker login`；本地已有的镜像永远优先）；不想自动拉就 `ACE_SANDBOX_PULL=0` 并自己 `docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`，`--sandbox-image <ref>@sha256:<digest>` 可固定摘要
 - `--approval-policy <档>` — 审批策略（与沙箱正交）：`on_request`（默认，需审批时问人）/ `on_failure`（有 job/docker 边界时先试后问；无边界时退回 on_request）/ `never`（从不问人，需审批的一律拒绝）/ `untrusted`（除白名单外都问）。**无人值守请组合 `--sandbox job|docker` + `on_failure`**
 - `--kb <目录>` — 外挂知识库（不指定则用项目 `.ace_kb/`）
 - `--input "<话>"` — 单次对话，跑完即退

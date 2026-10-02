@@ -137,7 +137,7 @@ python ai_code.py --sandbox docker
 
 本地没有镜像时，这一层直接把上面那条 build 命令给你 —— 而不是让 `docker run` 去 registry 找一个不存在的 `ace-sandbox`，先等一个网络超时、再回一句 `pull access denied` 让你以为是要登录。
 
-**可选**：镜像如果放在 registry 里（自己的私有 GHCR、内网 registry 都算），可以先 `docker login`，再设 `ACE_SANDBOX_PULL=1` 让它自动拉；本地已有的镜像永远优先，只有缺失才会去拉。拉下来之后，工具结果里带 `sandbox.image_digest` —— 这次到底跑在哪一份镜像上，是可追溯的。
+**默认自动拉**：本机没有沙箱镜像时，会从 `ghcr.io/ace-code-engine/hooh-sandbox` 拉官方预编译镜像（公开、匿名可拉，无需 `docker login`），拉下来打上本地名。这是**供应链信任点** —— 你多信任了 GHCR 与官方构建那条链；要把这条链收回自己手里有两条路：`ACE_SANDBOX_PULL=0` + 自己 `docker build`，或用 `--sandbox-image <ref>@sha256:<digest>` 固定摘要。本地已有的镜像**永远优先**，只有缺失才会去拉。拉下来之后，工具结果里带 `sandbox.image_digest` —— 这次到底跑在哪一份镜像上，是可追溯的。
 
 > 为什么不做"官方预编译镜像 + 默认自动拉"：2026-09-19 试过。工作流写好了、镜像也确实推进了 GHCR，但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization administrators），匿名拉不动。一个"默认去拉但拉不到"的行为，只会让每个新用户多等一次超时再看到权限错误 —— 所以官方镜像这条路暂时搁置，默认回到本地构建，机制保留（包能公开、或用你自己的 registry 时，一个环境变量就能启用）。`ACE_SANDBOX_SECCOMP=<profile.json>` 可挂自定义 seccomp 配置：默认用 docker 内置 profile（本就挡掉约 44 个系统调用），项目不随缘自带一份 —— 改 seccomp 很容易连带封掉 `clone3` 这类正常路径，这种取舍该由部署方做。
 

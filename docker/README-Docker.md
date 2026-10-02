@@ -71,25 +71,27 @@ docker compose -f docker/docker-compose.yml up vlm-server ace-lite
 
 和上面三档镜像是两回事：这个镜像里**没有 HooH 的代码**，它只是一个干净的执行环境。HooH 跑在宿主，每次 `terminal_exec` / `code_execute` 都 `docker run` 一个它的容器、跑完即销毁。实现见 [`tools/docker_sandbox.py`](../tools/docker_sandbox.py)。
 
-### 用法：先 build 一次（一条命令）
+### 用法：什么都不用做
 
 ```bash
-# 仓库根目录执行
-docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .
+# 仓库根目录执行。缺镜像会自动拉官方那份，所以通常没有前置步骤
 python ai_code.py --sandbox docker
 ```
 
-没构建时，那一层不会让 `docker run` 去 registry 撞一个网络超时，而是直接把上面这条 build 命令给你。
-
-**可选**：镜像如果放在 registry 里（自己的私有 GHCR、内网 registry 都算），先 `docker login`，再设 `ACE_SANDBOX_PULL=1`，缺失时会自动拉：
+**默认不用自己构建**：镜像缺失时会自动拉官方预编译镜像：
 
 ```bash
-docker login ghcr.io
-ACE_SANDBOX_PULL=1 python ai_code.py --sandbox docker \
-  --sandbox-image ghcr.io/<你的命名空间>/ace-sandbox:latest
+python ai_code.py --sandbox docker          # 缺镜像就自动拉 ghcr.io/ace-code-engine/hooh-sandbox
 ```
 
-本地已有的镜像**永远优先**，只有缺失才会去拉。拉下来的镜像会把摘要记进工具结果（`sandbox.image_digest`），"这次到底跑在哪一份上"可追溯；要固定供应链就把镜像写成 `<ref>@sha256:<digest>`。
+官方镜像**公开、匿名可拉**，不需要 `docker login`。本地已有的镜像**永远优先**，所以自己 build 过的机器不会被替换。要完全离线、或只用自己的镜像：
+
+```bash
+ACE_SANDBOX_PULL=0 python ai_code.py --sandbox docker \
+  --sandbox-image ghcr.io/<你的命名空间>/hooh-sandbox:latest
+```
+
+拉下来的镜像会把摘要记进工具结果（`sandbox.image_digest`），"这次到底跑在哪一份上"可追溯；要固定供应链就把镜像写成 `<ref>@sha256:<digest>` —— 默认自动拉意味着你多信任了 GHCR 那条链，钉摘要是把这条链收回手里的最短路径。
 
 > **为什么不提供官方预编译镜像**：2026-09-19 试过 —— workflow 写好了、镜像也真的推进了 GHCR，但**组织的包策略不允许把包设为公开**（对话框原话：Setting is disabled by organization administrators），匿名拉不动。一个"默认去拉但拉不到"的默认行为只会让每个新用户多等一次超时再看到权限错误，所以默认回到本地构建；机制保留，包能公开或用你自己的 registry 时，一个环境变量即可启用。
 

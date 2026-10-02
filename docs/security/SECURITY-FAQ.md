@@ -47,8 +47,11 @@
 - **`job`**：**Windows 独有**。用 Job Object 限进程数与内存，再加受限令牌。
 - **`docker`**：一次性容器，`network none`、`cap-drop ALL`、只读根、`--init`，只把工作区挂进去。
 - **容器与宿主共享内核 —— 逃逸仍然是逃逸。** HooH **不**宣称 docker 档是"绝对隔离"。
-- 沙箱镜像默认**本地构建**（`docker/Dockerfile.sandbox`）；`ACE_SANDBOX_PULL=1` 可拉预构建镜像，
-  但那意味着你多信任了 registry 那条链。
+- 沙箱镜像**默认自动拉官方预编译镜像**（`ghcr.io/ace-code-engine/hooh-sandbox`，
+  公开、匿名可拉）。这是一个**供应链信任点**：你多信任了 GHCR 与官方构建那条链。
+  想自己掌控就 `ACE_SANDBOX_PULL=0` + `docker build -t ace-sandbox:latest -f docker/Dockerfile.sandbox .`，
+  或用 `--sandbox-image <ref>@sha256:<digest>` 把摘要钉死。本地已有的镜像永远优先，
+  所以自己 build 过的机器不会被动替换成远端那份。
 
 ---
 

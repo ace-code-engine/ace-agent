@@ -213,14 +213,21 @@ MCP 身份中断、发布物改名兼容 —— 属于「带迁移文档的破�
   另有两个改名后的源码包 `hooh-mcp-server-1.0.0.zip` / `hooh-sandbox-bundle-1.0.0.zip`。
   **已知缺口**：macOS 只有 arm64（macos-14 runner 是 Apple Silicon，PyInstaller 不跨编译，
   没有 Intel runner 可用）；`executor` 侧仍有 darwin/amd64。
-- ⚠️ **容器镜像 `hooh-sandbox` 已发布但匿名拉不到**：镜像推上去了
-  （`ghcr.io/ace-code-engine/hooh-sandbox`，3 个 tag），包状态是 **private**，
-  实测**登出后 `docker pull` 返回 `unauthorized`**。组织设置里那个 Packages 开关
-  **不控制这件事** —— 连全新包用 REST API 改 `visibility=public` 也是 404。
-  代码侧的 `OFFICIAL_IMAGE` 已指向新名，但 `ACE_SANDBOX_PULL` 默认仍是关的，
-  所以不会有人撞上"默认去拉但拉不到"。本地镜像名 `ace-sandbox:latest` 按纪律不动
-  （那是用户盘上的名字）。**要真正提供公开镜像，需要 GitHub 侧把包设为 public**；
-  在那之前，容器镜像这条路只对已 `docker login` 的机器或自建 registry 有效。
+- ✅ **容器镜像 `hooh-sandbox` 已公开可匿名拉取**（2026-10-03 收尾）：
+  镜像推到 `ghcr.io/ace-code-engine/hooh-sandbox`（3 个 tag），并在 GitHub 侧
+  **Package settings → Change visibility → Public** 设为公开。实测**登出状态**
+  `docker pull` 成功（`Status: Downloaded`），包页面匿名访问 200。
+  - 中间踩过的坑：**REST API 改 `visibility=public` 一直是 404**（连新建的包也一样），
+    组织设置里的 Packages 总开关也**不控制**这件事 —— 那个开关在
+    `https://github.com/orgs/<org>/packages` 的 landing 页面上根本看不到，
+    要点进**具体包**的 settings 才能改。给链接时注意路径里有 `/package/` 这一段：
+    `.../packages/container/package/<name>`。
+  - 随之后续：`tools/docker_sandbox.py` 的 `auto_pull_enabled()` **默认值翻转成 True**
+    （`ACE_SANDBOX_PULL=0` 关），于是新用户"一条命令拿到沙箱、不用自己 build"。
+    文档同步说明：自动拉是一个**供应链信任点**，要收回手里就用
+    `ACE_SANDBOX_PULL=0` + 自建，或 `--sandbox-image <ref>@sha256:<digest>` 钉摘要。
+  - 本地镜像名 `ace-sandbox:latest` 按纪律不动（那是用户盘上的名字）；
+    拉下来的官方镜像会打上这个名字，所以自己 build 过的机器行为不变。
 
 
 ### 不动的

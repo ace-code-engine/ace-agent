@@ -89,3 +89,109 @@ jobs:
             "dist/ace-mcp-server-${VERSION}.zip" "dist/ace-sandbox-bundle-${VERSION}.zip" \
             --clobber --repo "${{ github.repository }}"
           echo "已把两个包挂到 ${TAG}"
+
+  # Self-contained MCP server: one executable per platform, no Python / pip / venv
+  # on the target machine. This is the answer to "don't make me prepare an
+  # environment" -- the source pack above still needs Python 3.10+.
+  #
+  # Why a matrix instead of one runner: PyInstaller does not cross-compile. Each
+  # artifact must be built on the OS it runs on, or it is a binary that has never
+  # been executed anywhere. The verify step below runs it before it ships.
+  frozen-mcp:
+    name: Frozen MCP server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: windows-amd64
+            exe: dist/hooh-mcp/hooh-mcp.exe
+          - os: ubuntu-latest
+            asset: linux-amd64
+            exe: dist/hooh-mcp/hooh-mcp
+          - os: macos-14
+            asset: macos-arm64
+            exe: dist/hooh-mcp/hooh-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: python -m pip install --quiet pyinstaller requests
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python -c 'from core import version; print(version.__version__)')"
+          fi
+          echo "resolved=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build (PyInstaller, one-dir)
+        shell: bash
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build_mcp packaging/hooh-mcp.spec
+
+      - name: Verify the executable actually serves MCP
+        # The gate that matters: boot -> tools/list -> tools/call -> stdout purity.
+        # A frozen build that lost a hidden import or a data dir fails right here
+        # instead of on a user's machine.
+        shell: bash
+        run: python packaging/verify-mcp-frozen.py "${{ matrix.exe }}"
+
+      - name: Package
+        shell: bash
+        run: |
+          V="${{ steps.version.outputs.resolved }}"
+          OUT="dist/hooh-mcp-$V-${{ matrix.asset }}"
+          mkdir -p "$OUT"
+          cp -r dist/hooh-mcp/. "$OUT"/
+          (cd "$OUT" && python -c "import shutil,sys; shutil.make_archive('../hooh-mcp-$V-${{ matrix.asset }}', 'zip', '.' )")
+          ls -l dist/hooh-mcp-$V-${{ matrix.asset }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-mcp-${{ matrix.asset }}
+          path: dist/hooh-mcp-*-${{ matrix.asset }}.zip
+          if-no-files-found: error
+
+  attach-frozen-mcp:
+    name: Attach the frozen MCP builds to the Release
+    needs: frozen-mcp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: frozen-mcp-*
+          merge-multiple: true
+
+      - name: Attach (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python -c 'from core import version; print(version.__version__)')"
+          fi
+          TAG="v${VERSION}"
+          echo "attaching frozen MCP builds for ${TAG}"
+          ls -l dist
+          gh release upload "${TAG}" dist/hooh-mcp-*.zip --clobber --repo "${{ github.repository }}"

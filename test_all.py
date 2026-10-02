@@ -15258,6 +15258,38 @@ if _want("72"):
     check("[72] 返回的 schema 是深拷贝（改它不动注册表）",
           "__polluted72__" not in _mcp72.mcp_tools(_SPECS72)[0]["inputSchema"]["properties"])
 
+    # —— ①b 冻结入口（packaging/hooh_mcp.py）：自包含 MCP 可执行版的入口 ——
+    # 为什么值得钉：那个 exe 是"目标机器上不装 Python 也能接 MCP"的唯一路径，
+    # 而它的接线**没有第二份实现** —— 全靠这里这点契约活着。
+    # 具体防的是：① merge_config 新增必填属性而入口没补（AttributeError，只在
+    # 发布时才炸）；② 入口和 CLI 的 MCP 语义漂移（stdout 必须让位给协议）。
+    import importlib.util as _ilu72  # noqa: E402
+    _entry72 = Path(__file__).parent / "packaging" / "hooh_mcp.py"
+    check("[72] 冻结入口存在（自包含 MCP 可执行版的入口文件）", _entry72.is_file(), str(_entry72))
+    if _entry72.is_file():
+        _spec72b = _ilu72.spec_from_file_location("_hooh_mcp_entry72", _entry72)
+        _m72b = _ilu72.module_from_spec(_spec72b)
+        try:
+            _spec72b.loader.exec_module(_m72b)      # 只定义，不跑 main()
+            _ok72b = True
+        except Exception as _e72b:                  # noqa: BLE001
+            _ok72b = False
+            check("[72] 冻结入口可导入（不炸在 import 期）", False, repr(_e72b))
+        if _ok72b:
+            check("[72] 冻结入口可导入（不炸在 import 期）", True)
+            # 关键契约：_as_config_args 补出来的名字，必须覆盖 merge_config 直接读的属性
+            _ns72 = _m72b._as_config_args(_m72b._parse([]))
+            _src72 = (Path(__file__).parent / "ai_code.py").read_text(encoding="utf-8")
+            _direct72 = [n for n in ("base_url", "api_key", "model", "permission",
+                                     "project_root")
+                         if ("args." + n) in _src72]
+            _miss72 = [n for n in _direct72 if not hasattr(_ns72, n)]
+            check("[72] 冻结入口补齐了 merge_config 直接读的每个属性",
+                  not _miss72, "缺: %s" % _miss72)
+            check("[72] 冻结入口的默认权限是 readonly（与 CLI 同口径，不是 write）",
+                  _m72b._parse([]).permission is None
+                  and _ns72.tools is False and _ns72.fullscreen is False)
+
     # —— ② 协议层：假引擎（不碰执行层）——
     _calls72: list = []
 
